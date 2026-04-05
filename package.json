@@ -5,7 +5,12 @@
   "main": "index.js",
   "scripts": {
     "dev": "next dev",
+    "dev:web": "next dev",
+    "dev:api": "npm --prefix api run dev",
+    "dev:full": "concurrently \"npm run dev:web\" \"npm run dev:api\"",
     "build": "next build",
+    "build:web": "next build",
+    "build:api": "npm --prefix api run build",
     "start": "next start",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -33,11 +38,13 @@
   },
   "devDependencies": {
     "@prisma/internals": "^7.6.0",
+    "@types/express": "^5.0.3",
     "@types/node": "25.5.0",
     "autoprefixer": "^10.4.27",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.7.0",
+    "concurrently": "^9.2.1",
     "postcss": "^8.5.8",
     "prisma": "^7.6.0",
     "tailwind-merge": "^3.5.0",
