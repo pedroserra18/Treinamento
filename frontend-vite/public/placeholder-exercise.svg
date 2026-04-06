@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="640" y2="360" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1E293B"/>
+      <stop offset="1" stop-color="#0F172A"/>
+    </linearGradient>
+  </defs>
+  <rect width="640" height="360" fill="url(#bg)"/>
+  <g opacity="0.85">
+    <rect x="246" y="112" width="148" height="108" rx="12" fill="#334155"/>
+    <circle cx="296" cy="152" r="16" fill="#64748B"/>
+    <path d="M258 212l42-36 32 24 24-18 40 30H258z" fill="#94A3B8"/>
+  </g>
+  <text x="320" y="280" text-anchor="middle" fill="#CBD5E1" font-family="Arial, sans-serif" font-size="20" font-weight="700">Sem thumbnail</text>
+</svg>

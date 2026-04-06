@@ -19,7 +19,14 @@ export function validateRequest(schema: {
       }
 
       if (schema.query) {
-        req.query = schema.query.parse(req.query) as Request["query"];
+        const parsedQuery = schema.query.parse(req.query) as Record<string, unknown>;
+        const queryTarget = req.query as Record<string, unknown>;
+
+        for (const key of Object.keys(queryTarget)) {
+          delete queryTarget[key];
+        }
+
+        Object.assign(queryTarget, parsedQuery);
       }
 
       next();

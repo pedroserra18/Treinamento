@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 
 import { ListExercisesQuery } from "./exercise.schema";
 import { prisma } from "../../config/prisma";
+import { AppError } from "../../shared/errors/app-error";
 
 type RequestUser = {
   userId?: string;
@@ -67,4 +68,25 @@ export async function listExercises(query: ListExercisesQuery, user: RequestUser
     where: where as Prisma.ExerciseWhereInput,
     orderBy: [{ scope: "asc" }, { name: "asc" }]
   });
+}
+
+export async function getExerciseById(exerciseId: string, user: RequestUser) {
+  const where = {
+    id: exerciseId,
+    isActive: true,
+    ...buildScopeCondition(undefined, user)
+  };
+
+  const exercise = await prisma.exercise.findFirst({
+    where: where as Prisma.ExerciseWhereInput
+  });
+
+  if (!exercise) {
+    throw new AppError("Exercise not found", {
+      statusCode: 404,
+      code: "EXERCISE_NOT_FOUND"
+    });
+  }
+
+  return exercise;
 }

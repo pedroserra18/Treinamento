@@ -19,7 +19,10 @@ Object.assign(process.env, {
   GOOGLE_CLIENT_ID: "test-client-id",
   GOOGLE_CLIENT_SECRET: "test-client-secret",
   GOOGLE_CALLBACK_URL: "http://localhost:4002/api/v1/auth/google/callback",
-  DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/acad_dev?schema=public"
+  DATABASE_URL:
+    process.env.TEST_DATABASE_URL ??
+    process.env.DATABASE_URL ??
+    "postgresql://postgres:postgres@localhost:5432/acad_dev?schema=public"
 });
 
 let app: Express;
@@ -211,4 +214,134 @@ test("dashboard is blocked until onboarding is completed", async () => {
     .set("Authorization", `Bearer ${accessToken}`);
 
   assert.equal(unlocked.status, 200);
+});
+
+test("workout recommendations return 2 plans and are blocked before onboarding", async () => {
+  const email = `recommendation-block-${Date.now()}@example.com`;
+
+  await request(app).post("/api/v1/auth/register").send({
+    name: "Recommendation Block User",
+    email,
+    password: "Password123!"
+  });
+
+  const login = await request(app).post("/api/v1/auth/login").send({
+    email,
+    password: "Password123!"
+  });
+
+  const token = login.body.data.accessToken;
+
+  const blocked = await request(app)
+    .get("/api/v1/recommendations/workout")
+    .set("Authorization", `Bearer ${token}`);
+
+  assert.equal(blocked.status, 403);
+  assert.equal(blocked.body.error.code, "ONBOARDING_REQUIRED");
+
+  await request(app)
+    .post("/api/v1/auth/onboarding/complete")
+    .set("Authorization", `Bearer ${token}`)
+    .send({ sex: "FEMALE", availableDaysPerWeek: 5 })
+    .expect(200);
+
+  const allowed = await request(app)
+    .get("/api/v1/recommendations/workout")
+    .set("Authorization", `Bearer ${token}`);
+
+  assert.equal(allowed.status, 200);
+  assert.equal(allowed.body.data.recommendations.length, 2);
+  assert.equal(allowed.body.data.recommendations[0].division, "Bro Split");
+  assert.equal(allowed.body.data.recommendations[1].division, "Push Pull Legs");
+
+  const firstExercise =
+    allowed.body.data.recommendations[0].sessions[0].exercises[0] as {
+      sets: number;
+      reps: string;
+      rir: number;
+      restSeconds: number;
+      difficultyTier: string;
+    };
+  assert.ok(typeof allowed.body.data.recommendations[0].selectionStrategy === "string");
+  assert.ok(firstExercise.sets >= 3);
+  assert.ok(firstExercise.reps.length > 0);
+  assert.ok(firstExercise.rir >= 1 && firstExercise.rir <= 3);
+  assert.ok(firstExercise.restSeconds >= 60);
+  assert.ok(["BEGINNER", "INTERMEDIATE", "ADVANCED"].includes(firstExercise.difficultyTier));
+});
+
+test("division stays equal for same days while exercises vary by sex", async () => {
+  const maleEmail = `recommendation-male-${Date.now()}@example.com`;
+  const femaleEmail = `recommendation-female-${Date.now()}@example.com`;
+
+  await request(app).post("/api/v1/auth/register").send({
+    name: "Male Recommendation User",
+    email: maleEmail,
+    password: "Password123!"
+  });
+
+  await request(app).post("/api/v1/auth/register").send({
+    name: "Female Recommendation User",
+    email: femaleEmail,
+    password: "Password123!"
+  });
+
+  const maleLogin = await request(app).post("/api/v1/auth/login").send({
+    email: maleEmail,
+    password: "Password123!"
+  });
+
+  const femaleLogin = await request(app).post("/api/v1/auth/login").send({
+    email: femaleEmail,
+    password: "Password123!"
+  });
+
+  const maleToken = maleLogin.body.data.accessToken;
+  const femaleToken = femaleLogin.body.data.accessToken;
+
+  await request(app)
+    .post("/api/v1/auth/onboarding/complete")
+    .set("Authorization", `Bearer ${maleToken}`)
+    .send({ sex: "MALE", availableDaysPerWeek: 5 })
+    .expect(200);
+
+  await request(app)
+    .post("/api/v1/auth/onboarding/complete")
+    .set("Authorization", `Bearer ${femaleToken}`)
+    .send({ sex: "FEMALE", availableDaysPerWeek: 5 })
+    .expect(200);
+
+  const maleRecommendations = await request(app)
+    .get("/api/v1/recommendations/workout")
+    .set("Authorization", `Bearer ${maleToken}`);
+
+  const femaleRecommendations = await request(app)
+    .get("/api/v1/recommendations/workout")
+    .set("Authorization", `Bearer ${femaleToken}`);
+
+  assert.equal(maleRecommendations.status, 200);
+  assert.equal(femaleRecommendations.status, 200);
+
+  const maleDivisions = maleRecommendations.body.data.recommendations.map(
+    (item: { division: string }) => item.division
+  );
+  const femaleDivisions = femaleRecommendations.body.data.recommendations.map(
+    (item: { division: string }) => item.division
+  );
+
+  assert.deepEqual(maleDivisions, femaleDivisions);
+
+  const maleExerciseIds = maleRecommendations.body.data.recommendations
+    .flatMap((recommendation: { sessions: Array<{ exercises: Array<{ id: string }> }> }) =>
+      recommendation.sessions.flatMap((session) => session.exercises.map((exercise) => exercise.id))
+    )
+    .sort();
+
+  const femaleExerciseIds = femaleRecommendations.body.data.recommendations
+    .flatMap((recommendation: { sessions: Array<{ exercises: Array<{ id: string }> }> }) =>
+      recommendation.sessions.flatMap((session) => session.exercises.map((exercise) => exercise.id))
+    )
+    .sort();
+
+  assert.notDeepEqual(maleExerciseIds, femaleExerciseIds);
 });

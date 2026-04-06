@@ -28,4 +28,11 @@ export const listExercisesQuerySchema = z
   })
   .strict();
 
+export const exerciseParamsSchema = z
+  .object({
+    exerciseId: z.string().cuid()
+  })
+  .strict();
+
 export type ListExercisesQuery = z.infer<typeof listExercisesQuerySchema>;
+export type ExerciseParams = z.infer<typeof exerciseParamsSchema>;

@@ -17,7 +17,10 @@ Object.assign(process.env, {
   GOOGLE_CLIENT_ID: "test-client-id",
   GOOGLE_CLIENT_SECRET: "test-client-secret",
   GOOGLE_CALLBACK_URL: "http://localhost:4001/api/v1/auth/google/callback",
-  DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/acad_dev?schema=public"
+  DATABASE_URL:
+    process.env.TEST_DATABASE_URL ??
+    process.env.DATABASE_URL ??
+    "postgresql://postgres:postgres@localhost:5432/acad_dev?schema=public"
 });
 
 let app: Express;
