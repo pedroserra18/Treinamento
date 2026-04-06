@@ -1,0 +1,351 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  COACH
+  ADMIN
+}
+
+enum AccountStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+enum UserSex {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum OnboardingGoal {
+  FAT_LOSS
+  MUSCLE_GAIN
+  ENDURANCE
+  MOBILITY
+  GENERAL_FITNESS
+  REHAB
+}
+
+enum ExperienceLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum ExerciseCategory {
+  STRENGTH
+  CARDIO
+  MOBILITY
+  HIIT
+  RECOVERY
+}
+
+enum ExerciseDifficulty {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum GenderFocus {
+  UNISEX
+  FEMALE
+  MALE
+}
+
+enum ExerciseScope {
+  GLOBAL
+  PRIVATE
+}
+
+enum MuscleGroup {
+  FULL_BODY
+  CHEST
+  BACK
+  SHOULDERS
+  ARMS
+  BICEPS
+  TRICEPS
+  CORE
+  ABDOMEN
+  FOREARM
+  GLUTES
+  LEGS
+  CALVES
+}
+
+enum WorkoutPlanStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum SessionStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+  CANCELED
+}
+
+enum AuthProviderType {
+  EMAIL_PASSWORD
+  GOOGLE
+  APPLE
+  GITHUB
+}
+
+enum EventCategory {
+  AUTH
+  SECURITY
+  ONBOARDING
+  WORKOUT
+  SYSTEM
+}
+
+enum EventSeverity {
+  INFO
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+model User {
+  id                  String          @id @default(cuid())
+  email               String          @unique
+  normalizedEmail     String          @unique
+  name                String?
+  avatarUrl           String?
+  passwordHash        String?
+  sex                 UserSex         @default(OTHER)
+  availableDaysPerWeek Int?
+  onboardingCompletedAt DateTime?
+  role                UserRole        @default(USER)
+  status              AccountStatus   @default(PENDING)
+  emailVerifiedAt     DateTime?
+  mfaEnabled          Boolean         @default(false)
+  failedLoginAttempts Int             @default(0)
+  lastLoginAt         DateTime?
+  passwordChangedAt   DateTime?
+  isDeleted           Boolean         @default(false)
+  deletedAt           DateTime?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  onboardingProfile OnboardingProfile?
+  authProviders     AuthProvider[]
+  workoutPlans      WorkoutPlan[]
+  workoutSessions   WorkoutSession[]
+  workoutHistories  WorkoutHistory[]
+  eventLogs         EventLog[]
+  customExercises   Exercise[]
+
+  @@index([status, isDeleted])
+  @@index([role])
+  @@index([lastLoginAt])
+  @@index([onboardingCompletedAt])
+
+  @@map("users")
+}
+
+model OnboardingProfile {
+  id                  String          @id @default(cuid())
+  userId              String          @unique
+  goal                OnboardingGoal
+  experienceLevel     ExperienceLevel
+  age                 Int?
+  heightCm            Float?
+  weightKg            Float?
+  preferredDaysPerWeek Int?
+  injuries            Json?
+  medicalNotes        String?
+  consentAcceptedAt   DateTime?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([goal, experienceLevel])
+  @@map("onboarding_profiles")
+}
+
+model Exercise {
+  id                   String             @id @default(cuid())
+  slug                 String             @unique
+  name                 String
+  scope                ExerciseScope      @default(GLOBAL)
+  ownerUserId          String?
+  primaryMuscleGroup   MuscleGroup
+  secondaryMuscleGroup MuscleGroup?
+  genderFocus          GenderFocus        @default(UNISEX)
+  equipment            String
+  difficulty           ExerciseDifficulty @default(INTERMEDIATE)
+  thumbnailUrl         String?
+  videoUrl             String?
+  instructions         String?
+  isCompound           Boolean            @default(false)
+  isActive             Boolean            @default(true)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  ownerUser User? @relation(fields: [ownerUserId], references: [id], onDelete: SetNull)
+
+  workoutPlanLinks WorkoutPlanExercise[]
+  workoutHistory   WorkoutHistory[]
+
+  @@index([scope, isActive])
+  @@index([ownerUserId, scope])
+  @@index([primaryMuscleGroup])
+  @@index([secondaryMuscleGroup])
+  @@index([difficulty])
+  @@index([genderFocus])
+  @@index([isActive])
+  @@map("exercises")
+}
+
+model WorkoutPlan {
+  id          String            @id @default(cuid())
+  userId      String
+  name        String
+  description String?
+  status      WorkoutPlanStatus @default(DRAFT)
+  startsAt    DateTime?
+  endsAt      DateTime?
+  isTemplate  Boolean           @default(false)
+  version     Int               @default(1)
+  archivedAt  DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  user     User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions WorkoutSession[]
+  exercises WorkoutPlanExercise[]
+
+  @@index([userId, status])
+  @@index([startsAt, endsAt])
+  @@map("workout_plans")
+}
+
+model WorkoutPlanExercise {
+  id            String   @id @default(cuid())
+  workoutPlanId String
+  exerciseId    String
+  orderIndex    Int
+  sets          Int?
+  repsMin       Int?
+  repsMax       Int?
+  durationSec   Int?
+  restSec       Int?
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  workoutPlan WorkoutPlan @relation(fields: [workoutPlanId], references: [id], onDelete: Cascade)
+  exercise    Exercise    @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
+
+  @@unique([workoutPlanId, orderIndex])
+  @@index([exerciseId])
+  @@map("workout_plan_exercises")
+}
+
+model WorkoutSession {
+  id             String        @id @default(cuid())
+  userId         String
+  workoutPlanId  String?
+  status         SessionStatus @default(SCHEDULED)
+  scheduledAt    DateTime
+  startedAt      DateTime?
+  endedAt        DateTime?
+  durationSec    Int?
+  caloriesBurned Int?
+  notes          String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workoutPlan WorkoutPlan?   @relation(fields: [workoutPlanId], references: [id], onDelete: SetNull)
+  history     WorkoutHistory[]
+
+  @@index([userId, scheduledAt])
+  @@index([workoutPlanId, status])
+  @@index([status, startedAt])
+  @@map("workout_sessions")
+}
+
+model WorkoutHistory {
+  id              String   @id @default(cuid())
+  userId          String
+  workoutSessionId String
+  exerciseId      String
+  setNumber       Int
+  reps            Int?
+  weightKg        Float?
+  durationSec     Int?
+  distanceMeters  Float?
+  perceivedExertion Int?
+  notes           String?
+  completedAt     DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workoutSession WorkoutSession @relation(fields: [workoutSessionId], references: [id], onDelete: Cascade)
+  exercise      Exercise       @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
+
+  @@index([userId, completedAt])
+  @@index([exerciseId, completedAt])
+  @@index([workoutSessionId, setNumber])
+  @@map("workout_history")
+}
+
+model AuthProvider {
+  id               String           @id @default(cuid())
+  userId           String
+  provider         AuthProviderType
+  providerUserId   String
+  accessTokenHash  String?
+  refreshTokenHash String?
+  tokenExpiresAt   DateTime?
+  lastUsedAt       DateTime?
+  revokedAt        DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
+  @@unique([userId, provider])
+  @@index([userId, revokedAt])
+  @@map("auth_providers")
+}
+
+model EventLog {
+  id           String        @id @default(cuid())
+  userId       String?
+  category     EventCategory
+  severity     EventSeverity @default(INFO)
+  action       String
+  resourceType String?
+  resourceId   String?
+  requestId    String?
+  ipAddress    String?
+  userAgent    String?
+  message      String?
+  metadata     Json?
+  occurredAt   DateTime      @default(now())
+  createdAt    DateTime      @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, occurredAt])
+  @@index([category, severity, occurredAt])
+  @@index([requestId])
+  @@map("event_logs")
+}

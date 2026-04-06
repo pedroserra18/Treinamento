@@ -7,19 +7,34 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "test:security": "node --import tsx --test tests/security.integration.test.ts",
+    "test:auth": "node --import tsx --test tests/auth.integration.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src --ext .ts --max-warnings=0",
+    "prisma:generate": "prisma generate",
+    "prisma:validate": "prisma validate",
+    "prisma:push": "prisma db push --accept-data-loss",
+    "prisma:migrate:dev": "prisma migrate dev",
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:studio": "prisma studio",
+    "prisma:seed": "prisma db seed",
+    "prisma:reset": "prisma migrate reset --skip-seed=false"
   },
   "dependencies": {
+    "@prisma/client": "^6.19.3",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
     "express": "^5.1.0",
     "express-rate-limit": "^8.1.0",
+    "express-xss-sanitizer": "^2.0.1",
+    "google-auth-library": "^10.6.2",
     "helmet": "^8.1.0",
     "hpp": "^0.2.3",
+    "ioredis": "^5.10.1",
     "jsonwebtoken": "^9.0.2",
+    "rate-limit-redis": "^4.3.1",
     "winston": "^3.18.3",
-    "express-xss-sanitizer": "^2.0.1",
     "zod": "^4.1.12"
   },
   "devDependencies": {
@@ -27,7 +42,13 @@
     "@types/express": "^5.0.3",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.7.2",
+    "@types/supertest": "^7.2.0",
+    "prisma": "^6.19.3",
+    "supertest": "^7.2.2",
     "tsx": "^4.20.6",
-    "typescript": "^5.9.3"
+    "typescript": "^6.0.2"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   }
 }

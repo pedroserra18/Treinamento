@@ -35,7 +35,6 @@ export const Radio = React.forwardRef<HTMLInputElement, RadioProps>(
             id={id}
             type="radio"
             disabled={disabled}
-            aria-invalid={!!error}
             aria-label={label}
             aria-describedby={error ? `${id}-error` : undefined}
             className={`
@@ -117,7 +116,6 @@ export const RadioGroup = React.forwardRef<HTMLDivElement, RadioGroupProps>(
                 checked={value === option.value}
                 onChange={(e) => onChange?.(e.target.value)}
                 disabled={disabled || option.disabled}
-                aria-invalid={!!error}
                 id={`${name}-${option.value}`}
                 className={`
                   mt-1

@@ -93,7 +93,7 @@ export default function AdvancedFormExample() {
     validate: validateAdvancedForm,
     onSubmit: async (values) => {
       // Simular requisição
-      console.log('📤 Enviando dados:', values)
+      console.warn('📤 Enviando dados:', values)
       await new Promise((resolve) => setTimeout(resolve, 1000))
       alert('✅ Usuário criado com sucesso!')
       form.handleReset()

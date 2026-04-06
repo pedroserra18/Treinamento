@@ -138,7 +138,7 @@ export default function FormExample() {
 
     if (Object.keys(newErrors).length === 0) {
       setSubmitted(true)
-      console.log('✅ Form submitted:', formValues)
+      console.warn('✅ Form submitted:', formValues)
       // Simular envio
       setIsDisabled(true)
       setTimeout(() => {
@@ -148,7 +148,7 @@ export default function FormExample() {
       }, 1500)
     } else {
       setErrors(newErrors)
-      console.log('❌ Validation errors:', newErrors)
+      console.warn('❌ Validation errors:', newErrors)
     }
   }
 

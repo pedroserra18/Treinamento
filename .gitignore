@@ -1,7 +1,14 @@
 node_modules/
-.env
-.env.local
-.env.*.local
+
+# Environment files (any folder)
+**/.env
+**/.env.local
+**/.env.*.local
+**/.env.*
+
+# Keep templates committed
+!**/.env.example
+
 .next/
 out/
 build/
@@ -12,4 +19,3 @@ dist/
 .vscode/
 *.swp
 *.swo
-node_modules
