@@ -8,6 +8,7 @@ import {
   RefreshBody,
   RegisterBody
 } from "./auth.schema";
+import { RegisterRequestCodeBody, RegisterVerifyCodeBody } from "./auth.schema";
 import {
   completeOnboarding,
   getAuthenticatedProfile,
@@ -17,6 +18,7 @@ import {
   refreshSession,
   registerWithEmail
 } from "./auth.service";
+import { requestRegisterEmailCode, verifyRegisterEmailCode } from "./registration-verification.service";
 import {
   buildGoogleAuthorizationUrl,
   linkGoogleToAuthenticatedUser,
@@ -29,6 +31,47 @@ import { AppError } from "../../shared/errors/app-error";
 export async function registerController(req: Request, res: Response): Promise<void> {
   const body = req.body as RegisterBody;
   const result = await registerWithEmail(body);
+
+  res.status(201).json({
+    data: {
+      token: result.tokens.token,
+      accessToken: result.tokens.accessToken,
+      refreshToken: result.tokens.refreshToken,
+      user: result.user
+    },
+    meta: {
+      requestId: req.context.requestId
+    }
+  });
+}
+
+export async function registerRequestCodeController(req: Request, res: Response): Promise<void> {
+  const body = req.body as RegisterRequestCodeBody;
+
+  const result = await requestRegisterEmailCode(body.email);
+
+  res.status(200).json({
+    data: {
+      success: true,
+      message: "Verification code sent",
+      delivery: result.delivery
+    },
+    meta: {
+      requestId: req.context.requestId
+    }
+  });
+}
+
+export async function registerVerifyCodeController(req: Request, res: Response): Promise<void> {
+  const body = req.body as RegisterVerifyCodeBody;
+
+  await verifyRegisterEmailCode(body.email, body.verificationCode);
+
+  const result = await registerWithEmail({
+    name: body.name,
+    email: body.email,
+    password: body.password
+  });
 
   res.status(201).json({
     data: {

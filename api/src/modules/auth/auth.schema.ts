@@ -8,6 +8,21 @@ export const registerBodySchema = z
   })
   .strict();
 
+export const registerRequestCodeBodySchema = z
+  .object({
+    email: z.string().trim().toLowerCase().email()
+  })
+  .strict();
+
+export const registerVerifyCodeBodySchema = z
+  .object({
+    name: z.string().trim().min(2).max(120),
+    email: z.string().trim().toLowerCase().email(),
+    password: z.string().min(8).max(128),
+    verificationCode: z.string().trim().regex(/^\d{6}$/)
+  })
+  .strict();
+
 export const loginBodySchema = z
   .object({
     email: z.string().trim().toLowerCase().email(),
@@ -43,6 +58,8 @@ export const onboardingCompleteBodySchema = z
   .strict();
 
 export type RegisterBody = z.infer<typeof registerBodySchema>;
+export type RegisterRequestCodeBody = z.infer<typeof registerRequestCodeBodySchema>;
+export type RegisterVerifyCodeBody = z.infer<typeof registerVerifyCodeBodySchema>;
 export type LoginBody = z.infer<typeof loginBodySchema>;
 export type RefreshBody = z.infer<typeof refreshBodySchema>;
 export type GoogleCallbackQuery = z.infer<typeof googleCallbackQuerySchema>;

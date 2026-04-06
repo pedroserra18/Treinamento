@@ -13,7 +13,7 @@ export function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  const fallbackPath = '/exercises'
+  const fallbackPath = '/dashboard'
   const redirectTo = (location.state as { from?: string } | undefined)?.from ?? fallbackPath
 
   const handleSubmit = async (event: FormEvent) => {

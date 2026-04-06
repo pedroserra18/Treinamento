@@ -1,7 +1,35 @@
 import dotenv from "dotenv";
+import path from "node:path";
 import { z } from "zod";
 
-dotenv.config();
+dotenv.config({
+  path: path.resolve(__dirname, "../../.env"),
+  override: true
+});
+
+const emptyToUndefined = (value: unknown) => {
+  if (typeof value === "string" && value.trim() === "") {
+    return undefined;
+  }
+
+  return value;
+};
+
+const booleanFromEnv = (value: unknown) => {
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+
+    if (normalized === "true") {
+      return true;
+    }
+
+    if (normalized === "false") {
+      return false;
+    }
+  }
+
+  return value;
+};
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -13,7 +41,7 @@ const envSchema = z.object({
   GLOBAL_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
   LOGIN_BRUTE_FORCE_MAX: z.coerce.number().int().positive().default(5),
   LOGIN_BRUTE_FORCE_WINDOW_MIN: z.coerce.number().int().positive().default(15),
-  LOGIN_PROGRESSIVE_BASE_MIN: z.coerce.number().int().positive().default(5),
+  LOGIN_PROGRESSIVE_BASE_MIN: z.coerce.number().int().positive().default(3),
   LOGIN_PROGRESSIVE_MAX_MIN: z.coerce.number().int().positive().default(60),
   OAUTH_STATE_TTL_MIN: z.coerce.number().int().positive().default(10),
 
@@ -32,6 +60,14 @@ const envSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().min(1, "GOOGLE_CLIENT_ID is required"),
   GOOGLE_CLIENT_SECRET: z.string().min(1, "GOOGLE_CLIENT_SECRET is required"),
   GOOGLE_CALLBACK_URL: z.string().url(),
+
+  SMTP_HOST: z.preprocess(emptyToUndefined, z.string().optional()),
+  SMTP_PORT: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().optional()),
+  SMTP_SECURE: z.preprocess(booleanFromEnv, z.boolean()).default(false),
+  SMTP_USER: z.preprocess(emptyToUndefined, z.string().optional()),
+  SMTP_PASS: z.preprocess(emptyToUndefined, z.string().optional()),
+  SMTP_FROM: z.preprocess(emptyToUndefined, z.string().email().optional()),
+  EMAIL_VERIFICATION_TTL_MIN: z.coerce.number().int().positive().default(10),
 
   LOG_LEVEL: z.enum(["error", "warn", "info", "http", "debug", "silent"]).default("info"),
   SENTRY_DSN: z.string().optional(),
@@ -73,6 +109,14 @@ export const env = {
   googleClientId: parsedEnv.data.GOOGLE_CLIENT_ID,
   googleClientSecret: parsedEnv.data.GOOGLE_CLIENT_SECRET,
   googleCallbackUrl: parsedEnv.data.GOOGLE_CALLBACK_URL,
+
+  smtpHost: parsedEnv.data.SMTP_HOST,
+  smtpPort: parsedEnv.data.SMTP_PORT,
+  smtpSecure: parsedEnv.data.SMTP_SECURE,
+  smtpUser: parsedEnv.data.SMTP_USER,
+  smtpPass: parsedEnv.data.SMTP_PASS,
+  smtpFrom: parsedEnv.data.SMTP_FROM,
+  emailVerificationTtlMin: parsedEnv.data.EMAIL_VERIFICATION_TTL_MIN,
 
   logLevel: parsedEnv.data.LOG_LEVEL,
   sentryDsn: parsedEnv.data.SENTRY_DSN,

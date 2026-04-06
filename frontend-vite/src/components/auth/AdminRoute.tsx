@@ -17,5 +17,9 @@ export function AdminRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/profile" replace />
   }
 
+  if (!user.onboardingCompleted) {
+    return <Navigate to="/onboarding" replace />
+  }
+
   return <>{children}</>
 }

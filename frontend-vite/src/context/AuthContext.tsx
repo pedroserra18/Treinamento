@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 
 import {
+  completeOnboardingProfile,
   getGoogleAuthorizationUrl,
   getProfile,
   loginWithEmail,
   loginWithGoogleCode,
   refreshAuthToken,
-  registerWithEmail,
+  registerWithVerificationCode,
+  requestRegisterVerificationCode,
   secureLogout,
 } from '../services/authService'
 import type { AuthTokens, AuthUser } from '../types/auth'
@@ -81,8 +83,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     persistAuth(session.user, session.tokens)
   }
 
+  const requestSignUpVerificationCode: AuthState['requestSignUpVerificationCode'] = async (
+    input,
+  ) => {
+    return requestRegisterVerificationCode(input)
+  }
+
   const signUp: AuthState['signUp'] = async (input) => {
-    const session = await registerWithEmail(input)
+    const session = await registerWithVerificationCode(input)
     setUser(session.user)
     setTokens(session.tokens)
     persistAuth(session.user, session.tokens)
@@ -113,6 +121,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch {
         // Ignore network errors on logout. Local token invalidation already happened.
       }
+    }
+  }
+
+  const completeOnboarding: AuthState['completeOnboarding'] = async (input) => {
+    const profile = await completeOnboardingProfile(authorizedFetch, input)
+
+    setUser(profile)
+    if (tokens) {
+      persistAuth(profile, tokens)
     }
   }
 
@@ -161,9 +178,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     ready,
     isAuthenticated: Boolean(user && tokens),
     signIn,
+    requestSignUpVerificationCode,
     signUp,
     startGoogleSignIn,
     completeGoogleSignIn,
+    completeOnboarding,
     logout,
     authorizedFetch,
   }

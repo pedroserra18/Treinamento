@@ -48,6 +48,63 @@ export async function registerWithEmail(input: {
   }
 }
 
+export async function requestRegisterVerificationCode(input: {
+  email: string
+}): Promise<{ delivery: 'EMAIL' }> {
+  const response = await fetch(`${API_URL}/auth/register/request-code`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+
+  const payload = (await response.json()) as {
+    data?: { delivery?: 'EMAIL' }
+    error?: { message?: string }
+  }
+
+  if (!response.ok) {
+    throw new Error(payload.error?.message ?? 'Falha ao enviar codigo de verificacao')
+  }
+
+  return {
+    delivery: payload.data?.delivery ?? 'EMAIL',
+  }
+}
+
+export async function registerWithVerificationCode(input: {
+  name: string
+  email: string
+  password: string
+  verificationCode: string
+}): Promise<AuthSession> {
+  const response = await fetch(`${API_URL}/auth/register/verify-code`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+
+  const payload = (await response.json()) as {
+    data?: {
+      accessToken?: string
+      refreshToken?: string
+      user?: Record<string, unknown>
+    }
+    error?: { message?: string }
+  }
+
+  if (!response.ok || !payload.data?.accessToken || !payload.data?.refreshToken || !payload.data.user) {
+    throw new Error(payload.error?.message ?? 'Falha ao validar codigo de verificacao')
+  }
+
+  return {
+    user: asAuthUser(payload.data.user),
+    tokens: {
+      accessToken: payload.data.accessToken,
+      refreshToken: payload.data.refreshToken,
+    },
+  }
+}
+
 export async function loginWithEmail(input: {
   email: string
   password: string
@@ -168,4 +225,29 @@ export async function loginWithGoogleCode(code: string, state: string): Promise<
       refreshToken: payload.data.refreshToken,
     },
   }
+}
+
+export async function completeOnboardingProfile(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  input: {
+    sex: 'MALE' | 'FEMALE' | 'OTHER'
+    availableDaysPerWeek: number
+  },
+): Promise<AuthUser> {
+  const response = await authorizedFetch(`${API_URL}/auth/onboarding/complete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+
+  const payload = (await response.json()) as {
+    data?: { user?: Record<string, unknown> }
+    error?: { message?: string }
+  }
+
+  if (!response.ok || !payload.data?.user) {
+    throw new Error(payload.error?.message ?? 'Falha ao concluir onboarding')
+  }
+
+  return asAuthUser(payload.data.user)
 }

@@ -19,7 +19,7 @@ export function GoogleCallbackPage() {
 
     void completeGoogleSignIn(code, state)
       .then(() => {
-        navigate('/exercises', { replace: true })
+        navigate('/dashboard', { replace: true })
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : 'Falha no login com Google')

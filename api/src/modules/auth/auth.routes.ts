@@ -10,6 +10,8 @@ import {
   onboardingCompleteController,
   onboardingStatusController,
   profileController,
+  registerRequestCodeController,
+  registerVerifyCodeController,
   refreshController,
   registerController
 } from "./auth.controller";
@@ -19,6 +21,8 @@ import {
   loginBodySchema,
   onboardingCompleteBodySchema,
   refreshBodySchema,
+  registerRequestCodeBodySchema,
+  registerVerifyCodeBodySchema,
   registerBodySchema
 } from "./auth.schema";
 import { requireAuth } from "../../middlewares/auth.middleware";
@@ -31,6 +35,18 @@ router.post(
   "/auth/register",
   validateRequest({ body: registerBodySchema }),
   asyncHandler(async (req, res) => registerController(req, res))
+);
+
+router.post(
+  "/auth/register/request-code",
+  validateRequest({ body: registerRequestCodeBodySchema }),
+  asyncHandler(async (req, res) => registerRequestCodeController(req, res))
+);
+
+router.post(
+  "/auth/register/verify-code",
+  validateRequest({ body: registerVerifyCodeBodySchema }),
+  asyncHandler(async (req, res) => registerVerifyCodeController(req, res))
 );
 
 router.get("/auth/google/start", asyncHandler(async (req, res) => googleStartController(req, res)));
