@@ -1,4 +1,4 @@
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
 import { env } from "../../config/env";
 import { logger } from "../../config/logger";
@@ -11,15 +11,15 @@ type SendEmailInput = {
   html?: string;
 };
 
-let transporter: nodemailer.Transporter | null = null;
+let resendClient: Resend | null = null;
 
 export function isEmailServiceConfigured(): boolean {
-  return Boolean(env.smtpHost && env.smtpPort && env.smtpUser && env.smtpPass && env.smtpFrom);
+  return Boolean(env.resendApiKey && env.resendFromEmail);
 }
 
-function getTransporter(): nodemailer.Transporter {
-  if (transporter) {
-    return transporter;
+function getResendClient(): Resend {
+  if (resendClient) {
+    return resendClient;
   }
 
   if (!isEmailServiceConfigured()) {
@@ -29,29 +29,28 @@ function getTransporter(): nodemailer.Transporter {
     });
   }
 
-  transporter = nodemailer.createTransport({
-    host: env.smtpHost,
-    port: env.smtpPort,
-    secure: env.smtpSecure,
-    auth: {
-      user: env.smtpUser,
-      pass: env.smtpPass
-    }
-  });
+  resendClient = new Resend(env.resendApiKey);
 
-  return transporter;
+  return resendClient;
 }
 
 export async function sendEmail(input: SendEmailInput): Promise<void> {
-  const mailTransporter = getTransporter();
+  const resend = getResendClient();
 
-  await mailTransporter.sendMail({
-    from: env.smtpFrom,
-    to: input.to,
+  const { error } = await resend.emails.send({
+    from: env.resendFromEmail as string,
+    to: [input.to],
     subject: input.subject,
     text: input.text,
     html: input.html
   });
+
+  if (error) {
+    throw new AppError(`Resend delivery failed: ${error.message}`, {
+      statusCode: 502,
+      code: "EMAIL_DELIVERY_FAILED"
+    });
+  }
 
   logger.info("email_sent", {
     to: input.to,

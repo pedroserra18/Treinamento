@@ -1,6 +1,8 @@
 import { Request, Response } from "express";
 
 import {
+  ForgotPasswordConfirmBody,
+  ForgotPasswordRequestCodeBody,
   GoogleCallbackQuery,
   GoogleLinkBody,
   LoginBody,
@@ -18,6 +20,10 @@ import {
   refreshSession,
   registerWithEmail
 } from "./auth.service";
+import {
+  confirmForgotPasswordWithCode,
+  requestForgotPasswordCode
+} from "./password-recovery.service";
 import { requestRegisterEmailCode, verifyRegisterEmailCode } from "./registration-verification.service";
 import {
   buildGoogleAuthorizationUrl,
@@ -79,6 +85,38 @@ export async function registerVerifyCodeController(req: Request, res: Response):
       accessToken: result.tokens.accessToken,
       refreshToken: result.tokens.refreshToken,
       user: result.user
+    },
+    meta: {
+      requestId: req.context.requestId
+    }
+  });
+}
+
+export async function forgotPasswordRequestCodeController(req: Request, res: Response): Promise<void> {
+  const body = req.body as ForgotPasswordRequestCodeBody;
+
+  await requestForgotPasswordCode(body.email);
+
+  res.status(200).json({
+    data: {
+      success: true,
+      message: "If the email exists, a recovery code has been sent"
+    },
+    meta: {
+      requestId: req.context.requestId
+    }
+  });
+}
+
+export async function forgotPasswordConfirmController(req: Request, res: Response): Promise<void> {
+  const body = req.body as ForgotPasswordConfirmBody;
+
+  await confirmForgotPasswordWithCode(body.email, body.verificationCode, body.newPassword);
+
+  res.status(200).json({
+    data: {
+      success: true,
+      message: "Password reset completed"
     },
     meta: {
       requestId: req.context.requestId

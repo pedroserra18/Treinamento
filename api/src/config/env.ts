@@ -15,22 +15,6 @@ const emptyToUndefined = (value: unknown) => {
   return value;
 };
 
-const booleanFromEnv = (value: unknown) => {
-  if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase();
-
-    if (normalized === "true") {
-      return true;
-    }
-
-    if (normalized === "false") {
-      return false;
-    }
-  }
-
-  return value;
-};
-
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   API_PORT: z.coerce.number().int().positive().default(4000),
@@ -61,12 +45,8 @@ const envSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().min(1, "GOOGLE_CLIENT_SECRET is required"),
   GOOGLE_CALLBACK_URL: z.string().url(),
 
-  SMTP_HOST: z.preprocess(emptyToUndefined, z.string().optional()),
-  SMTP_PORT: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().optional()),
-  SMTP_SECURE: z.preprocess(booleanFromEnv, z.boolean()).default(false),
-  SMTP_USER: z.preprocess(emptyToUndefined, z.string().optional()),
-  SMTP_PASS: z.preprocess(emptyToUndefined, z.string().optional()),
-  SMTP_FROM: z.preprocess(emptyToUndefined, z.string().email().optional()),
+  RESEND_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  RESEND_FROM_EMAIL: z.preprocess(emptyToUndefined, z.string().email().optional()),
   EMAIL_VERIFICATION_TTL_MIN: z.coerce.number().int().positive().default(10),
 
   LOG_LEVEL: z.enum(["error", "warn", "info", "http", "debug", "silent"]).default("info"),
@@ -110,12 +90,8 @@ export const env = {
   googleClientSecret: parsedEnv.data.GOOGLE_CLIENT_SECRET,
   googleCallbackUrl: parsedEnv.data.GOOGLE_CALLBACK_URL,
 
-  smtpHost: parsedEnv.data.SMTP_HOST,
-  smtpPort: parsedEnv.data.SMTP_PORT,
-  smtpSecure: parsedEnv.data.SMTP_SECURE,
-  smtpUser: parsedEnv.data.SMTP_USER,
-  smtpPass: parsedEnv.data.SMTP_PASS,
-  smtpFrom: parsedEnv.data.SMTP_FROM,
+  resendApiKey: parsedEnv.data.RESEND_API_KEY,
+  resendFromEmail: parsedEnv.data.RESEND_FROM_EMAIL,
   emailVerificationTtlMin: parsedEnv.data.EMAIL_VERIFICATION_TTL_MIN,
 
   logLevel: parsedEnv.data.LOG_LEVEL,

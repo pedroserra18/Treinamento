@@ -2,6 +2,41 @@ import type { AuthSession, AuthTokens, AuthUser } from '../types/auth'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1'
 
+type ApiErrorPayload = {
+  message?: string
+  details?: {
+    formErrors?: string[]
+    fieldErrors?: Record<string, string[]>
+  }
+}
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase()
+}
+
+function extractApiErrorMessage(payload: { error?: ApiErrorPayload } | null | undefined): string | null {
+  const directMessage = payload?.error?.message
+  if (directMessage) {
+    return directMessage
+  }
+
+  const formError = payload?.error?.details?.formErrors?.[0]
+  if (formError) {
+    return formError
+  }
+
+  const fieldErrors = payload?.error?.details?.fieldErrors
+  if (fieldErrors) {
+    const firstField = Object.keys(fieldErrors)[0]
+    const firstFieldMessage = firstField ? fieldErrors[firstField]?.[0] : null
+    if (firstFieldMessage) {
+      return firstFieldMessage
+    }
+  }
+
+  return null
+}
+
 function asAuthUser(value: Record<string, unknown>): AuthUser {
   return {
     id: String(value.id ?? ''),
@@ -54,7 +89,7 @@ export async function requestRegisterVerificationCode(input: {
   const response = await fetch(`${API_URL}/auth/register/request-code`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
+    body: JSON.stringify({ email: normalizeEmail(input.email) }),
   })
 
   const payload = (await response.json()) as {
@@ -63,7 +98,7 @@ export async function requestRegisterVerificationCode(input: {
   }
 
   if (!response.ok) {
-    throw new Error(payload.error?.message ?? 'Falha ao enviar codigo de verificacao')
+    throw new Error(extractApiErrorMessage(payload) ?? 'Falha ao enviar codigo de verificacao')
   }
 
   return {
@@ -80,7 +115,10 @@ export async function registerWithVerificationCode(input: {
   const response = await fetch(`${API_URL}/auth/register/verify-code`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
+    body: JSON.stringify({
+      ...input,
+      email: normalizeEmail(input.email),
+    }),
   })
 
   const payload = (await response.json()) as {
@@ -93,7 +131,7 @@ export async function registerWithVerificationCode(input: {
   }
 
   if (!response.ok || !payload.data?.accessToken || !payload.data?.refreshToken || !payload.data.user) {
-    throw new Error(payload.error?.message ?? 'Falha ao validar codigo de verificacao')
+    throw new Error(extractApiErrorMessage(payload) ?? 'Falha ao validar codigo de verificacao')
   }
 
   return {
@@ -105,6 +143,45 @@ export async function registerWithVerificationCode(input: {
   }
 }
 
+export async function requestForgotPasswordCode(input: { email: string }): Promise<void> {
+  const response = await fetch(`${API_URL}/auth/forgot-password/request-code`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: normalizeEmail(input.email) }),
+  })
+
+  const payload = (await response.json()) as {
+    error?: { message?: string }
+  }
+
+  if (!response.ok) {
+    throw new Error(extractApiErrorMessage(payload) ?? 'Falha ao solicitar codigo de recuperacao')
+  }
+}
+
+export async function confirmForgotPasswordWithCode(input: {
+  email: string
+  verificationCode: string
+  newPassword: string
+}): Promise<void> {
+  const response = await fetch(`${API_URL}/auth/forgot-password/confirm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ...input,
+      email: normalizeEmail(input.email),
+    }),
+  })
+
+  const payload = (await response.json()) as {
+    error?: { message?: string }
+  }
+
+  if (!response.ok) {
+    throw new Error(extractApiErrorMessage(payload) ?? 'Falha ao redefinir senha')
+  }
+}
+
 export async function loginWithEmail(input: {
   email: string
   password: string
@@ -112,7 +189,10 @@ export async function loginWithEmail(input: {
   const response = await fetch(`${API_URL}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
+    body: JSON.stringify({
+      ...input,
+      email: normalizeEmail(input.email),
+    }),
   })
 
   const payload = (await response.json()) as {
@@ -125,7 +205,7 @@ export async function loginWithEmail(input: {
   }
 
   if (!response.ok || !payload.data?.accessToken || !payload.data?.refreshToken || !payload.data.user) {
-    throw new Error(payload.error?.message ?? 'Falha ao autenticar')
+    throw new Error(extractApiErrorMessage(payload) ?? 'Falha ao autenticar')
   }
 
   return {

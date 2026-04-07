@@ -107,8 +107,13 @@ export async function requestRegisterEmailCode(email: string): Promise<RequestRe
       text: `Seu codigo de verificacao e ${code}. Valido por ${env.emailVerificationTtlMin} minutos.`,
       html: `<p>Seu codigo de verificacao e <strong>${code}</strong>.</p><p>Valido por ${env.emailVerificationTtlMin} minutos.</p>`
     });
-  } catch {
-    throw new AppError("Failed to deliver verification email. Check SMTP credentials and sender.", {
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Failed to deliver verification email. Check Resend API key and sender.";
+
+    throw new AppError(message, {
       statusCode: 502,
       code: "EMAIL_DELIVERY_FAILED"
     });

@@ -1,11 +1,23 @@
 import { Prisma } from "@prisma/client";
 
 import {
+  AddPlanExerciseBody,
+  CreateManualHistoryBody,
+  CreateWorkoutPlanBody,
   CompleteWorkoutBody,
   CompleteWorkoutParams,
   ExploreWorkoutsQuery,
+  HistorySessionParams,
   ListWorkoutHistoryQuery,
+  PlanExerciseParams,
+  RecommendationTemplateQuery,
+  ReorderPlanExercisesBody,
+  SearchExercisesQuery,
   StartWorkoutBody
+  ,
+  UpdatePlanExerciseBody,
+  UpdateWorkoutDurationBody,
+  WorkoutPlanParams
 } from "./workout.schema";
 import { prisma } from "../../config/prisma";
 import { AppError } from "../../shared/errors/app-error";
@@ -28,6 +40,119 @@ type EventContext = {
   userAgent?: string;
 };
 
+type TemplateOption = {
+  key: string;
+  title: string;
+  structure: string[];
+};
+
+const TEMPLATE_RECOMMENDATIONS: Record<string, { male: TemplateOption[]; female: TemplateOption[] }> = {
+  "1-3": {
+    male: [
+      { key: "FB", title: "Full Body", structure: ["FB", "FB", "FB"] }
+    ],
+    female: [
+      { key: "FB", title: "Full Body", structure: ["FB", "FB", "FB"] }
+    ]
+  },
+  "4": {
+    male: [
+      { key: "UL2X", title: "Upper/Lower 2x", structure: ["Upper", "Lower", "Upper", "Lower"] },
+      {
+        key: "TL2X",
+        title: "Torso/Limbs 2x",
+        structure: ["Torso", "Limbs", "Torso", "Limbs"]
+      }
+    ],
+    female: [
+      { key: "UL2X", title: "Upper/Lower 2x", structure: ["Upper", "Lower", "Upper", "Lower"] },
+      {
+        key: "TL2X",
+        title: "Torso/Limbs 2x",
+        structure: ["Torso", "Limbs", "Torso", "Limbs"]
+      }
+    ]
+  },
+  "5": {
+    male: [
+      {
+        key: "PPL_UL",
+        title: "PPL/UL",
+        structure: ["Push", "Pull", "Legs", "Upper", "Lower"]
+      },
+      {
+        key: "UL_UL_U",
+        title: "UL/UL/U",
+        structure: ["Upper", "Lower", "Upper", "Lower", "Upper"]
+      }
+    ],
+    female: [
+      {
+        key: "PPL_UL",
+        title: "PPL/UL",
+        structure: ["Push", "Pull", "Legs", "Upper", "Lower"]
+      },
+      {
+        key: "LU_LU_L",
+        title: "LU/LU/L",
+        structure: ["Lower", "Upper", "Lower", "Upper", "Lower"]
+      }
+    ]
+  },
+  "6": {
+    male: [
+      {
+        key: "PPL_PPL",
+        title: "PPL/PPL",
+        structure: ["Push", "Pull", "Legs", "Push", "Pull", "Legs"]
+      },
+      {
+        key: "UL_UL_UL",
+        title: "UL/UL/UL",
+        structure: ["Upper", "Lower", "Upper", "Lower", "Upper", "Lower"]
+      }
+    ],
+    female: [
+      {
+        key: "PPL_PPL",
+        title: "PPL/PPL",
+        structure: ["Push", "Pull", "Legs", "Push", "Pull", "Legs"]
+      },
+      {
+        key: "UL_UL_UL",
+        title: "UL/UL/UL",
+        structure: ["Upper", "Lower", "Upper", "Lower", "Upper", "Lower"]
+      }
+    ]
+  },
+  "7": {
+    male: [
+      {
+        key: "BRO_UL",
+        title: "Bro Split/UL",
+        structure: ["Chest", "Back", "Legs", "Shoulders", "Arms", "Upper", "Lower"]
+      },
+      {
+        key: "BRO_TL",
+        title: "Bro Split/Torso Limbs",
+        structure: ["Chest", "Back", "Legs", "Shoulders", "Arms", "Torso", "Limbs"]
+      }
+    ],
+    female: [
+      {
+        key: "BRO_UL",
+        title: "Bro Split/UL",
+        structure: ["Chest", "Back", "Legs", "Shoulders", "Arms", "Upper", "Lower"]
+      },
+      {
+        key: "BRO_TL",
+        title: "Bro Split/Torso Limbs",
+        structure: ["Chest", "Back", "Legs", "Shoulders", "Arms", "Torso", "Limbs"]
+      }
+    ]
+  }
+};
+
 async function assertOwnedPlan(planId: string, userId: string): Promise<void> {
   const plan = await prisma.workoutPlan.findFirst({
     where: {
@@ -46,6 +171,401 @@ async function assertOwnedPlan(planId: string, userId: string): Promise<void> {
       code: "WORKOUT_PLAN_NOT_FOUND"
     });
   }
+}
+
+async function assertExerciseAvailableToUser(exerciseId: string, userId: string): Promise<void> {
+  const exercise = await prisma.exercise.findFirst({
+    where: {
+      id: exerciseId,
+      isActive: true,
+      OR: [{ scope: "GLOBAL" }, { scope: "PRIVATE", ownerUserId: userId }]
+    },
+    select: { id: true }
+  });
+
+  if (!exercise) {
+    throw new AppError("Exercise not found", {
+      statusCode: 404,
+      code: "EXERCISE_NOT_FOUND"
+    });
+  }
+}
+
+async function getOwnedPlanWithExercises(planId: string, userId: string) {
+  const plan = await prisma.workoutPlan.findFirst({
+    where: {
+      id: planId,
+      userId,
+      status: {
+        in: ["ACTIVE", "DRAFT"]
+      }
+    },
+    include: {
+      exercises: {
+        orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }]
+      }
+    }
+  });
+
+  if (!plan) {
+    throw new AppError("Workout plan not found", {
+      statusCode: 404,
+      code: "WORKOUT_PLAN_NOT_FOUND"
+    });
+  }
+
+  return plan;
+}
+
+function templateKeyByDays(daysPerWeek: number): string {
+  if (daysPerWeek <= 3) {
+    return "1-3";
+  }
+
+  return String(daysPerWeek);
+}
+
+export async function listUserWorkoutPlans(userId: string) {
+  const plans = await prisma.workoutPlan.findMany({
+    where: {
+      userId,
+      status: {
+        in: ["ACTIVE", "DRAFT"]
+      },
+      archivedAt: null
+    },
+    orderBy: [{ createdAt: "desc" }],
+    include: {
+      exercises: {
+        orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
+        include: {
+          exercise: {
+            select: {
+              id: true,
+              name: true,
+              primaryMuscleGroup: true,
+              difficulty: true
+            }
+          }
+        }
+      }
+    }
+  });
+
+  return plans;
+}
+
+export async function createWorkoutPlan(userId: string, payload: CreateWorkoutPlanBody) {
+  return prisma.workoutPlan.create({
+    data: {
+      userId,
+      name: payload.name,
+      description:
+        payload.source === "RECOMMENDATION"
+          ? `${payload.description ?? ""} [Template: ${payload.templateKey ?? "custom"}; Dias: ${payload.daysPerWeek ?? "n/a"}]`.trim()
+          : payload.description,
+      status: "ACTIVE"
+    }
+  });
+}
+
+export async function deleteWorkoutPlan(userId: string, params: WorkoutPlanParams) {
+  await assertOwnedPlan(params.planId, userId);
+
+  await prisma.workoutPlan.delete({
+    where: { id: params.planId }
+  });
+
+  return {
+    success: true
+  };
+}
+
+export async function addExerciseToPlan(
+  userId: string,
+  params: WorkoutPlanParams,
+  payload: AddPlanExerciseBody
+) {
+  const plan = await getOwnedPlanWithExercises(params.planId, userId);
+  await assertExerciseAvailableToUser(payload.exerciseId, userId);
+
+  const nextIndex = (plan.exercises[plan.exercises.length - 1]?.orderIndex ?? 0) + 1;
+  const targetIndex = payload.insertAt ? Math.min(payload.insertAt, nextIndex) : nextIndex;
+
+  const created = await prisma.$transaction(async (tx) => {
+    if (targetIndex < nextIndex) {
+      await tx.workoutPlanExercise.updateMany({
+        where: {
+          workoutPlanId: params.planId,
+          orderIndex: {
+            gte: targetIndex
+          }
+        },
+        data: {
+          orderIndex: {
+            increment: 1
+          }
+        }
+      });
+    }
+
+    return tx.workoutPlanExercise.create({
+      data: {
+        workoutPlanId: params.planId,
+        exerciseId: payload.exerciseId,
+        orderIndex: targetIndex,
+        sets: payload.sets,
+        repsMin: payload.repsMin,
+        repsMax: payload.repsMax,
+        durationSec: payload.durationSec,
+        restSec: payload.restSec,
+        notes: payload.notes
+      },
+      include: {
+        exercise: {
+          select: {
+            id: true,
+            name: true,
+            primaryMuscleGroup: true,
+            difficulty: true
+          }
+        }
+      }
+    });
+  });
+
+  return created;
+}
+
+export async function updatePlanExercise(
+  userId: string,
+  params: PlanExerciseParams,
+  payload: UpdatePlanExerciseBody
+) {
+  await getOwnedPlanWithExercises(params.planId, userId);
+
+  const existing = await prisma.workoutPlanExercise.findFirst({
+    where: {
+      id: params.planExerciseId,
+      workoutPlanId: params.planId
+    },
+    select: {
+      id: true,
+      orderIndex: true
+    }
+  });
+
+  if (!existing) {
+    throw new AppError("Plan exercise not found", {
+      statusCode: 404,
+      code: "PLAN_EXERCISE_NOT_FOUND"
+    });
+  }
+
+  if (payload.exerciseId) {
+    await assertExerciseAvailableToUser(payload.exerciseId, userId);
+  }
+
+  if (payload.orderIndex && payload.orderIndex !== existing.orderIndex) {
+    const fullPlan = await getOwnedPlanWithExercises(params.planId, userId);
+    const targetIndex = Math.max(1, Math.min(payload.orderIndex, fullPlan.exercises.length));
+
+    await prisma.$transaction(async (tx) => {
+      if (targetIndex > existing.orderIndex) {
+        await tx.workoutPlanExercise.updateMany({
+          where: {
+            workoutPlanId: params.planId,
+            orderIndex: {
+              gt: existing.orderIndex,
+              lte: targetIndex
+            }
+          },
+          data: {
+            orderIndex: {
+              decrement: 1
+            }
+          }
+        });
+      } else {
+        await tx.workoutPlanExercise.updateMany({
+          where: {
+            workoutPlanId: params.planId,
+            orderIndex: {
+              gte: targetIndex,
+              lt: existing.orderIndex
+            }
+          },
+          data: {
+            orderIndex: {
+              increment: 1
+            }
+          }
+        });
+      }
+
+      await tx.workoutPlanExercise.update({
+        where: { id: params.planExerciseId },
+        data: {
+          orderIndex: targetIndex
+        }
+      });
+    });
+  }
+
+  return prisma.workoutPlanExercise.update({
+    where: { id: params.planExerciseId },
+    data: {
+      exerciseId: payload.exerciseId,
+      sets: payload.sets === null ? null : payload.sets,
+      repsMin: payload.repsMin === null ? null : payload.repsMin,
+      repsMax: payload.repsMax === null ? null : payload.repsMax,
+      durationSec: payload.durationSec === null ? null : payload.durationSec,
+      restSec: payload.restSec === null ? null : payload.restSec,
+      notes: payload.notes === null ? null : payload.notes
+    },
+    include: {
+      exercise: {
+        select: {
+          id: true,
+          name: true,
+          primaryMuscleGroup: true,
+          difficulty: true
+        }
+      }
+    }
+  });
+}
+
+export async function deletePlanExercise(userId: string, params: PlanExerciseParams) {
+  await getOwnedPlanWithExercises(params.planId, userId);
+
+  const existing = await prisma.workoutPlanExercise.findFirst({
+    where: {
+      id: params.planExerciseId,
+      workoutPlanId: params.planId
+    },
+    select: {
+      id: true,
+      orderIndex: true
+    }
+  });
+
+  if (!existing) {
+    throw new AppError("Plan exercise not found", {
+      statusCode: 404,
+      code: "PLAN_EXERCISE_NOT_FOUND"
+    });
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.workoutPlanExercise.delete({
+      where: {
+        id: params.planExerciseId
+      }
+    });
+
+    await tx.workoutPlanExercise.updateMany({
+      where: {
+        workoutPlanId: params.planId,
+        orderIndex: {
+          gt: existing.orderIndex
+        }
+      },
+      data: {
+        orderIndex: {
+          decrement: 1
+        }
+      }
+    });
+  });
+
+  return {
+    success: true
+  };
+}
+
+export async function reorderPlanExercises(
+  userId: string,
+  params: WorkoutPlanParams,
+  payload: ReorderPlanExercisesBody
+) {
+  const plan = await getOwnedPlanWithExercises(params.planId, userId);
+  const currentIds = plan.exercises.map((item) => item.id);
+  const inputIds = payload.orderedExerciseIds;
+
+  if (currentIds.length !== inputIds.length) {
+    throw new AppError("Ordered exercise list size mismatch", {
+      statusCode: 400,
+      code: "INVALID_REORDER_INPUT"
+    });
+  }
+
+  const currentSet = new Set(currentIds);
+  const hasMismatch = inputIds.some((id) => !currentSet.has(id));
+  if (hasMismatch) {
+    throw new AppError("Ordered exercise list contains invalid ids", {
+      statusCode: 400,
+      code: "INVALID_REORDER_INPUT"
+    });
+  }
+
+  await prisma.$transaction(
+    inputIds.map((id, index) =>
+      prisma.workoutPlanExercise.update({
+        where: { id },
+        data: {
+          orderIndex: index + 1
+        }
+      })
+    )
+  );
+
+  return getOwnedPlanWithExercises(params.planId, userId);
+}
+
+export async function searchExercisesForPlan(userId: string, query: SearchExercisesQuery) {
+  return prisma.exercise.findMany({
+    where: {
+      isActive: true,
+      OR: [{ scope: "GLOBAL" }, { scope: "PRIVATE", ownerUserId: userId }],
+      ...(query.primaryMuscleGroup ? { primaryMuscleGroup: query.primaryMuscleGroup } : {}),
+      ...(query.q
+        ? {
+            name: {
+              contains: query.q
+            }
+          }
+        : {})
+    },
+    orderBy: [{ name: "asc" }],
+    take: query.limit,
+    select: {
+      id: true,
+      name: true,
+      primaryMuscleGroup: true,
+      difficulty: true,
+      equipment: true
+    }
+  });
+}
+
+export function getRecommendationTemplates(query: RecommendationTemplateQuery) {
+  const key = templateKeyByDays(query.daysPerWeek);
+  const bySex = query.sex === "FEMALE" ? "female" : "male";
+  const templates = TEMPLATE_RECOMMENDATIONS[key][bySex];
+  const warning =
+    query.daysPerWeek === 1 || query.daysPerWeek === 2
+      ? "1 e 2 dias por semana sao menos recomendados por baixa frequencia de estimulo."
+      : query.daysPerWeek === 7
+        ? "7 dias por semana e menos recomendado por risco de recuperacao insuficiente."
+        : null;
+
+  return {
+    daysPerWeek: query.daysPerWeek,
+    sex: query.sex,
+    warning,
+    templates
+  };
 }
 
 export async function fetchWorkoutRecommendations(userId: string, context: EventContext) {
@@ -250,6 +770,12 @@ export async function listWorkoutHistory(userId: string, query: ListWorkoutHisto
       skip,
       take: query.pageSize,
       include: {
+        workoutPlan: {
+          select: {
+            id: true,
+            name: true
+          }
+        },
         history: {
           orderBy: [{ completedAt: "desc" }, { setNumber: "asc" }],
           include: {
@@ -275,6 +801,59 @@ export async function listWorkoutHistory(userId: string, query: ListWorkoutHisto
       historyEntriesCount: session.history.length
     }))
   };
+}
+
+export async function updateCompletedWorkoutDuration(
+  userId: string,
+  params: HistorySessionParams,
+  payload: UpdateWorkoutDurationBody
+) {
+  const session = await prisma.workoutSession.findFirst({
+    where: {
+      id: params.sessionId,
+      userId,
+      status: "COMPLETED"
+    },
+    select: {
+      id: true
+    }
+  });
+
+  if (!session) {
+    throw new AppError("Workout history entry not found", {
+      statusCode: 404,
+      code: "WORKOUT_HISTORY_NOT_FOUND"
+    });
+  }
+
+  return prisma.workoutSession.update({
+    where: { id: params.sessionId },
+    data: {
+      durationSec: payload.durationSec
+    }
+  });
+}
+
+export async function createManualWorkoutHistory(userId: string, payload: CreateManualHistoryBody) {
+  if (payload.workoutPlanId) {
+    await assertOwnedPlan(payload.workoutPlanId, userId);
+  }
+
+  const endedAt = payload.performedAt ?? new Date();
+  const startedAt = new Date(endedAt.getTime() - payload.durationSec * 1000);
+
+  return prisma.workoutSession.create({
+    data: {
+      userId,
+      workoutPlanId: payload.workoutPlanId,
+      status: "COMPLETED",
+      scheduledAt: endedAt,
+      startedAt,
+      endedAt,
+      durationSec: payload.durationSec,
+      notes: payload.title ? `${payload.title} | ${payload.notes ?? ""}`.trim() : payload.notes
+    }
+  });
 }
 
 export async function exploreWorkouts(userId: string, query: ExploreWorkoutsQuery) {

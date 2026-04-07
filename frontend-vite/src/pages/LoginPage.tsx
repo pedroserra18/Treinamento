@@ -8,6 +8,7 @@ export function LoginPage() {
   const { signIn, startGoogleSignIn } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const navigate = useNavigate()
@@ -62,14 +63,23 @@ export function LoginPage() {
 
         <label className="block text-sm font-medium text-[var(--text)]">
           Senha
-          <input
-            required
-            minLength={8}
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            className="mt-1 w-full rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
-          />
+          <div className="mt-1 flex gap-2">
+            <input
+              required
+              minLength={8}
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              className="w-full rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((prev) => !prev)}
+              className="rounded-xl border border-[var(--line)] px-3 py-2 text-xs font-semibold text-[var(--text)]"
+            >
+              {showPassword ? 'Ocultar' : 'Mostrar'}
+            </button>
+          </div>
         </label>
 
         {error ? <p className="text-sm text-red-500">{error}</p> : null}
@@ -96,6 +106,13 @@ export function LoginPage() {
         Nao tem conta?{' '}
         <Link to="/register" className="font-semibold text-[var(--brand)]">
           Criar conta
+        </Link>
+      </p>
+
+      <p className="mt-2 text-sm text-[var(--muted)]">
+        Esqueceu a senha?{' '}
+        <Link to="/forgot-password" className="font-semibold text-[var(--brand)]">
+          Recuperar senha
         </Link>
       </p>
 

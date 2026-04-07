@@ -1,6 +1,8 @@
 import { Router } from "express";
 
 import {
+  forgotPasswordConfirmController,
+  forgotPasswordRequestCodeController,
   googleCallbackController,
   googleLinkController,
   googleLinkStartController,
@@ -16,6 +18,8 @@ import {
   registerController
 } from "./auth.controller";
 import {
+  forgotPasswordConfirmBodySchema,
+  forgotPasswordRequestCodeBodySchema,
   googleCallbackQuerySchema,
   googleLinkBodySchema,
   loginBodySchema,
@@ -47,6 +51,18 @@ router.post(
   "/auth/register/verify-code",
   validateRequest({ body: registerVerifyCodeBodySchema }),
   asyncHandler(async (req, res) => registerVerifyCodeController(req, res))
+);
+
+router.post(
+  "/auth/forgot-password/request-code",
+  validateRequest({ body: forgotPasswordRequestCodeBodySchema }),
+  asyncHandler(async (req, res) => forgotPasswordRequestCodeController(req, res))
+);
+
+router.post(
+  "/auth/forgot-password/confirm",
+  validateRequest({ body: forgotPasswordConfirmBodySchema }),
+  asyncHandler(async (req, res) => forgotPasswordConfirmController(req, res))
 );
 
 router.get("/auth/google/start", asyncHandler(async (req, res) => googleStartController(req, res)));

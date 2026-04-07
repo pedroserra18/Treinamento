@@ -10,6 +10,30 @@ function isTestEmail(email: string): boolean {
     return true
   }
 
+  const testPrefixes = [
+    'test',
+    'teste',
+    'qa',
+    'mock',
+    'demo',
+    'seed',
+    'tmp',
+    'temp',
+    'fake',
+    'recover',
+    'authcheck',
+    'logincheck',
+    'cadastro.teste',
+  ]
+
+  if (testPrefixes.some((prefix) => localPart.startsWith(prefix))) {
+    return true
+  }
+
+  if (localPart.includes('.teste') || localPart.includes('.test')) {
+    return true
+  }
+
   return /^[a-z0-9-]+-\d{10,}(?:-[a-z0-9]{3,8})?$/i.test(localPart)
 }
 
@@ -48,6 +72,11 @@ type AdminUsersPayload = {
     page?: number
     pageSize?: number
     total?: number
+    summary?: {
+      realCount?: number
+      testCount?: number
+      totalCount?: number
+    }
     items?: Array<Record<string, unknown>>
   }
   error?: { message?: string; code?: string }
@@ -116,6 +145,20 @@ export async function listUsersForAdmin(
     page: payload.data.page ?? page,
     pageSize: payload.data.pageSize ?? pageSize,
     total: filteredItems.length,
+    summary: {
+      realCount:
+        typeof payload.data.summary?.realCount === 'number'
+          ? payload.data.summary.realCount
+          : mappedItems.filter((item) => item.accountType === 'REAL').length,
+      testCount:
+        typeof payload.data.summary?.testCount === 'number'
+          ? payload.data.summary.testCount
+          : mappedItems.filter((item) => item.accountType === 'TEST').length,
+      totalCount:
+        typeof payload.data.summary?.totalCount === 'number'
+          ? payload.data.summary.totalCount
+          : mappedItems.length,
+    },
     items: filteredItems,
   }
 }

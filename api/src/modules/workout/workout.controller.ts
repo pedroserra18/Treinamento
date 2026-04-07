@@ -1,18 +1,42 @@
 import { Request, Response } from "express";
 
 import {
+  AddPlanExerciseBody,
+  CreateManualHistoryBody,
+  CreateWorkoutPlanBody,
   CompleteWorkoutBody,
   CompleteWorkoutParams,
   ExploreWorkoutsQuery,
+  HistorySessionParams,
   ListWorkoutHistoryQuery,
+  PlanExerciseParams,
+  RecommendationTemplateQuery,
+  ReorderPlanExercisesBody,
+  SearchExercisesQuery,
   StartWorkoutBody
+  ,
+  UpdatePlanExerciseBody,
+  UpdateWorkoutDurationBody,
+  WorkoutPlanParams
 } from "./workout.schema";
 import {
+  addExerciseToPlan,
+  createManualWorkoutHistory,
+  createWorkoutPlan,
+  deletePlanExercise,
+  deleteWorkoutPlan,
   completeWorkoutSession,
   exploreWorkouts,
   fetchWorkoutRecommendations,
+  getRecommendationTemplates,
   listWorkoutHistory,
+  listUserWorkoutPlans,
+  reorderPlanExercises,
+  searchExercisesForPlan,
   startWorkoutSession
+  ,
+  updateCompletedWorkoutDuration,
+  updatePlanExercise
 } from "./workout.service";
 import { AppError } from "../../shared/errors/app-error";
 
@@ -57,6 +81,124 @@ export async function startWorkoutController(req: Request, res: Response): Promi
   });
 }
 
+export async function listWorkoutPlansController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const plans = await listUserWorkoutPlans(userId);
+
+  res.status(200).json({
+    data: plans,
+    meta: {
+      requestId: req.context.requestId
+    }
+  });
+}
+
+export async function createWorkoutPlanController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const payload = req.body as CreateWorkoutPlanBody;
+  const plan = await createWorkoutPlan(userId, payload);
+
+  res.status(201).json({
+    data: plan,
+    meta: {
+      requestId: req.context.requestId
+    }
+  });
+}
+
+export async function deleteWorkoutPlanController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as WorkoutPlanParams;
+  const data = await deleteWorkoutPlan(userId, params);
+
+  res.status(200).json({
+    data,
+    meta: {
+      requestId: req.context.requestId
+    }
+  });
+}
+
+export async function addPlanExerciseController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as WorkoutPlanParams;
+  const payload = req.body as AddPlanExerciseBody;
+  const item = await addExerciseToPlan(userId, params, payload);
+
+  res.status(201).json({
+    data: item,
+    meta: {
+      requestId: req.context.requestId
+    }
+  });
+}
+
+export async function updatePlanExerciseController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as PlanExerciseParams;
+  const payload = req.body as UpdatePlanExerciseBody;
+  const item = await updatePlanExercise(userId, params, payload);
+
+  res.status(200).json({
+    data: item,
+    meta: {
+      requestId: req.context.requestId
+    }
+  });
+}
+
+export async function deletePlanExerciseController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as PlanExerciseParams;
+  const data = await deletePlanExercise(userId, params);
+
+  res.status(200).json({
+    data,
+    meta: {
+      requestId: req.context.requestId
+    }
+  });
+}
+
+export async function reorderPlanExercisesController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as WorkoutPlanParams;
+  const payload = req.body as ReorderPlanExercisesBody;
+  const plan = await reorderPlanExercises(userId, params, payload);
+
+  res.status(200).json({
+    data: plan,
+    meta: {
+      requestId: req.context.requestId
+    }
+  });
+}
+
+export async function searchExercisesController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const query = req.query as unknown as SearchExercisesQuery;
+  const items = await searchExercisesForPlan(userId, query);
+
+  res.status(200).json({
+    data: items,
+    meta: {
+      requestId: req.context.requestId
+    }
+  });
+}
+
+export async function recommendationTemplatesController(req: Request, res: Response): Promise<void> {
+  const query = req.query as unknown as RecommendationTemplateQuery;
+  const data = getRecommendationTemplates(query);
+
+  res.status(200).json({
+    data,
+    meta: {
+      requestId: req.context.requestId
+    }
+  });
+}
+
 export async function completeWorkoutController(req: Request, res: Response): Promise<void> {
   const userId = req.context.userId as string;
   const params = req.params as unknown as CompleteWorkoutParams;
@@ -85,6 +227,36 @@ export async function listWorkoutHistoryController(req: Request, res: Response):
 
   res.status(200).json({
     data: history,
+    meta: {
+      requestId: req.context.requestId
+    }
+  });
+}
+
+export async function updateWorkoutHistoryDurationController(
+  req: Request,
+  res: Response
+): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as HistorySessionParams;
+  const payload = req.body as UpdateWorkoutDurationBody;
+  const data = await updateCompletedWorkoutDuration(userId, params, payload);
+
+  res.status(200).json({
+    data,
+    meta: {
+      requestId: req.context.requestId
+    }
+  });
+}
+
+export async function createManualHistoryController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const payload = req.body as CreateManualHistoryBody;
+  const data = await createManualWorkoutHistory(userId, payload);
+
+  res.status(201).json({
+    data,
     meta: {
       requestId: req.context.requestId
     }

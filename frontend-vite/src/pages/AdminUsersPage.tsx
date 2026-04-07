@@ -47,6 +47,20 @@ export function AdminUsersPage() {
         <h1 className="text-2xl font-black text-[var(--text)]">Usuarios cadastrados</h1>
         <p className="text-sm text-[var(--muted)]">Total de usuarios: {totalLabel}</p>
 
+        {data ? (
+          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+            <span className="rounded-full bg-emerald-100 px-2 py-1 font-semibold text-emerald-800">
+              Reais: {data.summary.realCount}
+            </span>
+            <span className="rounded-full bg-amber-100 px-2 py-1 font-semibold text-amber-800">
+              Teste: {data.summary.testCount}
+            </span>
+            <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-700">
+              Total base: {data.summary.totalCount}
+            </span>
+          </div>
+        ) : null}
+
         <div className="mt-4 flex flex-wrap gap-3">
           <label className="flex items-center gap-2 text-sm text-[var(--text)]">
             Mostrar contas
@@ -105,12 +119,12 @@ export function AdminUsersPage() {
                   <td className="px-3 py-2 text-[var(--text)]">{listedUser.email}</td>
                   <td className="px-3 py-2 text-[var(--text)]">
                     {listedUser.accountType === 'TEST' ? (
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
-                        Teste
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-amber-800">
+                        Usuario de teste
                       </span>
                     ) : (
-                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">
-                        Real
+                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-emerald-800">
+                        Usuario real
                       </span>
                     )}
                   </td>

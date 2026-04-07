@@ -16,5 +16,10 @@ export type AdminUsersResponse = {
   page: number
   pageSize: number
   total: number
+  summary: {
+    realCount: number
+    testCount: number
+    totalCount: number
+  }
   items: AdminUser[]
 }

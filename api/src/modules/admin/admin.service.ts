@@ -6,12 +6,35 @@ import { AppError } from "../../shared/errors/app-error";
 
 const TEST_EMAIL_SUFFIXES = ["@example.com", "@local.dev"];
 const AUTOMATED_TEST_LOCAL_PART = /^[a-z0-9-]+-\d{10,}(?:-[a-z0-9]{3,8})?$/i;
+const TEST_LOCAL_PART_PREFIXES = [
+  "test",
+  "teste",
+  "qa",
+  "mock",
+  "demo",
+  "seed",
+  "tmp",
+  "temp",
+  "fake",
+  "recover",
+  "authcheck",
+  "logincheck",
+  "cadastro.teste"
+];
 
 function isTestAccountByEmail(email: string): boolean {
   const normalized = email.trim().toLowerCase();
   const [localPart = ""] = normalized.split("@");
 
   if (TEST_EMAIL_SUFFIXES.some((suffix) => normalized.endsWith(suffix))) {
+    return true;
+  }
+
+  if (TEST_LOCAL_PART_PREFIXES.some((prefix) => localPart.startsWith(prefix))) {
+    return true;
+  }
+
+  if (localPart.includes(".teste") || localPart.includes(".test")) {
     return true;
   }
 
@@ -42,8 +65,16 @@ export async function listRegisteredUsers(query: ListUsersQuery) {
     }
   });
 
-  const scopedUsers = users.filter((user) => {
-    const accountType = isTestAccountByEmail(user.email) ? "TEST" : "REAL";
+  const classifiedUsers = users.map((user) => ({
+    ...user,
+    accountType: isTestAccountByEmail(user.email) ? "TEST" : "REAL"
+  }));
+
+  const realCount = classifiedUsers.filter((user) => user.accountType === "REAL").length;
+  const testCount = classifiedUsers.length - realCount;
+
+  const scopedUsers = classifiedUsers.filter((user) => {
+    const accountType = user.accountType;
 
     if (accountScope === "REAL") {
       return accountType === "REAL";
@@ -64,10 +95,12 @@ export async function listRegisteredUsers(query: ListUsersQuery) {
     page: query.page,
     pageSize: query.pageSize,
     total,
-    items: pagedUsers.map((user) => ({
-      ...user,
-      accountType: isTestAccountByEmail(user.email) ? "TEST" : "REAL"
-    }))
+    summary: {
+      realCount,
+      testCount,
+      totalCount: classifiedUsers.length
+    },
+    items: pagedUsers
   };
 }
 

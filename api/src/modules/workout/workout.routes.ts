@@ -1,18 +1,42 @@
 import { Router } from "express";
 
 import {
+  addPlanExerciseController,
   completeWorkoutController,
+  createManualHistoryController,
+  createWorkoutPlanController,
+  deletePlanExerciseController,
+  deleteWorkoutPlanController,
   exploreWorkoutsController,
   getWorkoutRecommendationsController,
   listWorkoutHistoryController,
+  listWorkoutPlansController,
+  recommendationTemplatesController,
+  reorderPlanExercisesController,
+  searchExercisesController,
   startWorkoutController
+  ,
+  updatePlanExerciseController,
+  updateWorkoutHistoryDurationController
 } from "./workout.controller";
 import {
+  addPlanExerciseBodySchema,
   completeWorkoutBodySchema,
   completeWorkoutParamsSchema,
+  createManualHistoryBodySchema,
+  createWorkoutPlanBodySchema,
   exploreWorkoutsQuerySchema,
+  historySessionParamsSchema,
   listWorkoutHistoryQuerySchema,
+  planExerciseParamsSchema,
+  recommendationTemplateQuerySchema,
+  reorderPlanExercisesBodySchema,
+  searchExercisesQuerySchema,
   startWorkoutBodySchema
+  ,
+  updatePlanExerciseBodySchema,
+  updateWorkoutDurationBodySchema,
+  workoutPlanParamsSchema
 } from "./workout.schema";
 import { requireAuth } from "../../middlewares/auth.middleware";
 import { requireCompletedOnboarding } from "../../middlewares/onboarding.middleware";
@@ -36,6 +60,77 @@ router.post(
   asyncHandler(async (req, res) => startWorkoutController(req, res))
 );
 
+router.get(
+  "/workouts/plans",
+  requireAuth,
+  requireCompletedOnboarding,
+  asyncHandler(async (req, res) => listWorkoutPlansController(req, res))
+);
+
+router.post(
+  "/workouts/plans",
+  requireAuth,
+  requireCompletedOnboarding,
+  validateRequest({ body: createWorkoutPlanBodySchema }),
+  asyncHandler(async (req, res) => createWorkoutPlanController(req, res))
+);
+
+router.delete(
+  "/workouts/plans/:planId",
+  requireAuth,
+  requireCompletedOnboarding,
+  validateRequest({ params: workoutPlanParamsSchema }),
+  asyncHandler(async (req, res) => deleteWorkoutPlanController(req, res))
+);
+
+router.post(
+  "/workouts/plans/:planId/exercises",
+  requireAuth,
+  requireCompletedOnboarding,
+  validateRequest({ params: workoutPlanParamsSchema, body: addPlanExerciseBodySchema }),
+  asyncHandler(async (req, res) => addPlanExerciseController(req, res))
+);
+
+router.patch(
+  "/workouts/plans/:planId/exercises/:planExerciseId",
+  requireAuth,
+  requireCompletedOnboarding,
+  validateRequest({ params: planExerciseParamsSchema, body: updatePlanExerciseBodySchema }),
+  asyncHandler(async (req, res) => updatePlanExerciseController(req, res))
+);
+
+router.delete(
+  "/workouts/plans/:planId/exercises/:planExerciseId",
+  requireAuth,
+  requireCompletedOnboarding,
+  validateRequest({ params: planExerciseParamsSchema }),
+  asyncHandler(async (req, res) => deletePlanExerciseController(req, res))
+);
+
+router.patch(
+  "/workouts/plans/:planId/exercises/reorder",
+  requireAuth,
+  requireCompletedOnboarding,
+  validateRequest({ params: workoutPlanParamsSchema, body: reorderPlanExercisesBodySchema }),
+  asyncHandler(async (req, res) => reorderPlanExercisesController(req, res))
+);
+
+router.get(
+  "/workouts/exercises/search",
+  requireAuth,
+  requireCompletedOnboarding,
+  validateRequest({ query: searchExercisesQuerySchema }),
+  asyncHandler(async (req, res) => searchExercisesController(req, res))
+);
+
+router.get(
+  "/workouts/recommendation-templates",
+  requireAuth,
+  requireCompletedOnboarding,
+  validateRequest({ query: recommendationTemplateQuerySchema }),
+  asyncHandler(async (req, res) => recommendationTemplatesController(req, res))
+);
+
 router.post(
   "/workouts/:sessionId/complete",
   requireAuth,
@@ -50,6 +145,22 @@ router.get(
   requireCompletedOnboarding,
   validateRequest({ query: listWorkoutHistoryQuerySchema }),
   asyncHandler(async (req, res) => listWorkoutHistoryController(req, res))
+);
+
+router.patch(
+  "/workouts/history/:sessionId/duration",
+  requireAuth,
+  requireCompletedOnboarding,
+  validateRequest({ params: historySessionParamsSchema, body: updateWorkoutDurationBodySchema }),
+  asyncHandler(async (req, res) => updateWorkoutHistoryDurationController(req, res))
+);
+
+router.post(
+  "/workouts/history/manual",
+  requireAuth,
+  requireCompletedOnboarding,
+  validateRequest({ body: createManualHistoryBodySchema }),
+  asyncHandler(async (req, res) => createManualHistoryController(req, res))
 );
 
 router.get(

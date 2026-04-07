@@ -2,15 +2,47 @@ const { PrismaClient } = require("@prisma/client");
 
 const prisma = new PrismaClient();
 
-async function main() {
-  const suffixes = ["@example.com", "@local.dev"];
+const TEST_EMAIL_SUFFIXES = ["@example.com", "@local.dev"];
+const AUTOMATED_TEST_LOCAL_PART = /^[a-z0-9-]+-\d{10,}(?:-[a-z0-9]{3,8})?$/i;
+const TEST_LOCAL_PART_PREFIXES = [
+  "test",
+  "teste",
+  "qa",
+  "mock",
+  "demo",
+  "seed",
+  "tmp",
+  "temp",
+  "fake",
+  "recover",
+  "authcheck",
+  "logincheck",
+  "cadastro.teste"
+];
 
-  const testUsers = await prisma.user.findMany({
+function isTestAccountByEmail(email) {
+  const normalized = String(email ?? "").trim().toLowerCase();
+  const [localPart = ""] = normalized.split("@");
+
+  if (TEST_EMAIL_SUFFIXES.some((suffix) => normalized.endsWith(suffix))) {
+    return true;
+  }
+
+  if (TEST_LOCAL_PART_PREFIXES.some((prefix) => localPart.startsWith(prefix))) {
+    return true;
+  }
+
+  if (localPart.includes(".teste") || localPart.includes(".test")) {
+    return true;
+  }
+
+  return AUTOMATED_TEST_LOCAL_PART.test(localPart);
+}
+
+async function main() {
+  const allUsers = await prisma.user.findMany({
     where: {
-      isDeleted: false,
-      OR: suffixes.map((suffix) => ({
-        email: { endsWith: suffix }
-      }))
+      isDeleted: false
     },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     select: {
@@ -19,6 +51,8 @@ async function main() {
       createdAt: true
     }
   });
+
+  const testUsers = allUsers.filter((user) => isTestAccountByEmail(user.email));
 
   const keep = testUsers.slice(0, 10);
   const remove = testUsers.slice(10);

@@ -38,7 +38,7 @@ body {
   background: radial-gradient(circle at 0% 0%, #fef3c7 0%, transparent 28%),
     radial-gradient(circle at 100% 100%, #cffafe 0%, transparent 34%), var(--bg);
   color: var(--text);
-  font-family: Inter, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  font-family: "Sora", "Manrope", "DM Sans", "Segoe UI", sans-serif;
 }
 
 .dark body {

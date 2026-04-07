@@ -23,6 +23,20 @@ export const registerVerifyCodeBodySchema = z
   })
   .strict();
 
+export const forgotPasswordRequestCodeBodySchema = z
+  .object({
+    email: z.string().trim().toLowerCase().email()
+  })
+  .strict();
+
+export const forgotPasswordConfirmBodySchema = z
+  .object({
+    email: z.string().trim().toLowerCase().email(),
+    verificationCode: z.string().trim().regex(/^\d{6}$/),
+    newPassword: z.string().min(8).max(128)
+  })
+  .strict();
+
 export const loginBodySchema = z
   .object({
     email: z.string().trim().toLowerCase().email(),
@@ -60,6 +74,8 @@ export const onboardingCompleteBodySchema = z
 export type RegisterBody = z.infer<typeof registerBodySchema>;
 export type RegisterRequestCodeBody = z.infer<typeof registerRequestCodeBodySchema>;
 export type RegisterVerifyCodeBody = z.infer<typeof registerVerifyCodeBodySchema>;
+export type ForgotPasswordRequestCodeBody = z.infer<typeof forgotPasswordRequestCodeBodySchema>;
+export type ForgotPasswordConfirmBody = z.infer<typeof forgotPasswordConfirmBodySchema>;
 export type LoginBody = z.infer<typeof loginBodySchema>;
 export type RefreshBody = z.infer<typeof refreshBodySchema>;
 export type GoogleCallbackQuery = z.infer<typeof googleCallbackQuerySchema>;
