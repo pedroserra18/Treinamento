@@ -15,6 +15,18 @@ import type { ExerciseOption, WorkoutPlan } from '../types/workout'
 const PERF_MARKER = '__PERF__:'
 const LOCAL_SESSION_KEY = 'acad-workout-active-session-v1'
 
+const BODYWEIGHT_HINTS = [
+  /flex[aã]o/i,
+  /barra\s*f(i|í)xa/i,
+  /pull\s*up/i,
+  /chin\s*up/i,
+  /mergulho/i,
+  /\bdip\b/i,
+  /prancha/i,
+  /plank/i,
+  /burpee/i,
+]
+
 type SeriesState = {
   reps: string
   loadKg: string
@@ -26,6 +38,9 @@ type SessionExerciseState = {
   exerciseName: string
   planExerciseId?: string
   plannedReps: string
+  isBodyweight: boolean
+  allowsExtraLoad: boolean
+  useExtraLoad: boolean
   series: SeriesState[]
 }
 
@@ -38,6 +53,26 @@ type ActiveWorkoutState = {
   startedAtEpochMs: number | null
   exercises: SessionExerciseState[]
   updateTemplateOnFinish: boolean
+}
+
+function isLikelyBodyweight(name: string): boolean {
+  return BODYWEIGHT_HINTS.some((pattern) => pattern.test(name))
+}
+
+function resolveBodyweightFlag(flag: boolean | undefined, name: string): boolean {
+  if (typeof flag === 'boolean') {
+    return flag
+  }
+
+  return isLikelyBodyweight(name)
+}
+
+function resolveAllowsExtraLoad(flag: boolean | undefined, isBodyweight: boolean): boolean {
+  if (!isBodyweight) {
+    return true
+  }
+
+  return flag ?? true
 }
 
 function createSeries(initial?: Partial<SeriesState>): SeriesState {
@@ -233,9 +268,17 @@ export function TrainPage() {
 
       return {
         exerciseId: entry.exercise.id,
-        exerciseName: entry.exercise.name,
+        exerciseName: entry.customName ?? entry.exercise.name,
         planExerciseId: entry.id,
         plannedReps,
+        isBodyweight: resolveBodyweightFlag(entry.exercise.isBodyweight, entry.customName ?? entry.exercise.name),
+        allowsExtraLoad: resolveAllowsExtraLoad(
+          entry.exercise.allowsExtraLoad,
+          resolveBodyweightFlag(entry.exercise.isBodyweight, entry.customName ?? entry.exercise.name),
+        ),
+        useExtraLoad: resolveBodyweightFlag(entry.exercise.isBodyweight, entry.customName ?? entry.exercise.name)
+          ? parseSeriesFromNotes(entry.notes, entry.sets, entry.repsMax ?? entry.repsMin).some((series) => Number(series.loadKg) > 0)
+          : true,
         series: parseSeriesFromNotes(entry.notes, entry.sets, entry.repsMax ?? entry.repsMin),
       }
     })
@@ -364,6 +407,12 @@ export function TrainPage() {
             exerciseId: option.id,
             exerciseName: option.name,
             plannedReps: '-',
+            isBodyweight: resolveBodyweightFlag(option.isBodyweight, option.name),
+            allowsExtraLoad: resolveAllowsExtraLoad(
+              option.allowsExtraLoad,
+              resolveBodyweightFlag(option.isBodyweight, option.name),
+            ),
+            useExtraLoad: !resolveBodyweightFlag(option.isBodyweight, option.name),
             series: [createSeries({ reps: '10' })],
           },
         ],
@@ -405,7 +454,12 @@ export function TrainPage() {
             exerciseId: exercise.exerciseId,
             setNumber: index + 1,
             reps,
-            weightKg: Number(series.loadKg) > 0 ? Number(series.loadKg) : undefined,
+            weightKg:
+              !exercise.isBodyweight || exercise.useExtraLoad
+                ? Number(series.loadKg) > 0
+                  ? Number(series.loadKg)
+                  : undefined
+                : undefined,
             perceivedExertion,
             notes: Number.isFinite(rir) ? `RIR: ${rir}` : undefined,
           }
@@ -442,7 +496,12 @@ export function TrainPage() {
                   sets: validSeries.length,
                   repsMin: Math.min(...repsList),
                   repsMax: Math.max(...repsList),
-                  notes: buildTemplateNotes(currentPlanExercise?.notes ?? null, validSeries),
+                  notes: buildTemplateNotes(
+                    currentPlanExercise?.notes ?? null,
+                    exercise.isBodyweight && !exercise.useExtraLoad
+                      ? validSeries.map((entry) => ({ ...entry, loadKg: '' }))
+                      : validSeries,
+                  ),
                 })
               }),
           )
@@ -639,6 +698,32 @@ export function TrainPage() {
                 <div>
                   <p className="text-sm font-bold text-[var(--text)]">{exercise.exerciseName}</p>
                   <p className="text-xs text-[var(--muted)]">Planejado: {exercise.plannedReps}</p>
+                  {exercise.isBodyweight ? (
+                    <label className="mt-1 inline-flex items-center gap-1 text-[11px] text-[var(--muted)]">
+                      <input
+                        type="checkbox"
+                        checked={exercise.useExtraLoad}
+                        disabled={!exercise.allowsExtraLoad}
+                        onChange={(event) =>
+                          setState((current) => ({
+                            ...current,
+                            exercises: current.exercises.map((entry, idx) =>
+                              idx === exerciseIndex
+                                ? {
+                                    ...entry,
+                                    useExtraLoad: event.target.checked,
+                                    series: event.target.checked
+                                      ? entry.series
+                                      : entry.series.map((series) => ({ ...series, loadKg: '' })),
+                                  }
+                                : entry,
+                            ),
+                          }))
+                        }
+                      />
+                      Adicionar peso extra
+                    </label>
+                  ) : null}
                 </div>
                 <button
                   type="button"
@@ -662,12 +747,18 @@ export function TrainPage() {
                       />
                     </label>
                     <label className="text-[10px] font-semibold uppercase text-[var(--muted)]">
-                      Carga (kg)
-                      <input
-                        value={series.loadKg}
-                        onChange={(event) => patchSeries(exerciseIndex, seriesIndex, { loadKg: event.target.value.replace(/[^\d.]/g, '') })}
-                        className="mt-1 w-full rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-xs"
-                      />
+                      {!exercise.isBodyweight || exercise.useExtraLoad ? 'Carga (kg)' : 'Carga'}
+                      {!exercise.isBodyweight || exercise.useExtraLoad ? (
+                        <input
+                          value={series.loadKg}
+                          onChange={(event) => patchSeries(exerciseIndex, seriesIndex, { loadKg: event.target.value.replace(/[^\d.]/g, '') })}
+                          className="mt-1 w-full rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-xs"
+                        />
+                      ) : (
+                        <div className="mt-1 w-full rounded-md border border-[var(--line)] px-2 py-1 text-xs text-[var(--muted)]">
+                          Peso corporal
+                        </div>
+                      )}
                     </label>
                     <label className="text-[10px] font-semibold uppercase text-[var(--muted)]">
                       RIR
@@ -677,17 +768,23 @@ export function TrainPage() {
                         className="mt-1 w-full rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-xs"
                       />
                     </label>
-                    <div className="self-end rounded-md border border-[var(--line)] px-2 py-1 text-xs font-bold text-[var(--brand)]">
-                      1RM {(() => {
-                        const reps = Number(series.reps)
-                        const load = Number(series.loadKg)
-                        if (reps <= 0 || load <= 0) {
-                          return '0.0'
-                        }
-                        return (load * (1 + 0.0333 * reps)).toFixed(1)
-                      })()}{' '}
-                      kg
-                    </div>
+                    {!exercise.isBodyweight || exercise.useExtraLoad ? (
+                      <div className="self-end rounded-md border border-[var(--line)] px-2 py-1 text-xs font-bold text-[var(--brand)]">
+                        1RM {(() => {
+                          const reps = Number(series.reps)
+                          const load = Number(series.loadKg)
+                          if (reps <= 0 || load <= 0) {
+                            return '0.0'
+                          }
+                          return (load * (1 + 0.0333 * reps)).toFixed(1)
+                        })()}{' '}
+                        kg
+                      </div>
+                    ) : (
+                      <div className="self-end rounded-md border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--muted)]">
+                        1RM n/a
+                      </div>
+                    )}
                     <button
                       type="button"
                       className="self-end rounded-md border border-red-500/50 px-2 py-1 text-xs text-red-300"

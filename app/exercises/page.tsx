@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 
-import { fetchExercises } from "@/lib/exercise-api";
+import { getExercisesService } from "@/lib/exercise-api";
 
 const placeholderImage =
   "data:image/svg+xml;charset=UTF-8," +
@@ -10,7 +10,7 @@ const placeholderImage =
   );
 
 export default async function ExercisesPage() {
-  const exercises = await fetchExercises();
+  const { data: exercises, error } = await getExercisesService();
 
   return (
     <main style={{ padding: "32px", maxWidth: 1200, margin: "0 auto" }}>
@@ -20,6 +20,24 @@ export default async function ExercisesPage() {
           Lista com suporte de midia. Quando o exercicio nao tem thumbnail, um placeholder e exibido.
         </p>
       </header>
+
+      {error ? (
+        <div
+          style={{
+            border: "1px solid #7f1d1d",
+            borderRadius: 12,
+            padding: 16,
+            marginBottom: 16,
+            background: "#1f1111",
+            color: "#fecaca"
+          }}
+        >
+          <p style={{ margin: "0 0 10px" }}>{error.userMessage}</p>
+          <Link href="/exercises" style={{ color: "#fda4af", textDecoration: "underline" }}>
+            Tentar novamente
+          </Link>
+        </div>
+      ) : null}
 
       {exercises.length === 0 ? (
         <div

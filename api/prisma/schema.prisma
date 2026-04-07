@@ -192,6 +192,8 @@ model Exercise {
   videoUrl             String?
   instructions         String?
   isCompound           Boolean            @default(false)
+  isBodyweight         Boolean            @default(false)
+  allowsExtraLoad      Boolean            @default(false)
   isActive             Boolean            @default(true)
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
@@ -244,6 +246,7 @@ model WorkoutPlanExercise {
   repsMax       Int?
   durationSec   Int?
   restSec       Int?
+  customName    String?
   notes         String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt

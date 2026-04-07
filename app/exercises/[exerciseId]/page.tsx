@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { fetchExerciseById } from "@/lib/exercise-api";
+import { getExerciseByIdService } from "@/lib/exercise-api";
 
 type PageProps = {
   params: Promise<{ exerciseId: string }>;
@@ -27,7 +27,38 @@ function toYouTubeEmbedUrl(url: string): string {
 
 export default async function ExerciseDetailPage({ params }: PageProps) {
   const { exerciseId } = await params;
-  const exercise = await fetchExerciseById(exerciseId);
+  const { data: exercise, error } = await getExerciseByIdService(exerciseId);
+
+  if (error?.status === 404 || (!exercise && !error)) {
+    notFound();
+  }
+
+  if (error && !exercise) {
+    return (
+      <main style={{ maxWidth: 900, margin: "0 auto", padding: 32 }}>
+        <Link href="/exercises" style={{ color: "#38bdf8", textDecoration: "none" }}>
+          Voltar para listagem
+        </Link>
+
+        <section
+          style={{
+            marginTop: 16,
+            border: "1px solid #7f1d1d",
+            borderRadius: 14,
+            background: "#1f1111",
+            padding: 20,
+            color: "#fecaca"
+          }}
+        >
+          <h1 style={{ margin: "0 0 8px", fontSize: 24 }}>Nao foi possivel abrir este exercicio</h1>
+          <p style={{ margin: "0 0 14px" }}>{error.userMessage}</p>
+          <Link href={`/exercises/${exerciseId}`} style={{ color: "#fda4af", textDecoration: "underline" }}>
+            Tentar novamente
+          </Link>
+        </section>
+      </main>
+    );
+  }
 
   if (!exercise) {
     notFound();

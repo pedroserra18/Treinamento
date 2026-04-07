@@ -13,6 +13,7 @@ export type RecommendationTemplateResponse = {
 
 export type PlanExercise = {
   id: string
+  customName: string | null
   orderIndex: number
   sets: number | null
   repsMin: number | null
@@ -30,6 +31,8 @@ export type PlanExercise = {
     name: string
     primaryMuscleGroup: string
     difficulty: string
+    isBodyweight: boolean
+    allowsExtraLoad: boolean
   }
 }
 
@@ -48,6 +51,8 @@ export type ExerciseOption = {
   primaryMuscleGroup: string
   difficulty: string
   equipment: string
+  isBodyweight: boolean
+  allowsExtraLoad: boolean
 }
 
 export type WorkoutSessionHistory = {

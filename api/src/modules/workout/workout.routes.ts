@@ -92,6 +92,14 @@ router.post(
 );
 
 router.patch(
+  "/workouts/plans/:planId/exercises/reorder",
+  requireAuth,
+  requireCompletedOnboarding,
+  validateRequest({ params: workoutPlanParamsSchema, body: reorderPlanExercisesBodySchema }),
+  asyncHandler(async (req, res) => reorderPlanExercisesController(req, res))
+);
+
+router.patch(
   "/workouts/plans/:planId/exercises/:planExerciseId",
   requireAuth,
   requireCompletedOnboarding,
@@ -105,14 +113,6 @@ router.delete(
   requireCompletedOnboarding,
   validateRequest({ params: planExerciseParamsSchema }),
   asyncHandler(async (req, res) => deletePlanExerciseController(req, res))
-);
-
-router.patch(
-  "/workouts/plans/:planId/exercises/reorder",
-  requireAuth,
-  requireCompletedOnboarding,
-  validateRequest({ params: workoutPlanParamsSchema, body: reorderPlanExercisesBodySchema }),
-  asyncHandler(async (req, res) => reorderPlanExercisesController(req, res))
 );
 
 router.get(

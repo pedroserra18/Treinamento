@@ -148,6 +148,7 @@ export async function updatePlanExercise(
   planExerciseId: string,
   input: {
     exerciseId?: string
+    customName?: string | null
     sets?: number | null
     repsMin?: number | null
     repsMax?: number | null

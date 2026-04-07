@@ -52,6 +52,7 @@ export const addPlanExerciseBodySchema = z
 export const updatePlanExerciseBodySchema = z
   .object({
     exerciseId: z.string().cuid().optional(),
+    customName: z.string().trim().min(1).max(140).nullable().optional(),
     sets: z.number().int().min(1).max(12).nullable().optional(),
     repsMin: z.number().int().min(1).max(100).nullable().optional(),
     repsMax: z.number().int().min(1).max(100).nullable().optional(),

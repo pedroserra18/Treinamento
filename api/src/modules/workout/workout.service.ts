@@ -244,7 +244,9 @@ export async function listUserWorkoutPlans(userId: string) {
               id: true,
               name: true,
               primaryMuscleGroup: true,
-              difficulty: true
+                difficulty: true,
+                isBodyweight: true,
+                allowsExtraLoad: true
             }
           }
         }
@@ -335,7 +337,9 @@ export async function addExerciseToPlan(
             id: true,
             name: true,
             primaryMuscleGroup: true,
-            difficulty: true
+            difficulty: true,
+            isBodyweight: true,
+            allowsExtraLoad: true
           }
         }
       }
@@ -447,6 +451,7 @@ export async function updatePlanExercise(
     where: { id: params.planExerciseId },
     data: {
       exerciseId: payload.exerciseId,
+      customName: payload.customName === null ? null : payload.customName,
       sets: payload.sets === null ? null : payload.sets,
       repsMin: payload.repsMin === null ? null : payload.repsMin,
       repsMax: payload.repsMax === null ? null : payload.repsMax,
@@ -460,7 +465,9 @@ export async function updatePlanExercise(
           id: true,
           name: true,
           primaryMuscleGroup: true,
-          difficulty: true
+          difficulty: true,
+          isBodyweight: true,
+          allowsExtraLoad: true
         }
       }
     }
@@ -540,16 +547,34 @@ export async function reorderPlanExercises(
     });
   }
 
-  await prisma.$transaction(
-    inputIds.map((id, index) =>
-      prisma.workoutPlanExercise.update({
-        where: { id },
+  await prisma.$transaction(async (tx) => {
+    const tempOffset = inputIds.length + 100;
+
+    // Move all target rows out of the unique orderIndex range first.
+    await tx.workoutPlanExercise.updateMany({
+      where: {
+        workoutPlanId: params.planId,
+        id: {
+          in: inputIds
+        }
+      },
+      data: {
+        orderIndex: {
+          increment: tempOffset
+        }
+      }
+    });
+
+    // Then assign the final contiguous order safely.
+    for (let index = 0; index < inputIds.length; index += 1) {
+      await tx.workoutPlanExercise.update({
+        where: { id: inputIds[index] },
         data: {
           orderIndex: index + 1
         }
-      })
-    )
-  );
+      });
+    }
+  });
 
   return getOwnedPlanWithExercises(params.planId, userId);
 }
@@ -575,7 +600,9 @@ export async function searchExercisesForPlan(userId: string, query: SearchExerci
       name: true,
       primaryMuscleGroup: true,
       difficulty: true,
-      equipment: true
+      equipment: true,
+      isBodyweight: true,
+      allowsExtraLoad: true
     }
   });
 }

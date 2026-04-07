@@ -44,6 +44,38 @@ type PerformanceDraft = {
 
 const PERF_MARKER = '__PERF__:'
 
+const BODYWEIGHT_HINTS = [
+  /flex[aã]o/i,
+  /barra\s*f(i|í)xa/i,
+  /pull\s*up/i,
+  /chin\s*up/i,
+  /mergulho/i,
+  /\bdip\b/i,
+  /prancha/i,
+  /plank/i,
+  /burpee/i,
+]
+
+function isLikelyBodyweight(name: string): boolean {
+  return BODYWEIGHT_HINTS.some((pattern) => pattern.test(name))
+}
+
+function resolveBodyweightFlag(flag: boolean | undefined, name: string): boolean {
+  if (typeof flag === 'boolean') {
+    return flag
+  }
+
+  return isLikelyBodyweight(name)
+}
+
+function resolveAllowsExtraLoad(flag: boolean | undefined, isBodyweight: boolean): boolean {
+  if (!isBodyweight) {
+    return true
+  }
+
+  return flag ?? true
+}
+
 function createSeriesDraft(initial?: Partial<SeriesDraft>): SeriesDraft {
   return {
     reps: initial?.reps ?? '',
@@ -150,6 +182,9 @@ export function WorkoutsPage() {
 
   const [draftByExercise, setDraftByExercise] = useState<Record<string, PerformanceDraft>>({})
   const [expandedByExercise, setExpandedByExercise] = useState<Record<string, boolean>>({})
+  const [editingNameByExercise, setEditingNameByExercise] = useState<Record<string, boolean>>({})
+  const [customNameByExercise, setCustomNameByExercise] = useState<Record<string, string>>({})
+  const [extraLoadByExercise, setExtraLoadByExercise] = useState<Record<string, boolean>>({})
 
   const loadAll = async () => {
     setLoading(true)
@@ -174,6 +209,30 @@ export function WorkoutsPage() {
           })
         })
 
+        return next
+      })
+      setCustomNameByExercise((current) => {
+        const next = { ...current }
+        planData.forEach((plan) => {
+          plan.exercises.forEach((exercise) => {
+            next[exercise.id] = exercise.customName ?? exercise.exercise.name
+          })
+        })
+        return next
+      })
+      setExtraLoadByExercise((current) => {
+        const next = { ...current }
+        planData.forEach((plan) => {
+          plan.exercises.forEach((exercise) => {
+            const fromNotes = parsePerformanceFromNotes(exercise.notes)
+            const hasLoad = (fromNotes.series ?? []).some((series) => Number(series.loadKg) > 0)
+            const effectiveBodyweight = resolveBodyweightFlag(
+              exercise.exercise.isBodyweight,
+              exercise.customName ?? exercise.exercise.name,
+            )
+            next[exercise.id] = effectiveBodyweight ? hasLoad : true
+          })
+        })
         return next
       })
     } catch (err) {
@@ -367,7 +426,13 @@ export function WorkoutsPage() {
       series: validSeries.slice(0, sets).map((series) =>
         createSeriesDraft({
           reps: String(Math.max(1, Math.min(50, Math.floor(Number(series.reps))))),
-          loadKg: series.loadKg,
+          loadKg: (() => {
+            const effectiveBodyweight = resolveBodyweightFlag(
+              targetExercise.exercise.isBodyweight,
+              targetExercise.customName ?? targetExercise.exercise.name,
+            )
+            return effectiveBodyweight && !extraLoadByExercise[planExerciseId] ? '' : series.loadKg
+          })(),
           rpe: series.rpe,
           rir: series.rir,
         }),
@@ -467,6 +532,27 @@ export function WorkoutsPage() {
       await loadAll()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao remover exercicio')
+    }
+  }
+
+  const saveCustomExerciseName = async (planId: string, planExerciseId: string) => {
+    const currentPlan = plans.find((plan) => plan.id === planId)
+    const currentExercise = currentPlan?.exercises.find((exercise) => exercise.id === planExerciseId)
+
+    if (!currentExercise) {
+      return
+    }
+
+    const typed = (customNameByExercise[planExerciseId] ?? '').trim()
+    const fallbackName = currentExercise.exercise.name
+    const customName = typed && typed !== fallbackName ? typed : null
+
+    try {
+      await updatePlanExercise(authorizedFetch, planId, planExerciseId, { customName })
+      setEditingNameByExercise((current) => ({ ...current, [planExerciseId]: false }))
+      await loadAll()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao salvar nome personalizado')
     }
   }
 
@@ -621,7 +707,14 @@ export function WorkoutsPage() {
               {plan.exercises.length === 0 ? <p className="text-sm text-[var(--muted)]">Sem exercicios.</p> : null}
               {plan.exercises.map((item, index) => {
                 const draft = draftByExercise[item.id] ?? { series: [createSeriesDraft({ reps: '10' })] }
+                const exerciseLabel = item.customName ?? item.exercise.name
+                const effectiveBodyweight = resolveBodyweightFlag(item.exercise.isBodyweight, exerciseLabel)
+                const allowsExtraLoad = resolveAllowsExtraLoad(item.exercise.allowsExtraLoad, effectiveBodyweight)
+                const showLoad = !effectiveBodyweight || (allowsExtraLoad && extraLoadByExercise[item.id])
                 const bestSeries1rm = draft.series.reduce((best, series) => {
+                  if (!showLoad) {
+                    return best
+                  }
                   const oneRm = estimate1rm(Number(series.loadKg ?? 0), Number(series.reps ?? 0))
                   return Math.max(best, oneRm)
                 }, 0)
@@ -630,12 +723,67 @@ export function WorkoutsPage() {
                   <div key={item.id} className="rounded-xl border border-[var(--line)] p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
-                        <p className="text-sm font-semibold text-[var(--text)]">
-                          {index + 1}. {item.exercise.name}
-                        </p>
+                        {editingNameByExercise[item.id] ? (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <input
+                              value={customNameByExercise[item.id] ?? item.customName ?? item.exercise.name}
+                              onChange={(event) =>
+                                setCustomNameByExercise((current) => ({
+                                  ...current,
+                                  [item.id]: event.target.value,
+                                }))
+                              }
+                              className="rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                            />
+                            <button
+                              type="button"
+                              className="rounded-md border border-[var(--brand)] px-2 py-1 text-xs font-semibold text-[var(--brand)]"
+                              onClick={() => {
+                                void saveCustomExerciseName(plan.id, item.id)
+                              }}
+                            >
+                              Salvar
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-sm font-semibold text-[var(--text)]">
+                              {index + 1}. {exerciseLabel}
+                            </p>
+                            <button
+                              type="button"
+                              className="rounded-md border border-[var(--line)] px-2 py-0.5 text-[10px] font-semibold text-[var(--muted)]"
+                              onClick={() =>
+                                setEditingNameByExercise((current) => ({
+                                  ...current,
+                                  [item.id]: true,
+                                }))
+                              }
+                            >
+                              Editar nome
+                            </button>
+                          </div>
+                        )}
                         <p className="text-[11px] text-[var(--muted)]">
-                          {draft.series.length} serie(s) • 1RM max: {bestSeries1rm.toFixed(1)} kg
+                          {draft.series.length} serie(s)
+                          {showLoad ? ` • 1RM max: ${bestSeries1rm.toFixed(1)} kg` : ' • peso corporal'}
                         </p>
+                        {effectiveBodyweight ? (
+                          <label className="mt-1 inline-flex items-center gap-1 text-[11px] text-[var(--muted)]">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(extraLoadByExercise[item.id])}
+                              disabled={!allowsExtraLoad}
+                              onChange={(event) =>
+                                setExtraLoadByExercise((current) => ({
+                                  ...current,
+                                  [item.id]: event.target.checked,
+                                }))
+                              }
+                            />
+                            {allowsExtraLoad ? 'Adicionar peso extra' : 'Peso extra indisponivel'}
+                          </label>
+                        ) : null}
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <button
@@ -703,16 +851,22 @@ export function WorkoutsPage() {
                                 placeholder="Reps"
                                 className="rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-xs"
                               />
-                              <input
-                                value={series.loadKg}
-                                onChange={(event) =>
-                                  patchSeries(item.id, seriesIndex, {
-                                    loadKg: event.target.value.replace(/[^\d.]/g, ''),
-                                  })
-                                }
-                                placeholder="Peso kg"
-                                className="rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-xs"
-                              />
+                              {showLoad ? (
+                                <input
+                                  value={series.loadKg}
+                                  onChange={(event) =>
+                                    patchSeries(item.id, seriesIndex, {
+                                      loadKg: event.target.value.replace(/[^\d.]/g, ''),
+                                    })
+                                  }
+                                  placeholder={effectiveBodyweight ? 'Peso extra kg' : 'Peso kg'}
+                                  className="rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-xs"
+                                />
+                              ) : (
+                                <p className="self-center rounded-md border border-[var(--line)] px-2 py-1 text-xs text-[var(--muted)]">
+                                  Peso corporal
+                                </p>
+                              )}
                               <input
                                 value={series.rpe}
                                 onChange={(event) =>
@@ -729,9 +883,15 @@ export function WorkoutsPage() {
                                 placeholder="RIR"
                                 className="rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-xs"
                               />
-                              <p className="self-center rounded-md border border-[var(--line)] px-2 py-1 text-xs font-bold text-[var(--brand)]">
-                                1RM {estimate1rm(Number(series.loadKg ?? 0), Number(series.reps ?? 0)).toFixed(1)}
-                              </p>
+                              {showLoad ? (
+                                <p className="self-center rounded-md border border-[var(--line)] px-2 py-1 text-xs font-bold text-[var(--brand)]">
+                                  1RM {estimate1rm(Number(series.loadKg ?? 0), Number(series.reps ?? 0)).toFixed(1)}
+                                </p>
+                              ) : (
+                                <p className="self-center rounded-md border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--muted)]">
+                                  1RM n/a
+                                </p>
+                              )}
                               <button
                                 type="button"
                                 className="rounded-md border border-red-500/50 px-2 py-1 text-xs text-red-300"
