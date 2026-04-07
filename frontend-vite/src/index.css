@@ -3,23 +3,23 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --bg: #f6f7fb;
-  --surface: #ffffff;
-  --text: #111827;
-  --muted: #6b7280;
-  --line: #d1d5db;
-  --brand: #0f766e;
-  --brand-strong: #115e59;
+  --bg: #0a0a0c;
+  --surface: #141417;
+  --text: #f4f4f5;
+  --muted: #a1a1aa;
+  --line: #2c2c31;
+  --brand: #ff5e1a;
+  --brand-strong: #e63c12;
 }
 
 .dark {
-  --bg: #0b1220;
-  --surface: #111827;
-  --text: #f3f4f6;
-  --muted: #9ca3af;
-  --line: #2a3546;
-  --brand: #2dd4bf;
-  --brand-strong: #14b8a6;
+  --bg: #070709;
+  --surface: #101014;
+  --text: #fafafa;
+  --muted: #a1a1aa;
+  --line: #26262b;
+  --brand: #ff6a00;
+  --brand-strong: #e63e00;
 }
 
 * {
@@ -35,13 +35,19 @@ body,
 
 body {
   min-height: 100vh;
-  background: radial-gradient(circle at 0% 0%, #fef3c7 0%, transparent 28%),
-    radial-gradient(circle at 100% 100%, #cffafe 0%, transparent 34%), var(--bg);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(220, 38, 38, 0.24) 0%, transparent 30%),
+    radial-gradient(circle at 100% 100%, rgba(249, 115, 22, 0.22) 0%, transparent 38%),
+    radial-gradient(circle at 60% -20%, rgba(250, 204, 21, 0.12) 0%, transparent 42%),
+    var(--bg);
   color: var(--text);
   font-family: "Sora", "Manrope", "DM Sans", "Segoe UI", sans-serif;
 }
 
 .dark body {
-  background: radial-gradient(circle at 0% 0%, #0f172a 0%, transparent 28%),
-    radial-gradient(circle at 100% 100%, #042f2e 0%, transparent 34%), var(--bg);
+  background:
+    radial-gradient(circle at 0% 0%, rgba(190, 24, 24, 0.25) 0%, transparent 28%),
+    radial-gradient(circle at 100% 100%, rgba(234, 88, 12, 0.2) 0%, transparent 34%),
+    radial-gradient(circle at 55% -20%, rgba(234, 179, 8, 0.11) 0%, transparent 40%),
+    var(--bg);
 }

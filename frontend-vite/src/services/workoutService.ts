@@ -120,7 +120,14 @@ export async function searchExercisesForPlan(
 export async function addExerciseToPlan(
   authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
   planId: string,
-  input: { exerciseId: string; insertAt?: number },
+  input: {
+    exerciseId: string
+    insertAt?: number
+    sets?: number
+    repsMin?: number
+    repsMax?: number
+    notes?: string
+  },
 ): Promise<void> {
   const response = await authorizedFetch(`${API_URL}/workouts/plans/${planId}/exercises`, {
     method: 'POST',
@@ -139,7 +146,13 @@ export async function updatePlanExercise(
   authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
   planId: string,
   planExerciseId: string,
-  input: { exerciseId?: string },
+  input: {
+    exerciseId?: string
+    sets?: number | null
+    repsMin?: number | null
+    repsMax?: number | null
+    notes?: string | null
+  },
 ): Promise<void> {
   const response = await authorizedFetch(
     `${API_URL}/workouts/plans/${planId}/exercises/${planExerciseId}`,
@@ -216,7 +229,18 @@ export async function startWorkoutSession(
 export async function completeWorkoutSession(
   authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
   sessionId: string,
-  input: { durationSec: number; notes?: string },
+  input: {
+    durationSec: number
+    notes?: string
+    exercises?: Array<{
+      exerciseId: string
+      setNumber: number
+      reps?: number
+      weightKg?: number
+      perceivedExertion?: number
+      notes?: string
+    }>
+  },
 ): Promise<WorkoutSession> {
   const response = await authorizedFetch(`${API_URL}/workouts/${sessionId}/complete`, {
     method: 'POST',

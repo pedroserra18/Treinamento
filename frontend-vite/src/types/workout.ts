@@ -20,6 +20,11 @@ export type PlanExercise = {
   durationSec: number | null
   restSec: number | null
   notes: string | null
+  performanceNote?: {
+    rpe?: number
+    rir?: number
+    loadKg?: number
+  }
   exercise: {
     id: string
     name: string

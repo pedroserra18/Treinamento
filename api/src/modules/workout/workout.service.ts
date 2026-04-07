@@ -289,6 +289,14 @@ export async function addExerciseToPlan(
   const plan = await getOwnedPlanWithExercises(params.planId, userId);
   await assertExerciseAvailableToUser(payload.exerciseId, userId);
 
+  const duplicated = plan.exercises.some((entry) => entry.exerciseId === payload.exerciseId);
+  if (duplicated) {
+    throw new AppError("Este exercicio ja existe neste treino", {
+      statusCode: 409,
+      code: "PLAN_EXERCISE_DUPLICATE"
+    });
+  }
+
   const nextIndex = (plan.exercises[plan.exercises.length - 1]?.orderIndex ?? 0) + 1;
   const targetIndex = payload.insertAt ? Math.min(payload.insertAt, nextIndex) : nextIndex;
 
@@ -351,7 +359,8 @@ export async function updatePlanExercise(
     },
     select: {
       id: true,
-      orderIndex: true
+      orderIndex: true,
+      exerciseId: true
     }
   });
 
@@ -364,6 +373,28 @@ export async function updatePlanExercise(
 
   if (payload.exerciseId) {
     await assertExerciseAvailableToUser(payload.exerciseId, userId);
+
+    if (payload.exerciseId !== existing.exerciseId) {
+      const duplicated = await prisma.workoutPlanExercise.findFirst({
+        where: {
+          workoutPlanId: params.planId,
+          exerciseId: payload.exerciseId,
+          id: {
+            not: params.planExerciseId
+          }
+        },
+        select: {
+          id: true
+        }
+      });
+
+      if (duplicated) {
+        throw new AppError("Este exercicio ja existe neste treino", {
+          statusCode: 409,
+          code: "PLAN_EXERCISE_DUPLICATE"
+        });
+      }
+    }
   }
 
   if (payload.orderIndex && payload.orderIndex !== existing.orderIndex) {

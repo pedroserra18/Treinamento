@@ -57,7 +57,31 @@ export function AppShell({ children }: AppShellProps) {
             }`
           }
         >
-          Treinos
+          Salvos
+        </NavLink>
+        <NavLink
+          to="/train"
+          className={({ isActive }) =>
+            `rounded-full px-4 py-2 text-sm font-medium transition ${
+              isActive
+                ? 'bg-[var(--brand)] text-white'
+                : 'text-[var(--muted)] hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`
+          }
+        >
+          Treinar
+        </NavLink>
+        <NavLink
+          to="/workout-recommendations"
+          className={({ isActive }) =>
+            `rounded-full px-4 py-2 text-sm font-medium transition ${
+              isActive
+                ? 'bg-[var(--brand)] text-white'
+                : 'text-[var(--muted)] hover:bg-slate-100 dark:hover:bg-slate-800'
+            }`
+          }
+        >
+          Recom.
         </NavLink>
         {isAuthenticated ? (
           <NavLink

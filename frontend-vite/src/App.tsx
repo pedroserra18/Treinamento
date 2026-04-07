@@ -13,6 +13,8 @@ import { LoginPage } from './pages/LoginPage'
 import { OnboardingPage } from './pages/OnboardingPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { RegisterPage } from './pages/RegisterPage'
+import { TrainPage } from './pages/TrainPage'
+import { WorkoutRecommendationsPage } from './pages/WorkoutRecommendationsPage'
 import { WorkoutsPage } from './pages/WorkoutsPage'
 
 function App() {
@@ -48,6 +50,22 @@ function App() {
               element={
                 <ProtectedRoute>
                   <WorkoutsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/train"
+              element={
+                <ProtectedRoute>
+                  <TrainPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/workout-recommendations"
+              element={
+                <ProtectedRoute>
+                  <WorkoutRecommendationsPage />
                 </ProtectedRoute>
               }
             />
