@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion'
 import { useAuth } from '../hooks/useAuth'
 import { useCallback, useEffect, useState } from 'react'
+import { WorkoutsPage } from './WorkoutsPage'
 import { createWorkoutPlan, getRecommendationTemplates } from '../services/workoutService'
 
 type RecommendationTemplateView = { key: string; title: string; structure: string[] }
@@ -9,10 +10,6 @@ type RecommendationDayItem = {
   displayName: string
   dayTitle: string
   defaultPlanName: string
-}
-type DayDraftState = {
-  isEditing: boolean
-  name: string
 }
 
 const DEFAULT_LOW_FREQUENCY_TEMPLATES: RecommendationTemplateView[] = [
@@ -76,7 +73,8 @@ export function WorkoutRecommendationsPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [savingKey, setSavingKey] = useState<string | null>(null)
-  const [dayDraftByKey, setDayDraftByKey] = useState<Record<string, DayDraftState>>({})
+  const [editorPlanId, setEditorPlanId] = useState<string | null>(null)
+  const [editorPlanTitle, setEditorPlanTitle] = useState<string>('')
 
   const getDayActionKey = (templateKey: string, dayNumber: number) => `${templateKey}:${dayNumber}`
 
@@ -109,31 +107,30 @@ export function WorkoutRecommendationsPage() {
     void loadTemplates()
   }, [loadTemplates])
 
-  const createFromTemplateDay = async (
+  const createAndEditTemplateDay = async (
     template: RecommendationTemplateView,
     dayItem: RecommendationDayItem,
   ) => {
     const actionKey = getDayActionKey(template.key, dayItem.dayNumber)
-    const typedName = dayDraftByKey[actionKey]?.name?.trim()
-    const planName = typedName && typedName.length >= 2 ? typedName : dayItem.defaultPlanName
+    const planName = dayItem.defaultPlanName
 
     try {
+      setError(null)
       setSavingKey(actionKey)
-      await createWorkoutPlan(authorizedFetch, {
+      const created = await createWorkoutPlan(authorizedFetch, {
         name: planName,
         description: `Estrutura recomendada: ${template.title} • Dia ${dayItem.dayNumber} (${dayItem.displayName})`,
         source: 'RECOMMENDATION',
         templateKey: `${template.key}-D${dayItem.dayNumber}`,
         daysPerWeek,
       })
-      window.alert(`${planName} salvo com sucesso.`)
-      setDayDraftByKey((current) => ({
-        ...current,
-        [actionKey]: {
-          isEditing: false,
-          name: planName,
-        },
-      }))
+
+      setEditorPlanId(created.id)
+      setEditorPlanTitle(planName)
+      requestAnimationFrame(() => {
+        const target = document.getElementById('recommendation-routine-editor')
+        target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao criar treino por recomendacao')
     } finally {
@@ -205,9 +202,6 @@ export function WorkoutRecommendationsPage() {
                 {buildTemplateDayItems(template).map((dayItem) => {
                   const actionKey = getDayActionKey(template.key, dayItem.dayNumber)
                   const isSaving = savingKey === actionKey
-                  const draft = dayDraftByKey[actionKey]
-                  const isEditing = draft?.isEditing ?? false
-                  const currentName = draft?.name ?? dayItem.defaultPlanName
 
                   return (
                     <div
@@ -215,52 +209,18 @@ export function WorkoutRecommendationsPage() {
                       className="rounded-lg border border-[var(--line)] bg-white px-3 py-2 dark:bg-transparent"
                     >
                       <p className="text-xs font-semibold text-slate-700 dark:text-[var(--text)]">{dayItem.dayTitle}</p>
-
-                      {isEditing ? (
-                        <input
-                          value={currentName}
-                          onChange={(event) =>
-                            setDayDraftByKey((current) => ({
-                              ...current,
-                              [actionKey]: {
-                                isEditing: true,
-                                name: event.target.value,
-                              },
-                            }))
-                          }
-                          className="mt-2 w-full rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-xs text-[var(--text)]"
-                        />
-                      ) : (
-                        <p className="mt-2 text-xs text-[var(--muted)]">Nome: {currentName}</p>
-                      )}
+                      <p className="mt-2 text-xs text-[var(--muted)]">Nome inicial: {dayItem.defaultPlanName}</p>
 
                       <div className="mt-2 flex flex-wrap gap-2">
                         <button
                           type="button"
                           disabled={isSaving}
-                          className="rounded-md border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--text)] disabled:opacity-60"
-                          onClick={() =>
-                            setDayDraftByKey((current) => ({
-                              ...current,
-                              [actionKey]: {
-                                isEditing: !isEditing,
-                                name: currentName,
-                              },
-                            }))
-                          }
-                        >
-                          {isEditing ? 'Concluir edicao' : 'Editar'}
-                        </button>
-
-                        <button
-                          type="button"
-                          disabled={isSaving}
                           className="rounded-md border border-[var(--line)] bg-red-500/10 px-2 py-1 text-xs font-semibold text-red-500 disabled:opacity-60"
                           onClick={() => {
-                            void createFromTemplateDay(template, dayItem)
+                            void createAndEditTemplateDay(template, dayItem)
                           }}
                         >
-                          {isSaving ? 'Salvando...' : 'Salvar'}
+                          {isSaving ? 'Preparando editor...' : 'Editar e salvar treino'}
                         </button>
                       </div>
                     </div>
@@ -271,6 +231,33 @@ export function WorkoutRecommendationsPage() {
           ))}
         </div>
       </article>
+
+      {editorPlanId ? (
+        <section id="recommendation-routine-editor" className="space-y-2">
+          <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-xl font-extrabold text-[var(--text)]">Editor do treino recomendado</h2>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  Edite exercicios, series e descanso de {editorPlanTitle} e finalize em "Salvar treino completo".
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditorPlanId(null)
+                  setEditorPlanTitle('')
+                }}
+                className="rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--text)]"
+              >
+                Fechar editor
+              </button>
+            </div>
+          </article>
+
+          <WorkoutsPage selectedPlanId={editorPlanId} onlySelectedPlan showCreateSection={false} />
+        </section>
+      ) : null}
     </section>
   )
 }
