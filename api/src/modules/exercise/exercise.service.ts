@@ -1,7 +1,6 @@
 import { Prisma } from "@prisma/client";
-
-import { ListExercisesQuery } from "./exercise.schema";
 import { prisma } from "../../config/prisma";
+import { ListExercisesQuery } from "./exercise.schema";
 import { AppError } from "../../shared/errors/app-error";
 
 type RequestUser = {

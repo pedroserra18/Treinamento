@@ -1,13 +1,12 @@
-import cors from "cors";
-import { RequestHandler } from "express";
-import rateLimit, { ipKeyGenerator } from "express-rate-limit";
-import { xss } from "express-xss-sanitizer";
-import helmet from "helmet";
 import hpp from "hpp";
-import { RedisStore } from "rate-limit-redis";
-
+import cors from "cors";
+import helmet from "helmet";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { env } from "../config/env";
+import { RequestHandler } from "express";
 import { logger } from "../config/logger";
+import { xss } from "express-xss-sanitizer";
+import { RedisStore } from "rate-limit-redis";
 import { redisClient } from "../config/redis";
 import { AppError } from "../shared/errors/app-error";
 
@@ -107,18 +106,48 @@ export function getSecurityMetricsSnapshot(): SecurityMetrics {
   return { ...securityMetrics };
 }
 
+export const enforceHttpsInProduction: RequestHandler = (req, res, next) => {
+  if (!env.enforceHttps) {
+    next();
+    return;
+  }
+
+  const forwardedProto = req.header("x-forwarded-proto");
+  const isHttps = req.secure || forwardedProto === "https";
+
+  if (isHttps) {
+    next();
+    return;
+  }
+
+  logger.warn("security_https_required", {
+    alert: true,
+    suspicious: true,
+    reason: "insecure_http_request_in_production",
+    ip: req.ip,
+    path: req.originalUrl
+  });
+
+  res.status(426).json({
+    error: {
+      code: "HTTPS_REQUIRED",
+      message: "HTTPS is required"
+    }
+  });
+};
+
 export const secureHeaders = helmet({
   contentSecurityPolicy: {
-    useDefaults: true,
+    useDefaults: false,
     directives: {
-      "default-src": ["'self'"],
-      "base-uri": ["'self'"],
+      "default-src": ["'none'"],
+      "base-uri": ["'none'"],
       "object-src": ["'none'"],
       "frame-ancestors": ["'none'"],
-      "form-action": ["'self'"],
-      "img-src": ["'self'", "data:", "https:"],
-      "script-src": ["'self'"],
-      "style-src": ["'self'", "'unsafe-inline'"],
+      "form-action": ["'none'"],
+      "img-src": ["'none'"],
+      "script-src": ["'none'"],
+      "style-src": ["'none'"],
       "connect-src": ["'self'", ...dedupedAllowedOrigins]
     }
   },
@@ -154,7 +183,7 @@ export const corsPolicy = cors({
   },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "x-request-id", "x-user-id", "x-user-role"],
-  credentials: true,
+  credentials: false,
   optionsSuccessStatus: 204
 });
 
@@ -192,6 +221,40 @@ export const loginBruteForceLimiter = rateLimit({
       typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "anonymous";
     trackLoginBruteForce(req.ip ?? "unknown", email);
     res.status(options.statusCode).json(options.message);
+  }
+});
+
+export const authCodeRequestLimiter = rateLimit({
+  windowMs: env.authCodeRequestWindowMin * 60 * 1000,
+  max: env.authCodeRequestMax,
+  store: createRedisStore("rl:auth:code:request:"),
+  keyGenerator: (req) => {
+    const ipKey = ipKeyGenerator(req.ip ?? req.socket.remoteAddress ?? "unknown");
+    const email =
+      typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "anonymous";
+    return `${ipKey}:${email}`;
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    message: "Too many code requests. Please try again later."
+  }
+});
+
+export const authCodeVerifyLimiter = rateLimit({
+  windowMs: env.authCodeVerifyWindowMin * 60 * 1000,
+  max: env.authCodeVerifyMax,
+  store: createRedisStore("rl:auth:code:verify:"),
+  keyGenerator: (req) => {
+    const ipKey = ipKeyGenerator(req.ip ?? req.socket.remoteAddress ?? "unknown");
+    const email =
+      typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "anonymous";
+    return `${ipKey}:${email}`;
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    message: "Too many validation attempts. Please try again later."
   }
 });
 

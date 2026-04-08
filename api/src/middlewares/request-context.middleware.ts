@@ -1,7 +1,6 @@
-import { NextFunction, Request, Response } from "express";
-
 import { logger } from "../config/logger";
 import { UserRole } from "../types/request-context";
+import { NextFunction, Request, Response } from "express";
 
 function normalizeRole(value?: string): UserRole {
   const upper = value?.toUpperCase();

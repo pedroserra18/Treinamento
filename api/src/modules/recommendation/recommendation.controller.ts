@@ -1,5 +1,4 @@
 import { Request, Response } from "express";
-
 import { getWorkoutRecommendationsForUser } from "./recommendation.service";
 
 export async function workoutRecommendationsController(req: Request, res: Response): Promise<void> {

@@ -1,7 +1,6 @@
 import { Request, Response } from "express";
-
-import { ExerciseParams, ListExercisesQuery } from "./exercise.schema";
 import { getExerciseById, listExercises } from "./exercise.service";
+import { ExerciseParams, ListExercisesQuery } from "./exercise.schema";
 
 export async function listExercisesController(req: Request, res: Response): Promise<void> {
   const exercises = await listExercises(req.query as unknown as ListExercisesQuery, {

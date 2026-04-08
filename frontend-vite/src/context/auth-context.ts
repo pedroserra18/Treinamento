@@ -1,5 +1,4 @@
 import { createContext } from 'react'
-
 import type { AuthTokens, AuthUser } from '../types/auth'
 
 export type AuthState = {

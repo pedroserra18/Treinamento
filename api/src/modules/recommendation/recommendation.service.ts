@@ -1,11 +1,11 @@
+import { prisma } from "../../config/prisma";
+import { AppError } from "../../shared/errors/app-error";
 import {
   AllowedDivision,
   RecommendationDay,
   RecommendationExercise,
   WorkoutRecommendation
 } from "./recommendation.schema";
-import { prisma } from "../../config/prisma";
-import { AppError } from "../../shared/errors/app-error";
 
 type GenderFocus = "UNISEX" | "FEMALE" | "MALE";
 type UserSex = "MALE" | "FEMALE" | "OTHER";

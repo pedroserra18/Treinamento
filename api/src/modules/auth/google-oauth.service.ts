@@ -1,10 +1,8 @@
-import { createHash, randomUUID } from "node:crypto";
-
-import { OAuth2Client } from "google-auth-library";
 import jwt from "jsonwebtoken";
-
 import { env } from "../../config/env";
 import { prisma } from "../../config/prisma";
+import { OAuth2Client } from "google-auth-library";
+import { createHash, randomUUID } from "node:crypto";
 import { AppError } from "../../shared/errors/app-error";
 
 const googleClient = new OAuth2Client(env.googleClientId);

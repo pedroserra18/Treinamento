@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
-
 import { useAuth } from '../hooks/useAuth'
+import { BrandLogo } from '../components/common/BrandLogo'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 
 export function LoginPage() {
   const { signIn, startGoogleSignIn } = useAuth()
@@ -46,6 +46,9 @@ export function LoginPage() {
 
   return (
     <section className="mx-auto max-w-md rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 sm:p-6">
+      <div className="mb-4 flex justify-center">
+        <BrandLogo compact className="h-14 w-auto rounded-xl border border-red-500/35" />
+      </div>
       <h1 className="mb-2 text-2xl font-extrabold text-[var(--text)]">Entrar</h1>
       <p className="mb-5 text-sm text-[var(--muted)]">Acesse com email/senha ou Google.</p>
 

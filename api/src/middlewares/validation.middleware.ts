@@ -1,7 +1,6 @@
-import { NextFunction, Request, Response } from "express";
 import { ZodError, ZodTypeAny } from "zod";
-
 import { AppError } from "../shared/errors/app-error";
+import { NextFunction, Request, Response } from "express";
 
 export function validateRequest(schema: {
   body?: ZodTypeAny;

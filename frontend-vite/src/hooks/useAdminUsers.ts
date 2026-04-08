@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
-
 import { useAuth } from './useAuth'
-import { listUsersForAdmin } from '../services/adminService'
+import { useCallback, useEffect, useState } from 'react'
 import type { AdminUsersResponse } from '../types/admin'
+import { listUsersForAdmin } from '../services/adminService'
 
 type UseAdminUsersOptions = {
   accountScope?: 'REAL' | 'TEST' | 'ALL'

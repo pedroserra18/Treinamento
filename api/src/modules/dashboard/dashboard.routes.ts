@@ -1,7 +1,6 @@
 import { Router } from "express";
-
-import { getDashboardSummaryController } from "./dashboard.controller";
 import { requireAuth } from "../../middlewares/auth.middleware";
+import { getDashboardSummaryController } from "./dashboard.controller";
 import { requireCompletedOnboarding } from "../../middlewares/onboarding.middleware";
 
 const router = Router();

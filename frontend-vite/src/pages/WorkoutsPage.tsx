@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Link } from 'react-router-dom'
-
 import { useAuth } from '../hooks/useAuth'
+import { useEffect, useState } from 'react'
+import type { ExerciseOption, WorkoutPlan } from '../types/workout'
 import {
   addExerciseToPlan,
   createWorkoutPlan,
@@ -12,7 +12,6 @@ import {
   searchExercisesForPlan,
   updatePlanExercise,
 } from '../services/workoutService'
-import type { ExerciseOption, WorkoutPlan } from '../types/workout'
 
 const muscleOptions = [
   'CHEST',

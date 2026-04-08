@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react'
-
-import { useAdminUsers } from '../hooks/useAdminUsers'
 import { useAuth } from '../hooks/useAuth'
+import { useAdminUsers } from '../hooks/useAdminUsers'
 import { deactivateUserByAdmin, deleteUserByAdmin } from '../services/adminService'
 
 function formatDate(value: string | null): string {

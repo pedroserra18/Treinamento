@@ -1,24 +1,5 @@
 import { Request, Response } from "express";
-
-import {
-  AddPlanExerciseBody,
-  CreateManualHistoryBody,
-  CreateWorkoutPlanBody,
-  CompleteWorkoutBody,
-  CompleteWorkoutParams,
-  ExploreWorkoutsQuery,
-  HistorySessionParams,
-  ListWorkoutHistoryQuery,
-  PlanExerciseParams,
-  RecommendationTemplateQuery,
-  ReorderPlanExercisesBody,
-  SearchExercisesQuery,
-  StartWorkoutBody
-  ,
-  UpdatePlanExerciseBody,
-  UpdateWorkoutDurationBody,
-  WorkoutPlanParams
-} from "./workout.schema";
+import { AppError } from "../../shared/errors/app-error";
 import {
   addExerciseToPlan,
   createManualWorkoutHistory,
@@ -38,7 +19,25 @@ import {
   updateCompletedWorkoutDuration,
   updatePlanExercise
 } from "./workout.service";
-import { AppError } from "../../shared/errors/app-error";
+import {
+  AddPlanExerciseBody,
+  CreateManualHistoryBody,
+  CreateWorkoutPlanBody,
+  CompleteWorkoutBody,
+  CompleteWorkoutParams,
+  ExploreWorkoutsQuery,
+  HistorySessionParams,
+  ListWorkoutHistoryQuery,
+  PlanExerciseParams,
+  RecommendationTemplateQuery,
+  ReorderPlanExercisesBody,
+  SearchExercisesQuery,
+  StartWorkoutBody
+  ,
+  UpdatePlanExerciseBody,
+  UpdateWorkoutDurationBody,
+  WorkoutPlanParams
+} from "./workout.schema";
 
 function eventContextFromRequest(req: Request): {
   requestId: string;

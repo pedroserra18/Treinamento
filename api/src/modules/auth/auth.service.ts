@@ -1,13 +1,11 @@
-import { createHash, randomUUID } from "node:crypto";
-
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-
-import { LoginBody, OnboardingCompleteBody, RefreshBody, RegisterBody } from "./auth.schema";
 import { env } from "../../config/env";
 import { prisma } from "../../config/prisma";
 import { redisClient } from "../../config/redis";
+import { createHash, randomUUID } from "node:crypto";
 import { AppError } from "../../shared/errors/app-error";
+import { LoginBody, OnboardingCompleteBody, RefreshBody, RegisterBody } from "./auth.schema";
 
 type AccessTokenPayload = {
   sub: string;

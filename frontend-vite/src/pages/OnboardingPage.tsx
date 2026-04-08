@@ -1,8 +1,7 @@
-import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
-
+import { useMemo, useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
+import { Navigate, useNavigate } from 'react-router-dom'
 
 type SexOption = 'MALE' | 'FEMALE' | 'OTHER'
 

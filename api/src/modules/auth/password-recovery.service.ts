@@ -1,13 +1,11 @@
-import { createHash, randomInt } from "node:crypto";
-
 import bcrypt from "bcryptjs";
-
 import { env } from "../../config/env";
 import { prisma } from "../../config/prisma";
+import { logoutSession } from "./auth.service";
 import { redisClient } from "../../config/redis";
+import { createHash, randomInt } from "node:crypto";
 import { AppError } from "../../shared/errors/app-error";
 import { sendEmail } from "../../shared/services/email.service";
-import { logoutSession } from "./auth.service";
 
 type RecoveryRecord = {
   codeHash: string;

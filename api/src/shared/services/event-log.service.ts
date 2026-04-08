@@ -1,7 +1,6 @@
-import { EventCategory, EventSeverity, Prisma } from "@prisma/client";
-
 import { logger } from "../../config/logger";
 import { prisma } from "../../config/prisma";
+import { EventCategory, EventSeverity, Prisma } from "@prisma/client";
 
 type TrackEventInput = {
   userId?: string;

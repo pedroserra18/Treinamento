@@ -1,8 +1,8 @@
-import { Link, NavLink } from 'react-router-dom'
-
-import { ThemeToggle } from '../common/ThemeToggle'
 import { useAuth } from '../../hooks/useAuth'
 import { useTheme } from '../../hooks/useTheme'
+import { Link, NavLink } from 'react-router-dom'
+import { ThemeToggle } from '../common/ThemeToggle'
+import { BrandLogo } from '../common/BrandLogo'
 
 type AppShellProps = {
   children: React.ReactNode
@@ -14,9 +14,9 @@ export function AppShell({ children }: AppShellProps) {
 
   return (
     <div className="mx-auto min-h-screen max-w-5xl px-4 pb-8 pt-24 sm:px-6 lg:px-8">
-      <header className="mb-5 flex items-center justify-between rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-3 shadow-sm">
-        <Link to="/" className="text-sm font-bold tracking-wide text-[var(--text)] sm:text-base">
-          Fit Frontend
+      <header className="mb-5 flex items-center justify-between gap-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-3 shadow-sm">
+        <Link to="/" className="min-w-0">
+          <BrandLogo className="flex items-center gap-2" />
         </Link>
         <div className="flex items-center gap-2">
           {isAuthenticated ? (

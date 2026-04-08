@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react'
-
 import { motion } from 'framer-motion'
-
 import { useAuth } from '../hooks/useAuth'
+import { useEffect, useState } from 'react'
+import type { ExerciseOption, WorkoutPlan } from '../types/workout'
 import {
   completeWorkoutSession,
   listWorkoutPlans,
@@ -10,7 +9,6 @@ import {
   startWorkoutSession,
   updatePlanExercise,
 } from '../services/workoutService'
-import type { ExerciseOption, WorkoutPlan } from '../types/workout'
 
 const PERF_MARKER = '__PERF__:'
 const LOCAL_SESSION_KEY = 'acad-workout-active-session-v1'
