@@ -1027,60 +1027,52 @@ export function WorkoutsPage({
                       <div className="mt-3 rounded-lg border border-[var(--line)] p-2">
                         <div className="space-y-2">
                           {draft.series.map((series, seriesIndex) => (
-                            <div key={`${item.id}-serie-${seriesIndex}`} className="grid gap-2 rounded-xl border border-[var(--line)] p-3 md:grid-cols-[56px_1fr_1fr_1fr_1fr_1fr_auto]">
-                              <p className="self-center text-xs font-bold text-[var(--muted)]">#{seriesIndex + 1}</p>
-                              <input
-                                value={series.reps}
-                                onChange={(event) =>
-                                  patchSeries(item.id, seriesIndex, { reps: event.target.value.replace(/[^\d]/g, '') })
-                                }
-                                placeholder="Reps"
-                                className="rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-xs"
-                              />
+                            <div
+                              key={`${item.id}-serie-${seriesIndex}`}
+                              className={`grid gap-2 rounded-xl border border-[var(--line)] p-3 ${
+                                showLoad
+                                  ? 'sm:grid-cols-[50px_1fr_1fr_1fr_auto]'
+                                  : 'sm:grid-cols-[50px_1fr_1fr_auto]'
+                              }`}
+                            >
+                              <p className="self-center text-xs font-bold text-[var(--muted)]">Serie {seriesIndex + 1}</p>
                               {showLoad ? (
+                                <label className="text-[11px] uppercase text-[var(--muted)]">
+                                  Peso (kg)
+                                  <input
+                                    value={series.loadKg}
+                                    onChange={(event) =>
+                                      patchSeries(item.id, seriesIndex, {
+                                        loadKg: event.target.value.replace(/[^\d.]/g, ''),
+                                      })
+                                    }
+                                    className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                                  />
+                                </label>
+                              ) : null}
+                              <label className="text-[11px] uppercase text-[var(--muted)]">
+                                Repeticoes
                                 <input
-                                  value={series.loadKg}
+                                  value={series.reps}
                                   onChange={(event) =>
-                                    patchSeries(item.id, seriesIndex, {
-                                      loadKg: event.target.value.replace(/[^\d.]/g, ''),
-                                    })
+                                    patchSeries(item.id, seriesIndex, { reps: event.target.value.replace(/[^\d]/g, '') })
                                   }
-                                  placeholder={effectiveBodyweight ? 'Peso extra kg' : 'Peso kg'}
-                                  className="rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-xs"
+                                  className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
                                 />
-                              ) : (
-                                <p className="self-center rounded-md border border-[var(--line)] px-2 py-1 text-xs text-[var(--muted)]">
-                                  Peso corporal
-                                </p>
-                              )}
-                              <input
-                                value={series.rpe}
-                                onChange={(event) =>
-                                  patchSeries(item.id, seriesIndex, { rpe: event.target.value.replace(/[^\d.]/g, '') })
-                                }
-                                placeholder="RPE"
-                                className="rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-xs"
-                              />
-                              <input
-                                value={series.rir}
-                                onChange={(event) =>
-                                  patchSeries(item.id, seriesIndex, { rir: event.target.value.replace(/[^\d.]/g, '') })
-                                }
-                                placeholder="RIR"
-                                className="rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-xs"
-                              />
-                              {showLoad ? (
-                                <p className="self-center rounded-md border border-[var(--line)] px-2 py-1 text-xs font-bold text-[var(--brand)]">
-                                  1RM {estimate1rm(Number(series.loadKg ?? 0), Number(series.reps ?? 0)).toFixed(1)}
-                                </p>
-                              ) : (
-                                <p className="self-center rounded-md border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--muted)]">
-                                  1RM n/a
-                                </p>
-                              )}
+                              </label>
+                              <label className="text-[11px] uppercase text-[var(--muted)]">
+                                RIR
+                                <input
+                                  value={series.rir}
+                                  onChange={(event) =>
+                                    patchSeries(item.id, seriesIndex, { rir: event.target.value.replace(/[^\d]/g, '') })
+                                  }
+                                  className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                                />
+                              </label>
                               <button
                                 type="button"
-                                className="rounded-md border border-red-500/50 px-2 py-1 text-xs text-red-300"
+                                className="self-end rounded-lg border border-red-500/60 px-2 py-1 text-xs font-semibold text-red-300"
                                 onClick={() => removeSeries(item.id, seriesIndex)}
                               >
                                 Remover
@@ -1092,14 +1084,14 @@ export function WorkoutsPage({
                         <div className="mt-2 flex flex-wrap gap-2">
                           <button
                             type="button"
-                            className="rounded-md border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--text)]"
+                            className="rounded-lg border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--text)]"
                             onClick={() => addSeries(item.id)}
                           >
                             Adicionar serie
                           </button>
                           <button
                             type="button"
-                            className="rounded-md border border-[var(--brand)] bg-[var(--brand)]/15 px-3 py-1 text-xs font-bold text-[var(--brand)]"
+                            className="rounded-lg border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--text)]"
                             onClick={() => {
                               void saveExerciseMetrics(plan.id, item.id)
                             }}
