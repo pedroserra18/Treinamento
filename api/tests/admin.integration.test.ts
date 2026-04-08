@@ -10,7 +10,7 @@ Object.assign(process.env, {
   NODE_ENV: "test",
   API_PORT: "4002",
   CLIENT_URL: "http://localhost:3000",
-  CORS_ALLOWED_ORIGINS: "http://localhost:3000,http://localhost:5173",
+  CORS_ALLOWED_ORIGINS: "http://localhost:3000",
   GLOBAL_RATE_LIMIT_MAX: "500",
   LOGIN_BRUTE_FORCE_MAX: "50",
   LOGIN_BRUTE_FORCE_WINDOW_MIN: "15",

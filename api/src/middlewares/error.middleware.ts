@@ -7,7 +7,9 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
   const requestId = req.context?.requestId;
 
   if (err instanceof AppError) {
-    logger.warn("app_error", {
+    const logLevel = err.statusCode >= 500 ? "error" : "warn";
+
+    logger.log(logLevel, "app_error", {
       requestId,
       message: err.message,
       code: err.code,

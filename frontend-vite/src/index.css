@@ -3,23 +3,25 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --bg: #0a0a0c;
-  --surface: #141417;
-  --text: #f4f4f5;
-  --muted: #a1a1aa;
-  --line: #2c2c31;
+  --bg: #f7f9fc;
+  --surface: #ffffff;
+  --surface-hover: #eef2f8;
+  --text: #121826;
+  --muted: #5b6474;
+  --line: #d7deea;
   --brand: #ff5e1a;
   --brand-strong: #e63c12;
 }
 
 .dark {
-  --bg: #070709;
-  --surface: #101014;
+  --bg: #040507;
+  --surface: #0f1116;
+  --surface-hover: #1a1f2a;
   --text: #fafafa;
-  --muted: #a1a1aa;
-  --line: #26262b;
-  --brand: #ff6a00;
-  --brand-strong: #e63e00;
+  --muted: #9aa3b3;
+  --line: #232838;
+  --brand: #ff5e1a;
+  --brand-strong: #e63c12;
 }
 
 * {
@@ -36,9 +38,9 @@ body,
 body {
   min-height: 100vh;
   background:
-    radial-gradient(circle at 0% 0%, rgba(220, 38, 38, 0.24) 0%, transparent 30%),
-    radial-gradient(circle at 100% 100%, rgba(249, 115, 22, 0.22) 0%, transparent 38%),
-    radial-gradient(circle at 60% -20%, rgba(250, 204, 21, 0.12) 0%, transparent 42%),
+    radial-gradient(circle at 0% 0%, rgba(220, 38, 38, 0.12) 0%, transparent 34%),
+    radial-gradient(circle at 100% 100%, rgba(249, 115, 22, 0.1) 0%, transparent 42%),
+    radial-gradient(circle at 60% -20%, rgba(250, 204, 21, 0.1) 0%, transparent 42%),
     var(--bg);
   color: var(--text);
   font-family: "Sora", "Manrope", "DM Sans", "Segoe UI", sans-serif;

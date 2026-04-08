@@ -31,8 +31,19 @@ import {
   loginWithGoogleCode
 } from "./google-oauth.service";
 import { consumeOAuthState, createOAuthState } from "./oauth-state.service";
+import { logger } from "../../config/logger";
 import { trackLoginFailure } from "../../middlewares/security.middleware";
 import { AppError } from "../../shared/errors/app-error";
+
+function maskEmail(email: string): string {
+  const [local, domain] = email.split("@");
+  if (!local || !domain) {
+    return "invalid";
+  }
+
+  const visible = local.slice(0, 2);
+  return `${visible}***@${domain}`;
+}
 
 export async function registerController(req: Request, res: Response): Promise<void> {
   const body = req.body as RegisterBody;
@@ -130,6 +141,15 @@ export async function loginController(req: Request, res: Response): Promise<void
   try {
     const result = await loginWithEmail(body);
 
+    logger.info("auth_login_success", {
+      requestId: req.context.requestId,
+      userId: result.user.id,
+      provider: "EMAIL_PASSWORD",
+      emailMasked: maskEmail(result.user.email),
+      ipAddress: req.ip,
+      userAgent: req.get("user-agent")
+    });
+
     res.status(200).json({
       data: {
         token: result.tokens.token,
@@ -142,7 +162,11 @@ export async function loginController(req: Request, res: Response): Promise<void
       }
     });
   } catch (error) {
-    trackLoginFailure(body.email, req.ip ?? "unknown");
+    trackLoginFailure(body.email, req.ip ?? "unknown", {
+      requestId: req.context.requestId,
+      userAgent: req.get("user-agent"),
+      path: req.originalUrl
+    });
     throw error;
   }
 }
@@ -203,6 +227,16 @@ export async function googleCallbackController(req: Request, res: Response): Pro
   }
 
   const result = await loginWithGoogleCode(query.code);
+
+  logger.info("auth_login_success", {
+    requestId: req.context.requestId,
+    userId: result.user.id,
+    provider: "GOOGLE",
+    emailMasked: maskEmail(result.user.email),
+    ipAddress: req.ip,
+    userAgent: req.get("user-agent")
+  });
+
   res.status(200).json({
     data: {
       token: result.tokens.token,

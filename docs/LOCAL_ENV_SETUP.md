@@ -57,7 +57,7 @@
 - `SENTRY_DSN`
 - `OTEL_EXPORTER_OTLP_ENDPOINT`
 - `OTEL_SERVICE_NAME`
-- `NEXT_PUBLIC_SENTRY_DSN`
+- `VITE_SENTRY_DSN`
 
 ## Regras de segurança para `.env`
 
@@ -65,7 +65,7 @@
 - Usar segredos fortes (>= 32 caracteres) para JWT.
 - Não reutilizar secrets entre dev/staging/prod.
 - Rotacionar segredos periodicamente e após incidentes.
-- Não colocar segredos com prefixo `NEXT_PUBLIC_`.
+- Não colocar segredos em variáveis `VITE_` (somente valores publicos no frontend).
 - Limitar permissões do usuário de banco (least privilege).
 - Revisar logs para garantir que valores de env não sejam impressos.
 - Guardar segredos em gerenciador de segredo no deploy (ex.: Doppler, AWS SSM, Vault).
