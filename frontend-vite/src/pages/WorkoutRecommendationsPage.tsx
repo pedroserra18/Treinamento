@@ -1,36 +1,64 @@
 import { motion } from 'framer-motion'
 import { useAuth } from '../hooks/useAuth'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { createWorkoutPlan, getRecommendationTemplates } from '../services/workoutService'
+
+type RecommendationTemplateView = { key: string; title: string; structure: string[] }
+
+const DEFAULT_LOW_FREQUENCY_TEMPLATES: RecommendationTemplateView[] = [
+  { key: 'PPL', title: 'Push Pull Legs', structure: ['Push', 'Pull', 'Legs'] },
+  { key: 'FB', title: 'Full Body', structure: ['Full Body A', 'Full Body B', 'Full Body C'] },
+]
+
+function ensureLowFrequencyTemplates(input: RecommendationTemplateView[]): RecommendationTemplateView[] {
+  const map = new Map(input.map((item) => [item.key, item]))
+  DEFAULT_LOW_FREQUENCY_TEMPLATES.forEach((item) => {
+    if (!map.has(item.key)) {
+      map.set(item.key, item)
+    }
+  })
+
+  const orderedKeys = ['PPL', 'FB', ...Array.from(map.keys()).filter((key) => key !== 'PPL' && key !== 'FB')]
+  return orderedKeys.map((key) => map.get(key)).filter((item): item is RecommendationTemplateView => Boolean(item))
+}
 
 export function WorkoutRecommendationsPage() {
   const { authorizedFetch, user } = useAuth()
   const [daysPerWeek, setDaysPerWeek] = useState<number>(user?.availableDaysPerWeek ?? 4)
   const [sex, setSex] = useState<'MALE' | 'FEMALE' | 'OTHER'>(user?.sex ?? 'OTHER')
-  const [templates, setTemplates] = useState<Array<{ key: string; title: string; structure: string[] }>>([])
+  const [templates, setTemplates] = useState<RecommendationTemplateView[]>([])
   const [warning, setWarning] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
-  const loadTemplates = async () => {
+  const loadTemplates = useCallback(async () => {
     setLoading(true)
     setError(null)
 
     try {
       const data = await getRecommendationTemplates(authorizedFetch, { daysPerWeek, sex })
-      setTemplates(data.templates)
+      setTemplates(daysPerWeek <= 3 ? ensureLowFrequencyTemplates(data.templates) : data.templates)
       setWarning(data.warning)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar recomendacoes')
     } finally {
       setLoading(false)
     }
-  }
+  }, [authorizedFetch, daysPerWeek, sex])
+
+  useEffect(() => {
+    if (typeof user?.availableDaysPerWeek === 'number') {
+      setDaysPerWeek(user.availableDaysPerWeek)
+    }
+
+    if (user?.sex) {
+      setSex(user.sex)
+    }
+  }, [user?.availableDaysPerWeek, user?.sex])
 
   useEffect(() => {
     void loadTemplates()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [loadTemplates])
 
   const createFromTemplate = async (template: { key: string; title: string }) => {
     try {
