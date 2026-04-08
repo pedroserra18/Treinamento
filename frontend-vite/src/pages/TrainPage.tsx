@@ -531,7 +531,7 @@ export function TrainPage() {
       <motion.header
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="rounded-3xl border border-[var(--line)] bg-[linear-gradient(135deg,rgba(18,18,20,0.96),rgba(30,30,34,0.88))] p-5 shadow-[0_0_35px_rgba(255,69,0,0.12)]"
+        className="rounded-3xl border border-[var(--line)] bg-[linear-gradient(135deg,var(--surface),var(--surface-hover))] p-5 shadow-[0_0_35px_rgba(255,69,0,0.12)]"
       >
         <h1 className="text-2xl font-black uppercase tracking-[0.06em] text-[var(--text)]">Execucao de treino</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">

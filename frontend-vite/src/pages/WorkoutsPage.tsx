@@ -9,7 +9,6 @@ import {
   deletePlanExercise,
   deleteWorkoutPlan,
   listWorkoutPlans,
-  reorderPlanExercises,
   searchExercisesForPlan,
   updatePlanExercise,
 } from '../services/workoutService'
@@ -471,13 +470,10 @@ export function WorkoutsPage() {
       return
     }
 
-    const ids = plan.exercises.map((item) => item.id)
-    const temp = ids[currentIndex]
-    ids[currentIndex] = ids[nextIndex]
-    ids[nextIndex] = temp
-
     try {
-      await reorderPlanExercises(authorizedFetch, plan.id, ids)
+      await updatePlanExercise(authorizedFetch, plan.id, planExerciseId, {
+        orderIndex: nextIndex + 1,
+      })
       await loadAll()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao reordenar exercicios')

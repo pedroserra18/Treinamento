@@ -19,6 +19,7 @@ import {
   UpdateWorkoutDurationBody,
   WorkoutPlanParams
 } from "./workout.schema";
+import { logger } from "../../config/logger";
 import { prisma } from "../../config/prisma";
 import { AppError } from "../../shared/errors/app-error";
 import { trackEvent } from "../../shared/services/event-log.service";
@@ -404,47 +405,42 @@ export async function updatePlanExercise(
   if (payload.orderIndex && payload.orderIndex !== existing.orderIndex) {
     const fullPlan = await getOwnedPlanWithExercises(params.planId, userId);
     const targetIndex = Math.max(1, Math.min(payload.orderIndex, fullPlan.exercises.length));
+    const currentIds = fullPlan.exercises.map((item) => item.id);
+    const fromIndex = currentIds.findIndex((id) => id === params.planExerciseId);
+    const toIndex = targetIndex - 1;
 
-    await prisma.$transaction(async (tx) => {
-      if (targetIndex > existing.orderIndex) {
+    if (fromIndex >= 0 && fromIndex !== toIndex) {
+      const orderedIds = [...currentIds];
+      const [movedId] = orderedIds.splice(fromIndex, 1);
+      orderedIds.splice(toIndex, 0, movedId);
+
+      await prisma.$transaction(async (tx) => {
+        const tempOffset = orderedIds.length + 100;
+
         await tx.workoutPlanExercise.updateMany({
           where: {
             workoutPlanId: params.planId,
-            orderIndex: {
-              gt: existing.orderIndex,
-              lte: targetIndex
+            id: {
+              in: orderedIds
             }
           },
           data: {
             orderIndex: {
-              decrement: 1
+              increment: tempOffset
             }
           }
         });
-      } else {
-        await tx.workoutPlanExercise.updateMany({
-          where: {
-            workoutPlanId: params.planId,
-            orderIndex: {
-              gte: targetIndex,
-              lt: existing.orderIndex
-            }
-          },
-          data: {
-            orderIndex: {
-              increment: 1
-            }
-          }
-        });
-      }
 
-      await tx.workoutPlanExercise.update({
-        where: { id: params.planExerciseId },
-        data: {
-          orderIndex: targetIndex
+        for (let index = 0; index < orderedIds.length; index += 1) {
+          await tx.workoutPlanExercise.update({
+            where: { id: orderedIds[index] },
+            data: {
+              orderIndex: index + 1
+            }
+          });
         }
       });
-    });
+    }
   }
 
   return prisma.workoutPlanExercise.update({
@@ -684,6 +680,16 @@ export async function startWorkoutSession(
     }
   });
 
+  logger.info("workout_started", {
+    requestId: context.requestId,
+    userId,
+    workoutSessionId: session.id,
+    workoutPlanId: payload.workoutPlanId ?? null,
+    startedAt: startedAt.toISOString(),
+    ipAddress: context.ipAddress,
+    userAgent: context.userAgent
+  });
+
   return session;
 }
 
@@ -809,6 +815,25 @@ export async function completeWorkoutSession(
     }
   });
 
+  logger.info("workout_completed", {
+    requestId: context.requestId,
+    userId,
+    workoutSessionId: completed.id,
+    durationSec: completed.durationSec,
+    caloriesBurned: completed.caloriesBurned,
+    loggedSets: exercises.length,
+    ipAddress: context.ipAddress,
+    userAgent: context.userAgent
+  });
+
+  logger.info("usage_time_recorded", {
+    requestId: context.requestId,
+    userId,
+    source: "workout_completion",
+    durationSec: completed.durationSec,
+    workoutSessionId: completed.id
+  });
+
   return completed;
 }
 
@@ -873,7 +898,8 @@ export async function updateCompletedWorkoutDuration(
       status: "COMPLETED"
     },
     select: {
-      id: true
+      id: true,
+      durationSec: true
     }
   });
 
@@ -884,12 +910,22 @@ export async function updateCompletedWorkoutDuration(
     });
   }
 
-  return prisma.workoutSession.update({
+  const updated = await prisma.workoutSession.update({
     where: { id: params.sessionId },
     data: {
       durationSec: payload.durationSec
     }
   });
+
+  logger.info("usage_time_recorded", {
+    userId,
+    source: "workout_duration_update",
+    workoutSessionId: updated.id,
+    previousDurationSec: session.durationSec,
+    durationSec: updated.durationSec
+  });
+
+  return updated;
 }
 
 export async function createManualWorkoutHistory(userId: string, payload: CreateManualHistoryBody) {

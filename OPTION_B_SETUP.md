@@ -1,8 +1,8 @@
-# Opcao B aplicada: Next.js + API Express separada
+# Opcao B aplicada: Vite + API Express separada
 
 ## Visao geral
 
-- Web: Next.js na raiz do projeto
+- Web: Vite em /frontend-vite
 - API: Express + TypeScript em /api
 - Banco: PostgreSQL via Prisma (proximo passo)
 
@@ -15,7 +15,7 @@
 3. Criar arquivo de ambiente da API:
    copy api\\.env.example api\\.env
 4. Subir tudo junto:
-   npm run dev:full
+   npm run dev
 
 ## Endpoints iniciais
 
