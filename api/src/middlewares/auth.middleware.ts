@@ -1,8 +1,7 @@
-import { NextFunction, Request, Response } from "express";
 import jwt from "jsonwebtoken";
-
 import { env } from "../config/env";
 import { AppError } from "../shared/errors/app-error";
+import { NextFunction, Request, Response } from "express";
 
 type AccessTokenClaims = {
   sub: string;

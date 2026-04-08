@@ -1,5 +1,4 @@
 import { Resend } from "resend";
-
 import { env } from "../../config/env";
 import { logger } from "../../config/logger";
 import { AppError } from "../errors/app-error";

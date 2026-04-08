@@ -1,11 +1,9 @@
-import { useEffect, useState } from 'react'
-
 import { motion } from 'framer-motion'
 import { Link } from 'react-router-dom'
-
 import { useAuth } from '../hooks/useAuth'
-import { listWorkoutHistory } from '../services/workoutService'
+import { useEffect, useState } from 'react'
 import type { WorkoutSessionHistory } from '../types/workout'
+import { listWorkoutHistory } from '../services/workoutService'
 
 function formatDuration(totalSeconds: number | null): string {
   if (!totalSeconds || totalSeconds <= 0) {

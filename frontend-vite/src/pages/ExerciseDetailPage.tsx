@@ -1,9 +1,8 @@
 import { motion } from 'framer-motion'
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
-
-import { getExerciseById } from '../services/exerciseService'
 import type { Exercise } from '../types/exercise'
+import { Link, useParams } from 'react-router-dom'
+import { getExerciseById } from '../services/exerciseService'
 
 export function ExerciseDetailPage() {
   const { exerciseId } = useParams<{ exerciseId: string }>()

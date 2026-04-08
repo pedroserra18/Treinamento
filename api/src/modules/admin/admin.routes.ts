@@ -1,15 +1,14 @@
 import { Router } from "express";
-
+import { requireAuth } from "../../middlewares/auth.middleware";
+import { asyncHandler } from "../../shared/utils/async-handler";
+import { requireAdminRole } from "../../middlewares/role.middleware";
+import { validateRequest } from "../../middlewares/validation.middleware";
 import { deactivateUserController, deleteUserController, listUsersController } from "./admin.controller";
 import {
   deactivateUserParamsSchema,
   deleteUserParamsSchema,
   listUsersQuerySchema
 } from "./admin.schema";
-import { requireAuth } from "../../middlewares/auth.middleware";
-import { requireAdminRole } from "../../middlewares/role.middleware";
-import { validateRequest } from "../../middlewares/validation.middleware";
-import { asyncHandler } from "../../shared/utils/async-handler";
 
 const router = Router();
 

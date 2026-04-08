@@ -1,24 +1,8 @@
 import { Router } from "express";
-
-import {
-  addPlanExerciseController,
-  completeWorkoutController,
-  createManualHistoryController,
-  createWorkoutPlanController,
-  deletePlanExerciseController,
-  deleteWorkoutPlanController,
-  exploreWorkoutsController,
-  getWorkoutRecommendationsController,
-  listWorkoutHistoryController,
-  listWorkoutPlansController,
-  recommendationTemplatesController,
-  reorderPlanExercisesController,
-  searchExercisesController,
-  startWorkoutController
-  ,
-  updatePlanExerciseController,
-  updateWorkoutHistoryDurationController
-} from "./workout.controller";
+import { requireAuth } from "../../middlewares/auth.middleware";
+import { asyncHandler } from "../../shared/utils/async-handler";
+import { validateRequest } from "../../middlewares/validation.middleware";
+import { requireCompletedOnboarding } from "../../middlewares/onboarding.middleware";
 import {
   addPlanExerciseBodySchema,
   completeWorkoutBodySchema,
@@ -38,10 +22,25 @@ import {
   updateWorkoutDurationBodySchema,
   workoutPlanParamsSchema
 } from "./workout.schema";
-import { requireAuth } from "../../middlewares/auth.middleware";
-import { requireCompletedOnboarding } from "../../middlewares/onboarding.middleware";
-import { validateRequest } from "../../middlewares/validation.middleware";
-import { asyncHandler } from "../../shared/utils/async-handler";
+import {
+  addPlanExerciseController,
+  completeWorkoutController,
+  createManualHistoryController,
+  createWorkoutPlanController,
+  deletePlanExerciseController,
+  deleteWorkoutPlanController,
+  exploreWorkoutsController,
+  getWorkoutRecommendationsController,
+  listWorkoutHistoryController,
+  listWorkoutPlansController,
+  recommendationTemplatesController,
+  reorderPlanExercisesController,
+  searchExercisesController,
+  startWorkoutController
+  ,
+  updatePlanExerciseController,
+  updateWorkoutHistoryDurationController
+} from "./workout.controller";
 
 const router = Router();
 

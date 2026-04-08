@@ -1,5 +1,4 @@
 import { Request, Response } from "express";
-
 import { DeactivateUserParams, DeleteUserParams, ListUsersQuery } from "./admin.schema";
 import { deactivateUserAccount, deleteUserAccount, listRegisteredUsers } from "./admin.service";
 

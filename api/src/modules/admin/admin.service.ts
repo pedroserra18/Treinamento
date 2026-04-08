@@ -1,7 +1,6 @@
 import { Prisma } from "@prisma/client";
-
-import { ListUsersQuery } from "./admin.schema";
 import { prisma } from "../../config/prisma";
+import { ListUsersQuery } from "./admin.schema";
 import { AppError } from "../../shared/errors/app-error";
 
 const TEST_EMAIL_SUFFIXES = ["@example.com", "@local.dev"];

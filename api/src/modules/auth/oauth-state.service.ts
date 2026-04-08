@@ -1,6 +1,5 @@
-import { randomUUID } from "node:crypto";
-
 import { env } from "../../config/env";
+import { randomUUID } from "node:crypto";
 import { redisClient } from "../../config/redis";
 
 type OAuthStateMode = "login" | "link";

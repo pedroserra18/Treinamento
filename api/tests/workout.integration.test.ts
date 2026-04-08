@@ -1,8 +1,7 @@
-import test, { before } from "node:test";
-import assert from "node:assert/strict";
-import type { Express } from "express";
-
 import request from "supertest";
+import assert from "node:assert/strict";
+import test, { before } from "node:test";
+import type { Express } from "express";
 
 Object.assign(process.env, {
   NODE_ENV: "test",

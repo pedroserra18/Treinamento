@@ -1,13 +1,12 @@
-import { Router } from "express";
-
-import adminRoutes from "../modules/admin/admin.routes";
 import authRoutes from "../modules/auth/auth.routes";
-import dashboardRoutes from "../modules/dashboard/dashboard.routes";
-import exerciseRoutes from "../modules/exercise/exercise.routes";
+import adminRoutes from "../modules/admin/admin.routes";
 import healthRoutes from "../modules/health/health.routes";
-import recommendationRoutes from "../modules/recommendation/recommendation.routes";
-import securityRoutes from "../modules/security/security.routes";
 import workoutRoutes from "../modules/workout/workout.routes";
+import exerciseRoutes from "../modules/exercise/exercise.routes";
+import securityRoutes from "../modules/security/security.routes";
+import dashboardRoutes from "../modules/dashboard/dashboard.routes";
+import recommendationRoutes from "../modules/recommendation/recommendation.routes";
+import { Router } from "express";
 
 const router = Router();
 

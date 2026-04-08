@@ -1,9 +1,8 @@
 import { Router } from "express";
-
-import { workoutRecommendationsController } from "./recommendation.controller";
 import { requireAuth } from "../../middlewares/auth.middleware";
-import { requireCompletedOnboarding } from "../../middlewares/onboarding.middleware";
 import { asyncHandler } from "../../shared/utils/async-handler";
+import { workoutRecommendationsController } from "./recommendation.controller";
+import { requireCompletedOnboarding } from "../../middlewares/onboarding.middleware";
 
 const router = Router();
 

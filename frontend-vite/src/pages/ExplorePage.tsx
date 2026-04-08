@@ -1,7 +1,6 @@
 import { motion } from 'framer-motion'
-
-import { ExerciseCard } from '../components/exercises/ExerciseCard'
 import { useExercises } from '../hooks/useExercises'
+import { ExerciseCard } from '../components/exercises/ExerciseCard'
 
 export function ExplorePage() {
   const { data, loading, error } = useExercises()

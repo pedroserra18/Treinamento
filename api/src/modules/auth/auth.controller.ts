@@ -1,16 +1,19 @@
 import { Request, Response } from "express";
-
-import {
-  ForgotPasswordConfirmBody,
-  ForgotPasswordRequestCodeBody,
-  GoogleCallbackQuery,
-  GoogleLinkBody,
-  LoginBody,
-  OnboardingCompleteBody,
-  RefreshBody,
-  RegisterBody
-} from "./auth.schema";
+import { logger } from "../../config/logger";
+import { AppError } from "../../shared/errors/app-error";
+import { trackLoginFailure } from "../../middlewares/security.middleware";
+import { consumeOAuthState, createOAuthState } from "./oauth-state.service";
 import { RegisterRequestCodeBody, RegisterVerifyCodeBody } from "./auth.schema";
+import { requestRegisterEmailCode, verifyRegisterEmailCode } from "./registration-verification.service";
+import {
+  confirmForgotPasswordWithCode,
+  requestForgotPasswordCode
+} from "./password-recovery.service";
+import {
+  buildGoogleAuthorizationUrl,
+  linkGoogleToAuthenticatedUser,
+  loginWithGoogleCode
+} from "./google-oauth.service";
 import {
   completeOnboarding,
   getAuthenticatedProfile,
@@ -21,19 +24,15 @@ import {
   registerWithEmail
 } from "./auth.service";
 import {
-  confirmForgotPasswordWithCode,
-  requestForgotPasswordCode
-} from "./password-recovery.service";
-import { requestRegisterEmailCode, verifyRegisterEmailCode } from "./registration-verification.service";
-import {
-  buildGoogleAuthorizationUrl,
-  linkGoogleToAuthenticatedUser,
-  loginWithGoogleCode
-} from "./google-oauth.service";
-import { consumeOAuthState, createOAuthState } from "./oauth-state.service";
-import { logger } from "../../config/logger";
-import { trackLoginFailure } from "../../middlewares/security.middleware";
-import { AppError } from "../../shared/errors/app-error";
+  ForgotPasswordConfirmBody,
+  ForgotPasswordRequestCodeBody,
+  GoogleCallbackQuery,
+  GoogleLinkBody,
+  LoginBody,
+  OnboardingCompleteBody,
+  RefreshBody,
+  RegisterBody
+} from "./auth.schema";
 
 function maskEmail(email: string): string {
   const [local, domain] = email.split("@");

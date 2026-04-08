@@ -1,5 +1,23 @@
 import { Router } from "express";
-
+import { requireAuth } from "../../middlewares/auth.middleware";
+import { asyncHandler } from "../../shared/utils/async-handler";
+import { validateRequest } from "../../middlewares/validation.middleware";
+import {
+  authCodeRequestLimiter,
+  authCodeVerifyLimiter
+} from "../../middlewares/security.middleware";
+import {
+  forgotPasswordConfirmBodySchema,
+  forgotPasswordRequestCodeBodySchema,
+  googleCallbackQuerySchema,
+  googleLinkBodySchema,
+  loginBodySchema,
+  onboardingCompleteBodySchema,
+  refreshBodySchema,
+  registerRequestCodeBodySchema,
+  registerVerifyCodeBodySchema,
+  registerBodySchema
+} from "./auth.schema";
 import {
   forgotPasswordConfirmController,
   forgotPasswordRequestCodeController,
@@ -17,21 +35,6 @@ import {
   refreshController,
   registerController
 } from "./auth.controller";
-import {
-  forgotPasswordConfirmBodySchema,
-  forgotPasswordRequestCodeBodySchema,
-  googleCallbackQuerySchema,
-  googleLinkBodySchema,
-  loginBodySchema,
-  onboardingCompleteBodySchema,
-  refreshBodySchema,
-  registerRequestCodeBodySchema,
-  registerVerifyCodeBodySchema,
-  registerBodySchema
-} from "./auth.schema";
-import { requireAuth } from "../../middlewares/auth.middleware";
-import { validateRequest } from "../../middlewares/validation.middleware";
-import { asyncHandler } from "../../shared/utils/async-handler";
 
 const router = Router();
 
@@ -43,24 +46,28 @@ router.post(
 
 router.post(
   "/auth/register/request-code",
+  authCodeRequestLimiter,
   validateRequest({ body: registerRequestCodeBodySchema }),
   asyncHandler(async (req, res) => registerRequestCodeController(req, res))
 );
 
 router.post(
   "/auth/register/verify-code",
+  authCodeVerifyLimiter,
   validateRequest({ body: registerVerifyCodeBodySchema }),
   asyncHandler(async (req, res) => registerVerifyCodeController(req, res))
 );
 
 router.post(
   "/auth/forgot-password/request-code",
+  authCodeRequestLimiter,
   validateRequest({ body: forgotPasswordRequestCodeBodySchema }),
   asyncHandler(async (req, res) => forgotPasswordRequestCodeController(req, res))
 );
 
 router.post(
   "/auth/forgot-password/confirm",
+  authCodeVerifyLimiter,
   validateRequest({ body: forgotPasswordConfirmBodySchema }),
   asyncHandler(async (req, res) => forgotPasswordConfirmController(req, res))
 );

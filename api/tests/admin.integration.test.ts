@@ -1,9 +1,7 @@
-import test, { before } from "node:test";
-import assert from "node:assert/strict";
-import type { Express } from "express";
-
 import request from "supertest";
-
+import assert from "node:assert/strict";
+import test, { before } from "node:test";
+import type { Express } from "express";
 import { prisma } from "../src/config/prisma";
 
 Object.assign(process.env, {

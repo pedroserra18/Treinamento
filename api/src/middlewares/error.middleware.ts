@@ -1,13 +1,28 @@
-import { NextFunction, Request, Response } from "express";
-
 import { logger } from "../config/logger";
+import { captureException } from "../config/sentry";
 import { AppError } from "../shared/errors/app-error";
+import { NextFunction, Request, Response } from "express";
 
 export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction): void {
   const requestId = req.context?.requestId;
 
   if (err instanceof AppError) {
     const logLevel = err.statusCode >= 500 ? "error" : "warn";
+
+    if (err.statusCode >= 500) {
+      captureException(err, {
+        level: "error",
+        request: req,
+        tags: {
+          error_code: err.code,
+          error_type: "app_error"
+        },
+        extra: {
+          statusCode: err.statusCode,
+          details: err.details
+        }
+      });
+    }
 
     logger.log(logLevel, "app_error", {
       requestId,
@@ -27,6 +42,14 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
     });
     return;
   }
+
+  captureException(err, {
+    level: "error",
+    request: req,
+    tags: {
+      error_type: "unhandled_error"
+    }
+  });
 
   logger.error("unhandled_error", { requestId, err });
   res.status(500).json({

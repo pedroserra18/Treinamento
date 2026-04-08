@@ -1,9 +1,8 @@
 import { Router } from "express";
-
-import { getExerciseByIdController, listExercisesController } from "./exercise.controller";
-import { exerciseParamsSchema, listExercisesQuerySchema } from "./exercise.schema";
-import { validateRequest } from "../../middlewares/validation.middleware";
 import { asyncHandler } from "../../shared/utils/async-handler";
+import { validateRequest } from "../../middlewares/validation.middleware";
+import { exerciseParamsSchema, listExercisesQuerySchema } from "./exercise.schema";
+import { getExerciseByIdController, listExercisesController } from "./exercise.controller";
 
 const router = Router();
 

@@ -1,7 +1,6 @@
-import { NextFunction, Request, Response } from "express";
-
 import { prisma } from "../config/prisma";
 import { AppError } from "../shared/errors/app-error";
+import { NextFunction, Request, Response } from "express";
 
 export async function requireCompletedOnboarding(
   req: Request,

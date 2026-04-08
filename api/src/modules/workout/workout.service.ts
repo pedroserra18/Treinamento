@@ -1,5 +1,9 @@
 import { Prisma } from "@prisma/client";
-
+import { logger } from "../../config/logger";
+import { prisma } from "../../config/prisma";
+import { AppError } from "../../shared/errors/app-error";
+import { trackEvent } from "../../shared/services/event-log.service";
+import { getWorkoutRecommendationsForUser } from "../recommendation/recommendation.service";
 import {
   AddPlanExerciseBody,
   CreateManualHistoryBody,
@@ -19,11 +23,6 @@ import {
   UpdateWorkoutDurationBody,
   WorkoutPlanParams
 } from "./workout.schema";
-import { logger } from "../../config/logger";
-import { prisma } from "../../config/prisma";
-import { AppError } from "../../shared/errors/app-error";
-import { trackEvent } from "../../shared/services/event-log.service";
-import { getWorkoutRecommendationsForUser } from "../recommendation/recommendation.service";
 
 const DIVISION_BY_DAYS: Record<number, string[]> = {
   1: ["Full Body", "Upper Lower"],

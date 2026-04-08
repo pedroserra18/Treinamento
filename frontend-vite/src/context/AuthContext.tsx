@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
-
+import { setSentryUser } from '../lib/sentry'
+import type { AuthTokens, AuthUser } from '../types/auth'
+import { AuthContext, type AuthState } from './auth-context'
 import {
   completeOnboardingProfile,
   getGoogleAuthorizationUrl,
@@ -11,8 +13,6 @@ import {
   requestRegisterVerificationCode,
   secureLogout,
 } from '../services/authService'
-import type { AuthTokens, AuthUser } from '../types/auth'
-import { AuthContext, type AuthState } from './auth-context'
 
 const storageKey = 'frontend-vite-auth'
 
@@ -76,6 +76,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       })
   }, [storedAuth])
 
+  useEffect(() => {
+    if (!user) {
+      setSentryUser(null)
+      return
+    }
+
+    setSentryUser({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+    })
+  }, [user])
+
   const signIn: AuthState['signIn'] = async (input) => {
     const session = await loginWithEmail(input)
     setUser(session.user)
@@ -114,6 +127,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null)
     setTokens(null)
     clearStoredAuth()
+    setSentryUser(null)
 
     if (currentToken) {
       try {

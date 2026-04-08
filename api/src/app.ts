@@ -1,11 +1,12 @@
 import express from "express";
-
+import routes from "./routes";
 import { errorHandler, notFoundHandler } from "./middlewares/error.middleware";
 import {
   requestContextMiddleware,
   requestLoggingMiddleware
 } from "./middlewares/request-context.middleware";
 import {
+  enforceHttpsInProduction,
   corsPolicy,
   loginBruteForceLimiter,
   preventHttpParamPollution,
@@ -13,11 +14,11 @@ import {
   sanitizeInput,
   secureHeaders
 } from "./middlewares/security.middleware";
-import routes from "./routes";
 
 export const app = express();
 
 app.set("trust proxy", 1);
+app.use(enforceHttpsInProduction);
 app.use(secureHeaders);
 app.use(corsPolicy);
 app.use(rateLimiter);

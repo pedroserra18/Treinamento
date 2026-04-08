@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
-
 import { motion } from 'framer-motion'
 import { Link } from 'react-router-dom'
-
 import { useAuth } from '../hooks/useAuth'
+import { useEffect, useMemo, useState } from 'react'
+import { BrandLogo } from '../components/common/BrandLogo'
 
 type WorkoutRecommendation = {
   division: string
@@ -139,9 +138,10 @@ export function HomePage() {
         <div className="pointer-events-none absolute -right-14 -top-14 h-44 w-44 rounded-full bg-cyan-400/20 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-16 -left-8 h-52 w-52 rounded-full bg-emerald-500/20 blur-3xl" />
 
-        <p className="relative mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">
-          Premium Fitness Dashboard
-        </p>
+        <div className="relative mb-3 flex items-center justify-between gap-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-red-300">SerraAthlo Dashboard</p>
+          <BrandLogo compact className="h-10 w-auto rounded-lg border border-red-500/30" />
+        </div>
         <h1 className="relative mb-3 text-3xl font-black tracking-tight text-[var(--text)] sm:text-4xl">
           {isAuthenticated
             ? `Bem-vindo, ${user?.name?.split(' ')[0] ?? 'Atleta'}`
@@ -160,7 +160,7 @@ export function HomePage() {
           </Link>
           <Link
             to={isAuthenticated ? '/history' : '/login'}
-            className="inline-flex rounded-xl border border-cyan-300/40 bg-slate-900/30 px-4 py-3 text-sm font-bold text-cyan-100 transition hover:border-cyan-200/60"
+            className="inline-flex rounded-xl border border-red-300/40 bg-slate-900/30 px-4 py-3 text-sm font-bold text-red-100 transition hover:border-red-200/60"
           >
             Ver historico
           </Link>
@@ -179,12 +179,12 @@ export function HomePage() {
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <Link
             to={isAuthenticated ? '/workouts' : '/login'}
-            className="group rounded-2xl border border-[var(--line)] bg-gradient-to-br from-cyan-500/15 to-transparent p-4 transition hover:border-cyan-300/60"
+            className="group rounded-2xl border border-[var(--line)] bg-gradient-to-br from-red-500/15 to-transparent p-4 transition hover:border-red-300/60"
           >
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">Atalho 01</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-300">Atalho 01</p>
             <h3 className="mt-2 text-lg font-bold text-[var(--text)]">Explorar treinos</h3>
             <p className="mt-1 text-sm text-[var(--muted)]">Escolha exercicios e monte sua sessao agora.</p>
-            <span className="mt-3 inline-block text-sm font-semibold text-cyan-200">Abrir area</span>
+            <span className="mt-3 inline-block text-sm font-semibold text-red-200">Abrir area</span>
           </Link>
 
           <Link
@@ -227,7 +227,7 @@ export function HomePage() {
                   </p>
                   <h3 className="mt-1 text-xl font-black text-[var(--text)]">{recommendation.division}</h3>
                 </div>
-                <span className="rounded-full border border-cyan-400/40 bg-cyan-500/15 px-3 py-1 text-xs font-semibold text-cyan-200">
+                <span className="rounded-full border border-red-400/40 bg-red-500/15 px-3 py-1 text-xs font-semibold text-red-200">
                   {recommendation.daysPerWeek}x por semana
                 </span>
               </div>
