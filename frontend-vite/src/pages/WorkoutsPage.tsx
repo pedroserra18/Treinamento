@@ -1,7 +1,9 @@
-import { motion } from 'framer-motion'
-import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import {
+  getExerciseExplorerSelectionEventName,
+  type ExerciseExplorerSelection,
+} from '../lib/exercise-explorer'
 import type { ExerciseOption, WorkoutPlan } from '../types/workout'
 import {
   addExerciseToPlan,
@@ -10,6 +12,7 @@ import {
   deleteWorkoutPlan,
   listWorkoutPlans,
   searchExercisesForPlan,
+  updateWorkoutPlan,
   updatePlanExercise,
 } from '../services/workoutService'
 
@@ -91,6 +94,14 @@ function estimate1rm(weightKg: number, reps: number): number {
   return weightKg * (1 + 0.0333 * reps)
 }
 
+function formatClock(totalSeconds: number): string {
+  const safe = Math.max(0, totalSeconds)
+  const h = String(Math.floor(safe / 3600)).padStart(2, '0')
+  const m = String(Math.floor((safe % 3600) / 60)).padStart(2, '0')
+  const s = String(safe % 60).padStart(2, '0')
+  return `${h}:${m}:${s}`
+}
+
 function parsePerformanceFromNotes(notes: string | null): Partial<PerformanceDraft> {
   if (!notes || !notes.includes(PERF_MARKER)) {
     return {}
@@ -160,7 +171,17 @@ function isDuplicateExerciseError(message: string): boolean {
   return normalized.includes('duplicate') || normalized.includes('ja existe') || normalized.includes('already exists')
 }
 
-export function WorkoutsPage() {
+type WorkoutsPageProps = {
+  selectedPlanId?: string | null
+  onlySelectedPlan?: boolean
+  showCreateSection?: boolean
+}
+
+export function WorkoutsPage({
+  selectedPlanId = null,
+  onlySelectedPlan = false,
+  showCreateSection = true,
+}: WorkoutsPageProps) {
   const { authorizedFetch } = useAuth()
   const [plans, setPlans] = useState<WorkoutPlan[]>([])
   const [loading, setLoading] = useState(true)
@@ -183,8 +204,12 @@ export function WorkoutsPage() {
   const [editingNameByExercise, setEditingNameByExercise] = useState<Record<string, boolean>>({})
   const [customNameByExercise, setCustomNameByExercise] = useState<Record<string, string>>({})
   const [extraLoadByExercise, setExtraLoadByExercise] = useState<Record<string, boolean>>({})
+  const [editingRestByExercise, setEditingRestByExercise] = useState<Record<string, boolean>>({})
+  const [restDraftByExercise, setRestDraftByExercise] = useState<Record<string, string>>({})
+  const [editingPlanNameById, setEditingPlanNameById] = useState<Record<string, boolean>>({})
+  const [planNameDraftById, setPlanNameDraftById] = useState<Record<string, string>>({})
 
-  const loadAll = async () => {
+  const loadAll = useCallback(async () => {
     setLoading(true)
     setError(null)
 
@@ -233,17 +258,32 @@ export function WorkoutsPage() {
         })
         return next
       })
+      setRestDraftByExercise((current) => {
+        const next = { ...current }
+        planData.forEach((plan) => {
+          plan.exercises.forEach((exercise) => {
+            next[exercise.id] = String(exercise.restSec ?? 0)
+          })
+        })
+        return next
+      })
+      setPlanNameDraftById((current) => {
+        const next = { ...current }
+        planData.forEach((plan) => {
+          next[plan.id] = plan.name
+        })
+        return next
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar treinos salvos')
     } finally {
       setLoading(false)
     }
-  }
+  }, [authorizedFetch])
 
   useEffect(() => {
     void loadAll()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [loadAll])
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -340,7 +380,7 @@ export function WorkoutsPage() {
     }
   }
 
-  const addToPlan = async (plan: WorkoutPlan, option: ExerciseOption) => {
+  const addToPlan = useCallback(async (plan: WorkoutPlan, option: ExerciseOption) => {
     const alreadyExists = plan.exercises.some((entry) => entry.exercise.id === option.id)
     if (alreadyExists) {
       window.alert('Este exercicio ja faz parte do treino. Escolha outro para manter variedade.')
@@ -362,7 +402,32 @@ export function WorkoutsPage() {
         window.alert('Exercicio repetido bloqueado. Nao e permitido duplicar exercicio no mesmo treino.')
       }
     }
-  }
+  }, [authorizedFetch, loadAll])
+
+  useEffect(() => {
+    const eventName = getExerciseExplorerSelectionEventName()
+
+    const handler = (event: Event) => {
+      const payload = (event as CustomEvent<ExerciseExplorerSelection>).detail
+      if (!payload) {
+        return
+      }
+
+      const targetPlan = (selectedPlanId ? plans.find((plan) => plan.id === selectedPlanId) : null) ?? plans[0]
+      if (!targetPlan) {
+        setError('Crie uma rotina antes de adicionar exercicios pelo explorador.')
+        return
+      }
+
+      void addToPlan(targetPlan, payload)
+    }
+
+    window.addEventListener(eventName, handler)
+
+    return () => {
+      window.removeEventListener(eventName, handler)
+    }
+  }, [addToPlan, plans, selectedPlanId])
 
   const patchSeries = (planExerciseId: string, seriesIndex: number, patch: Partial<SeriesDraft>) => {
     setDraftByExercise((current) => ({
@@ -551,66 +616,155 @@ export function WorkoutsPage() {
     }
   }
 
+  const saveRestSec = async (planId: string, planExerciseId: string) => {
+    const raw = restDraftByExercise[planExerciseId] ?? '0'
+    const parsed = Number(raw)
+    const isInt = Number.isInteger(parsed)
+    const isZero = parsed === 0
+    const inRange = parsed >= 10 && parsed <= 300
+
+    if (!isInt || (!isZero && !inRange)) {
+      setError('Descanso deve ser 0 ou um valor entre 10 e 300 segundos.')
+      return
+    }
+
+    try {
+      await updatePlanExercise(authorizedFetch, planId, planExerciseId, {
+        restSec: parsed === 0 ? null : parsed,
+      })
+      setEditingRestByExercise((current) => ({
+        ...current,
+        [planExerciseId]: false,
+      }))
+      await loadAll()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao salvar descanso do exercicio')
+    }
+  }
+
+  const savePlanName = async (planId: string) => {
+    const typed = (planNameDraftById[planId] ?? '').trim()
+    if (typed.length < 2) {
+      setError('Nome da rotina deve ter ao menos 2 caracteres.')
+      return
+    }
+
+    try {
+      await updateWorkoutPlan(authorizedFetch, planId, {
+        name: typed,
+      })
+      setEditingPlanNameById((current) => ({
+        ...current,
+        [planId]: false,
+      }))
+      await loadAll()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao atualizar nome da rotina')
+    }
+  }
+
+  const visiblePlans = onlySelectedPlan
+    ? plans.filter((plan) => (selectedPlanId ? plan.id === selectedPlanId : false))
+    : plans
+
   return (
     <section className="space-y-5">
-      <motion.header
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5"
-      >
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-black text-[var(--text)]">Treinos salvos</h1>
-            <p className="text-sm text-[var(--muted)]">Gerencie apenas seus planos. Execucao e recomendacoes estao em paginas dedicadas.</p>
-          </div>
-          <div className="flex gap-2">
-            <Link to="/train" className="rounded-lg border border-[var(--line)] px-3 py-2 text-xs font-semibold text-[var(--text)]">
-              Ir para treinar
-            </Link>
-            <Link to="/workout-recommendations" className="rounded-lg bg-[var(--brand)] px-3 py-2 text-xs font-bold text-black">
-              Recomendacoes
-            </Link>
-          </div>
-        </div>
-      </motion.header>
-
       {loading ? <p className="text-sm text-[var(--muted)]">Carregando treinos...</p> : null}
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
 
-      <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
-        <h2 className="text-lg font-extrabold text-[var(--text)]">Criar treino</h2>
-        <div className="mt-2 grid gap-2">
-          <input
-            value={newPlanName}
-            onChange={(event) => setNewPlanName(event.target.value)}
-            placeholder="Nome do treino"
-            className="rounded-lg border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
-          />
-          <textarea
-            value={newPlanDescription}
-            onChange={(event) => setNewPlanDescription(event.target.value)}
-            placeholder="Descricao"
-            rows={2}
-            className="rounded-lg border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
-          />
-          <button
-            type="button"
-            className="w-fit rounded-lg bg-[var(--brand)] px-3 py-2 text-sm font-bold text-black"
-            onClick={() => {
-              void createCustom()
-            }}
-          >
-            Criar e salvar treino
-          </button>
-        </div>
-      </article>
+      {showCreateSection ? (
+        <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+          <h2 className="text-lg font-extrabold text-[var(--text)]">Criar treino</h2>
+          <div className="mt-2 grid gap-2">
+            <input
+              value={newPlanName}
+              onChange={(event) => setNewPlanName(event.target.value)}
+              placeholder="Nome do treino"
+              className="rounded-lg border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
+            />
+            <textarea
+              value={newPlanDescription}
+              onChange={(event) => setNewPlanDescription(event.target.value)}
+              placeholder="Descricao"
+              rows={2}
+              className="rounded-lg border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
+            />
+            <button
+              type="button"
+              className="w-fit rounded-lg bg-[var(--brand)] px-3 py-2 text-sm font-bold text-black"
+              onClick={() => {
+                void createCustom()
+              }}
+            >
+              Criar e salvar treino
+            </button>
+          </div>
+        </article>
+      ) : null}
+
+      {onlySelectedPlan && !loading && visiblePlans.length === 0 ? (
+        <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+          <p className="text-sm text-[var(--muted)]">A rotina selecionada nao foi encontrada.</p>
+        </article>
+      ) : null}
 
       <div className="space-y-4">
-        {plans.map((plan) => (
+        {visiblePlans.map((plan) => (
           <article key={plan.id} className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h3 className="text-lg font-black text-[var(--text)]">{plan.name}</h3>
+                {editingPlanNameById[plan.id] ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      value={planNameDraftById[plan.id] ?? plan.name}
+                      onChange={(event) =>
+                        setPlanNameDraftById((current) => ({
+                          ...current,
+                          [plan.id]: event.target.value,
+                        }))
+                      }
+                      className="rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-sm font-semibold"
+                    />
+                    <button
+                      type="button"
+                      className="rounded-md border border-[var(--brand)] px-2 py-1 text-xs font-semibold text-[var(--brand)]"
+                      onClick={() => {
+                        void savePlanName(plan.id)
+                      }}
+                    >
+                      Salvar
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-md border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--muted)]"
+                      onClick={() => {
+                        setEditingPlanNameById((current) => ({
+                          ...current,
+                          [plan.id]: false,
+                        }))
+                        setPlanNameDraftById((current) => ({
+                          ...current,
+                          [plan.id]: plan.name,
+                        }))
+                      }}
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="text-left text-lg font-black text-[var(--text)] transition hover:opacity-80"
+                    onClick={() => {
+                      setEditingPlanNameById((current) => ({
+                        ...current,
+                        [plan.id]: true,
+                      }))
+                    }}
+                  >
+                    {plan.name}
+                  </button>
+                )}
                 <p className="text-sm text-[var(--muted)]">{plan.description ?? 'Sem descricao'}</p>
               </div>
               <div className="flex gap-2">
@@ -715,7 +869,7 @@ export function WorkoutsPage() {
                 }, 0)
 
                 return (
-                  <div key={item.id} className="rounded-xl border border-[var(--line)] p-3">
+                  <div key={item.id} className="rounded-2xl border border-[var(--line)] p-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
                         {editingNameByExercise[item.id] ? (
@@ -763,6 +917,43 @@ export function WorkoutsPage() {
                           {draft.series.length} serie(s)
                           {showLoad ? ` • 1RM max: ${bestSeries1rm.toFixed(1)} kg` : ' • peso corporal'}
                         </p>
+                        {editingRestByExercise[item.id] ? (
+                          <div className="mt-2 flex items-center gap-2">
+                            <input
+                              value={restDraftByExercise[item.id] ?? '0'}
+                              onChange={(event) =>
+                                setRestDraftByExercise((current) => ({
+                                  ...current,
+                                  [item.id]: event.target.value.replace(/[^\d]/g, ''),
+                                }))
+                              }
+                              className="w-24 rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-xs"
+                              placeholder="seg"
+                            />
+                            <button
+                              type="button"
+                              className="rounded-md border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--text)]"
+                              onClick={() => {
+                                void saveRestSec(plan.id, item.id)
+                              }}
+                            >
+                              Salvar descanso
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            className="mt-2 rounded-md border border-[var(--line)] px-2 py-1 text-xs text-[var(--text)]"
+                            onClick={() =>
+                              setEditingRestByExercise((current) => ({
+                                ...current,
+                                [item.id]: true,
+                              }))
+                            }
+                          >
+                            Descanso: {formatClock(item.restSec ?? 0)}
+                          </button>
+                        )}
                         {effectiveBodyweight ? (
                           <label className="mt-1 inline-flex items-center gap-1 text-[11px] text-[var(--muted)]">
                             <input
@@ -836,7 +1027,7 @@ export function WorkoutsPage() {
                       <div className="mt-3 rounded-lg border border-[var(--line)] p-2">
                         <div className="space-y-2">
                           {draft.series.map((series, seriesIndex) => (
-                            <div key={`${item.id}-serie-${seriesIndex}`} className="grid gap-2 rounded-lg border border-[var(--line)] p-2 md:grid-cols-[40px_1fr_1fr_1fr_1fr_1fr_auto]">
+                            <div key={`${item.id}-serie-${seriesIndex}`} className="grid gap-2 rounded-xl border border-[var(--line)] p-3 md:grid-cols-[56px_1fr_1fr_1fr_1fr_1fr_auto]">
                               <p className="self-center text-xs font-bold text-[var(--muted)]">#{seriesIndex + 1}</p>
                               <input
                                 value={series.reps}

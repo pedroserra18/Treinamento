@@ -36,6 +36,16 @@ export const createWorkoutPlanBodySchema = z
   })
   .strict();
 
+export const updateWorkoutPlanBodySchema = z
+  .object({
+    name: z.string().trim().min(2).max(120).optional(),
+    description: z.string().trim().min(1).max(500).nullable().optional()
+  })
+  .refine((value) => value.name !== undefined || value.description !== undefined, {
+    message: "name or description is required"
+  })
+  .strict();
+
 export const addPlanExerciseBodySchema = z
   .object({
     exerciseId: z.string().cuid(),
@@ -191,6 +201,7 @@ export type StartWorkoutBody = z.infer<typeof startWorkoutBodySchema>;
 export type WorkoutPlanParams = z.infer<typeof workoutPlanParamsSchema>;
 export type PlanExerciseParams = z.infer<typeof planExerciseParamsSchema>;
 export type CreateWorkoutPlanBody = z.infer<typeof createWorkoutPlanBodySchema>;
+export type UpdateWorkoutPlanBody = z.infer<typeof updateWorkoutPlanBodySchema>;
 export type AddPlanExerciseBody = z.infer<typeof addPlanExerciseBodySchema>;
 export type UpdatePlanExerciseBody = z.infer<typeof updatePlanExerciseBodySchema>;
 export type ReorderPlanExercisesBody = z.infer<typeof reorderPlanExercisesBodySchema>;

@@ -4,13 +4,12 @@ import { TrainPage } from './pages/TrainPage'
 import { HistoryPage } from './pages/HistoryPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { RegisterPage } from './pages/RegisterPage'
-import { WorkoutsPage } from './pages/WorkoutsPage'
 import { AuthProvider } from './context/AuthContext'
 import { AppShell } from './components/layout/AppShell'
 import { AdminUsersPage } from './pages/AdminUsersPage'
 import { OnboardingPage } from './pages/OnboardingPage'
 import { AdminRoute } from './components/auth/AdminRoute'
-import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { GoogleCallbackPage } from './pages/GoogleCallbackPage'
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
@@ -48,7 +47,7 @@ function App() {
               path="/workouts"
               element={
                 <ProtectedRoute>
-                  <WorkoutsPage />
+                  <Navigate to="/train" replace />
                 </ProtectedRoute>
               }
             />

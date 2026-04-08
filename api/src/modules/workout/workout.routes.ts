@@ -18,6 +18,7 @@ import {
   searchExercisesQuerySchema,
   startWorkoutBodySchema
   ,
+  updateWorkoutPlanBodySchema,
   updatePlanExerciseBodySchema,
   updateWorkoutDurationBodySchema,
   workoutPlanParamsSchema
@@ -38,6 +39,7 @@ import {
   searchExercisesController,
   startWorkoutController
   ,
+  updateWorkoutPlanController,
   updatePlanExerciseController,
   updateWorkoutHistoryDurationController
 } from "./workout.controller";
@@ -80,6 +82,14 @@ router.delete(
   requireCompletedOnboarding,
   validateRequest({ params: workoutPlanParamsSchema }),
   asyncHandler(async (req, res) => deleteWorkoutPlanController(req, res))
+);
+
+router.patch(
+  "/workouts/plans/:planId",
+  requireAuth,
+  requireCompletedOnboarding,
+  validateRequest({ params: workoutPlanParamsSchema, body: updateWorkoutPlanBodySchema }),
+  asyncHandler(async (req, res) => updateWorkoutPlanController(req, res))
 );
 
 router.post(

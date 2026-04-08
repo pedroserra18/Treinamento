@@ -19,6 +19,7 @@ import {
   SearchExercisesQuery,
   StartWorkoutBody
   ,
+  UpdateWorkoutPlanBody,
   UpdatePlanExerciseBody,
   UpdateWorkoutDurationBody,
   WorkoutPlanParams
@@ -49,10 +50,12 @@ type TemplateOption = {
 const TEMPLATE_RECOMMENDATIONS: Record<string, { male: TemplateOption[]; female: TemplateOption[] }> = {
   "1-3": {
     male: [
-      { key: "FB", title: "Full Body", structure: ["FB", "FB", "FB"] }
+      { key: "PPL", title: "Push Pull Legs", structure: ["Push", "Pull", "Legs"] },
+      { key: "FB", title: "Full Body", structure: ["Full Body A", "Full Body B", "Full Body C"] }
     ],
     female: [
-      { key: "FB", title: "Full Body", structure: ["FB", "FB", "FB"] }
+      { key: "PPL", title: "Push Pull Legs", structure: ["Push", "Pull", "Legs"] },
+      { key: "FB", title: "Full Body", structure: ["Full Body A", "Full Body B", "Full Body C"] }
     ]
   },
   "4": {
@@ -281,6 +284,22 @@ export async function deleteWorkoutPlan(userId: string, params: WorkoutPlanParam
   return {
     success: true
   };
+}
+
+export async function updateWorkoutPlan(
+  userId: string,
+  params: WorkoutPlanParams,
+  payload: UpdateWorkoutPlanBody
+) {
+  await assertOwnedPlan(params.planId, userId);
+
+  return prisma.workoutPlan.update({
+    where: { id: params.planId },
+    data: {
+      ...(payload.name !== undefined ? { name: payload.name } : {}),
+      ...(payload.description !== undefined ? { description: payload.description } : {})
+    }
+  });
 }
 
 export async function addExerciseToPlan(

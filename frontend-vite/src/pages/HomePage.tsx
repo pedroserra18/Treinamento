@@ -153,7 +153,7 @@ export function HomePage() {
 
         <div className="relative mt-5 flex flex-wrap gap-3">
           <Link
-            to={isAuthenticated ? '/workouts' : '/login'}
+            to={isAuthenticated ? '/train' : '/login'}
             className="inline-flex rounded-xl bg-[var(--brand)] px-4 py-3 text-sm font-bold text-white transition hover:bg-[var(--brand-strong)]"
           >
             {isAuthenticated ? 'Explorar treinos' : 'Entrar para continuar'}
@@ -178,7 +178,7 @@ export function HomePage() {
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <Link
-            to={isAuthenticated ? '/workouts' : '/login'}
+            to={isAuthenticated ? '/train' : '/login'}
             className="group rounded-2xl border border-[var(--line)] bg-gradient-to-br from-red-500/15 to-transparent p-4 transition hover:border-red-300/60"
           >
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-300">Atalho 01</p>
@@ -253,7 +253,7 @@ export function HomePage() {
 
               <div className="mt-4 flex flex-wrap gap-2">
                 <Link
-                  to={isAuthenticated ? '/workouts' : '/login'}
+                  to={isAuthenticated ? '/train' : '/login'}
                   className="rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white transition hover:bg-[var(--brand-strong)]"
                 >
                   Comecar treino
