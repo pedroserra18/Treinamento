@@ -40,5 +40,5 @@ Health route: /api/v1/health
 - Use different secrets/credentials by environment (`development`, `staging`, `production`).
 - Rotate JWT/OAuth/client secrets periodically and after any incident.
 - Restrict database user permissions (principle of least privilege).
-- Only expose safe vars to frontend via `NEXT_PUBLIC_*` prefix.
+- Only expose safe vars to frontend via `VITE_*` prefix.
 - Keep only placeholders in `.env.example` (no real tokens).

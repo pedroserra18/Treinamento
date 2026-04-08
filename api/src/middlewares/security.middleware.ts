@@ -60,6 +60,8 @@ function trackGlobalRateLimit(reqIp: string, path: string): void {
   touchMetrics();
   logger.warn("security_rate_limit_global", {
     alert: true,
+    suspicious: true,
+    reason: "global_rate_limit_exceeded",
     ip: reqIp,
     path,
     totalHits: securityMetrics.globalRateLimitHits
@@ -71,17 +73,30 @@ function trackLoginBruteForce(reqIp: string, email: string): void {
   touchMetrics();
   logger.warn("security_bruteforce_login", {
     alert: true,
+    suspicious: true,
+    reason: "login_bruteforce_detected",
     ip: reqIp,
     email,
     totalHits: securityMetrics.loginBruteForceHits
   });
 }
 
-export function trackLoginFailure(email: string, reqIp: string): void {
+type LoginFailureContext = {
+  requestId?: string;
+  userAgent?: string;
+  path?: string;
+};
+
+export function trackLoginFailure(email: string, reqIp: string, context?: LoginFailureContext): void {
   securityMetrics.loginFailures += 1;
   touchMetrics();
   logger.warn("security_login_failed", {
     alert: true,
+    suspicious: true,
+    reason: "invalid_login_credentials",
+    requestId: context?.requestId,
+    userAgent: context?.userAgent,
+    path: context?.path,
     ip: reqIp,
     email,
     totalFailures: securityMetrics.loginFailures
@@ -122,6 +137,13 @@ export const corsPolicy = cors({
       callback(null, true);
       return;
     }
+
+    logger.warn("security_suspicious_access", {
+      alert: true,
+      suspicious: true,
+      reason: "cors_origin_denied",
+      origin
+    });
 
     callback(
       new AppError("Origin not allowed by CORS", {
