@@ -91,6 +91,27 @@ export async function deleteWorkoutPlan(
   }
 }
 
+export async function updateWorkoutPlan(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  planId: string,
+  input: {
+    name?: string
+    description?: string | null
+  },
+): Promise<void> {
+  const response = await authorizedFetch(`${API_URL}/workouts/plans/${planId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+
+  const payload = await parsePayload(response)
+
+  if (!response.ok) {
+    throw new Error(payload.errorMessage ?? 'Falha ao atualizar treino')
+  }
+}
+
 export async function searchExercisesForPlan(
   authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
   input: { q?: string; primaryMuscleGroup?: string; limit?: number },
@@ -153,6 +174,7 @@ export async function updatePlanExercise(
     sets?: number | null
     repsMin?: number | null
     repsMax?: number | null
+    restSec?: number | null
     notes?: string | null
   },
 ): Promise<void> {

@@ -16,6 +16,7 @@ import {
   searchExercisesForPlan,
   startWorkoutSession
   ,
+  updateWorkoutPlan,
   updateCompletedWorkoutDuration,
   updatePlanExercise
 } from "./workout.service";
@@ -34,6 +35,7 @@ import {
   SearchExercisesQuery,
   StartWorkoutBody
   ,
+  UpdateWorkoutPlanBody,
   UpdatePlanExerciseBody,
   UpdateWorkoutDurationBody,
   WorkoutPlanParams
@@ -112,6 +114,20 @@ export async function deleteWorkoutPlanController(req: Request, res: Response): 
 
   res.status(200).json({
     data,
+    meta: {
+      requestId: req.context.requestId
+    }
+  });
+}
+
+export async function updateWorkoutPlanController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as WorkoutPlanParams;
+  const payload = req.body as UpdateWorkoutPlanBody;
+  const plan = await updateWorkoutPlan(userId, params, payload);
+
+  res.status(200).json({
+    data: plan,
     meta: {
       requestId: req.context.requestId
     }

@@ -1,6 +1,12 @@
 import { motion } from 'framer-motion'
 import { useAuth } from '../hooks/useAuth'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { WorkoutsPage } from './WorkoutsPage'
+import {
+  getExerciseExplorerSelectionEventName,
+  openExerciseExplorer,
+  type ExerciseExplorerSelection,
+} from '../lib/exercise-explorer'
 import type { ExerciseOption, WorkoutPlan } from '../types/workout'
 import {
   completeWorkoutSession,
@@ -10,203 +16,150 @@ import {
   updatePlanExercise,
 } from '../services/workoutService'
 
-const PERF_MARKER = '__PERF__:'
-const LOCAL_SESSION_KEY = 'acad-workout-active-session-v1'
+type TrainScreen = 'DASHBOARD' | 'ACTIVE' | 'SUMMARY'
+type TrainOriginMode = 'EMPTY' | 'ROUTINE'
+type RoutineManagerMode = 'CREATE' | 'EDIT'
 
-const BODYWEIGHT_HINTS = [
-  /flex[aã]o/i,
-  /barra\s*f(i|í)xa/i,
-  /pull\s*up/i,
-  /chin\s*up/i,
-  /mergulho/i,
-  /\bdip\b/i,
-  /prancha/i,
-  /plank/i,
-  /burpee/i,
-]
-
-type SeriesState = {
+type ExerciseSetInput = {
   reps: string
-  loadKg: string
+  weightKg: string
   rir: string
 }
 
-type SessionExerciseState = {
+type ActiveExercise = {
+  planExerciseId?: string
   exerciseId: string
   exerciseName: string
-  planExerciseId?: string
-  plannedReps: string
   isBodyweight: boolean
   allowsExtraLoad: boolean
-  useExtraLoad: boolean
-  series: SeriesState[]
+  restDurationSec: number
+  restRemainingSec: number
+  restRunning: boolean
+  sets: ExerciseSetInput[]
 }
 
-type ActiveWorkoutState = {
-  mode: 'SAVED' | 'LIVE'
-  activePlanId: string
-  activeSessionId: string | null
-  isTimerRunning: boolean
-  elapsedSnapshotSec: number
-  startedAtEpochMs: number | null
-  exercises: SessionExerciseState[]
-  updateTemplateOnFinish: boolean
-}
-
-function isLikelyBodyweight(name: string): boolean {
-  return BODYWEIGHT_HINTS.some((pattern) => pattern.test(name))
-}
-
-function resolveBodyweightFlag(flag: boolean | undefined, name: string): boolean {
-  if (typeof flag === 'boolean') {
-    return flag
-  }
-
-  return isLikelyBodyweight(name)
-}
-
-function resolveAllowsExtraLoad(flag: boolean | undefined, isBodyweight: boolean): boolean {
-  if (!isBodyweight) {
-    return true
-  }
-
-  return flag ?? true
-}
-
-function createSeries(initial?: Partial<SeriesState>): SeriesState {
-  return {
-    reps: initial?.reps ?? '',
-    loadKg: initial?.loadKg ?? '',
-    rir: initial?.rir ?? '',
-  }
+function createSet(reps = '8', weightKg = '', rir = ''): ExerciseSetInput {
+  return { reps, weightKg, rir }
 }
 
 function formatClock(totalSeconds: number): string {
   const safe = Math.max(0, totalSeconds)
-  const hours = Math.floor(safe / 3600)
-  const minutes = Math.floor((safe % 3600) / 60)
-  const seconds = safe % 60
-  const hh = String(hours).padStart(2, '0')
-  const mm = String(minutes).padStart(2, '0')
-  const ss = String(seconds).padStart(2, '0')
-
-  return `${hh}:${mm}:${ss}`
+  const h = String(Math.floor(safe / 3600)).padStart(2, '0')
+  const m = String(Math.floor((safe % 3600) / 60)).padStart(2, '0')
+  const s = String(safe % 60).padStart(2, '0')
+  return `${h}:${m}:${s}`
 }
 
-function parseSeriesFromNotes(notes: string | null, fallbackSets: number | null, fallbackReps: number | null): SeriesState[] {
-  if (!notes || !notes.includes(PERF_MARKER)) {
-    const totalSets = Math.max(1, fallbackSets ?? 1)
-    const reps = String(fallbackReps ?? 8)
-    return Array.from({ length: totalSets }, () => createSeries({ reps }))
+function formatDateTime(value: Date | null): string {
+  if (!value) {
+    return '-'
   }
 
-  const markerIndex = notes.indexOf(PERF_MARKER)
-  const raw = notes.slice(markerIndex + PERF_MARKER.length).trim()
+  return new Intl.DateTimeFormat('pt-BR', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(value)
+}
 
-  try {
-    const parsed = JSON.parse(raw) as {
-      series?: Array<{ reps?: number; loadKg?: number; rir?: number }>
-      sets?: number
-      reps?: number
+function parsePositiveInt(value: string, fallback = 0): number {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n <= 0) {
+    return fallback
+  }
+
+  return Math.floor(n)
+}
+
+function mapPlanToActiveExercises(plan: WorkoutPlan): ActiveExercise[] {
+  return plan.exercises.map((entry) => {
+    const repsText =
+      entry.repsMin && entry.repsMax
+        ? `${entry.repsMin}`
+        : String(entry.repsMax ?? entry.repsMin ?? 8)
+
+    return {
+      planExerciseId: entry.id,
+      exerciseId: entry.exercise.id,
+      exerciseName: entry.customName ?? entry.exercise.name,
+      isBodyweight: entry.exercise.isBodyweight,
+      allowsExtraLoad: entry.exercise.allowsExtraLoad,
+      restDurationSec: entry.restSec ?? 0,
+      restRemainingSec: entry.restSec ?? 0,
+      restRunning: false,
+      sets: Array.from({ length: Math.max(1, entry.sets ?? 3) }, () => createSet(repsText)),
     }
-
-    if (Array.isArray(parsed.series) && parsed.series.length > 0) {
-      return parsed.series.map((series) =>
-        createSeries({
-          reps: series.reps != null ? String(series.reps) : '',
-          loadKg: series.loadKg != null ? String(series.loadKg) : '',
-          rir: series.rir != null ? String(series.rir) : '',
-        }),
-      )
-    }
-
-    const totalSets = Math.max(1, Number(parsed.sets ?? fallbackSets ?? 1))
-    const reps = String(parsed.reps ?? fallbackReps ?? 8)
-    return Array.from({ length: totalSets }, () => createSeries({ reps }))
-  } catch {
-    const totalSets = Math.max(1, fallbackSets ?? 1)
-    const reps = String(fallbackReps ?? 8)
-    return Array.from({ length: totalSets }, () => createSeries({ reps }))
-  }
+  })
 }
 
-function buildTemplateNotes(existing: string | null, series: SeriesState[]): string {
-  const base = (existing ?? '').split(PERF_MARKER)[0].trim()
-  const payload = {
-    sets: series.length,
-    reps: Number(series[0]?.reps ?? 0) || undefined,
-    series: series
-      .filter((entry) => Number(entry.reps) > 0)
-      .map((entry) => ({
-        reps: Number(entry.reps),
-        loadKg: Number(entry.loadKg) > 0 ? Number(entry.loadKg) : undefined,
-        rir: Number(entry.rir) >= 0 ? Number(entry.rir) : undefined,
-      })),
-  }
+function calculateTotals(exercises: ActiveExercise[]): { totalSeries: number; totalVolumeKg: number } {
+  let totalSeries = 0
+  let totalVolumeKg = 0
 
-  return `${base}${base ? ' ' : ''}${PERF_MARKER}${JSON.stringify(payload)}`.trim()
-}
+  exercises.forEach((exercise) => {
+    exercise.sets.forEach((setInput) => {
+      const reps = Number(setInput.reps)
+      if (!Number.isFinite(reps) || reps <= 0) {
+        return
+      }
 
-function createDefaultState(): ActiveWorkoutState {
+      totalSeries += 1
+      const weight = Number(setInput.weightKg)
+      if (Number.isFinite(weight) && weight > 0) {
+        totalVolumeKg += weight * reps
+      }
+    })
+  })
+
   return {
-    mode: 'SAVED',
-    activePlanId: '',
-    activeSessionId: null,
-    isTimerRunning: false,
-    elapsedSnapshotSec: 0,
-    startedAtEpochMs: null,
-    exercises: [],
-    updateTemplateOnFinish: false,
+    totalSeries,
+    totalVolumeKg: Number(totalVolumeKg.toFixed(2)),
   }
 }
 
 export function TrainPage() {
   const { authorizedFetch } = useAuth()
 
+  const [screen, setScreen] = useState<TrainScreen>('DASHBOARD')
   const [plans, setPlans] = useState<WorkoutPlan[]>([])
-  const [state, setState] = useState<ActiveWorkoutState>(() => {
-    try {
-      const cached = localStorage.getItem(LOCAL_SESSION_KEY)
-      if (!cached) {
-        return createDefaultState()
-      }
-
-      const parsed = JSON.parse(cached) as ActiveWorkoutState
-      return {
-        ...createDefaultState(),
-        ...parsed,
-      }
-    } catch {
-      return createDefaultState()
-    }
-  })
-
-  const [elapsedSec, setElapsedSec] = useState(0)
-  const [manualFinishMinutes, setManualFinishMinutes] = useState('')
-
-  const [quickSearch, setQuickSearch] = useState('')
-  const [quickOptions, setQuickOptions] = useState<ExerciseOption[]>([])
-
   const [loadingPlans, setLoadingPlans] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [showRoutineManager, setShowRoutineManager] = useState(false)
+  const [routineManagerMode, setRoutineManagerMode] = useState<RoutineManagerMode>('CREATE')
+
+  const [activePlanId, setActivePlanId] = useState<string>('')
+  const [activePlanName, setActivePlanName] = useState<string>('Treinamento vazio')
+  const [originMode, setOriginMode] = useState<TrainOriginMode>('EMPTY')
+  const [activeExercises, setActiveExercises] = useState<ActiveExercise[]>([])
+
+  const [elapsedSec, setElapsedSec] = useState(0)
+  const [isWorkoutRunning, setIsWorkoutRunning] = useState(false)
+  const [manualTimerMinutes, setManualTimerMinutes] = useState('')
+
+  const [startedAt, setStartedAt] = useState<Date | null>(null)
+  const [endedAt, setEndedAt] = useState<Date | null>(null)
+
+  const [exerciseSearch, setExerciseSearch] = useState('')
+  const [exerciseOptions, setExerciseOptions] = useState<ExerciseOption[]>([])
+  const [editingRestExerciseIndex, setEditingRestExerciseIndex] = useState<number | null>(null)
+  const [restDraftSec, setRestDraftSec] = useState('0')
+
+  const [summaryName, setSummaryName] = useState('')
+  const [summaryDurationMin, setSummaryDurationMin] = useState('')
+  const [summaryNotes, setSummaryNotes] = useState('')
+  const [summaryImageFile, setSummaryImageFile] = useState<File | null>(null)
+  const [summaryImagePreview, setSummaryImagePreview] = useState<string | null>(null)
 
   useEffect(() => {
     void listWorkoutPlans(authorizedFetch)
       .then((items) => {
         setPlans(items)
-        setState((current) => {
-          if (current.activePlanId || !items[0]) {
-            return current
-          }
-
-          return {
-            ...current,
-            activePlanId: items[0].id,
-          }
-        })
+        if (items[0]) {
+          setActivePlanId(items[0].id)
+        }
       })
       .catch((err) => {
-        setError(err instanceof Error ? err.message : 'Erro ao carregar treinos salvos')
+        setError(err instanceof Error ? err.message : 'Erro ao carregar rotinas')
       })
       .finally(() => {
         setLoadingPlans(false)
@@ -214,42 +167,59 @@ export function TrainPage() {
   }, [authorizedFetch])
 
   useEffect(() => {
-    localStorage.setItem(LOCAL_SESSION_KEY, JSON.stringify(state))
-  }, [state])
-
-  useEffect(() => {
-    const computeElapsed = () => {
-      if (!state.activeSessionId) {
-        setElapsedSec(0)
-        return
-      }
-
-      if (!state.isTimerRunning || !state.startedAtEpochMs) {
-        setElapsedSec(state.elapsedSnapshotSec)
-        return
-      }
-
-      const runningSec = Math.max(0, Math.floor((Date.now() - state.startedAtEpochMs) / 1000))
-      setElapsedSec(state.elapsedSnapshotSec + runningSec)
+    if (screen !== 'ACTIVE' || !isWorkoutRunning) {
+      return
     }
 
-    computeElapsed()
-    const id = window.setInterval(computeElapsed, 1000)
+    const id = window.setInterval(() => {
+      setElapsedSec((current) => current + 1)
+    }, 1000)
 
     return () => window.clearInterval(id)
-  }, [state.activeSessionId, state.elapsedSnapshotSec, state.isTimerRunning, state.startedAtEpochMs])
+  }, [isWorkoutRunning, screen])
+
+  useEffect(() => {
+    if (screen !== 'ACTIVE') {
+      return
+    }
+
+    const id = window.setInterval(() => {
+      setActiveExercises((current) =>
+        current.map((exercise) => {
+          if (!exercise.restRunning) {
+            return exercise
+          }
+
+          if (exercise.restRemainingSec <= 1) {
+            return {
+              ...exercise,
+              restRemainingSec: 0,
+              restRunning: false,
+            }
+          }
+
+          return {
+            ...exercise,
+            restRemainingSec: exercise.restRemainingSec - 1,
+          }
+        }),
+      )
+    }, 1000)
+
+    return () => window.clearInterval(id)
+  }, [screen])
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
-      const query = quickSearch.trim()
-      if (!query) {
-        setQuickOptions([])
+      const query = exerciseSearch.trim()
+      if (!query || screen !== 'ACTIVE') {
+        setExerciseOptions([])
         return
       }
 
-      void searchExercisesForPlan(authorizedFetch, { q: query, limit: 10 })
+      void searchExercisesForPlan(authorizedFetch, { q: query, limit: 8 })
         .then((options) => {
-          setQuickOptions(options)
+          setExerciseOptions(options)
         })
         .catch((err) => {
           setError(err instanceof Error ? err.message : 'Erro ao buscar exercicios')
@@ -257,556 +227,798 @@ export function TrainPage() {
     }, 300)
 
     return () => window.clearTimeout(timeoutId)
-  }, [authorizedFetch, quickSearch])
+  }, [authorizedFetch, exerciseSearch, screen])
 
-  const loadExercisesForPlan = (plan: WorkoutPlan): SessionExerciseState[] => {
-    return plan.exercises.map((entry) => {
-      const plannedReps =
-        entry.repsMin && entry.repsMax ? `${entry.repsMin}-${entry.repsMax}` : String(entry.repsMax ?? entry.repsMin ?? 8)
-
-      return {
-        exerciseId: entry.exercise.id,
-        exerciseName: entry.customName ?? entry.exercise.name,
-        planExerciseId: entry.id,
-        plannedReps,
-        isBodyweight: resolveBodyweightFlag(entry.exercise.isBodyweight, entry.customName ?? entry.exercise.name),
-        allowsExtraLoad: resolveAllowsExtraLoad(
-          entry.exercise.allowsExtraLoad,
-          resolveBodyweightFlag(entry.exercise.isBodyweight, entry.customName ?? entry.exercise.name),
-        ),
-        useExtraLoad: resolveBodyweightFlag(entry.exercise.isBodyweight, entry.customName ?? entry.exercise.name)
-          ? parseSeriesFromNotes(entry.notes, entry.sets, entry.repsMax ?? entry.repsMin).some((series) => Number(series.loadKg) > 0)
-          : true,
-        series: parseSeriesFromNotes(entry.notes, entry.sets, entry.repsMax ?? entry.repsMin),
+  useEffect(() => {
+    return () => {
+      if (summaryImagePreview) {
+        URL.revokeObjectURL(summaryImagePreview)
       }
-    })
+    }
+  }, [summaryImagePreview])
+
+  useEffect(() => {
+    const eventName = getExerciseExplorerSelectionEventName()
+
+    const handler = (event: Event) => {
+      if (screen !== 'ACTIVE') {
+        return
+      }
+
+      const payload = (event as CustomEvent<ExerciseExplorerSelection>).detail
+      if (!payload) {
+        return
+      }
+
+      let added = false
+      setActiveExercises((current) => {
+        if (current.some((exercise) => exercise.exerciseId === payload.id)) {
+          return current
+        }
+
+        added = true
+        return [
+          ...current,
+          {
+            exerciseId: payload.id,
+            exerciseName: payload.name,
+            isBodyweight: payload.isBodyweight,
+            allowsExtraLoad: payload.allowsExtraLoad,
+            restDurationSec: 0,
+            restRemainingSec: 0,
+            restRunning: false,
+            sets: [createSet('10')],
+          },
+        ]
+      })
+
+      if (!added) {
+        setError('Esse exercicio ja foi adicionado no treino ativo.')
+      }
+    }
+
+    window.addEventListener(eventName, handler)
+
+    return () => {
+      window.removeEventListener(eventName, handler)
+    }
+  }, [screen])
+
+  const totals = useMemo(() => calculateTotals(activeExercises), [activeExercises])
+
+  const resetWorkflow = () => {
+    setScreen('DASHBOARD')
+    setShowRoutineManager(false)
+    setRoutineManagerMode('CREATE')
+    setOriginMode('EMPTY')
+    setActivePlanName('Treinamento vazio')
+    setActiveExercises([])
+    setElapsedSec(0)
+    setIsWorkoutRunning(false)
+    setManualTimerMinutes('')
+    setStartedAt(null)
+    setEndedAt(null)
+    setExerciseSearch('')
+    setExerciseOptions([])
+    setSummaryName('')
+    setSummaryDurationMin('')
+    setSummaryNotes('')
+    setSummaryImageFile(null)
+    if (summaryImagePreview) {
+      URL.revokeObjectURL(summaryImagePreview)
+    }
+    setSummaryImagePreview(null)
   }
 
-  const startSession = async () => {
-    if (state.activeSessionId) {
+  const beginEmptyTraining = () => {
+    setError(null)
+    setShowRoutineManager(false)
+    setRoutineManagerMode('CREATE')
+    setOriginMode('EMPTY')
+    setActivePlanName('Treinamento vazio')
+    setActiveExercises([])
+    setElapsedSec(0)
+    setIsWorkoutRunning(true)
+    setStartedAt(new Date())
+    setEndedAt(null)
+    setScreen('ACTIVE')
+  }
+
+  const beginRoutineTraining = (plan: WorkoutPlan) => {
+    setError(null)
+    setShowRoutineManager(false)
+    setRoutineManagerMode('CREATE')
+    setOriginMode('ROUTINE')
+    setActivePlanId(plan.id)
+    setActivePlanName(plan.name)
+    setActiveExercises(mapPlanToActiveExercises(plan))
+    setElapsedSec(0)
+    setIsWorkoutRunning(true)
+    setStartedAt(new Date())
+    setEndedAt(null)
+    setScreen('ACTIVE')
+  }
+
+  const finalizeTraining = () => {
+    const end = new Date()
+    setEndedAt(end)
+    setIsWorkoutRunning(false)
+
+    setSummaryName(activePlanName)
+    setSummaryDurationMin(String(Math.max(1, Math.round(elapsedSec / 60))))
+    setScreen('SUMMARY')
+  }
+
+  const toggleRestTimer = (exerciseIndex: number) => {
+    setActiveExercises((current) =>
+      current.map((exercise, idx) =>
+        idx === exerciseIndex
+          ? exercise.restDurationSec <= 0
+            ? exercise
+            : { ...exercise, restRunning: !exercise.restRunning }
+          : exercise,
+      ),
+    )
+  }
+
+  const startRestEdit = (exerciseIndex: number) => {
+    const target = activeExercises[exerciseIndex]
+    if (!target) {
       return
     }
 
-    if (state.mode === 'SAVED' && !state.activePlanId) {
-      setError('Selecione um treino salvo para iniciar.')
+    setEditingRestExerciseIndex(exerciseIndex)
+    setRestDraftSec(String(target.restDurationSec))
+  }
+
+  const applyRestEdit = async (exerciseIndex: number) => {
+    const parsed = Number(restDraftSec)
+    const isInt = Number.isInteger(parsed)
+    const isZero = parsed === 0
+    const inRange = parsed >= 10 && parsed <= 300
+
+    if (!isInt || (!isZero && !inRange)) {
+      setError('Descanso deve ser 0 ou um valor entre 10 e 300 segundos.')
       return
     }
 
-    if (state.mode === 'LIVE' && state.exercises.length === 0) {
-      setError('Adicione pelo menos um exercicio para treinar no modo ao vivo.')
+    setError(null)
+
+    const target = activeExercises[exerciseIndex]
+    if (!target) {
+      setEditingRestExerciseIndex(null)
+      return
+    }
+
+    setActiveExercises((current) =>
+      current.map((exercise, idx) => {
+        if (idx !== exerciseIndex) {
+          return exercise
+        }
+
+        return {
+          ...exercise,
+          restDurationSec: parsed,
+          restRemainingSec: parsed,
+          restRunning: false,
+        }
+      }),
+    )
+    setEditingRestExerciseIndex(null)
+
+    if (originMode !== 'ROUTINE' || !activePlanId || !target.planExerciseId) {
       return
     }
 
     try {
-      const session = await startWorkoutSession(authorizedFetch, {
-        workoutPlanId: state.mode === 'SAVED' ? state.activePlanId : undefined,
+      await updatePlanExercise(authorizedFetch, activePlanId, target.planExerciseId, {
+        restSec: parsed === 0 ? null : parsed,
       })
-
-      setState((current) => {
-        const selectedPlan = plans.find((plan) => plan.id === current.activePlanId)
-        const exercises =
-          current.mode === 'SAVED' && selectedPlan ? loadExercisesForPlan(selectedPlan) : current.exercises
-
-        return {
-          ...current,
-          activeSessionId: session.id,
-          isTimerRunning: true,
-          elapsedSnapshotSec: 0,
-          startedAtEpochMs: Date.now(),
-          exercises,
-        }
-      })
-      setManualFinishMinutes('')
-      setError(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao iniciar sessao de treino')
+      setError(err instanceof Error ? err.message : 'Erro ao salvar descanso na rotina')
     }
   }
 
-  const togglePause = () => {
-    setState((current) => {
-      if (!current.activeSessionId) {
-        return current
-      }
-
-      if (current.isTimerRunning && current.startedAtEpochMs) {
-        const runningSec = Math.max(0, Math.floor((Date.now() - current.startedAtEpochMs) / 1000))
-        return {
-          ...current,
-          isTimerRunning: false,
-          elapsedSnapshotSec: current.elapsedSnapshotSec + runningSec,
-          startedAtEpochMs: null,
-        }
-      }
-
-      return {
-        ...current,
-        isTimerRunning: true,
-        startedAtEpochMs: Date.now(),
-      }
-    })
-  }
-
-  const patchSeries = (exerciseIndex: number, seriesIndex: number, patch: Partial<SeriesState>) => {
-    setState((current) => ({
-      ...current,
-      exercises: current.exercises.map((exercise, idx) => {
-        if (idx !== exerciseIndex) {
+  const patchSet = (
+    exerciseIndex: number,
+    setIndex: number,
+    patch: Partial<ExerciseSetInput>,
+  ) => {
+    setActiveExercises((current) =>
+      current.map((exercise, eIdx) => {
+        if (eIdx !== exerciseIndex) {
           return exercise
         }
 
         return {
           ...exercise,
-          series: exercise.series.map((series, sIdx) => (sIdx === seriesIndex ? { ...series, ...patch } : series)),
+          sets: exercise.sets.map((setInput, sIdx) =>
+            sIdx === setIndex ? { ...setInput, ...patch } : setInput,
+          ),
         }
       }),
-    }))
+    )
   }
 
-  const addSeries = (exerciseIndex: number) => {
-    setState((current) => ({
-      ...current,
-      exercises: current.exercises.map((exercise, idx) =>
-        idx === exerciseIndex ? { ...exercise, series: [...exercise.series, createSeries()] } : exercise,
+  const addSet = (exerciseIndex: number) => {
+    setActiveExercises((current) =>
+      current.map((exercise, idx) =>
+        idx === exerciseIndex ? { ...exercise, sets: [...exercise.sets, createSet()] } : exercise,
       ),
-    }))
+    )
   }
 
-  const removeSeries = (exerciseIndex: number, seriesIndex: number) => {
-    setState((current) => ({
-      ...current,
-      exercises: current.exercises.map((exercise, idx) => {
+  const removeSet = (exerciseIndex: number, setIndex: number) => {
+    setActiveExercises((current) =>
+      current.map((exercise, idx) => {
         if (idx !== exerciseIndex) {
           return exercise
         }
 
-        const next = exercise.series.filter((_, sIdx) => sIdx !== seriesIndex)
-        return {
-          ...exercise,
-          series: next.length > 0 ? next : [createSeries()],
-        }
+        const next = exercise.sets.filter((_, sIdx) => sIdx !== setIndex)
+        return { ...exercise, sets: next.length > 0 ? next : [createSet()] }
       }),
-    }))
+    )
   }
 
-  const addLiveExercise = (option: ExerciseOption) => {
-    setState((current) => {
-      const already = current.exercises.some((entry) => entry.exerciseId === option.id)
-      if (already) {
-        window.alert('Este exercicio ja esta na sessao atual.')
+  const addExerciseToActive = (option: ExerciseOption) => {
+    setActiveExercises((current) => {
+      if (current.some((exercise) => exercise.exerciseId === option.id)) {
         return current
       }
 
-      return {
+      return [
         ...current,
-        exercises: [
-          ...current.exercises,
-          {
-            exerciseId: option.id,
-            exerciseName: option.name,
-            plannedReps: '-',
-            isBodyweight: resolveBodyweightFlag(option.isBodyweight, option.name),
-            allowsExtraLoad: resolveAllowsExtraLoad(
-              option.allowsExtraLoad,
-              resolveBodyweightFlag(option.isBodyweight, option.name),
-            ),
-            useExtraLoad: !resolveBodyweightFlag(option.isBodyweight, option.name),
-            series: [createSeries({ reps: '10' })],
-          },
-        ],
-      }
+        {
+          exerciseId: option.id,
+          exerciseName: option.name,
+          isBodyweight: option.isBodyweight,
+          allowsExtraLoad: option.allowsExtraLoad,
+          restDurationSec: 0,
+          restRemainingSec: 0,
+          restRunning: false,
+          sets: [createSet('10')],
+        },
+      ]
     })
+
+    setExerciseSearch('')
+    setExerciseOptions([])
   }
 
-  const removeExercise = (exerciseIndex: number) => {
-    setState((current) => ({
-      ...current,
-      exercises: current.exercises.filter((_, idx) => idx !== exerciseIndex),
-    }))
+  const handleSummaryImage = (file: File | null) => {
+    setSummaryImageFile(file)
+
+    if (summaryImagePreview) {
+      URL.revokeObjectURL(summaryImagePreview)
+      setSummaryImagePreview(null)
+    }
+
+    if (file) {
+      setSummaryImagePreview(URL.createObjectURL(file))
+    }
   }
 
-  const finishSession = async () => {
-    if (!state.activeSessionId) {
-      setError('Nenhuma sessao ativa para finalizar.')
+  const applyManualTimerEdit = () => {
+    const minutes = parsePositiveInt(manualTimerMinutes, 0)
+    if (minutes <= 0) {
       return
     }
 
-    const manualSeconds = Number(manualFinishMinutes) > 0 ? Math.floor(Number(manualFinishMinutes) * 60) : 0
+    setElapsedSec(minutes * 60)
+    setManualTimerMinutes('')
+  }
 
-    const runningSec =
-      state.isTimerRunning && state.startedAtEpochMs
-        ? Math.max(0, Math.floor((Date.now() - state.startedAtEpochMs) / 1000))
-        : 0
+  const saveTraining = async () => {
+    if (saving) {
+      return
+    }
 
-    const durationSec = Math.max(manualSeconds || state.elapsedSnapshotSec + runningSec, 60)
+    const durationMin = parsePositiveInt(summaryDurationMin, Math.max(1, Math.round(elapsedSec / 60)))
+    const durationSec = Math.max(60, durationMin * 60)
 
-    const payloadSets = state.exercises.flatMap((exercise) =>
-      exercise.series
-        .filter((series) => Number(series.reps) > 0)
-        .map((series, index) => {
-          const reps = Math.max(1, Number(series.reps))
-          const rir = Number(series.rir)
-          const perceivedExertion = Number.isFinite(rir) ? Math.max(1, Math.min(10, 10 - rir)) : undefined
-
-          return {
-            exerciseId: exercise.exerciseId,
-            setNumber: index + 1,
-            reps,
-            weightKg:
-              !exercise.isBodyweight || exercise.useExtraLoad
-                ? Number(series.loadKg) > 0
-                  ? Number(series.loadKg)
-                  : undefined
-                : undefined,
-            perceivedExertion,
-            notes: Number.isFinite(rir) ? `RIR: ${rir}` : undefined,
-          }
-        }),
+    const performedSets = activeExercises.flatMap((exercise) =>
+      exercise.sets
+        .map((setInput, index) => ({
+          exerciseId: exercise.exerciseId,
+          setNumber: index + 1,
+          reps: Number(setInput.reps),
+          weightKg: Number(setInput.weightKg),
+          notes:
+            setInput.rir.trim().length > 0 && Number.isFinite(Number(setInput.rir))
+              ? `RIR: ${Number(setInput.rir)}`
+              : undefined,
+        }))
+        .filter((item) => Number.isFinite(item.reps) && item.reps > 0)
+        .map((item) => ({
+          exerciseId: item.exerciseId,
+          setNumber: item.setNumber,
+          reps: item.reps,
+          weightKg: Number.isFinite(item.weightKg) && item.weightKg > 0 ? item.weightKg : undefined,
+          notes: item.notes,
+        })),
     )
 
-    if (payloadSets.length === 0) {
-      setError('Registre ao menos uma serie com repeticoes validas antes de finalizar.')
-      return
-    }
-
     try {
-      await completeWorkoutSession(authorizedFetch, state.activeSessionId, {
-        durationSec,
-        exercises: payloadSets,
+      setSaving(true)
+      setError(null)
+
+      const started = await startWorkoutSession(authorizedFetch, {
+        workoutPlanId: originMode === 'ROUTINE' ? activePlanId : undefined,
       })
 
-      if (state.updateTemplateOnFinish && state.mode === 'SAVED' && state.activePlanId) {
-        const selectedPlan = plans.find((plan) => plan.id === state.activePlanId)
-        if (selectedPlan) {
-          await Promise.all(
-            state.exercises
-              .filter((exercise) => exercise.planExerciseId)
-              .map(async (exercise) => {
-                const validSeries = exercise.series.filter((entry) => Number(entry.reps) > 0)
-                if (!exercise.planExerciseId || validSeries.length === 0) {
-                  return
-                }
-
-                const repsList = validSeries.map((entry) => Math.max(1, Number(entry.reps)))
-                const currentPlanExercise = selectedPlan.exercises.find((entry) => entry.id === exercise.planExerciseId)
-
-                await updatePlanExercise(authorizedFetch, state.activePlanId, exercise.planExerciseId, {
-                  sets: validSeries.length,
-                  repsMin: Math.min(...repsList),
-                  repsMax: Math.max(...repsList),
-                  notes: buildTemplateNotes(
-                    currentPlanExercise?.notes ?? null,
-                    exercise.isBodyweight && !exercise.useExtraLoad
-                      ? validSeries.map((entry) => ({ ...entry, loadKg: '' }))
-                      : validSeries,
-                  ),
-                })
-              }),
-          )
-        }
+      const notesSegments = [summaryNotes.trim()].filter(Boolean)
+      if (summaryImageFile) {
+        notesSegments.push(`[Imagem anexada localmente: ${summaryImageFile.name}]`)
       }
 
-      setState((current) => ({
-        ...current,
-        activeSessionId: null,
-        isTimerRunning: false,
-        elapsedSnapshotSec: 0,
-        startedAtEpochMs: null,
-        exercises: current.mode === 'LIVE' ? [] : current.exercises,
-        updateTemplateOnFinish: false,
-      }))
-      localStorage.removeItem(LOCAL_SESSION_KEY)
-      setManualFinishMinutes('')
-      setError(null)
-      window.alert('Treino finalizado e registrado no historico de atividade.')
+      await completeWorkoutSession(authorizedFetch, started.id, {
+        durationSec,
+        notes: notesSegments.join('\n\n') || undefined,
+        exercises: performedSets.length > 0 ? performedSets : undefined,
+      })
+
+      window.alert('Treino salvo com sucesso no historico.')
+      resetWorkflow()
+
+      const items = await listWorkoutPlans(authorizedFetch)
+      setPlans(items)
+      if (items[0]) {
+        setActivePlanId(items[0].id)
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao finalizar sessao de treino')
+      setError(err instanceof Error ? err.message : 'Erro ao salvar treino')
+    } finally {
+      setSaving(false)
     }
+  }
+
+  if (screen === 'SUMMARY') {
+    return (
+      <section className="space-y-4">
+        <motion.header
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
+        >
+          <h1 className="text-2xl font-black text-[var(--text)]">Resumo do treino</h1>
+          <p className="mt-1 text-sm text-[var(--muted)]">Revise e ajuste os dados antes de salvar.</p>
+        </motion.header>
+
+        {error ? <p className="text-sm text-red-400">{error}</p> : null}
+
+        <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 space-y-4">
+          <label className="block text-sm font-semibold text-[var(--text)]">
+            Nome do treino
+            <input
+              value={summaryName}
+              onChange={(event) => setSummaryName(event.target.value)}
+              className="mt-1 w-full rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
+            />
+          </label>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-sm font-semibold text-[var(--text)]">
+              Duracao total (minutos)
+              <input
+                value={summaryDurationMin}
+                onChange={(event) => setSummaryDurationMin(event.target.value.replace(/[^\d]/g, ''))}
+                className="mt-1 w-full rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
+              />
+            </label>
+            <div className="rounded-xl border border-[var(--line)] p-3 text-sm text-[var(--muted)]">
+              <p>Inicio: {formatDateTime(startedAt)}</p>
+              <p className="mt-1">Termino: {formatDateTime(endedAt)}</p>
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-[var(--line)] p-3">
+              <p className="text-xs uppercase tracking-wide text-[var(--muted)]">Volume total</p>
+              <p className="mt-1 text-2xl font-black text-[var(--text)]">{totals.totalVolumeKg} kg</p>
+            </div>
+            <div className="rounded-xl border border-[var(--line)] p-3">
+              <p className="text-xs uppercase tracking-wide text-[var(--muted)]">Series realizadas</p>
+              <p className="mt-1 text-2xl font-black text-[var(--text)]">{totals.totalSeries}</p>
+            </div>
+          </div>
+
+          <label className="block text-sm font-semibold text-[var(--text)]">
+            Upload de imagem
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(event) => handleSummaryImage(event.target.files?.[0] ?? null)}
+              className="mt-1 w-full rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
+            />
+          </label>
+
+          {summaryImagePreview ? (
+            <img
+              src={summaryImagePreview}
+              alt="Preview do treino"
+              className="max-h-52 w-full rounded-xl object-cover border border-[var(--line)]"
+            />
+          ) : null}
+
+          <label className="block text-sm font-semibold text-[var(--text)]">
+            Anotacoes do treino
+            <textarea
+              value={summaryNotes}
+              onChange={(event) => setSummaryNotes(event.target.value)}
+              rows={4}
+              placeholder="Como foi o treino hoje?"
+              className="mt-1 w-full rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
+            />
+          </label>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void saveTraining()}
+              disabled={saving}
+              className="rounded-xl bg-[var(--brand)] px-5 py-2 text-sm font-bold text-white disabled:opacity-60"
+            >
+              {saving ? 'Salvando...' : 'Salvar Treino'}
+            </button>
+            <button
+              type="button"
+              onClick={resetWorkflow}
+              className="rounded-xl border border-red-500/60 px-5 py-2 text-sm font-bold text-red-300"
+            >
+              Descartar Treinamento
+            </button>
+          </div>
+        </article>
+      </section>
+    )
+  }
+
+  if (screen === 'ACTIVE') {
+    return (
+      <section className="space-y-4">
+        <motion.header
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-black text-[var(--text)]">Treino ativo: {activePlanName}</h1>
+              <p className="mt-1 text-sm text-[var(--muted)]">Cronometro geral e descanso por exercicio.</p>
+            </div>
+            <p className="text-3xl font-black text-[var(--text)]">{formatClock(elapsedSec)}</p>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setIsWorkoutRunning((prev) => !prev)}
+              className="rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--text)]"
+            >
+              {isWorkoutRunning ? 'Pausar cronometro' : 'Retomar cronometro'}
+            </button>
+
+            <input
+              value={manualTimerMinutes}
+              onChange={(event) => setManualTimerMinutes(event.target.value.replace(/[^\d]/g, ''))}
+              placeholder="min"
+              className="w-20 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
+            />
+            <button
+              type="button"
+              onClick={applyManualTimerEdit}
+              className="rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--text)]"
+            >
+              Editar tempo
+            </button>
+            <button
+              type="button"
+              onClick={finalizeTraining}
+              className="rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white"
+            >
+              Finalizar Treino
+            </button>
+          </div>
+        </motion.header>
+
+        {error ? <p className="text-sm text-red-400">{error}</p> : null}
+
+        <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+          <h2 className="text-lg font-extrabold text-[var(--text)]">Adicionar exercicio</h2>
+          <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]">
+            <input
+              value={exerciseSearch}
+              onChange={(event) => setExerciseSearch(event.target.value)}
+              placeholder="Buscar exercicio"
+              className="rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                openExerciseExplorer({
+                  initialQuery: exerciseSearch.trim() || undefined,
+                  context: 'ACTIVE_WORKOUT',
+                })
+              }}
+              className="rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)]"
+            >
+              Explorar Exercicios
+            </button>
+          </div>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            {exerciseOptions.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => addExerciseToActive(option)}
+                className="rounded-xl border border-[var(--line)] px-3 py-2 text-left text-sm text-[var(--text)]"
+              >
+                {option.name}
+              </button>
+            ))}
+          </div>
+        </article>
+
+        <article className="space-y-3">
+          {activeExercises.length === 0 ? (
+            <p className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-3 text-sm text-[var(--muted)]">
+              Nenhum exercicio adicionado ainda.
+            </p>
+          ) : null}
+
+          {activeExercises.map((exercise, exerciseIndex) => {
+            const showLoadInput = !exercise.isBodyweight || exercise.allowsExtraLoad
+
+            return (
+              <div key={`${exercise.exerciseId}-${exerciseIndex}`} className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-base font-extrabold text-[var(--text)]">{exercise.exerciseName}</h3>
+                <div className="flex items-center gap-2">
+                  {editingRestExerciseIndex === exerciseIndex ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        value={restDraftSec}
+                        onChange={(event) => setRestDraftSec(event.target.value.replace(/[^\d]/g, ''))}
+                        placeholder="seg"
+                        className="w-20 rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-xs text-[var(--text)]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void applyRestEdit(exerciseIndex)}
+                        className="rounded-lg border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--text)]"
+                      >
+                        Salvar
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => startRestEdit(exerciseIndex)}
+                      className="rounded-lg border border-[var(--line)] px-2 py-1 text-xs text-[var(--text)]"
+                    >
+                      Descanso {formatClock(exercise.restDurationSec)}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => toggleRestTimer(exerciseIndex)}
+                    disabled={exercise.restDurationSec <= 0}
+                    className="rounded-lg border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--text)]"
+                  >
+                    {exercise.restRunning ? 'Pausar descanso' : 'Iniciar descanso'}
+                  </button>
+                </div>
+              </div>
+
+              <p className="mt-1 text-sm text-[var(--muted)]">
+                Descanso atual: {formatClock(exercise.restRemainingSec)} (toque em "Descanso" para editar)
+              </p>
+
+              <div className="mt-3 space-y-2">
+                {exercise.sets.map((setInput, setIndex) => (
+                  <div
+                    key={`${exercise.exerciseId}-${setIndex}`}
+                    className={`grid gap-2 rounded-xl border border-[var(--line)] p-3 ${
+                      showLoadInput
+                        ? 'sm:grid-cols-[50px_1fr_1fr_1fr_auto]'
+                        : 'sm:grid-cols-[50px_1fr_1fr_auto]'
+                    }`}
+                  >
+                    <p className="self-center text-xs font-bold text-[var(--muted)]">Serie {setIndex + 1}</p>
+                    {showLoadInput ? (
+                      <label className="text-[11px] uppercase text-[var(--muted)]">
+                        Peso (kg)
+                        <input
+                          value={setInput.weightKg}
+                          onChange={(event) =>
+                            patchSet(exerciseIndex, setIndex, {
+                              weightKg: event.target.value.replace(/[^\d.]/g, ''),
+                            })
+                          }
+                          className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                        />
+                      </label>
+                    ) : null}
+                    <label className="text-[11px] uppercase text-[var(--muted)]">
+                      Repeticoes
+                      <input
+                        value={setInput.reps}
+                        onChange={(event) =>
+                          patchSet(exerciseIndex, setIndex, {
+                            reps: event.target.value.replace(/[^\d]/g, ''),
+                          })
+                        }
+                        className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                      />
+                    </label>
+                    <label className="text-[11px] uppercase text-[var(--muted)]">
+                      RIR
+                      <input
+                        value={setInput.rir}
+                        onChange={(event) =>
+                          patchSet(exerciseIndex, setIndex, {
+                            rir: event.target.value.replace(/[^\d]/g, ''),
+                          })
+                        }
+                        className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => removeSet(exerciseIndex, setIndex)}
+                      className="self-end rounded-lg border border-red-500/60 px-2 py-1 text-xs font-semibold text-red-300"
+                    >
+                      Remover
+                    </button>
+                  </div>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={() => addSet(exerciseIndex)}
+                  className="rounded-lg border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--text)]"
+                >
+                  Adicionar serie
+                </button>
+              </div>
+              </div>
+            )
+          })}
+        </article>
+      </section>
+    )
   }
 
   return (
     <section className="space-y-4">
       <motion.header
-        initial={{ opacity: 0, y: 10 }}
+        initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        className="rounded-3xl border border-[var(--line)] bg-[linear-gradient(135deg,var(--surface),var(--surface-hover))] p-5 shadow-[0_0_35px_rgba(255,69,0,0.12)]"
+        className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
       >
-        <h1 className="text-2xl font-black uppercase tracking-[0.06em] text-[var(--text)]">Execucao de treino</h1>
-        <p className="mt-1 text-sm text-[var(--muted)]">
-          Selecione um treino salvo ou monte na hora, acompanhe o cronometro e finalize com log completo de performance.
-        </p>
+        <h1 className="text-2xl font-black text-[var(--text)]">Treinos</h1>
+        <p className="mt-1 text-sm text-[var(--muted)]">Inicie rapido, escolha uma rotina ou monte seu treino na hora.</p>
+
+        <div className="mt-4 grid gap-2 sm:grid-cols-3">
+          <button
+            type="button"
+            onClick={beginEmptyTraining}
+            className="rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white"
+          >
+            Iniciar Treinamento Vazio
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setRoutineManagerMode('CREATE')
+              setShowRoutineManager(true)
+              requestAnimationFrame(() => {
+                const section = document.getElementById('treinar-rotinas-section')
+                section?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              })
+            }}
+            className="rounded-xl border border-[var(--line)] px-4 py-2 text-center text-sm font-semibold text-[var(--text)]"
+          >
+            Nova Rotina
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              openExerciseExplorer({
+                context: showRoutineManager ? 'ROUTINE_EDIT' : undefined,
+              })
+            }}
+            className="rounded-xl border border-[var(--line)] px-4 py-2 text-center text-sm font-semibold text-[var(--text)]"
+          >
+            Explorar Exercicios
+          </button>
+        </div>
       </motion.header>
 
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
 
-      <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)]/95 p-4 shadow-[0_15px_45px_rgba(0,0,0,0.32)]">
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            className={`rounded-lg px-3 py-1 text-xs font-bold ${
-              state.mode === 'SAVED' ? 'bg-[var(--brand)] text-black' : 'border border-[var(--line)] text-[var(--text)]'
-            }`}
-            onClick={() => {
-              if (!state.activeSessionId) {
-                setState((current) => ({ ...current, mode: 'SAVED' }))
-              }
-            }}
-          >
-            Treino salvo
-          </button>
-          <button
-            type="button"
-            className={`rounded-lg px-3 py-1 text-xs font-bold ${
-              state.mode === 'LIVE' ? 'bg-[var(--brand)] text-black' : 'border border-[var(--line)] text-[var(--text)]'
-            }`}
-            onClick={() => {
-              if (!state.activeSessionId) {
-                setState((current) => ({ ...current, mode: 'LIVE' }))
-              }
-            }}
-          >
-            Montar na hora
-          </button>
+      <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-xl font-extrabold text-[var(--text)]">Minhas Rotinas</h2>
+          <span className="text-sm text-[var(--muted)]">{plans.length}</span>
         </div>
 
-        {state.mode === 'SAVED' ? (
-          <div className="mt-3">
-            <label className="text-sm text-[var(--text)]">
-              Treino ativo
-              <select
-                value={state.activePlanId}
-                disabled={state.activeSessionId !== null || loadingPlans}
-                onChange={(event) =>
-                  setState((current) => ({
-                    ...current,
-                    activePlanId: event.target.value,
-                  }))
-                }
-                className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
-              >
-                {plans.map((plan) => (
-                  <option key={plan.id} value={plan.id}>
-                    {plan.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-        ) : (
-          <div className="mt-3 space-y-2">
-            <input
-              value={quickSearch}
-              onChange={(event) => setQuickSearch(event.target.value)}
-              placeholder="Buscar exercicio para incluir na sessao"
-              className="w-full rounded-lg border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
-            />
-            <div className="grid gap-2 sm:grid-cols-2">
-              {quickOptions.map((option) => (
+        {loadingPlans ? <p className="text-sm text-[var(--muted)]">Carregando rotinas...</p> : null}
+
+        {!loadingPlans && plans.length === 0 ? (
+          <p className="text-sm text-[var(--muted)]">Voce ainda nao possui rotinas salvas.</p>
+        ) : null}
+
+        <div className="space-y-3">
+          {plans.map((plan) => (
+            <div key={plan.id} className="rounded-xl border border-[var(--line)] p-3">
+              <h3 className="text-lg font-bold text-[var(--text)]">{plan.name}</h3>
+              <p className="mt-1 text-sm text-[var(--muted)] line-clamp-2">
+                {plan.description || 'Rotina personalizada para seus objetivos.'}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
                 <button
-                  key={option.id}
                   type="button"
-                  className="rounded-lg border border-[var(--line)] px-3 py-2 text-left text-sm text-[var(--text)] transition hover:border-[var(--brand)]"
-                  onClick={() => addLiveExercise(option)}
+                  onClick={() => beginRoutineTraining(plan)}
+                  className="rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white"
                 >
-                  {option.name}
+                  Iniciar Rotina
                 </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            className="rounded-lg bg-[var(--brand)] px-3 py-2 text-sm font-bold text-black transition hover:brightness-110"
-            onClick={() => {
-              void startSession()
-            }}
-            disabled={state.activeSessionId !== null}
-          >
-            Iniciar sessao
-          </button>
-          <button
-            type="button"
-            className="rounded-lg border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--text)]"
-            onClick={togglePause}
-            disabled={state.activeSessionId === null}
-          >
-            {state.isTimerRunning ? 'Pausar' : 'Retomar'}
-          </button>
-          <button
-            type="button"
-            className="rounded-lg border border-emerald-500/60 px-3 py-2 text-sm font-semibold text-emerald-300 transition hover:bg-emerald-500/10"
-            onClick={() => {
-              void finishSession()
-            }}
-            disabled={state.activeSessionId === null}
-          >
-            Terminar treino
-          </button>
-        </div>
-      </article>
-
-      <article className="sticky top-3 z-10 rounded-2xl border border-[var(--line)] bg-[var(--surface)]/95 p-4 shadow-[0_12px_30px_rgba(0,0,0,0.35)] backdrop-blur">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-sm font-semibold uppercase tracking-wide text-[var(--muted)]">Cronometro</p>
-          <p className="text-3xl font-black text-[var(--text)]">{formatClock(elapsedSec)}</p>
-        </div>
-        <div className="mt-2 max-w-xs">
-          <label className="text-xs font-semibold text-[var(--muted)]">
-            Ajuste manual ao finalizar (minutos)
-            <input
-              value={manualFinishMinutes}
-              onChange={(event) => setManualFinishMinutes(event.target.value.replace(/[^\d]/g, ''))}
-              className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
-            />
-          </label>
-        </div>
-      </article>
-
-      <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)]/95 p-4 shadow-[0_15px_45px_rgba(0,0,0,0.32)]">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-lg font-extrabold text-[var(--text)]">Modo de treino</h2>
-          {state.mode === 'SAVED' && state.activeSessionId ? (
-            <label className="text-xs font-semibold text-[var(--muted)]">
-              <input
-                type="checkbox"
-                checked={state.updateTemplateOnFinish}
-                onChange={(event) =>
-                  setState((current) => ({
-                    ...current,
-                    updateTemplateOnFinish: event.target.checked,
-                  }))
-                }
-                className="mr-2"
-              />
-              Atualizar template com dados executados ao finalizar
-            </label>
-          ) : null}
-        </div>
-
-        <div className="mt-3 space-y-3">
-          {state.exercises.length === 0 ? (
-            <p className="text-sm text-[var(--muted)]">Nenhum exercicio na sessao ativa.</p>
-          ) : null}
-
-          {state.exercises.map((exercise, exerciseIndex) => (
-            <div key={`${exercise.exerciseId}-${exerciseIndex}`} className="rounded-xl border border-[var(--line)] bg-black/20 p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="text-sm font-bold text-[var(--text)]">{exercise.exerciseName}</p>
-                  <p className="text-xs text-[var(--muted)]">Planejado: {exercise.plannedReps}</p>
-                  {exercise.isBodyweight ? (
-                    <label className="mt-1 inline-flex items-center gap-1 text-[11px] text-[var(--muted)]">
-                      <input
-                        type="checkbox"
-                        checked={exercise.useExtraLoad}
-                        disabled={!exercise.allowsExtraLoad}
-                        onChange={(event) =>
-                          setState((current) => ({
-                            ...current,
-                            exercises: current.exercises.map((entry, idx) =>
-                              idx === exerciseIndex
-                                ? {
-                                    ...entry,
-                                    useExtraLoad: event.target.checked,
-                                    series: event.target.checked
-                                      ? entry.series
-                                      : entry.series.map((series) => ({ ...series, loadKg: '' })),
-                                  }
-                                : entry,
-                            ),
-                          }))
-                        }
-                      />
-                      Adicionar peso extra
-                    </label>
-                  ) : null}
-                </div>
                 <button
                   type="button"
-                  className="rounded-md border border-red-500/50 px-2 py-1 text-xs text-red-300"
-                  onClick={() => removeExercise(exerciseIndex)}
+                  onClick={() => {
+                    setActivePlanId(plan.id)
+                    setRoutineManagerMode('EDIT')
+                    setShowRoutineManager(true)
+                    requestAnimationFrame(() => {
+                      const section = document.getElementById('treinar-rotinas-section')
+                      section?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                    })
+                  }}
+                  className="rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)]"
                 >
-                  Remover exercicio
-                </button>
-              </div>
-
-              <div className="mt-2 space-y-2">
-                {exercise.series.map((series, seriesIndex) => (
-                  <div key={`${exercise.exerciseId}-series-${seriesIndex}`} className="grid gap-2 rounded-lg border border-[var(--line)] p-2 md:grid-cols-[48px_1fr_1fr_1fr_1fr_auto]">
-                    <p className="self-center text-xs font-bold text-[var(--muted)]">#{seriesIndex + 1}</p>
-                    <label className="text-[10px] font-semibold uppercase text-[var(--muted)]">
-                      Reps executadas
-                      <input
-                        value={series.reps}
-                        onChange={(event) => patchSeries(exerciseIndex, seriesIndex, { reps: event.target.value.replace(/[^\d]/g, '') })}
-                        className="mt-1 w-full rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-xs"
-                      />
-                    </label>
-                    <label className="text-[10px] font-semibold uppercase text-[var(--muted)]">
-                      {!exercise.isBodyweight || exercise.useExtraLoad ? 'Carga (kg)' : 'Carga'}
-                      {!exercise.isBodyweight || exercise.useExtraLoad ? (
-                        <input
-                          value={series.loadKg}
-                          onChange={(event) => patchSeries(exerciseIndex, seriesIndex, { loadKg: event.target.value.replace(/[^\d.]/g, '') })}
-                          className="mt-1 w-full rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-xs"
-                        />
-                      ) : (
-                        <div className="mt-1 w-full rounded-md border border-[var(--line)] px-2 py-1 text-xs text-[var(--muted)]">
-                          Peso corporal
-                        </div>
-                      )}
-                    </label>
-                    <label className="text-[10px] font-semibold uppercase text-[var(--muted)]">
-                      RIR
-                      <input
-                        value={series.rir}
-                        onChange={(event) => patchSeries(exerciseIndex, seriesIndex, { rir: event.target.value.replace(/[^\d]/g, '') })}
-                        className="mt-1 w-full rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-xs"
-                      />
-                    </label>
-                    {!exercise.isBodyweight || exercise.useExtraLoad ? (
-                      <div className="self-end rounded-md border border-[var(--line)] px-2 py-1 text-xs font-bold text-[var(--brand)]">
-                        1RM {(() => {
-                          const reps = Number(series.reps)
-                          const load = Number(series.loadKg)
-                          if (reps <= 0 || load <= 0) {
-                            return '0.0'
-                          }
-                          return (load * (1 + 0.0333 * reps)).toFixed(1)
-                        })()}{' '}
-                        kg
-                      </div>
-                    ) : (
-                      <div className="self-end rounded-md border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--muted)]">
-                        1RM n/a
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      className="self-end rounded-md border border-red-500/50 px-2 py-1 text-xs text-red-300"
-                      onClick={() => removeSeries(exerciseIndex, seriesIndex)}
-                    >
-                      Remover serie
-                    </button>
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-2">
-                <button
-                  type="button"
-                  className="rounded-md border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--text)] transition hover:border-[var(--brand)]"
-                  onClick={() => addSeries(exerciseIndex)}
-                >
-                  Adicionar serie
+                  Editar Rotina
                 </button>
               </div>
             </div>
           ))}
         </div>
       </article>
+
+      {showRoutineManager ? (
+        <section id="treinar-rotinas-section" className="space-y-2">
+          <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-xl font-extrabold text-[var(--text)]">
+                  {routineManagerMode === 'EDIT' ? 'Editando rotina selecionada' : 'Criar e gerenciar rotinas'}
+                </h2>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  {routineManagerMode === 'EDIT'
+                    ? 'Apenas a rotina escolhida esta visivel para edicao.'
+                    : 'Esta area aparece somente quando voce abre "Nova Rotina".'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowRoutineManager(false)
+                  setRoutineManagerMode('CREATE')
+                }}
+                className="rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--text)]"
+              >
+                Fechar
+              </button>
+            </div>
+          </article>
+          <WorkoutsPage
+            selectedPlanId={activePlanId}
+            onlySelectedPlan={routineManagerMode === 'EDIT'}
+            showCreateSection={routineManagerMode !== 'EDIT'}
+          />
+        </section>
+      ) : null}
     </section>
   )
 }

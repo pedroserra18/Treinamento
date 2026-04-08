@@ -85,7 +85,7 @@ export function HistoryPage() {
 
       <div className="flex flex-wrap gap-3">
         <Link
-          to="/workouts"
+          to="/train"
           className="rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-semibold text-white"
         >
           Explorar treinos
