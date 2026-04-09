@@ -12,21 +12,39 @@ type RecommendationDayItem = {
   defaultPlanName: string
 }
 
-const DEFAULT_LOW_FREQUENCY_TEMPLATES: RecommendationTemplateView[] = [
-  { key: 'PPL', title: 'Push Pull Legs', structure: ['Push', 'Pull', 'Legs'] },
-  { key: 'FB', title: 'Full Body', structure: ['Full Body A', 'Full Body B', 'Full Body C'] },
-]
-
-function ensureLowFrequencyTemplates(input: RecommendationTemplateView[]): RecommendationTemplateView[] {
+function adjustTemplatesByDays(
+  input: RecommendationTemplateView[],
+  daysPerWeek: number,
+): RecommendationTemplateView[] {
   const map = new Map(input.map((item) => [item.key, item]))
-  DEFAULT_LOW_FREQUENCY_TEMPLATES.forEach((item) => {
-    if (!map.has(item.key)) {
-      map.set(item.key, item)
-    }
-  })
 
-  const orderedKeys = ['PPL', 'FB', ...Array.from(map.keys()).filter((key) => key !== 'PPL' && key !== 'FB')]
-  return orderedKeys.map((key) => map.get(key)).filter((item): item is RecommendationTemplateView => Boolean(item))
+  if (daysPerWeek <= 1) {
+    return [
+      {
+        key: 'FB',
+        title: 'Full Body',
+        structure: ['FB'],
+      },
+    ]
+  }
+
+  if (daysPerWeek === 2) {
+    return [
+      {
+        key: 'FB',
+        title: 'Full Body',
+        structure: ['FB 1', 'FB 2'],
+      },
+    ]
+  }
+
+  if (daysPerWeek === 3) {
+    const ppl = map.get('PPL') ?? { key: 'PPL', title: 'Push Pull Legs', structure: ['Push', 'Pull', 'Legs'] }
+    const fb = map.get('FB') ?? { key: 'FB', title: 'Full Body', structure: ['FB 1', 'FB 2', 'FB 3'] }
+    return [ppl, fb]
+  }
+
+  return input
 }
 
 function normalizeDayBaseName(raw: string): string {
@@ -84,7 +102,7 @@ export function WorkoutRecommendationsPage() {
 
     try {
       const data = await getRecommendationTemplates(authorizedFetch, { daysPerWeek, sex })
-      setTemplates(daysPerWeek <= 3 ? ensureLowFrequencyTemplates(data.templates) : data.templates)
+      setTemplates(adjustTemplatesByDays(data.templates, daysPerWeek))
       setWarning(data.warning)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar recomendacoes')
