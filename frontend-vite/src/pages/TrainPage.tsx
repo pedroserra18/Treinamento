@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion'
 import { useAuth } from '../hooks/useAuth'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { WorkoutsPage } from './WorkoutsPage'
 import {
   getExerciseExplorerSelectionEventName,
@@ -9,7 +9,10 @@ import {
 } from '../lib/exercise-explorer'
 import type { ExerciseOption, WorkoutPlan } from '../types/workout'
 import {
+  addExerciseToPlan,
   completeWorkoutSession,
+  createWorkoutPlan,
+  deleteWorkoutPlan,
   listWorkoutPlans,
   searchExercisesForPlan,
   startWorkoutSession,
@@ -59,6 +62,21 @@ function formatDateTime(value: Date | null): string {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(value)
+}
+
+const REST_OPTIONS_SEC = [
+  ...Array.from({ length: 6 }, (_, index) => (index + 1) * 10),
+  ...Array.from({ length: 8 }, (_, index) => 90 + index * 30),
+]
+
+function formatRestOptionLabel(totalSeconds: number): string {
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`
+  }
+
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return seconds === 0 ? `${minutes}min` : `${minutes}min ${seconds}s`
 }
 
 function parsePositiveInt(value: string, fallback = 0): number {
@@ -126,6 +144,7 @@ export function TrainPage() {
   const [saving, setSaving] = useState(false)
   const [showRoutineManager, setShowRoutineManager] = useState(false)
   const [routineManagerMode, setRoutineManagerMode] = useState<RoutineManagerMode>('CREATE')
+  const [openRoutineMenuId, setOpenRoutineMenuId] = useState<string | null>(null)
 
   const [activePlanId, setActivePlanId] = useState<string>('')
   const [activePlanName, setActivePlanName] = useState<string>('Treinamento vazio')
@@ -150,21 +169,29 @@ export function TrainPage() {
   const [summaryImageFile, setSummaryImageFile] = useState<File | null>(null)
   const [summaryImagePreview, setSummaryImagePreview] = useState<string | null>(null)
 
+  const reloadPlans = useCallback(async (preferredPlanId?: string) => {
+    const items = await listWorkoutPlans(authorizedFetch)
+    setPlans(items)
+
+    if (preferredPlanId && items.some((plan) => plan.id === preferredPlanId)) {
+      setActivePlanId(preferredPlanId)
+      return
+    }
+
+    if (items[0]) {
+      setActivePlanId(items[0].id)
+    }
+  }, [authorizedFetch])
+
   useEffect(() => {
-    void listWorkoutPlans(authorizedFetch)
-      .then((items) => {
-        setPlans(items)
-        if (items[0]) {
-          setActivePlanId(items[0].id)
-        }
-      })
+    void reloadPlans()
       .catch((err) => {
         setError(err instanceof Error ? err.message : 'Erro ao carregar rotinas')
       })
       .finally(() => {
         setLoadingPlans(false)
       })
-  }, [authorizedFetch])
+  }, [reloadPlans])
 
   useEffect(() => {
     if (screen !== 'ACTIVE' || !isWorkoutRunning) {
@@ -236,6 +263,20 @@ export function TrainPage() {
       }
     }
   }, [summaryImagePreview])
+
+  useEffect(() => {
+    const handleDocumentClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null
+      if (!target?.closest('[data-routine-menu]')) {
+        setOpenRoutineMenuId(null)
+      }
+    }
+
+    document.addEventListener('click', handleDocumentClick)
+    return () => {
+      document.removeEventListener('click', handleDocumentClick)
+    }
+  }, [])
 
   useEffect(() => {
     const eventName = getExerciseExplorerSelectionEventName()
@@ -561,15 +602,86 @@ export function TrainPage() {
       window.alert('Treino salvo com sucesso no historico.')
       resetWorkflow()
 
-      const items = await listWorkoutPlans(authorizedFetch)
-      setPlans(items)
-      if (items[0]) {
-        setActivePlanId(items[0].id)
-      }
+      await reloadPlans()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao salvar treino')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleDeleteRoutine = async (plan: WorkoutPlan) => {
+    const confirmed = window.confirm(`Deseja excluir a rotina "${plan.name}"?`)
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      setError(null)
+      await deleteWorkoutPlan(authorizedFetch, plan.id)
+      await reloadPlans()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao excluir rotina')
+    }
+  }
+
+  const handleShareRoutine = async (plan: WorkoutPlan) => {
+    const lines = [
+      `Rotina: ${plan.name}`,
+      plan.description ? `Descricao: ${plan.description}` : 'Descricao: Sem descricao',
+      'Exercicios:',
+      ...plan.exercises.map((item, index) => {
+        const exerciseName = item.customName ?? item.exercise.name
+        const sets = item.sets ?? 0
+        const repsMin = item.repsMin ?? 0
+        const repsMax = item.repsMax ?? repsMin
+        return `${index + 1}. ${exerciseName} - ${sets}x ${repsMin}-${repsMax}`
+      }),
+    ]
+
+    const shareText = lines.join('\n')
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareText)
+        window.alert('Resumo da rotina copiado para a area de transferencia.')
+      } else {
+        window.alert(shareText)
+      }
+    } catch {
+      window.alert(shareText)
+    }
+  }
+
+  const handleDuplicateRoutine = async (plan: WorkoutPlan) => {
+    try {
+      setError(null)
+
+      const created = await createWorkoutPlan(authorizedFetch, {
+        name: `${plan.name} (copia)`,
+        description: plan.description ?? undefined,
+        source: 'CUSTOM',
+      })
+
+      for (let index = 0; index < plan.exercises.length; index += 1) {
+        const item = plan.exercises[index]
+
+        await addExerciseToPlan(authorizedFetch, created.id, {
+          exerciseId: item.exercise.id,
+          insertAt: index + 1,
+          sets: item.sets ?? undefined,
+          repsMin: item.repsMin ?? undefined,
+          repsMax: item.repsMax ?? undefined,
+          durationSec: item.durationSec ?? undefined,
+          restSec: item.restSec ?? undefined,
+          notes: item.notes ?? undefined,
+        })
+      }
+
+      await reloadPlans(created.id)
+      window.alert('Rotina duplicada com sucesso.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao duplicar rotina')
     }
   }
 
@@ -777,12 +889,18 @@ export function TrainPage() {
                 <div className="flex items-center gap-2">
                   {editingRestExerciseIndex === exerciseIndex ? (
                     <div className="flex items-center gap-2">
-                      <input
+                      <select
                         value={restDraftSec}
-                        onChange={(event) => setRestDraftSec(event.target.value.replace(/[^\d]/g, ''))}
-                        placeholder="seg"
-                        className="w-20 rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-xs text-[var(--text)]"
-                      />
+                        onChange={(event) => setRestDraftSec(event.target.value)}
+                        className="w-32 rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-xs text-[var(--text)]"
+                      >
+                        <option value="0">Sem descanso</option>
+                        {REST_OPTIONS_SEC.map((seconds) => (
+                          <option key={seconds} value={seconds}>
+                            {formatRestOptionLabel(seconds)}
+                          </option>
+                        ))}
+                      </select>
                       <button
                         type="button"
                         onClick={() => void applyRestEdit(exerciseIndex)}
@@ -952,7 +1070,56 @@ export function TrainPage() {
 
         <div className="space-y-3">
           {plans.map((plan) => (
-            <div key={plan.id} className="rounded-xl border border-[var(--line)] p-3">
+            <div key={plan.id} className="relative rounded-xl border border-[var(--line)] p-3">
+              <div data-routine-menu className="absolute right-3 top-3">
+                <button
+                  type="button"
+                  aria-label={`Mais opcoes da rotina ${plan.name}`}
+                  aria-expanded={openRoutineMenuId === plan.id}
+                  onClick={() => {
+                    setOpenRoutineMenuId((current) => (current === plan.id ? null : plan.id))
+                  }}
+                  className="rounded-lg border border-[var(--line)] px-2 py-1 text-xs font-bold text-[var(--muted)]"
+                >
+                  ...
+                </button>
+
+                {openRoutineMenuId === plan.id ? (
+                  <div className="absolute right-0 top-8 z-20 min-w-48 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-1 shadow-lg">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOpenRoutineMenuId(null)
+                        void handleDeleteRoutine(plan)
+                      }}
+                      className="block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-red-400 hover:bg-[var(--surface-hover)]"
+                    >
+                      Deletar rotina
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOpenRoutineMenuId(null)
+                        void handleShareRoutine(plan)
+                      }}
+                      className="block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
+                    >
+                      Compartilhar rotina
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOpenRoutineMenuId(null)
+                        void handleDuplicateRoutine(plan)
+                      }}
+                      className="block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
+                    >
+                      Duplicar rotina
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+
               <h3 className="text-lg font-bold text-[var(--text)]">{plan.name}</h3>
               <p className="mt-1 text-sm text-[var(--muted)] line-clamp-2">
                 {plan.description || 'Rotina personalizada para seus objetivos.'}
@@ -1016,6 +1183,10 @@ export function TrainPage() {
             selectedPlanId={activePlanId}
             onlySelectedPlan={routineManagerMode === 'EDIT'}
             showCreateSection={routineManagerMode !== 'EDIT'}
+            onPlanSaved={() => {
+              setShowRoutineManager(false)
+              setRoutineManagerMode('CREATE')
+            }}
           />
         </section>
       ) : null}

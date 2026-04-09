@@ -102,6 +102,21 @@ function formatClock(totalSeconds: number): string {
   return `${h}:${m}:${s}`
 }
 
+const REST_OPTIONS_SEC = [
+  ...Array.from({ length: 6 }, (_, index) => (index + 1) * 10),
+  ...Array.from({ length: 8 }, (_, index) => 90 + index * 30),
+]
+
+function formatRestOptionLabel(totalSeconds: number): string {
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`
+  }
+
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return seconds === 0 ? `${minutes}min` : `${minutes}min ${seconds}s`
+}
+
 function parsePerformanceFromNotes(notes: string | null): Partial<PerformanceDraft> {
   if (!notes || !notes.includes(PERF_MARKER)) {
     return {}
@@ -175,12 +190,14 @@ type WorkoutsPageProps = {
   selectedPlanId?: string | null
   onlySelectedPlan?: boolean
   showCreateSection?: boolean
+  onPlanSaved?: (planId: string) => void
 }
 
 export function WorkoutsPage({
   selectedPlanId = null,
   onlySelectedPlan = false,
   showCreateSection = true,
+  onPlanSaved,
 }: WorkoutsPageProps) {
   const { authorizedFetch } = useAuth()
   const [plans, setPlans] = useState<WorkoutPlan[]>([])
@@ -464,21 +481,39 @@ export function WorkoutsPage({
     })
   }
 
-  const saveExerciseMetrics = async (planId: string, planExerciseId: string, refresh = true) => {
+  const saveExerciseMetrics = async (planId: string, planExerciseId: string, refresh = true): Promise<boolean> => {
     const draft = draftByExercise[planExerciseId]
     const targetPlan = plans.find((plan) => plan.id === planId)
     const targetExercise = targetPlan?.exercises.find((exercise) => exercise.id === planExerciseId)
 
     if (!draft || !targetExercise) {
-      return
+      return false
     }
 
     const validSeries = draft.series.filter((series) => Number(series.reps) > 0)
 
     if (validSeries.length === 0) {
       setError('Adicione ao menos uma serie com repeticoes maior que 0 antes de salvar.')
-      return
+      return false
     }
+
+    const rawRestDraft = restDraftByExercise[planExerciseId] ?? String(targetExercise.restSec ?? 0)
+    const parsedRest = Number(rawRestDraft)
+    const isInt = Number.isInteger(parsedRest)
+    const isZero = parsedRest === 0
+    const inRange = parsedRest >= 10 && parsedRest <= 300
+
+    if (!isInt || (!isZero && !inRange)) {
+      setError('Descanso deve ser 0 ou um valor entre 10 e 300 segundos.')
+      return false
+    }
+
+    const typedExerciseName = (customNameByExercise[planExerciseId] ?? targetExercise.customName ?? targetExercise.exercise.name).trim()
+    const fallbackExerciseName = targetExercise.exercise.name
+    const customName =
+      typedExerciseName.length > 0 && typedExerciseName !== fallbackExerciseName
+        ? typedExerciseName
+        : null
 
     const normalizedReps = validSeries.map((series) => Math.max(1, Math.min(50, Math.floor(Number(series.reps)))))
     const repsMin = Math.min(...normalizedReps)
@@ -504,23 +539,32 @@ export function WorkoutsPage({
 
     try {
       await updatePlanExercise(authorizedFetch, planId, planExerciseId, {
+        customName,
         sets,
         repsMin,
         repsMax,
+        restSec: parsedRest === 0 ? null : parsedRest,
         notes: buildNotesWithPerformance(targetExercise.notes, normalizedDraft),
       })
       if (refresh) {
         await loadAll()
       }
+      return true
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao salvar series do exercicio')
+      return false
     }
   }
 
   const saveFullPlan = async (plan: WorkoutPlan) => {
     try {
-      await Promise.all(plan.exercises.map((entry) => saveExerciseMetrics(plan.id, entry.id, false)))
+      const results = await Promise.all(plan.exercises.map((entry) => saveExerciseMetrics(plan.id, entry.id, false)))
+      if (!results.every(Boolean)) {
+        return
+      }
+
       await loadAll()
+      onPlanSaved?.(plan.id)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao salvar treino completo')
     }
@@ -770,7 +814,7 @@ export function WorkoutsPage({
               <div className="flex gap-2">
                 <button
                   type="button"
-                  className="rounded-lg border border-amber-400/50 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-300"
+                  className="rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white"
                   onClick={() => {
                     void saveFullPlan(plan)
                   }}
@@ -919,17 +963,23 @@ export function WorkoutsPage({
                         </p>
                         {editingRestByExercise[item.id] ? (
                           <div className="mt-2 flex items-center gap-2">
-                            <input
+                            <select
                               value={restDraftByExercise[item.id] ?? '0'}
                               onChange={(event) =>
                                 setRestDraftByExercise((current) => ({
                                   ...current,
-                                  [item.id]: event.target.value.replace(/[^\d]/g, ''),
+                                  [item.id]: event.target.value,
                                 }))
                               }
-                              className="w-24 rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-xs"
-                              placeholder="seg"
-                            />
+                              className="w-36 rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-xs"
+                            >
+                              <option value="0">Sem descanso</option>
+                              {REST_OPTIONS_SEC.map((seconds) => (
+                                <option key={seconds} value={seconds}>
+                                  {formatRestOptionLabel(seconds)}
+                                </option>
+                              ))}
+                            </select>
                             <button
                               type="button"
                               className="rounded-md border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--text)]"
