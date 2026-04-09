@@ -147,6 +147,8 @@ export async function addExerciseToPlan(
     sets?: number
     repsMin?: number
     repsMax?: number
+    durationSec?: number
+    restSec?: number
     notes?: string
   },
 ): Promise<void> {

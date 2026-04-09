@@ -195,15 +195,6 @@ export function WorkoutRecommendationsPage() {
               <option value="OTHER">Outro</option>
             </select>
           </label>
-          <button
-            type="button"
-            className="rounded-lg bg-[var(--brand)] px-3 py-1 text-sm font-bold text-black"
-            onClick={() => {
-              void loadTemplates()
-            }}
-          >
-            Atualizar
-          </button>
         </div>
 
         {loading ? <p className="mt-2 text-sm text-[var(--muted)]">Carregando...</p> : null}
@@ -273,7 +264,15 @@ export function WorkoutRecommendationsPage() {
             </div>
           </article>
 
-          <WorkoutsPage selectedPlanId={editorPlanId} onlySelectedPlan showCreateSection={false} />
+          <WorkoutsPage
+            selectedPlanId={editorPlanId}
+            onlySelectedPlan
+            showCreateSection={false}
+            onPlanSaved={() => {
+              setEditorPlanId(null)
+              setEditorPlanTitle('')
+            }}
+          />
         </section>
       ) : null}
     </section>
