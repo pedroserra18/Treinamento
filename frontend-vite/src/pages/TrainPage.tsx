@@ -13,6 +13,7 @@ import {
   completeWorkoutSession,
   createWorkoutPlan,
   deleteWorkoutPlan,
+  getLatestExercisePerformance,
   listWorkoutPlans,
   searchExercisesForPlan,
   startWorkoutSession,
@@ -35,13 +36,14 @@ type ActiveExercise = {
   exerciseName: string
   isBodyweight: boolean
   allowsExtraLoad: boolean
+  suggestedReps: string
   restDurationSec: number
   restRemainingSec: number
   restRunning: boolean
   sets: ExerciseSetInput[]
 }
 
-function createSet(reps = '8', weightKg = '', rir = ''): ExerciseSetInput {
+function createSet(reps = '', weightKg = '', rir = ''): ExerciseSetInput {
   return { reps, weightKg, rir }
 }
 
@@ -88,6 +90,15 @@ function parsePositiveInt(value: string, fallback = 0): number {
   return Math.floor(n)
 }
 
+function toFiniteNumber(value: unknown): number | null {
+  if (value == null) {
+    return null
+  }
+
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 function mapPlanToActiveExercises(plan: WorkoutPlan): ActiveExercise[] {
   return plan.exercises.map((entry) => {
     const repsText =
@@ -101,10 +112,11 @@ function mapPlanToActiveExercises(plan: WorkoutPlan): ActiveExercise[] {
       exerciseName: entry.customName ?? entry.exercise.name,
       isBodyweight: entry.exercise.isBodyweight,
       allowsExtraLoad: entry.exercise.allowsExtraLoad,
+      suggestedReps: repsText,
       restDurationSec: entry.restSec ?? 0,
       restRemainingSec: entry.restSec ?? 0,
       restRunning: false,
-      sets: Array.from({ length: Math.max(1, entry.sets ?? 3) }, () => createSet(repsText)),
+      sets: Array.from({ length: Math.max(1, entry.sets ?? 3) }, () => createSet()),
     }
   })
 }
@@ -160,6 +172,9 @@ export function TrainPage() {
 
   const [exerciseSearch, setExerciseSearch] = useState('')
   const [exerciseOptions, setExerciseOptions] = useState<ExerciseOption[]>([])
+  const [lastPerformanceByExercise, setLastPerformanceByExercise] = useState<
+    Record<string, Record<number, { reps: number | null; weightKg: number | null; rir: number | null }>>
+  >({})
   const [editingRestExerciseIndex, setEditingRestExerciseIndex] = useState<number | null>(null)
   const [restDraftSec, setRestDraftSec] = useState('0')
 
@@ -264,6 +279,84 @@ export function TrainPage() {
     }
   }, [summaryImagePreview])
 
+  const activeExerciseIdsKey = useMemo(
+    () =>
+      Array.from(new Set(activeExercises.map((exercise) => exercise.exerciseId)))
+        .sort()
+        .join(','),
+    [activeExercises],
+  )
+
+  useEffect(() => {
+    if (screen !== 'ACTIVE' || !activeExerciseIdsKey) {
+      setLastPerformanceByExercise({})
+      return
+    }
+
+    let cancelled = false
+
+    const loadLastPerformance = async () => {
+      try {
+        const exerciseIds = activeExerciseIdsKey.split(',').filter(Boolean)
+        const data = await getLatestExercisePerformance(authorizedFetch, exerciseIds)
+
+        if (cancelled) {
+          return
+        }
+
+        const mapped: Record<string, Record<number, { reps: number | null; weightKg: number | null; rir: number | null }>> = {}
+        const latestSetCountByExercise: Record<string, number> = {}
+
+        data.items.forEach((item) => {
+          mapped[item.exerciseId] = {}
+          latestSetCountByExercise[item.exerciseId] = item.sets.reduce(
+            (max, setEntry) => Math.max(max, setEntry.setNumber),
+            0,
+          )
+          item.sets.forEach((setEntry) => {
+            const reps = toFiniteNumber(setEntry.reps)
+            const weightKg = toFiniteNumber(setEntry.weightKg)
+            const rir = toFiniteNumber(setEntry.rir)
+
+            mapped[item.exerciseId][setEntry.setNumber] = {
+              reps,
+              weightKg,
+              rir,
+            }
+          })
+        })
+
+        setLastPerformanceByExercise(mapped)
+        setActiveExercises((current) =>
+          current.map((exercise) => {
+            const latestCount = latestSetCountByExercise[exercise.exerciseId] ?? 0
+            if (latestCount <= exercise.sets.length) {
+              return exercise
+            }
+
+            return {
+              ...exercise,
+              sets: [
+                ...exercise.sets,
+                ...Array.from({ length: latestCount - exercise.sets.length }, () => createSet()),
+              ],
+            }
+          }),
+        )
+      } catch {
+        if (!cancelled) {
+          setLastPerformanceByExercise({})
+        }
+      }
+    }
+
+    void loadLastPerformance()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeExerciseIdsKey, authorizedFetch, screen])
+
   useEffect(() => {
     const handleDocumentClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null
@@ -305,10 +398,11 @@ export function TrainPage() {
             exerciseName: payload.name,
             isBodyweight: payload.isBodyweight,
             allowsExtraLoad: payload.allowsExtraLoad,
+            suggestedReps: '10',
             restDurationSec: 0,
             restRemainingSec: 0,
             restRunning: false,
-            sets: [createSet('10')],
+            sets: [createSet()],
           },
         ]
       })
@@ -515,10 +609,11 @@ export function TrainPage() {
           exerciseName: option.name,
           isBodyweight: option.isBodyweight,
           allowsExtraLoad: option.allowsExtraLoad,
+          suggestedReps: '10',
           restDurationSec: 0,
           restRemainingSec: 0,
           restRunning: false,
-          sets: [createSet('10')],
+          sets: [createSet()],
         },
       ]
     })
@@ -559,25 +654,49 @@ export function TrainPage() {
     const durationSec = Math.max(60, durationMin * 60)
 
     const performedSets = activeExercises.flatMap((exercise) =>
-      exercise.sets
-        .map((setInput, index) => ({
+      exercise.sets.reduce<
+        Array<{
+          exerciseId: string
+          setNumber: number
+          reps: number
+          weightKg?: number
+          notes?: string
+        }>
+      >((acc, setInput, index) => {
+        const setNumber = index + 1
+        const lastSet = lastPerformanceByExercise[exercise.exerciseId]?.[setNumber]
+
+        const repsRaw = setInput.reps.trim()
+        const weightRaw = setInput.weightKg.trim().replace(',', '.')
+        const rirRaw = setInput.rir.trim()
+
+        const hasAnyInput = repsRaw.length > 0 || weightRaw.length > 0 || rirRaw.length > 0
+        if (!hasAnyInput) {
+          return acc
+        }
+
+        const repsFallback =
+          lastSet?.reps ??
+          (exercise.suggestedReps.trim().length > 0 ? Number(exercise.suggestedReps) : NaN)
+        const reps = repsRaw.length > 0 ? Number(repsRaw) : repsFallback
+
+        if (!Number.isFinite(reps) || reps <= 0) {
+          return acc
+        }
+
+        const weightKg = weightRaw.length > 0 ? Number(weightRaw) : NaN
+        const rir = rirRaw.length > 0 ? Number(rirRaw) : NaN
+
+        acc.push({
           exerciseId: exercise.exerciseId,
-          setNumber: index + 1,
-          reps: Number(setInput.reps),
-          weightKg: Number(setInput.weightKg),
-          notes:
-            setInput.rir.trim().length > 0 && Number.isFinite(Number(setInput.rir))
-              ? `RIR: ${Number(setInput.rir)}`
-              : undefined,
-        }))
-        .filter((item) => Number.isFinite(item.reps) && item.reps > 0)
-        .map((item) => ({
-          exerciseId: item.exerciseId,
-          setNumber: item.setNumber,
-          reps: item.reps,
-          weightKg: Number.isFinite(item.weightKg) && item.weightKg > 0 ? item.weightKg : undefined,
-          notes: item.notes,
-        })),
+          setNumber,
+          reps,
+          weightKg: Number.isFinite(weightKg) && weightKg > 0 ? weightKg : undefined,
+          notes: Number.isFinite(rir) && rir >= 0 ? `RIR: ${Math.floor(rir)}` : undefined,
+        })
+
+        return acc
+      }, []),
     )
 
     try {
@@ -935,6 +1054,22 @@ export function TrainPage() {
 
               <div className="mt-3 space-y-2">
                 {exercise.sets.map((setInput, setIndex) => (
+                  (() => {
+                    const lastSet = lastPerformanceByExercise[exercise.exerciseId]?.[setIndex + 1]
+                    const weightPlaceholder =
+                      lastSet?.weightKg != null
+                        ? `${lastSet.weightKg} kg`
+                        : 'kg'
+                    const repsPlaceholder =
+                      lastSet?.reps != null
+                        ? String(lastSet.reps)
+                        : exercise.suggestedReps || 'reps'
+                    const rirPlaceholder =
+                      lastSet?.rir != null
+                        ? String(lastSet.rir)
+                        : 'rir'
+
+                    return (
                   <div
                     key={`${exercise.exerciseId}-${setIndex}`}
                     className={`grid gap-2 rounded-xl border border-[var(--line)] p-3 ${
@@ -949,6 +1084,7 @@ export function TrainPage() {
                         Peso (kg)
                         <input
                           value={setInput.weightKg}
+                          placeholder={weightPlaceholder}
                           onChange={(event) =>
                             patchSet(exerciseIndex, setIndex, {
                               weightKg: event.target.value.replace(/[^\d.]/g, ''),
@@ -962,6 +1098,7 @@ export function TrainPage() {
                       Repeticoes
                       <input
                         value={setInput.reps}
+                        placeholder={repsPlaceholder}
                         onChange={(event) =>
                           patchSet(exerciseIndex, setIndex, {
                             reps: event.target.value.replace(/[^\d]/g, ''),
@@ -974,6 +1111,7 @@ export function TrainPage() {
                       RIR
                       <input
                         value={setInput.rir}
+                        placeholder={rirPlaceholder}
                         onChange={(event) =>
                           patchSet(exerciseIndex, setIndex, {
                             rir: event.target.value.replace(/[^\d]/g, ''),
@@ -990,6 +1128,8 @@ export function TrainPage() {
                       Remover
                     </button>
                   </div>
+                    )
+                  })()
                 ))}
 
                 <button

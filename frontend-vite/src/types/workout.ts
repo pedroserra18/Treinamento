@@ -87,3 +87,22 @@ export type WorkoutSession = {
   durationSec: number | null
   notes: string | null
 }
+
+export type LatestExerciseSetPerformance = {
+  setNumber: number
+  reps: number | null
+  weightKg: number | null
+  perceivedExertion: number | null
+  rir: number | null
+}
+
+export type LatestExercisePerformanceItem = {
+  exerciseId: string
+  workoutSessionId: string
+  completedAt: string
+  sets: LatestExerciseSetPerformance[]
+}
+
+export type LatestExercisePerformanceResponse = {
+  items: LatestExercisePerformanceItem[]
+}

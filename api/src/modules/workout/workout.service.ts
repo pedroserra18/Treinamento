@@ -904,6 +904,92 @@ export async function listWorkoutHistory(userId: string, query: ListWorkoutHisto
   };
 }
 
+function extractRirFromNotes(notes: string | null): number | null {
+  if (!notes) {
+    return null;
+  }
+
+  const match = notes.match(/RIR\s*:\s*(\d+)/i);
+  if (!match) {
+    return null;
+  }
+
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export async function listLatestExerciseHistory(userId: string, exerciseIds: string[]) {
+  const normalizedIds = Array.from(new Set(exerciseIds));
+
+  const latestEntries = await prisma.workoutHistory.findMany({
+    where: {
+      exerciseId: {
+        in: normalizedIds
+      },
+      workoutSession: {
+        userId,
+        status: "COMPLETED"
+      }
+    },
+    orderBy: [{ completedAt: "desc" }, { setNumber: "asc" }],
+    select: {
+      exerciseId: true,
+      workoutSessionId: true,
+      completedAt: true,
+      setNumber: true,
+      reps: true,
+      weightKg: true,
+      perceivedExertion: true,
+      notes: true
+    }
+  });
+
+  const latestSessionByExercise = new Map<string, { workoutSessionId: string; completedAt: Date }>();
+
+  for (const entry of latestEntries) {
+    if (!latestSessionByExercise.has(entry.exerciseId)) {
+      latestSessionByExercise.set(entry.exerciseId, {
+        workoutSessionId: entry.workoutSessionId,
+        completedAt: entry.completedAt
+      });
+    }
+  }
+
+  const latestByExercise = normalizedIds
+    .map((exerciseId) => {
+      const latest = latestSessionByExercise.get(exerciseId);
+      if (!latest) {
+        return null;
+      }
+
+      const sets = latestEntries
+        .filter(
+          (entry) =>
+            entry.exerciseId === exerciseId && entry.workoutSessionId === latest.workoutSessionId
+        )
+        .map((entry) => ({
+          setNumber: entry.setNumber,
+          reps: entry.reps,
+          weightKg: entry.weightKg,
+          perceivedExertion: entry.perceivedExertion,
+          rir: extractRirFromNotes(entry.notes)
+        }))
+        .sort((a, b) => a.setNumber - b.setNumber);
+
+      return {
+        exerciseId,
+        workoutSessionId: latest.workoutSessionId,
+        completedAt: latest.completedAt,
+        sets
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+
+  return {
+    items: latestByExercise
+  };
+}
+
 export async function updateCompletedWorkoutDuration(
   userId: string,
   params: HistorySessionParams,
