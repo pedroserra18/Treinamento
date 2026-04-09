@@ -11,6 +11,7 @@ import {
   fetchWorkoutRecommendations,
   getRecommendationTemplates,
   listWorkoutHistory,
+  listLatestExerciseHistory,
   listUserWorkoutPlans,
   reorderPlanExercises,
   searchExercisesForPlan,
@@ -28,6 +29,7 @@ import {
   CompleteWorkoutParams,
   ExploreWorkoutsQuery,
   HistorySessionParams,
+  LatestExerciseHistoryBody,
   ListWorkoutHistoryQuery,
   PlanExerciseParams,
   RecommendationTemplateQuery,
@@ -242,6 +244,19 @@ export async function listWorkoutHistoryController(req: Request, res: Response):
 
   res.status(200).json({
     data: history,
+    meta: {
+      requestId: req.context.requestId
+    }
+  });
+}
+
+export async function latestExerciseHistoryController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const payload = req.body as LatestExerciseHistoryBody;
+  const data = await listLatestExerciseHistory(userId, payload.exerciseIds);
+
+  res.status(200).json({
+    data,
     meta: {
       requestId: req.context.requestId
     }
