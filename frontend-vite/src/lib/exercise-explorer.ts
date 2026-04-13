@@ -12,6 +12,8 @@ export type ExerciseExplorerSelection = {
   equipment: string
   isBodyweight: boolean
   allowsExtraLoad: boolean
+  thumbnailUrl: string | null
+  videoUrl: string | null
 }
 
 const OPEN_EVENT_NAME = 'acad:open-exercise-explorer'

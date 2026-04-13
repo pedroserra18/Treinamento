@@ -128,6 +128,9 @@ export const exploreWorkoutsQuerySchema = z
         "TRICEPS",
         "CORE",
         "LEGS",
+        "QUADS",
+        "HAMSTRINGS",
+        "ADDUCTORS",
         "GLUTES",
         "CALVES",
         "ABDOMEN",
@@ -153,6 +156,9 @@ export const searchExercisesQuerySchema = z
         "TRICEPS",
         "CORE",
         "LEGS",
+        "QUADS",
+        "HAMSTRINGS",
+        "ADDUCTORS",
         "GLUTES",
         "CALVES",
         "ABDOMEN",
@@ -160,11 +166,7 @@ export const searchExercisesQuerySchema = z
         "FULL_BODY"
       ])
       .optional(),
-    limit: z.coerce.number().int().min(1).max(30).default(10)
-  })
-  .refine((value) => Boolean(value.q || value.primaryMuscleGroup), {
-    message: "q or primaryMuscleGroup is required",
-    path: ["q"]
+    limit: z.coerce.number().int().min(1).max(300).default(200)
   })
   .strict();
 

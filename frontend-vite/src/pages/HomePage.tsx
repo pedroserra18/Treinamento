@@ -21,6 +21,10 @@ type WorkoutRecommendation = {
   }>
 }
 
+function normalizeDivisionLabel(value: string): string {
+  return value === 'Torso Legs' ? 'Torso Limbs' : value
+}
+
 const fallbackRecommendations: WorkoutRecommendation[] = [
   {
     division: 'Push Pull Legs',
@@ -99,7 +103,12 @@ export function HomePage() {
         }
 
           if (active) {
-            setRecommendations(payload.data.recommendations.slice(0, 2))
+            setRecommendations(
+              payload.data.recommendations.slice(0, 2).map((item) => ({
+                ...item,
+                division: normalizeDivisionLabel(item.division),
+              })),
+            )
           }
         })
         .catch((err) => {
@@ -120,7 +129,7 @@ export function HomePage() {
     return () => {
       active = false
     }
-  }, [authorizedFetch, isAuthenticated])
+  }, [authorizedFetch, isAuthenticated, user?.availableDaysPerWeek, user?.sex])
 
   const topRecommendations = useMemo(
     () => (recommendations.length > 0 ? recommendations.slice(0, 2) : fallbackRecommendations),
@@ -210,11 +219,12 @@ export function HomePage() {
       <div className="grid gap-4 xl:grid-cols-2">
         {topRecommendations.map((recommendation, index) => {
           const mainSession = recommendation.sessions[0]
+          const normalizedDivision = normalizeDivisionLabel(recommendation.division)
           const previewExercises = mainSession?.exercises.slice(0, 3) ?? []
 
           return (
             <motion.article
-              key={`${recommendation.division}-${index}`}
+              key={`${normalizedDivision}-${index}`}
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, delay: 0.1 + index * 0.08, ease: 'easeOut' }}
@@ -225,7 +235,7 @@ export function HomePage() {
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand)]">
                     Recomendacao {index + 1}
                   </p>
-                  <h3 className="mt-1 text-xl font-black text-[var(--text)]">{recommendation.division}</h3>
+                  <h3 className="mt-1 text-xl font-black text-[var(--text)]">{normalizedDivision}</h3>
                 </div>
                 <span className="rounded-full border border-red-400/40 bg-red-500/15 px-3 py-1 text-xs font-semibold text-red-200">
                   {recommendation.daysPerWeek}x por semana

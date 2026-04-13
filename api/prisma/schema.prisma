@@ -79,6 +79,9 @@ enum MuscleGroup {
   FOREARM
   GLUTES
   LEGS
+  QUADS
+  HAMSTRINGS
+  ADDUCTORS
   CALVES
 }
 

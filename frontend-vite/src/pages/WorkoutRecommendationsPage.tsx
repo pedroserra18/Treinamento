@@ -83,47 +83,79 @@ function buildTemplateDayItems(template: RecommendationTemplateView): Recommenda
 }
 
 export function WorkoutRecommendationsPage() {
-  const { authorizedFetch, user } = useAuth()
+  const { authorizedFetch, completeOnboarding, user } = useAuth()
   const [daysPerWeek, setDaysPerWeek] = useState<number>(user?.availableDaysPerWeek ?? 4)
   const [sex, setSex] = useState<'MALE' | 'FEMALE' | 'OTHER'>(user?.sex ?? 'OTHER')
   const [templates, setTemplates] = useState<RecommendationTemplateView[]>([])
   const [warning, setWarning] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [updatingPreferences, setUpdatingPreferences] = useState(false)
   const [savingKey, setSavingKey] = useState<string | null>(null)
   const [editorPlanId, setEditorPlanId] = useState<string | null>(null)
   const [editorPlanTitle, setEditorPlanTitle] = useState<string>('')
 
   const getDayActionKey = (templateKey: string, dayNumber: number) => `${templateKey}:${dayNumber}`
 
-  const loadTemplates = useCallback(async () => {
+  const loadTemplates = useCallback(async (nextDaysPerWeek: number, nextSex: 'MALE' | 'FEMALE' | 'OTHER') => {
     setLoading(true)
-    setError(null)
 
     try {
-      const data = await getRecommendationTemplates(authorizedFetch, { daysPerWeek, sex })
-      setTemplates(adjustTemplatesByDays(data.templates, daysPerWeek))
+      const data = await getRecommendationTemplates(authorizedFetch, {
+        daysPerWeek: nextDaysPerWeek,
+        sex: nextSex,
+      })
+      setTemplates(adjustTemplatesByDays(data.templates, nextDaysPerWeek))
       setWarning(data.warning)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar recomendacoes')
     } finally {
       setLoading(false)
     }
-  }, [authorizedFetch, daysPerWeek, sex])
+  }, [authorizedFetch])
 
   useEffect(() => {
     if (typeof user?.availableDaysPerWeek === 'number') {
       setDaysPerWeek(user.availableDaysPerWeek)
+      setSuccess(null)
+      setError(null)
+      void loadTemplates(user.availableDaysPerWeek, user?.sex ?? 'OTHER')
     }
 
     if (user?.sex) {
       setSex(user.sex)
     }
-  }, [user?.availableDaysPerWeek, user?.sex])
+  }, [loadTemplates, user?.availableDaysPerWeek, user?.sex])
 
   useEffect(() => {
-    void loadTemplates()
-  }, [loadTemplates])
+    if (!user) {
+      void loadTemplates(daysPerWeek, sex)
+    }
+  }, [daysPerWeek, loadTemplates, sex, user])
+
+  const handleUpdatePreferences = async () => {
+    try {
+      setUpdatingPreferences(true)
+      setError(null)
+      setSuccess(null)
+
+      await completeOnboarding({
+        sex,
+        availableDaysPerWeek: daysPerWeek,
+      })
+
+      await loadTemplates(daysPerWeek, sex)
+      setSuccess('Preferencias atualizadas com sucesso. Recomendacoes sincronizadas no app.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao atualizar preferencias')
+    } finally {
+      setUpdatingPreferences(false)
+    }
+  }
+
+  const hasChanges =
+    daysPerWeek !== (user?.availableDaysPerWeek ?? 4) || sex !== (user?.sex ?? 'OTHER')
 
   const createAndEditTemplateDay = async (
     template: RecommendationTemplateView,
@@ -195,10 +227,21 @@ export function WorkoutRecommendationsPage() {
               <option value="OTHER">Outro</option>
             </select>
           </label>
+          <button
+            type="button"
+            disabled={updatingPreferences || !hasChanges}
+            onClick={() => {
+              void handleUpdatePreferences()
+            }}
+            className="rounded-lg border border-[var(--line)] px-3 py-1 text-sm font-semibold text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {updatingPreferences ? 'Atualizando...' : 'Atualizar'}
+          </button>
         </div>
 
         {loading ? <p className="mt-2 text-sm text-[var(--muted)]">Carregando...</p> : null}
         {error ? <p className="mt-2 text-sm text-red-400">{error}</p> : null}
+        {success ? <p className="mt-2 text-sm text-emerald-300">{success}</p> : null}
         {warning ? <p className="mt-2 text-sm text-amber-300">{warning}</p> : null}
 
         <div className="mt-3 grid gap-2 sm:grid-cols-2">

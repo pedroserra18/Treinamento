@@ -3,11 +3,17 @@ import type { Exercise } from '../types/exercise'
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1'
 
 function toExercise(value: Record<string, unknown>): Exercise {
+  const rawSecondaryMuscleGroup = value.secondaryMuscleGroup
+
   return {
     id: String(value.id ?? ''),
     slug: String(value.slug ?? ''),
     name: String(value.name ?? ''),
     primaryMuscleGroup: String(value.primaryMuscleGroup ?? ''),
+    secondaryMuscleGroup:
+      typeof rawSecondaryMuscleGroup === 'string' && rawSecondaryMuscleGroup.trim().length > 0
+        ? rawSecondaryMuscleGroup
+        : null,
     equipment: String(value.equipment ?? ''),
     difficulty: (value.difficulty ?? 'BEGINNER') as Exercise['difficulty'],
     thumbnailUrl: typeof value.thumbnailUrl === 'string' ? value.thumbnailUrl : null,
@@ -34,6 +40,28 @@ export async function getExerciseById(id: string): Promise<Exercise> {
   const payload = (await response.json()) as { data?: Record<string, unknown> }
   if (!payload.data) {
     throw new Error('Exercicio nao encontrado')
+  }
+
+  return toExercise(payload.data)
+}
+
+export async function updateExerciseSecondaryMuscleGroup(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  input: { exerciseId: string; secondaryMuscleGroup: string | null },
+): Promise<Exercise> {
+  const response = await authorizedFetch(`${API_URL}/exercises/${input.exerciseId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      secondaryMuscleGroup: input.secondaryMuscleGroup,
+    }),
+  })
+
+  const payload = (await response.json()) as { data?: Record<string, unknown>; errorMessage?: string }
+  if (!response.ok || !payload.data) {
+    throw new Error(payload.errorMessage ?? 'Falha ao atualizar musculo secundario')
   }
 
   return toExercise(payload.data)

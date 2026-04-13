@@ -29,7 +29,7 @@ const DIVISION_BY_DAYS: Record<number, string[]> = {
   1: ["Full Body", "Upper Lower"],
   2: ["Full Body", "Upper Lower"],
   3: ["Push Pull Legs", "Full Body"],
-  4: ["Upper Lower 2x", "Torso Legs"],
+  4: ["Upper Lower 2x", "Torso Limbs"],
   5: ["Bro Split", "Push Pull Legs"],
   6: ["Push Pull Legs 2x", "Upper Lower 2x"],
   7: ["Push Pull Legs 2x", "Bro Split"]
@@ -249,7 +249,9 @@ export async function listUserWorkoutPlans(userId: string) {
               primaryMuscleGroup: true,
                 difficulty: true,
                 isBodyweight: true,
-                allowsExtraLoad: true
+                allowsExtraLoad: true,
+                thumbnailUrl: true,
+                videoUrl: true
             }
           }
         }
@@ -616,7 +618,9 @@ export async function searchExercisesForPlan(userId: string, query: SearchExerci
       difficulty: true,
       equipment: true,
       isBodyweight: true,
-      allowsExtraLoad: true
+      allowsExtraLoad: true,
+      thumbnailUrl: true,
+      videoUrl: true
     }
   });
 }
