@@ -3,6 +3,7 @@ export type Exercise = {
   slug: string
   name: string
   primaryMuscleGroup: string
+  secondaryMuscleGroup: string | null
   equipment: string
   difficulty: 'BEGINNER' | 'INTERMEDIATE' | 'ADVANCED'
   thumbnailUrl?: string | null

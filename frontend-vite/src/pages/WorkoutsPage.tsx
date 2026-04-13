@@ -25,6 +25,9 @@ const muscleOptions = [
   'TRICEPS',
   'CORE',
   'LEGS',
+  'QUADS',
+  'HAMSTRINGS',
+  'ADDUCTORS',
   'GLUTES',
   'CALVES',
   'ABDOMEN',
@@ -67,14 +70,6 @@ function resolveBodyweightFlag(flag: boolean | undefined, name: string): boolean
   }
 
   return isLikelyBodyweight(name)
-}
-
-function resolveAllowsExtraLoad(flag: boolean | undefined, isBodyweight: boolean): boolean {
-  if (!isBodyweight) {
-    return true
-  }
-
-  return flag ?? true
 }
 
 function createSeriesDraft(initial?: Partial<SeriesDraft>): SeriesDraft {
@@ -190,6 +185,7 @@ type WorkoutsPageProps = {
   selectedPlanId?: string | null
   onlySelectedPlan?: boolean
   showCreateSection?: boolean
+  createOnlyMode?: boolean
   onPlanSaved?: (planId: string) => void
 }
 
@@ -197,6 +193,7 @@ export function WorkoutsPage({
   selectedPlanId = null,
   onlySelectedPlan = false,
   showCreateSection = true,
+  createOnlyMode = false,
   onPlanSaved,
 }: WorkoutsPageProps) {
   const { authorizedFetch } = useAuth()
@@ -210,6 +207,7 @@ export function WorkoutsPage({
   const [addQueryByPlan, setAddQueryByPlan] = useState<Record<string, string>>({})
   const [addMuscleByPlan, setAddMuscleByPlan] = useState<Record<string, string>>({})
   const [optionsByPlan, setOptionsByPlan] = useState<Record<string, ExerciseOption[]>>({})
+  const [hasExploredByPlan, setHasExploredByPlan] = useState<Record<string, boolean>>({})
 
   const [replaceTargetId, setReplaceTargetId] = useState<string | null>(null)
   const [replaceQuery, setReplaceQuery] = useState('')
@@ -220,11 +218,17 @@ export function WorkoutsPage({
   const [expandedByExercise, setExpandedByExercise] = useState<Record<string, boolean>>({})
   const [editingNameByExercise, setEditingNameByExercise] = useState<Record<string, boolean>>({})
   const [customNameByExercise, setCustomNameByExercise] = useState<Record<string, string>>({})
-  const [extraLoadByExercise, setExtraLoadByExercise] = useState<Record<string, boolean>>({})
   const [editingRestByExercise, setEditingRestByExercise] = useState<Record<string, boolean>>({})
   const [restDraftByExercise, setRestDraftByExercise] = useState<Record<string, string>>({})
   const [editingPlanNameById, setEditingPlanNameById] = useState<Record<string, boolean>>({})
   const [planNameDraftById, setPlanNameDraftById] = useState<Record<string, string>>({})
+  const [createdPlanId, setCreatedPlanId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!createOnlyMode) {
+      setCreatedPlanId(null)
+    }
+  }, [createOnlyMode])
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -260,21 +264,6 @@ export function WorkoutsPage({
         })
         return next
       })
-      setExtraLoadByExercise((current) => {
-        const next = { ...current }
-        planData.forEach((plan) => {
-          plan.exercises.forEach((exercise) => {
-            const fromNotes = parsePerformanceFromNotes(exercise.notes)
-            const hasLoad = (fromNotes.series ?? []).some((series) => Number(series.loadKg) > 0)
-            const effectiveBodyweight = resolveBodyweightFlag(
-              exercise.exercise.isBodyweight,
-              exercise.customName ?? exercise.exercise.name,
-            )
-            next[exercise.id] = effectiveBodyweight ? hasLoad : true
-          })
-        })
-        return next
-      })
       setRestDraftByExercise((current) => {
         const next = { ...current }
         planData.forEach((plan) => {
@@ -304,33 +293,28 @@ export function WorkoutsPage({
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
-      const planIds = Array.from(new Set([...plans.map((plan) => plan.id), ...Object.keys(addMuscleByPlan), ...Object.keys(addQueryByPlan)]))
+      const exploredPlanIds = Object.keys(hasExploredByPlan).filter((planId) => hasExploredByPlan[planId])
 
-      planIds.forEach((planId) => {
+      exploredPlanIds.forEach((planId) => {
         const normalized = (addQueryByPlan[planId] ?? '').trim()
         const selectedMuscle = addMuscleByPlan[planId] || undefined
-
-        if (!normalized && !selectedMuscle) {
-          setOptionsByPlan((current) => ({ ...current, [planId]: [] }))
-          return
-        }
 
         void searchExercisesForPlan(authorizedFetch, {
           q: normalized || undefined,
           primaryMuscleGroup: selectedMuscle,
-          limit: 12,
+          limit: 200,
         })
           .then((options) => {
             setOptionsByPlan((current) => ({ ...current, [planId]: options }))
           })
           .catch((err) => {
-            setError(err instanceof Error ? err.message : 'Erro no autocomplete de exercicios')
+            setError(err instanceof Error ? err.message : 'Erro ao buscar exercicios')
           })
       })
-    }, 300)
+    }, 250)
 
     return () => window.clearTimeout(timeoutId)
-  }, [addMuscleByPlan, addQueryByPlan, authorizedFetch, plans])
+  }, [addMuscleByPlan, addQueryByPlan, authorizedFetch, hasExploredByPlan])
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -363,13 +347,16 @@ export function WorkoutsPage({
     }
 
     try {
-      await createWorkoutPlan(authorizedFetch, {
+      const created = await createWorkoutPlan(authorizedFetch, {
         name: newPlanName.trim(),
         description: newPlanDescription.trim() || undefined,
         source: 'CUSTOM',
       })
       setNewPlanName('')
       setNewPlanDescription('')
+      if (createOnlyMode) {
+        setCreatedPlanId(created.id)
+      }
       await loadAll()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao criar treino')
@@ -380,16 +367,12 @@ export function WorkoutsPage({
     const q = (addQueryByPlan[planId] ?? '').trim()
     const selectedMuscle = addMuscleByPlan[planId] || undefined
 
-    if (!q && !selectedMuscle) {
-      setError('Digite algo ou selecione um musculo para buscar exercicios')
-      return
-    }
-
     try {
+      setHasExploredByPlan((current) => ({ ...current, [planId]: true }))
       const options = await searchExercisesForPlan(authorizedFetch, {
         q: q || undefined,
         primaryMuscleGroup: selectedMuscle,
-        limit: 12,
+        limit: 200,
       })
       setOptionsByPlan((current) => ({ ...current, [planId]: options }))
     } catch (err) {
@@ -430,7 +413,10 @@ export function WorkoutsPage({
         return
       }
 
-      const targetPlan = (selectedPlanId ? plans.find((plan) => plan.id === selectedPlanId) : null) ?? plans[0]
+      const targetPlan =
+        (createOnlyMode && createdPlanId ? plans.find((plan) => plan.id === createdPlanId) : null) ??
+        (selectedPlanId ? plans.find((plan) => plan.id === selectedPlanId) : null) ??
+        plans[0]
       if (!targetPlan) {
         setError('Crie uma rotina antes de adicionar exercicios pelo explorador.')
         return
@@ -444,7 +430,7 @@ export function WorkoutsPage({
     return () => {
       window.removeEventListener(eventName, handler)
     }
-  }, [addToPlan, plans, selectedPlanId])
+  }, [addToPlan, createOnlyMode, createdPlanId, plans, selectedPlanId])
 
   const patchSeries = (planExerciseId: string, seriesIndex: number, patch: Partial<SeriesDraft>) => {
     setDraftByExercise((current) => ({
@@ -529,7 +515,7 @@ export function WorkoutsPage({
               targetExercise.exercise.isBodyweight,
               targetExercise.customName ?? targetExercise.exercise.name,
             )
-            return effectiveBodyweight && !extraLoadByExercise[planExerciseId] ? '' : series.loadKg
+            return effectiveBodyweight ? '' : series.loadKg
           })(),
           rpe: series.rpe,
           rir: series.rir,
@@ -707,9 +693,11 @@ export function WorkoutsPage({
     }
   }
 
-  const visiblePlans = onlySelectedPlan
-    ? plans.filter((plan) => (selectedPlanId ? plan.id === selectedPlanId : false))
-    : plans
+  const visiblePlans = createOnlyMode
+    ? plans.filter((plan) => (createdPlanId ? plan.id === createdPlanId : false))
+    : onlySelectedPlan
+      ? plans.filter((plan) => (selectedPlanId ? plan.id === selectedPlanId : false))
+      : plans
 
   return (
     <section className="space-y-5">
@@ -841,10 +829,18 @@ export function WorkoutsPage({
                 <input
                   value={addQueryByPlan[plan.id] ?? ''}
                   onChange={(event) =>
-                    setAddQueryByPlan((current) => ({
-                      ...current,
-                      [plan.id]: event.target.value,
-                    }))
+                    {
+                      setAddQueryByPlan((current) => ({
+                        ...current,
+                        [plan.id]: event.target.value,
+                      }))
+                      if (hasExploredByPlan[plan.id]) {
+                        setOptionsByPlan((current) => ({
+                          ...current,
+                          [plan.id]: [],
+                        }))
+                      }
+                    }
                   }
                   placeholder="Buscar exercicio"
                   className="rounded-lg border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
@@ -852,10 +848,18 @@ export function WorkoutsPage({
                 <select
                   value={addMuscleByPlan[plan.id] ?? ''}
                   onChange={(event) =>
-                    setAddMuscleByPlan((current) => ({
-                      ...current,
-                      [plan.id]: event.target.value,
-                    }))
+                    {
+                      setAddMuscleByPlan((current) => ({
+                        ...current,
+                        [plan.id]: event.target.value,
+                      }))
+                      if (hasExploredByPlan[plan.id]) {
+                        setOptionsByPlan((current) => ({
+                          ...current,
+                          [plan.id]: [],
+                        }))
+                      }
+                    }
                   }
                   className="rounded-lg border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
                 >
@@ -873,26 +877,73 @@ export function WorkoutsPage({
                     void lookupExercises(plan.id)
                   }}
                 >
-                  Buscar
+                  Explorar exercicios
                 </button>
               </div>
 
-              <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                {(optionsByPlan[plan.id] ?? []).map((option) => (
-                  <button
-                    key={option.id}
-                    type="button"
-                    className="rounded-lg border border-[var(--line)] px-3 py-2 text-left text-sm text-[var(--text)]"
-                    onClick={() => {
-                      void addToPlan(plan, option)
-                    }}
-                  >
-                    <span className="font-semibold">{option.name}</span>
-                    <span className="mt-1 block text-xs text-[var(--muted)]">
-                      {option.primaryMuscleGroup} • {option.difficulty}
-                    </span>
-                  </button>
-                ))}
+              <div className="mt-2 max-h-72 overflow-y-auto pr-1">
+                {hasExploredByPlan[plan.id] ? null : (
+                  <p className="mb-2 text-xs text-[var(--muted)]">
+                    Clique em "Explorar exercicios" para carregar a lista.
+                  </p>
+                )}
+
+                {hasExploredByPlan[plan.id] && (optionsByPlan[plan.id] ?? []).length === 0 ? (
+                  <p className="mb-2 text-xs text-[var(--muted)]">Nenhum exercicio encontrado para o filtro atual.</p>
+                ) : null}
+
+                <div className="space-y-2">
+                  {(optionsByPlan[plan.id] ?? []).map((option) => (
+                    <article key={option.id} className="rounded-xl border border-[var(--line)] p-3">
+                      <div className="flex items-start gap-3">
+                        <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface-hover)]">
+                          {option.thumbnailUrl ? (
+                            <img
+                              src={option.thumbnailUrl}
+                              alt={`Imagem do exercicio ${option.name}`}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+                              Sem foto
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-bold text-[var(--text)]">{option.name}</p>
+                          <span className="block text-xs text-[var(--muted)]">
+                            {option.primaryMuscleGroup} • {option.difficulty}
+                          </span>
+
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              className="rounded-lg border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--text)]"
+                              onClick={() => {
+                                void addToPlan(plan, option)
+                              }}
+                            >
+                              Adicionar na rotina em edicao
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!option.videoUrl}
+                              onClick={() => {
+                                if (option.videoUrl) {
+                                  window.open(option.videoUrl, '_blank', 'noopener,noreferrer')
+                                }
+                              }}
+                              className="rounded-lg border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {option.videoUrl ? 'Ver video' : 'Video em breve'}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -902,8 +953,7 @@ export function WorkoutsPage({
                 const draft = draftByExercise[item.id] ?? { series: [createSeriesDraft({ reps: '10' })] }
                 const exerciseLabel = item.customName ?? item.exercise.name
                 const effectiveBodyweight = resolveBodyweightFlag(item.exercise.isBodyweight, exerciseLabel)
-                const allowsExtraLoad = resolveAllowsExtraLoad(item.exercise.allowsExtraLoad, effectiveBodyweight)
-                const showLoad = !effectiveBodyweight || (allowsExtraLoad && extraLoadByExercise[item.id])
+                const showLoad = !effectiveBodyweight
                 const bestSeries1rm = draft.series.reduce((best, series) => {
                   if (!showLoad) {
                     return best
@@ -1004,22 +1054,6 @@ export function WorkoutsPage({
                             Descanso: {formatClock(item.restSec ?? 0)}
                           </button>
                         )}
-                        {effectiveBodyweight ? (
-                          <label className="mt-1 inline-flex items-center gap-1 text-[11px] text-[var(--muted)]">
-                            <input
-                              type="checkbox"
-                              checked={Boolean(extraLoadByExercise[item.id])}
-                              disabled={!allowsExtraLoad}
-                              onChange={(event) =>
-                                setExtraLoadByExercise((current) => ({
-                                  ...current,
-                                  [item.id]: event.target.checked,
-                                }))
-                              }
-                            />
-                            {allowsExtraLoad ? 'Adicionar peso extra' : 'Peso extra indisponivel'}
-                          </label>
-                        ) : null}
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <button
@@ -1184,21 +1218,56 @@ export function WorkoutsPage({
                           </button>
                         </div>
 
-                        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                        <div className="mt-2 max-h-72 space-y-2 overflow-y-auto pr-1">
                           {replaceOptions.map((option) => (
-                            <button
-                              key={option.id}
-                              type="button"
-                              className="rounded-md border border-[var(--line)] px-2 py-2 text-left text-xs text-[var(--text)]"
-                              onClick={() => {
-                                void applyReplace(plan, option.id)
-                              }}
-                            >
-                              {option.name}
-                              <span className="block text-[10px] text-[var(--muted)]">
-                                {option.primaryMuscleGroup} • {option.difficulty}
-                              </span>
-                            </button>
+                            <article key={option.id} className="rounded-xl border border-[var(--line)] p-3">
+                              <div className="flex items-start gap-3">
+                                <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface-hover)]">
+                                  {option.thumbnailUrl ? (
+                                    <img
+                                      src={option.thumbnailUrl}
+                                      alt={`Imagem do exercicio ${option.name}`}
+                                      className="h-full w-full object-cover"
+                                    />
+                                  ) : (
+                                    <div className="flex h-full w-full items-center justify-center text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+                                      Sem foto
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-sm font-bold text-[var(--text)]">{option.name}</p>
+                                  <span className="block text-xs text-[var(--muted)]">
+                                    {option.primaryMuscleGroup} • {option.difficulty}
+                                  </span>
+
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    <button
+                                      type="button"
+                                      className="rounded-lg border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--text)]"
+                                      onClick={() => {
+                                        void applyReplace(plan, option.id)
+                                      }}
+                                    >
+                                      Substituir na rotina em edicao
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={!option.videoUrl}
+                                      onClick={() => {
+                                        if (option.videoUrl) {
+                                          window.open(option.videoUrl, '_blank', 'noopener,noreferrer')
+                                        }
+                                      }}
+                                      className="rounded-lg border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      {option.videoUrl ? 'Ver video' : 'Video em breve'}
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            </article>
                           ))}
                         </div>
                       </div>

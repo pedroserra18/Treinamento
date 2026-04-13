@@ -27,6 +27,9 @@ type ExerciseSource = {
     | "FOREARM"
     | "GLUTES"
     | "LEGS"
+    | "QUADS"
+    | "HAMSTRINGS"
+    | "ADDUCTORS"
     | "CALVES";
   genderFocus: GenderFocus;
   difficultyTier: DifficultyTier;
@@ -47,6 +50,9 @@ type FocusTemplate = {
     | "FOREARM"
     | "GLUTES"
     | "LEGS"
+    | "QUADS"
+    | "HAMSTRINGS"
+    | "ADDUCTORS"
     | "CALVES"
   >;
 };
@@ -62,8 +68,14 @@ const DIVISION_LIBRARY: Record<AllowedDivision, DivisionTemplate> = {
     division: "Full Body",
     rationale: "Melhor uso para baixa disponibilidade semanal, estimulando o corpo inteiro com alta frequencia.",
     baseFocus: [
-      { focus: "Full Body A", muscleGroups: ["CHEST", "BACK", "LEGS", "SHOULDERS", "CORE"] },
-      { focus: "Full Body B", muscleGroups: ["GLUTES", "BACK", "LEGS", "CHEST", "ABDOMEN"] }
+      {
+        focus: "Full Body A",
+        muscleGroups: ["CHEST", "BACK", "LEGS", "QUADS", "HAMSTRINGS", "SHOULDERS", "CORE"]
+      },
+      {
+        focus: "Full Body B",
+        muscleGroups: ["GLUTES", "BACK", "LEGS", "QUADS", "HAMSTRINGS", "CHEST", "ABDOMEN"]
+      }
     ]
   },
   "Push Pull Legs": {
@@ -72,7 +84,10 @@ const DIVISION_LIBRARY: Record<AllowedDivision, DivisionTemplate> = {
     baseFocus: [
       { focus: "Push", muscleGroups: ["CHEST", "SHOULDERS", "TRICEPS"] },
       { focus: "Pull", muscleGroups: ["BACK", "BICEPS", "FOREARM"] },
-      { focus: "Legs", muscleGroups: ["LEGS", "GLUTES", "CALVES"] }
+      {
+        focus: "Legs",
+        muscleGroups: ["LEGS", "QUADS", "HAMSTRINGS", "ADDUCTORS", "GLUTES", "CALVES"]
+      }
     ]
   },
   "Upper Lower": {
@@ -80,7 +95,10 @@ const DIVISION_LIBRARY: Record<AllowedDivision, DivisionTemplate> = {
     rationale: "Divisao simples para consolidar tecnica e progresso em 2 a 4 dias.",
     baseFocus: [
       { focus: "Upper", muscleGroups: ["CHEST", "BACK", "SHOULDERS", "ARMS"] },
-      { focus: "Lower", muscleGroups: ["LEGS", "GLUTES", "CALVES", "CORE"] }
+      {
+        focus: "Lower",
+        muscleGroups: ["LEGS", "QUADS", "HAMSTRINGS", "ADDUCTORS", "GLUTES", "CALVES", "CORE"]
+      }
     ]
   },
   "Push Pull Legs 2x": {
@@ -89,10 +107,16 @@ const DIVISION_LIBRARY: Record<AllowedDivision, DivisionTemplate> = {
     baseFocus: [
       { focus: "Push 1", muscleGroups: ["CHEST", "SHOULDERS", "TRICEPS"] },
       { focus: "Pull 1", muscleGroups: ["BACK", "BICEPS", "FOREARM"] },
-      { focus: "Legs 1", muscleGroups: ["LEGS", "GLUTES", "CALVES"] },
+      {
+        focus: "Legs 1",
+        muscleGroups: ["LEGS", "QUADS", "HAMSTRINGS", "ADDUCTORS", "GLUTES", "CALVES"]
+      },
       { focus: "Push 2", muscleGroups: ["CHEST", "SHOULDERS", "TRICEPS"] },
       { focus: "Pull 2", muscleGroups: ["BACK", "BICEPS", "FOREARM"] },
-      { focus: "Legs 2", muscleGroups: ["LEGS", "GLUTES", "CALVES"] }
+      {
+        focus: "Legs 2",
+        muscleGroups: ["LEGS", "QUADS", "HAMSTRINGS", "ADDUCTORS", "GLUTES", "CALVES"]
+      }
     ]
   },
   "Upper Lower 2x": {
@@ -100,19 +124,31 @@ const DIVISION_LIBRARY: Record<AllowedDivision, DivisionTemplate> = {
     rationale: "Repeticao estruturada para melhorar progressao de carga e tecnica no mesmo microciclo.",
     baseFocus: [
       { focus: "Upper 1", muscleGroups: ["CHEST", "BACK", "SHOULDERS", "ARMS"] },
-      { focus: "Lower 1", muscleGroups: ["LEGS", "GLUTES", "CALVES", "CORE"] },
+      {
+        focus: "Lower 1",
+        muscleGroups: ["LEGS", "QUADS", "HAMSTRINGS", "ADDUCTORS", "GLUTES", "CALVES", "CORE"]
+      },
       { focus: "Upper 2", muscleGroups: ["CHEST", "BACK", "SHOULDERS", "ARMS"] },
-      { focus: "Lower 2", muscleGroups: ["LEGS", "GLUTES", "CALVES", "ABDOMEN"] }
+      {
+        focus: "Lower 2",
+        muscleGroups: ["LEGS", "QUADS", "HAMSTRINGS", "ADDUCTORS", "GLUTES", "CALVES", "ABDOMEN"]
+      }
     ]
   },
-  "Torso Legs": {
-    division: "Torso Legs",
+  "Torso Limbs": {
+    division: "Torso Limbs",
     rationale: "Alternancia torso/pernas para reduzir fadiga local e distribuir melhor o esforco semanal.",
     baseFocus: [
       { focus: "Torso 1", muscleGroups: ["CHEST", "BACK", "SHOULDERS", "ARMS"] },
-      { focus: "Legs 1", muscleGroups: ["LEGS", "GLUTES", "CALVES", "CORE"] },
+      {
+        focus: "Legs 1",
+        muscleGroups: ["LEGS", "QUADS", "HAMSTRINGS", "ADDUCTORS", "GLUTES", "CALVES", "CORE"]
+      },
       { focus: "Torso 2", muscleGroups: ["CHEST", "BACK", "SHOULDERS", "ARMS"] },
-      { focus: "Legs 2", muscleGroups: ["LEGS", "GLUTES", "CALVES", "ABDOMEN"] }
+      {
+        focus: "Legs 2",
+        muscleGroups: ["LEGS", "QUADS", "HAMSTRINGS", "ADDUCTORS", "GLUTES", "CALVES", "ABDOMEN"]
+      }
     ]
   },
   "Bro Split": {
@@ -123,7 +159,10 @@ const DIVISION_LIBRARY: Record<AllowedDivision, DivisionTemplate> = {
       { focus: "Back", muscleGroups: ["BACK", "BICEPS"] },
       { focus: "Shoulders", muscleGroups: ["SHOULDERS", "TRICEPS"] },
       { focus: "Arms", muscleGroups: ["BICEPS", "TRICEPS", "FOREARM"] },
-      { focus: "Legs", muscleGroups: ["LEGS", "GLUTES", "CALVES"] }
+      {
+        focus: "Legs",
+        muscleGroups: ["LEGS", "QUADS", "HAMSTRINGS", "ADDUCTORS", "GLUTES", "CALVES"]
+      }
     ]
   }
 };
@@ -132,7 +171,7 @@ const DIVISION_BY_DAYS: Record<number, AllowedDivision[]> = {
   1: ["Full Body", "Upper Lower"],
   2: ["Full Body", "Upper Lower"],
   3: ["Push Pull Legs", "Full Body"],
-  4: ["Upper Lower 2x", "Torso Legs"],
+  4: ["Upper Lower 2x", "Torso Limbs"],
   5: ["Bro Split", "Push Pull Legs"],
   6: ["Push Pull Legs 2x", "Upper Lower 2x"],
   7: ["Push Pull Legs 2x", "Bro Split"]

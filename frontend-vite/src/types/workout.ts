@@ -33,6 +33,8 @@ export type PlanExercise = {
     difficulty: string
     isBodyweight: boolean
     allowsExtraLoad: boolean
+    thumbnailUrl: string | null
+    videoUrl: string | null
   }
 }
 
@@ -53,6 +55,8 @@ export type ExerciseOption = {
   equipment: string
   isBodyweight: boolean
   allowsExtraLoad: boolean
+  thumbnailUrl: string | null
+  videoUrl: string | null
 }
 
 export type WorkoutSessionHistory = {

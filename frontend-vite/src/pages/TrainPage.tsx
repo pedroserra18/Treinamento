@@ -7,7 +7,7 @@ import {
   openExerciseExplorer,
   type ExerciseExplorerSelection,
 } from '../lib/exercise-explorer'
-import type { ExerciseOption, WorkoutPlan } from '../types/workout'
+import type { WorkoutPlan } from '../types/workout'
 import {
   addExerciseToPlan,
   completeWorkoutSession,
@@ -34,6 +34,8 @@ type ActiveExercise = {
   planExerciseId?: string
   exerciseId: string
   exerciseName: string
+  thumbnailUrl: string | null
+  videoUrl: string | null
   isBodyweight: boolean
   allowsExtraLoad: boolean
   suggestedReps: string
@@ -99,8 +101,33 @@ function toFiniteNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+const BODYWEIGHT_HINTS = [
+  /flex[aã]o/i,
+  /barra\s*f(i|í)xa/i,
+  /pull\s*up/i,
+  /chin\s*up/i,
+  /mergulho/i,
+  /\bdip\b/i,
+  /prancha/i,
+  /plank/i,
+  /burpee/i,
+]
+
+function isLikelyBodyweight(name: string): boolean {
+  return BODYWEIGHT_HINTS.some((pattern) => pattern.test(name))
+}
+
+function resolveBodyweightFlag(flag: boolean | undefined, name: string): boolean {
+  if (flag === true) {
+    return true
+  }
+
+  return isLikelyBodyweight(name)
+}
+
 function mapPlanToActiveExercises(plan: WorkoutPlan): ActiveExercise[] {
   return plan.exercises.map((entry) => {
+    const exerciseName = entry.customName ?? entry.exercise.name
     const repsText =
       entry.repsMin && entry.repsMax
         ? `${entry.repsMin}`
@@ -109,8 +136,10 @@ function mapPlanToActiveExercises(plan: WorkoutPlan): ActiveExercise[] {
     return {
       planExerciseId: entry.id,
       exerciseId: entry.exercise.id,
-      exerciseName: entry.customName ?? entry.exercise.name,
-      isBodyweight: entry.exercise.isBodyweight,
+      exerciseName,
+      thumbnailUrl: entry.exercise.thumbnailUrl,
+      videoUrl: entry.exercise.videoUrl,
+      isBodyweight: resolveBodyweightFlag(entry.exercise.isBodyweight, exerciseName),
       allowsExtraLoad: entry.exercise.allowsExtraLoad,
       suggestedReps: repsText,
       restDurationSec: entry.restSec ?? 0,
@@ -171,7 +200,6 @@ export function TrainPage() {
   const [endedAt, setEndedAt] = useState<Date | null>(null)
 
   const [exerciseSearch, setExerciseSearch] = useState('')
-  const [exerciseOptions, setExerciseOptions] = useState<ExerciseOption[]>([])
   const [lastPerformanceByExercise, setLastPerformanceByExercise] = useState<
     Record<string, Record<number, { reps: number | null; weightKg: number | null; rir: number | null }>>
   >({})
@@ -252,26 +280,6 @@ export function TrainPage() {
   }, [screen])
 
   useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      const query = exerciseSearch.trim()
-      if (!query || screen !== 'ACTIVE') {
-        setExerciseOptions([])
-        return
-      }
-
-      void searchExercisesForPlan(authorizedFetch, { q: query, limit: 8 })
-        .then((options) => {
-          setExerciseOptions(options)
-        })
-        .catch((err) => {
-          setError(err instanceof Error ? err.message : 'Erro ao buscar exercicios')
-        })
-    }, 300)
-
-    return () => window.clearTimeout(timeoutId)
-  }, [authorizedFetch, exerciseSearch, screen])
-
-  useEffect(() => {
     return () => {
       if (summaryImagePreview) {
         URL.revokeObjectURL(summaryImagePreview)
@@ -282,6 +290,20 @@ export function TrainPage() {
   const activeExerciseIdsKey = useMemo(
     () =>
       Array.from(new Set(activeExercises.map((exercise) => exercise.exerciseId)))
+        .sort()
+        .join(','),
+    [activeExercises],
+  )
+
+  const missingThumbnailExerciseIdsKey = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          activeExercises
+            .filter((exercise) => !exercise.thumbnailUrl)
+            .map((exercise) => exercise.exerciseId),
+        ),
+      )
         .sort()
         .join(','),
     [activeExercises],
@@ -358,6 +380,55 @@ export function TrainPage() {
   }, [activeExerciseIdsKey, authorizedFetch, screen])
 
   useEffect(() => {
+    if (screen !== 'ACTIVE' || !missingThumbnailExerciseIdsKey) {
+      return
+    }
+
+    let cancelled = false
+
+    const loadMissingThumbnails = async () => {
+      try {
+        const catalog = await searchExercisesForPlan(authorizedFetch, { limit: 200 })
+        if (cancelled) {
+          return
+        }
+
+        const thumbnailById = new Map(
+          catalog
+            .filter((exercise) => exercise.thumbnailUrl)
+            .map((exercise) => [exercise.id, exercise.thumbnailUrl as string]),
+        )
+
+        setActiveExercises((current) =>
+          current.map((exercise) => {
+            if (exercise.thumbnailUrl) {
+              return exercise
+            }
+
+            const thumbnailUrl = thumbnailById.get(exercise.exerciseId)
+            if (!thumbnailUrl) {
+              return exercise
+            }
+
+            return {
+              ...exercise,
+              thumbnailUrl,
+            }
+          }),
+        )
+      } catch {
+        // Keep current placeholders when thumbnail enrichment fails.
+      }
+    }
+
+    void loadMissingThumbnails()
+
+    return () => {
+      cancelled = true
+    }
+  }, [authorizedFetch, missingThumbnailExerciseIdsKey, screen])
+
+  useEffect(() => {
     const handleDocumentClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null
       if (!target?.closest('[data-routine-menu]')) {
@@ -396,7 +467,9 @@ export function TrainPage() {
           {
             exerciseId: payload.id,
             exerciseName: payload.name,
-            isBodyweight: payload.isBodyweight,
+            thumbnailUrl: payload.thumbnailUrl,
+            videoUrl: payload.videoUrl,
+            isBodyweight: resolveBodyweightFlag(payload.isBodyweight, payload.name),
             allowsExtraLoad: payload.allowsExtraLoad,
             suggestedReps: '10',
             restDurationSec: 0,
@@ -434,7 +507,6 @@ export function TrainPage() {
     setStartedAt(null)
     setEndedAt(null)
     setExerciseSearch('')
-    setExerciseOptions([])
     setSummaryName('')
     setSummaryDurationMin('')
     setSummaryNotes('')
@@ -482,6 +554,26 @@ export function TrainPage() {
     setSummaryName(activePlanName)
     setSummaryDurationMin(String(Math.max(1, Math.round(elapsedSec / 60))))
     setScreen('SUMMARY')
+  }
+
+  const backToDashboardFromActive = () => {
+    const hasProgress = elapsedSec > 0 || activeExercises.length > 0
+    if (hasProgress) {
+      const confirmed = window.confirm(
+        'Deseja voltar e descartar este treino em andamento? Voce perdera os dados nao salvos.',
+      )
+      if (!confirmed) {
+        return
+      }
+    }
+
+    resetWorkflow()
+  }
+
+  const backToActiveTraining = () => {
+    setEndedAt(null)
+    setIsWorkoutRunning(true)
+    setScreen('ACTIVE')
   }
 
   const toggleRestTimer = (exerciseIndex: number) => {
@@ -596,32 +688,6 @@ export function TrainPage() {
     )
   }
 
-  const addExerciseToActive = (option: ExerciseOption) => {
-    setActiveExercises((current) => {
-      if (current.some((exercise) => exercise.exerciseId === option.id)) {
-        return current
-      }
-
-      return [
-        ...current,
-        {
-          exerciseId: option.id,
-          exerciseName: option.name,
-          isBodyweight: option.isBodyweight,
-          allowsExtraLoad: option.allowsExtraLoad,
-          suggestedReps: '10',
-          restDurationSec: 0,
-          restRemainingSec: 0,
-          restRunning: false,
-          sets: [createSet()],
-        },
-      ]
-    })
-
-    setExerciseSearch('')
-    setExerciseOptions([])
-  }
-
   const handleSummaryImage = (file: File | null) => {
     setSummaryImageFile(file)
 
@@ -691,7 +757,10 @@ export function TrainPage() {
           exerciseId: exercise.exerciseId,
           setNumber,
           reps,
-          weightKg: Number.isFinite(weightKg) && weightKg > 0 ? weightKg : undefined,
+          weightKg:
+            !exercise.isBodyweight && Number.isFinite(weightKg) && weightKg > 0
+              ? weightKg
+              : undefined,
           notes: Number.isFinite(rir) && rir >= 0 ? `RIR: ${Math.floor(rir)}` : undefined,
         })
 
@@ -812,8 +881,19 @@ export function TrainPage() {
           animate={{ opacity: 1, y: 0 }}
           className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
         >
-          <h1 className="text-2xl font-black text-[var(--text)]">Resumo do treino</h1>
-          <p className="mt-1 text-sm text-[var(--muted)]">Revise e ajuste os dados antes de salvar.</p>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-black text-[var(--text)]">Resumo do treino</h1>
+              <p className="mt-1 text-sm text-[var(--muted)]">Revise e ajuste os dados antes de salvar.</p>
+            </div>
+            <button
+              type="button"
+              onClick={backToActiveTraining}
+              className="rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--text)]"
+            >
+              {'<- Voltar'}
+            </button>
+          </div>
         </motion.header>
 
         {error ? <p className="text-sm text-red-400">{error}</p> : null}
@@ -924,6 +1004,13 @@ export function TrainPage() {
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
+              onClick={backToDashboardFromActive}
+              className="rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--text)]"
+            >
+              {'<- Voltar'}
+            </button>
+            <button
+              type="button"
               onClick={() => setIsWorkoutRunning((prev) => !prev)}
               className="rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--text)]"
             >
@@ -977,18 +1064,9 @@ export function TrainPage() {
               Explorar Exercicios
             </button>
           </div>
-          <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            {exerciseOptions.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                onClick={() => addExerciseToActive(option)}
-                className="rounded-xl border border-[var(--line)] px-3 py-2 text-left text-sm text-[var(--text)]"
-              >
-                {option.name}
-              </button>
-            ))}
-          </div>
+          <p className="mt-2 text-xs text-[var(--muted)]">
+            Clique em "Explorar Exercicios" para abrir a lista com foto e video.
+          </p>
         </article>
 
         <article className="space-y-3">
@@ -999,12 +1077,41 @@ export function TrainPage() {
           ) : null}
 
           {activeExercises.map((exercise, exerciseIndex) => {
-            const showLoadInput = !exercise.isBodyweight || exercise.allowsExtraLoad
+            const showLoadInput = !exercise.isBodyweight
 
             return (
               <div key={`${exercise.exerciseId}-${exerciseIndex}`} className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-base font-extrabold text-[var(--text)]">{exercise.exerciseName}</h3>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className="h-16 w-16 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface-hover)]">
+                    {exercise.thumbnailUrl ? (
+                      <img
+                        src={exercise.thumbnailUrl}
+                        alt={`Imagem do exercicio ${exercise.exerciseName}`}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+                        Sem foto
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="truncate text-base font-extrabold text-[var(--text)]">{exercise.exerciseName}</h3>
+                    <button
+                      type="button"
+                      disabled={!exercise.videoUrl}
+                      onClick={() => {
+                        if (exercise.videoUrl) {
+                          window.open(exercise.videoUrl, '_blank', 'noopener,noreferrer')
+                        }
+                      }}
+                      className="mt-1 rounded-lg border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {exercise.videoUrl ? 'Ver video do exercicio' : 'Video em breve'}
+                    </button>
+                  </div>
+                </div>
                 <div className="flex items-center gap-2">
                   {editingRestExerciseIndex === exerciseIndex ? (
                     <div className="flex items-center gap-2">
@@ -1323,6 +1430,7 @@ export function TrainPage() {
             selectedPlanId={activePlanId}
             onlySelectedPlan={routineManagerMode === 'EDIT'}
             showCreateSection={routineManagerMode !== 'EDIT'}
+            createOnlyMode={routineManagerMode === 'CREATE'}
             onPlanSaved={() => {
               setShowRoutineManager(false)
               setRoutineManagerMode('CREATE')

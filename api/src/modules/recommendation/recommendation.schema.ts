@@ -6,7 +6,7 @@ export const allowedDivisionSchema = z.enum([
   "Upper Lower",
   "Push Pull Legs 2x",
   "Upper Lower 2x",
-  "Torso Legs",
+  "Torso Limbs",
   "Bro Split"
 ]);
 

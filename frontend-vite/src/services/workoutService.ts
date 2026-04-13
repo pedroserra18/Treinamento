@@ -211,12 +211,50 @@ export async function searchExercisesForPlan(
   authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
   input: { q?: string; primaryMuscleGroup?: string; limit?: number },
 ): Promise<ExerciseOption[]> {
-  const query = new URLSearchParams({
-    limit: String(input.limit ?? 10),
+  const normalizeMediaUrl = (value: unknown): string | null => {
+    if (typeof value !== 'string') {
+      return null
+    }
+
+    const trimmed = value.trim()
+    return trimmed.length > 0 ? trimmed : null
+  }
+
+  const mapRawExerciseToOption = (value: Record<string, unknown>): ExerciseOption => ({
+    id: String(value.id ?? ''),
+    name: String(value.name ?? ''),
+    primaryMuscleGroup: String(value.primaryMuscleGroup ?? ''),
+    difficulty: String(value.difficulty ?? ''),
+    equipment: String(value.equipment ?? ''),
+    isBodyweight: Boolean(value.isBodyweight),
+    allowsExtraLoad: Boolean(value.allowsExtraLoad),
+    thumbnailUrl: normalizeMediaUrl(value.thumbnailUrl),
+    videoUrl: normalizeMediaUrl(value.videoUrl),
   })
 
-  if (input.q?.trim()) {
-    query.set('q', input.q.trim())
+  const normalizedQ = input.q?.trim() ?? ''
+  const hasFilter = Boolean(normalizedQ || input.primaryMuscleGroup)
+  const compatibleLimit = Math.max(1, Math.min(input.limit ?? 10, 30))
+
+  // Compatibility fallback: some backend versions reject empty search on /workouts/exercises/search.
+  if (!hasFilter) {
+    const response = await authorizedFetch(`${API_URL}/exercises`)
+    const payload = await parsePayload<Array<Record<string, unknown>>>(response)
+
+    if (!response.ok || !payload.data) {
+      throw new Error(payload.errorMessage ?? 'Falha ao buscar exercicios')
+    }
+
+    const limit = Math.max(1, input.limit ?? 200)
+    return payload.data.map(mapRawExerciseToOption).slice(0, limit)
+  }
+
+  const query = new URLSearchParams({
+    limit: String(compatibleLimit),
+  })
+
+  if (normalizedQ) {
+    query.set('q', normalizedQ)
   }
 
   if (input.primaryMuscleGroup) {
@@ -230,7 +268,54 @@ export async function searchExercisesForPlan(
     throw new Error(payload.errorMessage ?? 'Falha ao buscar exercicios')
   }
 
-  return payload.data
+  const normalized = payload.data.map((item) => mapRawExerciseToOption(item as unknown as Record<string, unknown>))
+
+  // Compatibility fallback: old backend versions of /workouts/exercises/search may omit thumbnail/video.
+  const hasMissingMedia = normalized.some((item) => item.thumbnailUrl == null && item.videoUrl == null)
+  if (!hasMissingMedia) {
+    return normalized
+  }
+
+  try {
+    const catalogResponse = await authorizedFetch(`${API_URL}/exercises`)
+    const catalogPayload = await parsePayload<Array<Record<string, unknown>>>(catalogResponse)
+
+    if (!catalogResponse.ok || !catalogPayload.data) {
+      return normalized
+    }
+
+    const mediaById = new Map<string, { thumbnailUrl: string | null; videoUrl: string | null }>()
+    catalogPayload.data.forEach((entry) => {
+      const id = String(entry.id ?? '')
+      if (!id) {
+        return
+      }
+
+      mediaById.set(id, {
+        thumbnailUrl: normalizeMediaUrl(entry.thumbnailUrl),
+        videoUrl: normalizeMediaUrl(entry.videoUrl),
+      })
+    })
+
+    return normalized.map((item) => {
+      if (item.thumbnailUrl || item.videoUrl) {
+        return item
+      }
+
+      const media = mediaById.get(item.id)
+      if (!media) {
+        return item
+      }
+
+      return {
+        ...item,
+        thumbnailUrl: media.thumbnailUrl,
+        videoUrl: media.videoUrl,
+      }
+    })
+  } catch {
+    return normalized
+  }
 }
 
 export async function addExerciseToPlan(

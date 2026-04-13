@@ -1,6 +1,6 @@
-import { Prisma } from "@prisma/client";
+import { MuscleGroup, Prisma } from "@prisma/client";
 import { prisma } from "../../config/prisma";
-import { ListExercisesQuery } from "./exercise.schema";
+import { ListExercisesQuery, UpdateExerciseBody } from "./exercise.schema";
 import { AppError } from "../../shared/errors/app-error";
 
 type RequestUser = {
@@ -88,4 +88,29 @@ export async function getExerciseById(exerciseId: string, user: RequestUser) {
   }
 
   return exercise;
+}
+
+export async function updateExercise(exerciseId: string, input: UpdateExerciseBody) {
+  const existing = await prisma.exercise.findUnique({
+    where: { id: exerciseId },
+    select: { id: true }
+  });
+
+  if (!existing) {
+    throw new AppError("Exercise not found", {
+      statusCode: 404,
+      code: "EXERCISE_NOT_FOUND"
+    });
+  }
+
+  return prisma.exercise.update({
+    where: { id: exerciseId },
+    data: {
+      secondaryMuscleGroup: input.secondaryMuscleGroup as unknown as
+        | MuscleGroup
+        | null
+        | Prisma.NullableEnumMuscleGroupFieldUpdateOperationsInput
+        | undefined
+    }
+  });
 }

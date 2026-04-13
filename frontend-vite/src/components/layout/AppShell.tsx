@@ -37,6 +37,9 @@ export function AppShell({ children }: AppShellProps) {
     'TRICEPS',
     'CORE',
     'LEGS',
+    'QUADS',
+    'HAMSTRINGS',
+    'ADDUCTORS',
     'GLUTES',
     'CALVES',
     'ABDOMEN',
@@ -78,11 +81,6 @@ export function AppShell({ children }: AppShellProps) {
 
     const timeoutId = window.setTimeout(() => {
       const query = explorerQuery.trim()
-      if (!query && !explorerMuscle) {
-        setExplorerResults([])
-        setExplorerError(null)
-        return
-      }
 
       setExplorerLoading(true)
       setExplorerError(null)
@@ -90,7 +88,7 @@ export function AppShell({ children }: AppShellProps) {
       void searchExercisesForPlan(authorizedFetch, {
         q: query || undefined,
         primaryMuscleGroup: explorerMuscle || undefined,
-        limit: 12,
+        limit: 200,
       })
         .then((results) => {
           setExplorerResults(results)
@@ -178,29 +176,62 @@ export function AppShell({ children }: AppShellProps) {
               {explorerLoading ? <p className="text-sm text-[var(--muted)]">Buscando exercicios...</p> : null}
               {explorerError ? <p className="text-sm text-red-400">{explorerError}</p> : null}
               {!explorerLoading && !explorerError && explorerResults.length === 0 ? (
-                <p className="text-sm text-[var(--muted)]">Digite um termo ou escolha um musculo para explorar.</p>
+                <p className="text-sm text-[var(--muted)]">Nenhum exercicio encontrado para o filtro atual.</p>
               ) : null}
 
               {explorerResults.map((exercise) => (
                 <article key={exercise.id} className="rounded-xl border border-[var(--line)] p-3">
-                  <p className="text-sm font-bold text-[var(--text)]">{exercise.name}</p>
-                  <p className="text-xs text-[var(--muted)]">
-                    {exercise.primaryMuscleGroup} • {exercise.difficulty}
-                  </p>
-                  <button
-                    type="button"
-                    disabled={!explorerContext}
-                    onClick={() => {
-                      selectExerciseFromExplorer(exercise)
-                    }}
-                    className="mt-2 rounded-lg border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {explorerContext === 'ACTIVE_WORKOUT'
-                      ? 'Adicionar ao treino ativo'
-                      : explorerContext === 'ROUTINE_EDIT'
-                        ? 'Adicionar na rotina em edicao'
-                        : 'Abra um treino ou rotina para adicionar'}
-                  </button>
+                  <div className="flex items-start gap-3">
+                    <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface-hover)]">
+                      {exercise.thumbnailUrl ? (
+                        <img
+                          src={exercise.thumbnailUrl}
+                          alt={`Imagem do exercicio ${exercise.name}`}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+                          Sem foto
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-bold text-[var(--text)]">{exercise.name}</p>
+                      <p className="text-xs text-[var(--muted)]">
+                        {exercise.primaryMuscleGroup} • {exercise.difficulty}
+                      </p>
+
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={!explorerContext}
+                          onClick={() => {
+                            selectExerciseFromExplorer(exercise)
+                          }}
+                          className="rounded-lg border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {explorerContext === 'ACTIVE_WORKOUT'
+                            ? 'Adicionar ao treino ativo'
+                            : explorerContext === 'ROUTINE_EDIT'
+                              ? 'Adicionar na rotina em edicao'
+                              : 'Abra um treino ou rotina para adicionar'}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!exercise.videoUrl}
+                          onClick={() => {
+                            if (exercise.videoUrl) {
+                              window.open(exercise.videoUrl, '_blank', 'noopener,noreferrer')
+                            }
+                          }}
+                          className="rounded-lg border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {exercise.videoUrl ? 'Ver video' : 'Video em breve'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 </article>
               ))}
             </div>

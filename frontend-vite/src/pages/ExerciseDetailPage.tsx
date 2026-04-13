@@ -2,13 +2,37 @@ import { motion } from 'framer-motion'
 import { useEffect, useState } from 'react'
 import type { Exercise } from '../types/exercise'
 import { Link, useParams } from 'react-router-dom'
-import { getExerciseById } from '../services/exerciseService'
+import { getExerciseById, updateExerciseSecondaryMuscleGroup } from '../services/exerciseService'
+import { useAuth } from '../hooks/useAuth'
+
+const MUSCLE_OPTIONS = [
+  'CHEST',
+  'BACK',
+  'SHOULDERS',
+  'ARMS',
+  'BICEPS',
+  'TRICEPS',
+  'CORE',
+  'LEGS',
+  'QUADS',
+  'HAMSTRINGS',
+  'ADDUCTORS',
+  'GLUTES',
+  'CALVES',
+  'ABDOMEN',
+  'FOREARM',
+  'FULL_BODY',
+]
 
 export function ExerciseDetailPage() {
+  const { authorizedFetch, user } = useAuth()
   const { exerciseId } = useParams<{ exerciseId: string }>()
   const [exercise, setExercise] = useState<Exercise | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [secondaryDraft, setSecondaryDraft] = useState<string>('')
+  const [savingSecondary, setSavingSecondary] = useState(false)
+  const [secondarySuccess, setSecondarySuccess] = useState<string | null>(null)
 
   useEffect(() => {
     if (!exerciseId) {
@@ -26,6 +50,7 @@ export function ExerciseDetailPage() {
         const detail = await getExerciseById(exerciseId)
         if (!cancelled) {
           setExercise(detail)
+          setSecondaryDraft(detail.secondaryMuscleGroup ?? '')
         }
       } catch (err) {
         if (!cancelled) {
@@ -84,12 +109,68 @@ export function ExerciseDetailPage() {
           {exercise.primaryMuscleGroup}
         </p>
         <p>
+          <span className="font-semibold text-[var(--text)]">Musculo secundario:</span>{' '}
+          {exercise.secondaryMuscleGroup ?? 'Sem musculo secundario'}
+        </p>
+        <p>
           <span className="font-semibold text-[var(--text)]">Equipamento:</span> {exercise.equipment}
         </p>
         <p>
           <span className="font-semibold text-[var(--text)]">Dificuldade:</span> {exercise.difficulty}
         </p>
       </div>
+
+      {user?.role === 'ADMIN' ? (
+        <div className="space-y-2 rounded-xl border border-[var(--line)] bg-[var(--surface-soft)] p-3">
+          <p className="text-sm font-semibold text-[var(--text)]">Editar musculo secundario</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={secondaryDraft}
+              onChange={(event) => {
+                setSecondaryDraft(event.target.value)
+                setSecondarySuccess(null)
+              }}
+              className="rounded-lg border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
+            >
+              <option value="">Sem musculo secundario</option>
+              {MUSCLE_OPTIONS.map((muscle) => (
+                <option key={muscle} value={muscle}>
+                  {muscle}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={savingSecondary || secondaryDraft === (exercise.secondaryMuscleGroup ?? '')}
+              onClick={() => {
+                setSavingSecondary(true)
+                setError(null)
+                setSecondarySuccess(null)
+
+                void updateExerciseSecondaryMuscleGroup(authorizedFetch, {
+                  exerciseId: exercise.id,
+                  secondaryMuscleGroup: secondaryDraft || null,
+                })
+                  .then((updated) => {
+                    setExercise(updated)
+                    setSecondaryDraft(updated.secondaryMuscleGroup ?? '')
+                    setSecondarySuccess('Musculo secundario atualizado.')
+                  })
+                  .catch((err) => {
+                    setError(err instanceof Error ? err.message : 'Falha ao atualizar musculo secundario')
+                  })
+                  .finally(() => {
+                    setSavingSecondary(false)
+                  })
+              }}
+              className="rounded-lg border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {savingSecondary ? 'Salvando...' : 'Salvar'}
+            </button>
+          </div>
+          {secondarySuccess ? <p className="text-xs text-emerald-300">{secondarySuccess}</p> : null}
+        </div>
+      ) : null}
 
       {exercise.videoUrl ? (
         <div className="space-y-2">
