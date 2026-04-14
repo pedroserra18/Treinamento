@@ -603,9 +603,20 @@ export async function searchExercisesForPlan(userId: string, query: SearchExerci
       ...(query.primaryMuscleGroup ? { primaryMuscleGroup: query.primaryMuscleGroup } : {}),
       ...(query.q
         ? {
-            name: {
-              contains: query.q
-            }
+            OR: [
+              {
+                name: {
+                  contains: query.q,
+                  mode: "insensitive"
+                }
+              },
+              {
+                slug: {
+                  contains: query.q,
+                  mode: "insensitive"
+                }
+              }
+            ]
           }
         : {})
     },
@@ -1076,7 +1087,10 @@ export async function exploreWorkouts(userId: string, query: ExploreWorkoutsQuer
 
   if (query.search) {
     andClauses.push({
-      OR: [{ name: { contains: query.search } }, { slug: { contains: query.search } }]
+      OR: [
+        { name: { contains: query.search, mode: "insensitive" } },
+        { slug: { contains: query.search, mode: "insensitive" } }
+      ]
     });
   }
 

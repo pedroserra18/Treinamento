@@ -33,16 +33,28 @@ export function HistoryPage() {
   const selectedSession = items.find((session) => session.id === selectedSessionId) ?? null
 
   useEffect(() => {
+    let cancelled = false
+
     void listWorkoutHistory(authorizedFetch)
       .then((result) => {
-        setItems(result.items)
+        if (!cancelled) {
+          setItems(result.items)
+        }
       })
       .catch((err) => {
-        setError(err instanceof Error ? err.message : 'Erro ao carregar historico')
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Erro ao carregar historico')
+        }
       })
       .finally(() => {
-        setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+        }
       })
+
+    return () => {
+      cancelled = true
+    }
   }, [authorizedFetch])
 
   if (selectedSession) {

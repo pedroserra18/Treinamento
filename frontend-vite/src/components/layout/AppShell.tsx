@@ -1,6 +1,6 @@
 import { useAuth } from '../../hooks/useAuth'
 import { useTheme } from '../../hooks/useTheme'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { searchExercisesForPlan } from '../../services/workoutService'
 import type { ExerciseOption } from '../../types/workout'
@@ -11,6 +11,7 @@ import {
   selectExerciseFromExplorer,
   type ExerciseExplorerOpenPayload,
 } from '../../lib/exercise-explorer'
+import { MUSCLE_OPTIONS } from '../../lib/exercise-meta'
 
 type AppShellProps = {
   children: React.ReactNode
@@ -27,25 +28,33 @@ export function AppShell({ children }: AppShellProps) {
   const [explorerLoading, setExplorerLoading] = useState(false)
   const [explorerError, setExplorerError] = useState<string | null>(null)
   const [explorerResults, setExplorerResults] = useState<ExerciseOption[]>([])
+  const explorerRequestIdRef = useRef(0)
+  const explorerSearchCacheRef = useRef<Map<string, ExerciseOption[]>>(new Map())
 
-  const muscleOptions = [
-    'CHEST',
-    'BACK',
-    'SHOULDERS',
-    'ARMS',
-    'BICEPS',
-    'TRICEPS',
-    'CORE',
-    'LEGS',
-    'QUADS',
-    'HAMSTRINGS',
-    'ADDUCTORS',
-    'GLUTES',
-    'CALVES',
-    'ABDOMEN',
-    'FOREARM',
-    'FULL_BODY',
-  ]
+  const fetchExplorerResults = useCallback(
+    async (query: string, muscle: string, limit: number) => {
+      const normalizedQuery = query.trim().toLowerCase()
+      const normalizedMuscle = muscle
+      const cacheKey = `${normalizedQuery}::${normalizedMuscle}::${limit}`
+      const cached = explorerSearchCacheRef.current.get(cacheKey)
+
+      if (cached) {
+        return cached
+      }
+
+      const results = await searchExercisesForPlan(authorizedFetch, {
+        q: query.trim() || undefined,
+        primaryMuscleGroup: muscle || undefined,
+        limit,
+      })
+
+      explorerSearchCacheRef.current.set(cacheKey, results)
+      return results
+    },
+    [authorizedFetch],
+  )
+
+  const muscleOptions = MUSCLE_OPTIONS
 
   useEffect(() => {
     const eventName = getExerciseExplorerEventName()
@@ -81,28 +90,37 @@ export function AppShell({ children }: AppShellProps) {
 
     const timeoutId = window.setTimeout(() => {
       const query = explorerQuery.trim()
+      const requestId = ++explorerRequestIdRef.current
 
       setExplorerLoading(true)
       setExplorerError(null)
 
-      void searchExercisesForPlan(authorizedFetch, {
-        q: query || undefined,
-        primaryMuscleGroup: explorerMuscle || undefined,
-        limit: 200,
-      })
+      void fetchExplorerResults(query, explorerMuscle, 200)
         .then((results) => {
+          if (requestId !== explorerRequestIdRef.current) {
+            return
+          }
+
           setExplorerResults(results)
         })
         .catch((error) => {
+          if (requestId !== explorerRequestIdRef.current) {
+            return
+          }
+
           setExplorerError(error instanceof Error ? error.message : 'Erro ao buscar exercicios')
         })
         .finally(() => {
+          if (requestId !== explorerRequestIdRef.current) {
+            return
+          }
+
           setExplorerLoading(false)
         })
     }, 250)
 
     return () => window.clearTimeout(timeoutId)
-  }, [authorizedFetch, explorerMuscle, explorerQuery, isExplorerOpen])
+  }, [explorerMuscle, explorerQuery, fetchExplorerResults, isExplorerOpen])
 
   return (
     <div className="mx-auto min-h-screen max-w-5xl px-4 pb-8 pt-24 sm:px-6 lg:px-8">
@@ -144,6 +162,7 @@ export function AppShell({ children }: AppShellProps) {
                 <button
                   type="button"
                   onClick={() => {
+                    explorerRequestIdRef.current += 1
                     setIsExplorerOpen(false)
                     setExplorerResults([])
                     setExplorerError(null)

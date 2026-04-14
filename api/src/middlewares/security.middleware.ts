@@ -10,7 +10,21 @@ import { RedisStore } from "rate-limit-redis";
 import { redisClient } from "../config/redis";
 import { AppError } from "../shared/errors/app-error";
 
-const allowedOrigins = [
+function normalizeOrigin(value: string): string | null {
+  try {
+    const url = new URL(value);
+
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return null;
+    }
+
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return null;
+  }
+}
+
+const rawAllowedOrigins = [
   env.clientUrl,
   ...(env.corsAllowedOrigins
     ? env.corsAllowedOrigins
@@ -20,7 +34,13 @@ const allowedOrigins = [
     : [])
 ];
 
-const dedupedAllowedOrigins = Array.from(new Set(allowedOrigins));
+const dedupedAllowedOrigins = Array.from(
+  new Set(
+    rawAllowedOrigins
+      .map((origin) => normalizeOrigin(origin))
+      .filter((origin): origin is string => Boolean(origin))
+  )
+);
 
 type SecurityMetrics = {
   globalRateLimitHits: number;
@@ -162,7 +182,9 @@ export const corsPolicy = cors({
       return;
     }
 
-    if (dedupedAllowedOrigins.includes(origin)) {
+    const normalizedOrigin = normalizeOrigin(origin);
+
+    if (normalizedOrigin && dedupedAllowedOrigins.includes(normalizedOrigin)) {
       callback(null, true);
       return;
     }
@@ -171,7 +193,8 @@ export const corsPolicy = cors({
       alert: true,
       suspicious: true,
       reason: "cors_origin_denied",
-      origin
+      origin,
+      normalizedOrigin
     });
 
     callback(
