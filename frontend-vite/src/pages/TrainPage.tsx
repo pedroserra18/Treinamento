@@ -7,7 +7,7 @@ import {
   openExerciseExplorer,
   type ExerciseExplorerSelection,
 } from '../lib/exercise-explorer'
-import { resolveBodyweightFlag } from '../lib/exercise-meta'
+import { isBodyweightEquipment, resolveBodyweightFlag } from '../lib/exercise-meta'
 import { formatClock, formatRestOptionLabel, REST_OPTIONS_SEC } from '../lib/workout-timing'
 import type { WorkoutPlan } from '../types/workout'
 import {
@@ -36,6 +36,7 @@ type ActiveExercise = {
   planExerciseId?: string
   exerciseId: string
   exerciseName: string
+  equipment: string
   thumbnailUrl: string | null
   videoUrl: string | null
   isBodyweight: boolean
@@ -92,9 +93,14 @@ function mapPlanToActiveExercises(plan: WorkoutPlan): ActiveExercise[] {
       planExerciseId: entry.id,
       exerciseId: entry.exercise.id,
       exerciseName,
+      equipment: entry.exercise.equipment,
       thumbnailUrl: entry.exercise.thumbnailUrl,
       videoUrl: entry.exercise.videoUrl,
-      isBodyweight: resolveBodyweightFlag(entry.exercise.isBodyweight, exerciseName),
+      isBodyweight: resolveBodyweightFlag(
+        entry.exercise.isBodyweight,
+        exerciseName,
+        entry.exercise.equipment,
+      ),
       allowsExtraLoad: entry.exercise.allowsExtraLoad,
       suggestedReps: repsText,
       restDurationSec: entry.restSec ?? 0,
@@ -128,6 +134,10 @@ function calculateTotals(exercises: ActiveExercise[]): { totalSeries: number; to
     totalSeries,
     totalVolumeKg: Number(totalVolumeKg.toFixed(2)),
   }
+}
+
+function isEffectiveBodyweightExercise(exercise: Pick<ActiveExercise, 'isBodyweight' | 'exerciseName' | 'equipment'>): boolean {
+  return resolveBodyweightFlag(exercise.isBodyweight, exercise.exerciseName, exercise.equipment)
 }
 
 export function TrainPage() {
@@ -250,20 +260,6 @@ export function TrainPage() {
     [activeExercises],
   )
 
-  const missingThumbnailExerciseIdsKey = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          activeExercises
-            .filter((exercise) => !exercise.thumbnailUrl)
-            .map((exercise) => exercise.exerciseId),
-        ),
-      )
-        .sort()
-        .join(','),
-    [activeExercises],
-  )
-
   useEffect(() => {
     if (screen !== 'ACTIVE' || !activeExerciseIdsKey) {
       setLastPerformanceByExercise({})
@@ -335,53 +331,64 @@ export function TrainPage() {
   }, [activeExerciseIdsKey, authorizedFetch, screen])
 
   useEffect(() => {
-    if (screen !== 'ACTIVE' || !missingThumbnailExerciseIdsKey) {
+    if (screen !== 'ACTIVE' || !activeExerciseIdsKey) {
       return
     }
 
     let cancelled = false
 
-    const loadMissingThumbnails = async () => {
+    const syncExerciseMetadata = async () => {
       try {
-        const catalog = await searchExercisesForPlan(authorizedFetch, { limit: 200 })
+        const catalog = await searchExercisesForPlan(authorizedFetch, { limit: 300 })
         if (cancelled) {
           return
         }
 
-        const thumbnailById = new Map(
-          catalog
-            .filter((exercise) => exercise.thumbnailUrl)
-            .map((exercise) => [exercise.id, exercise.thumbnailUrl as string]),
-        )
+        const catalogById = new Map(catalog.map((exercise) => [exercise.id, exercise]))
 
         setActiveExercises((current) =>
           current.map((exercise) => {
-            if (exercise.thumbnailUrl) {
+            const catalogExercise = catalogById.get(exercise.exerciseId)
+            if (!catalogExercise) {
               return exercise
             }
 
-            const thumbnailUrl = thumbnailById.get(exercise.exerciseId)
-            if (!thumbnailUrl) {
+            const equipment = catalogExercise.equipment || exercise.equipment
+            const isBodyweight =
+              isBodyweightEquipment(equipment) ||
+              resolveBodyweightFlag(catalogExercise.isBodyweight, exercise.exerciseName, equipment)
+
+            if (
+              exercise.thumbnailUrl === (catalogExercise.thumbnailUrl ?? exercise.thumbnailUrl) &&
+              exercise.videoUrl === (catalogExercise.videoUrl ?? exercise.videoUrl) &&
+              exercise.equipment === equipment &&
+              exercise.isBodyweight === isBodyweight &&
+              exercise.allowsExtraLoad === catalogExercise.allowsExtraLoad
+            ) {
               return exercise
             }
 
             return {
               ...exercise,
-              thumbnailUrl,
+              thumbnailUrl: catalogExercise.thumbnailUrl ?? exercise.thumbnailUrl,
+              videoUrl: catalogExercise.videoUrl ?? exercise.videoUrl,
+              equipment,
+              isBodyweight,
+              allowsExtraLoad: catalogExercise.allowsExtraLoad,
             }
           }),
         )
       } catch {
-        // Keep current placeholders when thumbnail enrichment fails.
+        // Keep current values when metadata enrichment fails.
       }
     }
 
-    void loadMissingThumbnails()
+    void syncExerciseMetadata()
 
     return () => {
       cancelled = true
     }
-  }, [authorizedFetch, missingThumbnailExerciseIdsKey, screen])
+  }, [activeExerciseIdsKey, authorizedFetch, screen])
 
   useEffect(() => {
     const handleDocumentClick = (event: MouseEvent) => {
@@ -422,9 +429,10 @@ export function TrainPage() {
           {
             exerciseId: payload.id,
             exerciseName: payload.name,
+            equipment: payload.equipment,
             thumbnailUrl: payload.thumbnailUrl,
             videoUrl: payload.videoUrl,
-            isBodyweight: resolveBodyweightFlag(payload.isBodyweight, payload.name),
+            isBodyweight: resolveBodyweightFlag(payload.isBodyweight, payload.name, payload.equipment),
             allowsExtraLoad: payload.allowsExtraLoad,
             suggestedReps: '10',
             restDurationSec: 0,
@@ -713,7 +721,7 @@ export function TrainPage() {
           setNumber,
           reps,
           weightKg:
-            !exercise.isBodyweight && Number.isFinite(weightKg) && weightKg > 0
+            !isEffectiveBodyweightExercise(exercise) && Number.isFinite(weightKg) && weightKg > 0
               ? weightKg
               : undefined,
           notes: Number.isFinite(rir) && rir >= 0 ? `RIR: ${Math.floor(rir)}` : undefined,
@@ -1032,7 +1040,7 @@ export function TrainPage() {
           ) : null}
 
           {activeExercises.map((exercise, exerciseIndex) => {
-            const showLoadInput = !exercise.isBodyweight
+            const showLoadInput = !isEffectiveBodyweightExercise(exercise)
 
             return (
               <div key={`${exercise.exerciseId}-${exerciseIndex}`} className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
