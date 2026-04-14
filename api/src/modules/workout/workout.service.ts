@@ -820,6 +820,7 @@ export async function completeWorkoutSession(
           userId,
           workoutSessionId: params.sessionId,
           exerciseId: entry.exerciseId,
+          executionOrder: index + 1,
           setNumber: entry.setNumber,
           reps: entry.reps,
           weightKg: entry.weightKg,
@@ -904,8 +905,8 @@ export async function listWorkoutHistory(userId: string, query: ListWorkoutHisto
           }
         },
         history: {
-          // Preserve the exact execution sequence recorded at workout completion.
-          orderBy: [{ completedAt: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+          // Use explicit execution order to avoid ambiguity from timestamps.
+          orderBy: [{ executionOrder: "asc" }, { id: "asc" }],
           include: {
             exercise: {
               select: {

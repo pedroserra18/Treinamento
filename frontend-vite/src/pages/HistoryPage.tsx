@@ -23,6 +23,20 @@ function formatDateTime(value: string | null): string {
   return new Date(value).toLocaleString('pt-BR')
 }
 
+function calculateTotalVolumeKg(session: WorkoutSessionHistory): number {
+  return session.history.reduce((acc, entry) => {
+    if (entry.weightKg == null || entry.reps == null) {
+      return acc
+    }
+
+    if (entry.weightKg <= 0 || entry.reps <= 0) {
+      return acc
+    }
+
+    return acc + entry.weightKg * entry.reps
+  }, 0)
+}
+
 type HistoryEntry = WorkoutSessionHistory['history'][number]
 
 type GroupedExerciseHistory = {
@@ -47,6 +61,10 @@ export function HistoryPage() {
         const grouped = new Map<string, GroupedExerciseHistory>()
 
         const orderedEntries = [...selectedSession.history].sort((a, b) => {
+          if (a.executionOrder !== b.executionOrder) {
+            return a.executionOrder - b.executionOrder
+          }
+
           const byCompletedAt = new Date(a.completedAt).getTime() - new Date(b.completedAt).getTime()
           if (byCompletedAt !== 0) {
             return byCompletedAt
@@ -116,6 +134,8 @@ export function HistoryPage() {
   }, [authorizedFetch])
 
   if (selectedSession) {
+    const totalVolumeKg = calculateTotalVolumeKg(selectedSession)
+
     return (
       <section className="space-y-4">
         <motion.header
@@ -150,7 +170,7 @@ export function HistoryPage() {
           transition={{ duration: 0.3, ease: 'easeOut' }}
           className="card-glow-mixed rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 shadow-md sm:p-5"
         >
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <div className="card-glow-blue rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 text-sm">
               <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--muted)]">Status</p>
               <p className="font-semibold text-[var(--text)]">{selectedSession.status}</p>
@@ -163,6 +183,12 @@ export function HistoryPage() {
               <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--muted)]">Calorias</p>
               <p className="font-semibold text-[var(--text)]">
                 {selectedSession.caloriesBurned != null ? selectedSession.caloriesBurned : '-'}
+              </p>
+            </div>
+            <div className="card-glow-blue rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 text-sm">
+              <p className="text-[11px] uppercase tracking-[0.12em] text-[var(--muted)]">Volume total</p>
+              <p className="font-semibold text-[var(--text)]">
+                {totalVolumeKg > 0 ? `${totalVolumeKg.toFixed(1)} kg` : '-'}
               </p>
             </div>
             <div className="card-glow-blue rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 text-sm">
@@ -285,6 +311,10 @@ export function HistoryPage() {
         ) : null}
 
         {items.map((session, index) => (
+          (() => {
+            const totalVolumeKg = calculateTotalVolumeKg(session)
+
+            return (
           <motion.article
             key={session.id}
             initial={{ opacity: 0, y: 12 }}
@@ -311,6 +341,9 @@ export function HistoryPage() {
                 Finalizado em {session.endedAt ? new Date(session.endedAt).toLocaleString('pt-BR') : '-'}
               </p>
             </div>
+            <p className="mt-2 text-xs text-[var(--muted)]">
+              Volume total: {totalVolumeKg > 0 ? `${totalVolumeKg.toFixed(1)} kg` : '-'}
+            </p>
             <p className="mt-2 text-sm text-[var(--muted)]">{session.notes ?? 'Sem observacoes'}</p>
             <div className="mt-3 flex flex-wrap gap-2">
               <button
@@ -324,6 +357,8 @@ export function HistoryPage() {
               </button>
             </div>
           </motion.article>
+            )
+          })()
         ))}
       </div>
 
