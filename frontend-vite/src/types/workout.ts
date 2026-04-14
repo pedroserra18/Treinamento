@@ -67,6 +67,10 @@ export type WorkoutSessionHistory = {
   workoutPlan: {
     id: string
     name: string
+    exercises: Array<{
+      exerciseId: string
+      orderIndex: number
+    }>
   } | null
   scheduledAt: string
   startedAt: string | null

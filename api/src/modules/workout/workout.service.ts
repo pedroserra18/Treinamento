@@ -816,7 +816,7 @@ export async function completeWorkoutSession(
 
     if (exercises.length > 0) {
       await tx.workoutHistory.createMany({
-        data: exercises.map((entry) => ({
+        data: exercises.map((entry, index) => ({
           userId,
           workoutSessionId: params.sessionId,
           exerciseId: entry.exerciseId,
@@ -827,7 +827,8 @@ export async function completeWorkoutSession(
           distanceMeters: entry.distanceMeters,
           perceivedExertion: entry.perceivedExertion,
           notes: entry.notes,
-          completedAt: endedAt
+          // Keep per-set execution order stable for history rendering.
+          completedAt: new Date(endedAt.getTime() + index)
         }))
       });
     }
@@ -892,11 +893,19 @@ export async function listWorkoutHistory(userId: string, query: ListWorkoutHisto
         workoutPlan: {
           select: {
             id: true,
-            name: true
+            name: true,
+            exercises: {
+              orderBy: [{ orderIndex: "asc" }],
+              select: {
+                exerciseId: true,
+                orderIndex: true
+              }
+            }
           }
         },
         history: {
-          orderBy: [{ completedAt: "desc" }, { setNumber: "asc" }],
+          // Preserve the exact execution sequence recorded at workout completion.
+          orderBy: [{ completedAt: "asc" }, { createdAt: "asc" }, { id: "asc" }],
           include: {
             exercise: {
               select: {
