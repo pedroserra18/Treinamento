@@ -291,6 +291,7 @@ model WorkoutHistory {
   userId          String
   workoutSessionId String
   exerciseId      String
+  executionOrder  Int
   setNumber       Int
   reps            Int?
   weightKg        Float?
@@ -308,6 +309,7 @@ model WorkoutHistory {
   @@index([userId, completedAt])
   @@index([exerciseId, completedAt])
   @@index([workoutSessionId, setNumber])
+  @@index([workoutSessionId, executionOrder])
   @@map("workout_history")
 }
 

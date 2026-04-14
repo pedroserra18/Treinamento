@@ -81,6 +81,7 @@ export type WorkoutSessionHistory = {
   historyEntriesCount: number
   history: Array<{
     id: string
+    executionOrder: number
     setNumber: number
     reps: number | null
     weightKg: number | null
