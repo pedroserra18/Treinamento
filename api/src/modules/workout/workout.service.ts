@@ -247,11 +247,12 @@ export async function listUserWorkoutPlans(userId: string) {
               id: true,
               name: true,
               primaryMuscleGroup: true,
-                difficulty: true,
-                isBodyweight: true,
-                allowsExtraLoad: true,
-                thumbnailUrl: true,
-                videoUrl: true
+              difficulty: true,
+              equipment: true,
+              isBodyweight: true,
+              allowsExtraLoad: true,
+              thumbnailUrl: true,
+              videoUrl: true
             }
           }
         }
@@ -359,6 +360,7 @@ export async function addExerciseToPlan(
             name: true,
             primaryMuscleGroup: true,
             difficulty: true,
+            equipment: true,
             isBodyweight: true,
             allowsExtraLoad: true
           }
@@ -482,6 +484,7 @@ export async function updatePlanExercise(
           name: true,
           primaryMuscleGroup: true,
           difficulty: true,
+          equipment: true,
           isBodyweight: true,
           allowsExtraLoad: true
         }

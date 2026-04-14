@@ -570,6 +570,7 @@ export function WorkoutsPage({
             const effectiveBodyweight = resolveBodyweightFlag(
               targetExercise.exercise.isBodyweight,
               targetExercise.customName ?? targetExercise.exercise.name,
+              targetExercise.exercise.equipment,
             )
             return effectiveBodyweight ? '' : series.loadKg
           })(),
@@ -974,7 +975,11 @@ export function WorkoutsPage({
               {plan.exercises.map((item, index) => {
                 const draft = draftByExercise[item.id] ?? { series: [createSeriesDraft({ reps: '10' })] }
                 const exerciseLabel = item.customName ?? item.exercise.name
-                const effectiveBodyweight = resolveBodyweightFlag(item.exercise.isBodyweight, exerciseLabel)
+                const effectiveBodyweight = resolveBodyweightFlag(
+                  item.exercise.isBodyweight,
+                  exerciseLabel,
+                  item.exercise.equipment,
+                )
                 const showLoad = !effectiveBodyweight
                 const bestSeries1rm = draft.series.reduce((best, series) => {
                   if (!showLoad) {

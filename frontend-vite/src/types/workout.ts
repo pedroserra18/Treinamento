@@ -31,6 +31,7 @@ export type PlanExercise = {
     name: string
     primaryMuscleGroup: string
     difficulty: string
+    equipment: string
     isBodyweight: boolean
     allowsExtraLoad: boolean
     thumbnailUrl: string | null
