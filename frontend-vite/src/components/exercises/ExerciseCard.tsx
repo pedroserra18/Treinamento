@@ -18,7 +18,7 @@ export function ExerciseCard({ exercise }: ExerciseCardProps) {
       <img
         src={exercise.thumbnailUrl || '/placeholder-exercise.svg'}
         alt={`Thumbnail de ${exercise.name}`}
-        className="h-40 w-full object-cover"
+        className="h-44 w-full object-cover sm:h-48"
       />
       <div className="space-y-2 p-4">
         <h3 className="line-clamp-1 text-base font-semibold text-[var(--text)]">{exercise.name}</h3>

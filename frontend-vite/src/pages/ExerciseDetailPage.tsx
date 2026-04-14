@@ -100,7 +100,7 @@ export function ExerciseDetailPage() {
       <img
         src={exercise.thumbnailUrl || '/placeholder-exercise.svg'}
         alt={`Thumbnail de ${exercise.name}`}
-        className="h-52 w-full rounded-xl object-cover sm:h-72"
+        className="h-56 w-full rounded-xl object-cover sm:h-72"
       />
 
       <div className="grid grid-cols-1 gap-3 text-sm text-[var(--muted)] sm:grid-cols-2">

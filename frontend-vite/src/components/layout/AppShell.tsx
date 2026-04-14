@@ -143,10 +143,14 @@ export function AppShell({ children }: AppShellProps) {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setIsExplorerOpen(false)}
+                  onClick={() => {
+                    setIsExplorerOpen(false)
+                    setExplorerResults([])
+                    setExplorerError(null)
+                  }}
                   className="rounded-lg border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--text)]"
                 >
-                  Fechar
+                  Parar exploracao
                 </button>
               </div>
             </div>
@@ -182,7 +186,7 @@ export function AppShell({ children }: AppShellProps) {
               {explorerResults.map((exercise) => (
                 <article key={exercise.id} className="rounded-xl border border-[var(--line)] p-3">
                   <div className="flex items-start gap-3">
-                    <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface-hover)]">
+                    <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] sm:h-20 sm:w-20">
                       {exercise.thumbnailUrl ? (
                         <img
                           src={exercise.thumbnailUrl}
