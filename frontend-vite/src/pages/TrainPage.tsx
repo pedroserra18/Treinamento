@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion'
 import { useAuth } from '../hooks/useAuth'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { WorkoutsPage } from './WorkoutsPage'
 import {
   getExerciseExplorerSelectionEventName,
@@ -176,6 +176,8 @@ export function TrainPage() {
   const [summaryNotes, setSummaryNotes] = useState('')
   const [summaryImageFile, setSummaryImageFile] = useState<File | null>(null)
   const [summaryImagePreview, setSummaryImagePreview] = useState<string | null>(null)
+  const interactionOrderByExerciseRef = useRef<Record<string, number>>({})
+  const interactionOrderCounterRef = useRef(0)
 
   const reloadPlans = useCallback(async (preferredPlanId?: string) => {
     const items = await listWorkoutPlans(authorizedFetch)
@@ -478,10 +480,14 @@ export function TrainPage() {
       URL.revokeObjectURL(summaryImagePreview)
     }
     setSummaryImagePreview(null)
+    interactionOrderByExerciseRef.current = {}
+    interactionOrderCounterRef.current = 0
   }
 
   const beginEmptyTraining = () => {
     setError(null)
+    interactionOrderByExerciseRef.current = {}
+    interactionOrderCounterRef.current = 0
     setShowRoutineManager(false)
     setRoutineManagerMode('CREATE')
     setOriginMode('EMPTY')
@@ -496,6 +502,8 @@ export function TrainPage() {
 
   const beginRoutineTraining = (plan: WorkoutPlan) => {
     setError(null)
+    interactionOrderByExerciseRef.current = {}
+    interactionOrderCounterRef.current = 0
     setShowRoutineManager(false)
     setRoutineManagerMode('CREATE')
     setOriginMode('ROUTINE')
@@ -614,6 +622,15 @@ export function TrainPage() {
     setIndex: number,
     patch: Partial<ExerciseSetInput>,
   ) => {
+    const targetExercise = activeExercises[exerciseIndex]
+    if (targetExercise) {
+      const currentOrder = interactionOrderByExerciseRef.current[targetExercise.exerciseId]
+      if (currentOrder == null) {
+        interactionOrderCounterRef.current += 1
+        interactionOrderByExerciseRef.current[targetExercise.exerciseId] = interactionOrderCounterRef.current
+      }
+    }
+
     setActiveExercises((current) =>
       current.map((exercise, eIdx) => {
         if (eIdx !== exerciseIndex) {
@@ -682,8 +699,22 @@ export function TrainPage() {
     const durationMin = parsePositiveInt(summaryDurationMin, Math.max(1, Math.round(elapsedSec / 60)))
     const durationSec = Math.max(60, durationMin * 60)
 
-    const performedSets = activeExercises.flatMap((exercise) =>
-      exercise.sets.reduce<
+    const exercisesWithDisplayIndex = activeExercises.map((exercise, displayIndex) => ({
+      exercise,
+      displayIndex,
+      interactionOrder: interactionOrderByExerciseRef.current[exercise.exerciseId] ?? Number.MAX_SAFE_INTEGER,
+    }))
+
+    const performedSets = exercisesWithDisplayIndex
+      .sort((a, b) => {
+        if (a.interactionOrder !== b.interactionOrder) {
+          return a.interactionOrder - b.interactionOrder
+        }
+
+        return a.displayIndex - b.displayIndex
+      })
+      .flatMap(({ exercise }) =>
+        exercise.sets.reduce<
         Array<{
           exerciseId: string
           setNumber: number
@@ -729,7 +760,7 @@ export function TrainPage() {
 
         return acc
       }, []),
-    )
+      )
 
     try {
       setSaving(true)
