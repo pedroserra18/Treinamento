@@ -1,11 +1,11 @@
 import { useAuth } from '../hooks/useAuth'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 export function GoogleCallbackPage() {
   const navigate = useNavigate()
   const { completeGoogleSignIn } = useAuth()
-  const params = new URLSearchParams(window.location.search)
+  const params = useMemo(() => new URLSearchParams(window.location.search), [])
   const code = params.get('code')
   const state = params.get('state')
   const hasValidParams = Boolean(code && state)
@@ -16,13 +16,23 @@ export function GoogleCallbackPage() {
       return
     }
 
+    let cancelled = false
+
     void completeGoogleSignIn(code, state)
       .then(() => {
-        navigate('/dashboard', { replace: true })
+        if (!cancelled) {
+          navigate('/dashboard', { replace: true })
+        }
       })
       .catch((err) => {
-        setError(err instanceof Error ? err.message : 'Falha no login com Google')
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Falha no login com Google')
+        }
       })
+
+    return () => {
+      cancelled = true
+    }
   }, [completeGoogleSignIn, navigate, hasValidParams, code, state])
 
   return (

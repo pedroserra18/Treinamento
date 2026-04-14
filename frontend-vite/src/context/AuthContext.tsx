@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { setSentryUser } from '../lib/sentry'
 import type { AuthTokens, AuthUser } from '../types/auth'
 import { AuthContext, type AuthState } from './auth-context'
@@ -47,6 +47,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState(storedAuth?.user ?? null)
   const [tokens, setTokens] = useState(storedAuth?.tokens ?? null)
   const [ready, setReady] = useState(storedAuth === null)
+  const tokensRef = useRef<AuthTokens | null>(storedAuth?.tokens ?? null)
+
+  useEffect(() => {
+    tokensRef.current = tokens
+  }, [tokens])
 
   useEffect(() => {
     if (!storedAuth) {
@@ -89,40 +94,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })
   }, [user])
 
-  const signIn: AuthState['signIn'] = async (input) => {
+  const signIn: AuthState['signIn'] = useCallback(async (input) => {
     const session = await loginWithEmail(input)
     setUser(session.user)
     setTokens(session.tokens)
     persistAuth(session.user, session.tokens)
-  }
+  }, [])
 
-  const requestSignUpVerificationCode: AuthState['requestSignUpVerificationCode'] = async (
+  const requestSignUpVerificationCode: AuthState['requestSignUpVerificationCode'] = useCallback(async (
     input,
   ) => {
     return requestRegisterVerificationCode(input)
-  }
+  }, [])
 
-  const signUp: AuthState['signUp'] = async (input) => {
+  const signUp: AuthState['signUp'] = useCallback(async (input) => {
     const session = await registerWithVerificationCode(input)
     setUser(session.user)
     setTokens(session.tokens)
     persistAuth(session.user, session.tokens)
-  }
+  }, [])
 
-  const startGoogleSignIn: AuthState['startGoogleSignIn'] = async () => {
+  const startGoogleSignIn: AuthState['startGoogleSignIn'] = useCallback(async () => {
     const authorizationUrl = await getGoogleAuthorizationUrl()
     window.location.href = authorizationUrl
-  }
+  }, [])
 
-  const completeGoogleSignIn: AuthState['completeGoogleSignIn'] = async (code, state) => {
+  const completeGoogleSignIn: AuthState['completeGoogleSignIn'] = useCallback(async (code, state) => {
     const session = await loginWithGoogleCode(code, state)
     setUser(session.user)
     setTokens(session.tokens)
     persistAuth(session.user, session.tokens)
-  }
+  }, [])
 
-  const logout: AuthState['logout'] = async () => {
-    const currentToken = tokens?.accessToken
+  const logout: AuthState['logout'] = useCallback(async () => {
+    const currentToken = tokensRef.current?.accessToken
 
     setUser(null)
     setTokens(null)
@@ -136,24 +141,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Ignore network errors on logout. Local token invalidation already happened.
       }
     }
-  }
+  }, [])
 
-  const completeOnboarding: AuthState['completeOnboarding'] = async (input) => {
-    const profile = await completeOnboardingProfile(authorizedFetch, input)
+  const authorizedFetch: AuthState['authorizedFetch'] = useCallback(async (input, init) => {
+    const currentTokens = tokensRef.current
 
-    setUser(profile)
-    if (tokens) {
-      persistAuth(profile, tokens)
-    }
-  }
-
-  const authorizedFetch: AuthState['authorizedFetch'] = async (input, init) => {
-    if (!tokens) {
+    if (!currentTokens) {
       throw new Error('Sessao nao autenticada')
     }
 
     const headers = new Headers(init?.headers)
-    headers.set('Authorization', `Bearer ${tokens.accessToken}`)
+    headers.set('Authorization', `Bearer ${currentTokens.accessToken}`)
 
     let response = await fetch(input, {
       ...init,
@@ -165,7 +163,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      const renewed = await refreshAuthToken(tokens.refreshToken)
+      const renewed = await refreshAuthToken(currentTokens.refreshToken)
       const profile = await getProfile(renewed.accessToken)
       setTokens(renewed)
       setUser(profile)
@@ -184,22 +182,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await logout()
       throw new Error('Sessao expirada, faca login novamente')
     }
-  }
+  }, [logout])
 
-  const value: AuthState = {
-    user,
-    tokens,
-    ready,
-    isAuthenticated: Boolean(user && tokens),
-    signIn,
-    requestSignUpVerificationCode,
-    signUp,
-    startGoogleSignIn,
-    completeGoogleSignIn,
-    completeOnboarding,
-    logout,
-    authorizedFetch,
-  }
+  const completeOnboarding: AuthState['completeOnboarding'] = useCallback(async (input) => {
+    const profile = await completeOnboardingProfile(authorizedFetch, input)
+    const currentTokens = tokensRef.current
+
+    setUser(profile)
+    if (currentTokens) {
+      persistAuth(profile, currentTokens)
+    }
+  }, [authorizedFetch])
+
+  const value: AuthState = useMemo(
+    () => ({
+      user,
+      tokens,
+      ready,
+      isAuthenticated: Boolean(user && tokens),
+      signIn,
+      requestSignUpVerificationCode,
+      signUp,
+      startGoogleSignIn,
+      completeGoogleSignIn,
+      completeOnboarding,
+      logout,
+      authorizedFetch,
+    }),
+    [
+      user,
+      tokens,
+      ready,
+      signIn,
+      requestSignUpVerificationCode,
+      signUp,
+      startGoogleSignIn,
+      completeGoogleSignIn,
+      completeOnboarding,
+      logout,
+      authorizedFetch,
+    ],
+  )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

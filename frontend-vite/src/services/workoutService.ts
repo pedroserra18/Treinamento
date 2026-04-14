@@ -114,6 +114,105 @@ async function parsePayload<T>(response: Response): Promise<{ data?: T; errorMes
   }
 }
 
+function normalizeSearchText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+}
+
+function isSubsequence(query: string, text: string): boolean {
+  let queryIndex = 0
+
+  for (let i = 0; i < text.length && queryIndex < query.length; i += 1) {
+    if (text[i] === query[queryIndex]) {
+      queryIndex += 1
+    }
+  }
+
+  return queryIndex === query.length
+}
+
+function levenshteinDistanceWithinLimit(a: string, b: string, limit: number): number {
+  if (Math.abs(a.length - b.length) > limit) {
+    return limit + 1
+  }
+
+  const prev = Array.from({ length: b.length + 1 }, (_, i) => i)
+  const curr = new Array<number>(b.length + 1)
+
+  for (let i = 1; i <= a.length; i += 1) {
+    curr[0] = i
+    let rowMin = curr[0]
+
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      const value = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost)
+      curr[j] = value
+      if (value < rowMin) {
+        rowMin = value
+      }
+    }
+
+    if (rowMin > limit) {
+      return limit + 1
+    }
+
+    for (let j = 0; j <= b.length; j += 1) {
+      prev[j] = curr[j]
+    }
+  }
+
+  return prev[b.length]
+}
+
+function fuzzyScoreExercise(name: string, query: string): number {
+  const normalizedName = normalizeSearchText(name)
+  const normalizedQuery = normalizeSearchText(query)
+
+  if (!normalizedQuery) {
+    return 0
+  }
+
+  if (normalizedName === normalizedQuery) {
+    return 120
+  }
+
+  if (normalizedName.startsWith(normalizedQuery)) {
+    return 105
+  }
+
+  if (normalizedName.includes(normalizedQuery)) {
+    return 95
+  }
+
+  const words = normalizedName.split(/\s+/).filter(Boolean)
+  if (words.some((word) => word.startsWith(normalizedQuery))) {
+    return 90
+  }
+
+  if (isSubsequence(normalizedQuery, normalizedName)) {
+    return 75
+  }
+
+  const maxDistance = normalizedQuery.length <= 4 ? 1 : 2
+  let bestDistance = Number.POSITIVE_INFINITY
+
+  for (const word of words.length > 0 ? words : [normalizedName]) {
+    const distance = levenshteinDistanceWithinLimit(normalizedQuery, word, maxDistance)
+    if (distance < bestDistance) {
+      bestDistance = distance
+    }
+  }
+
+  if (bestDistance <= maxDistance) {
+    return 70 - bestDistance * 10
+  }
+
+  return 0
+}
+
 export async function getRecommendationTemplates(
   authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
   input: { daysPerWeek: number; sex: 'MALE' | 'FEMALE' | 'OTHER' },
@@ -233,6 +332,7 @@ export async function searchExercisesForPlan(
   })
 
   const normalizedQ = input.q?.trim() ?? ''
+  const normalizedMuscleFilter = input.primaryMuscleGroup?.trim() ?? ''
   const hasFilter = Boolean(normalizedQ || input.primaryMuscleGroup)
   const compatibleLimit = Math.max(1, Math.min(input.limit ?? 10, 30))
 
@@ -269,53 +369,85 @@ export async function searchExercisesForPlan(
   }
 
   const normalized = payload.data.map((item) => mapRawExerciseToOption(item as unknown as Record<string, unknown>))
+  let resolved = normalized
 
   // Compatibility fallback: old backend versions of /workouts/exercises/search may omit thumbnail/video.
-  const hasMissingMedia = normalized.some((item) => item.thumbnailUrl == null && item.videoUrl == null)
-  if (!hasMissingMedia) {
-    return normalized
-  }
+  const hasMissingMedia = resolved.some((item) => item.thumbnailUrl == null && item.videoUrl == null)
+  if (hasMissingMedia) {
+    try {
+      const catalogResponse = await authorizedFetch(`${API_URL}/exercises`)
+      const catalogPayload = await parsePayload<Array<Record<string, unknown>>>(catalogResponse)
 
-  try {
-    const catalogResponse = await authorizedFetch(`${API_URL}/exercises`)
-    const catalogPayload = await parsePayload<Array<Record<string, unknown>>>(catalogResponse)
+      if (catalogResponse.ok && catalogPayload.data) {
+        const mediaById = new Map<string, { thumbnailUrl: string | null; videoUrl: string | null }>()
+        catalogPayload.data.forEach((entry) => {
+          const id = String(entry.id ?? '')
+          if (!id) {
+            return
+          }
 
-    if (!catalogResponse.ok || !catalogPayload.data) {
-      return normalized
+          mediaById.set(id, {
+            thumbnailUrl: normalizeMediaUrl(entry.thumbnailUrl),
+            videoUrl: normalizeMediaUrl(entry.videoUrl),
+          })
+        })
+
+        resolved = resolved.map((item) => {
+          if (item.thumbnailUrl || item.videoUrl) {
+            return item
+          }
+
+          const media = mediaById.get(item.id)
+          if (!media) {
+            return item
+          }
+
+          return {
+            ...item,
+            thumbnailUrl: media.thumbnailUrl,
+            videoUrl: media.videoUrl,
+          }
+        })
+      }
+    } catch {
+      // Keep search results even if media enrichment fails.
     }
-
-    const mediaById = new Map<string, { thumbnailUrl: string | null; videoUrl: string | null }>()
-    catalogPayload.data.forEach((entry) => {
-      const id = String(entry.id ?? '')
-      if (!id) {
-        return
-      }
-
-      mediaById.set(id, {
-        thumbnailUrl: normalizeMediaUrl(entry.thumbnailUrl),
-        videoUrl: normalizeMediaUrl(entry.videoUrl),
-      })
-    })
-
-    return normalized.map((item) => {
-      if (item.thumbnailUrl || item.videoUrl) {
-        return item
-      }
-
-      const media = mediaById.get(item.id)
-      if (!media) {
-        return item
-      }
-
-      return {
-        ...item,
-        thumbnailUrl: media.thumbnailUrl,
-        videoUrl: media.videoUrl,
-      }
-    })
-  } catch {
-    return normalized
   }
+
+  // Fuzzy fallback for partial/typo queries if backend returned no matches.
+  // This keeps UX resilient while preserving backend as the primary filter source.
+  if (normalizedQ && resolved.length === 0) {
+    try {
+      const fallbackCatalogResponse = await authorizedFetch(`${API_URL}/exercises`)
+      const fallbackCatalogPayload = await parsePayload<Array<Record<string, unknown>>>(fallbackCatalogResponse)
+
+      if (!fallbackCatalogResponse.ok || !fallbackCatalogPayload.data) {
+        return resolved
+      }
+
+      const fuzzyMatches = fallbackCatalogPayload.data
+        .map(mapRawExerciseToOption)
+        .filter((option) =>
+          normalizedMuscleFilter ? option.primaryMuscleGroup === normalizedMuscleFilter : true,
+        )
+        .map((option) => ({
+          option,
+          score: fuzzyScoreExercise(option.name, normalizedQ),
+        }))
+        .filter((item) => item.score > 0)
+        .sort((a, b) => b.score - a.score || a.option.name.localeCompare(b.option.name))
+        .slice(0, Math.max(1, input.limit ?? 200))
+        .map((item) => item.option)
+
+      if (fuzzyMatches.length > 0) {
+        return fuzzyMatches
+      }
+    } catch {
+      return resolved
+    }
+  }
+
+  return resolved
 }
 
 export async function addExerciseToPlan(

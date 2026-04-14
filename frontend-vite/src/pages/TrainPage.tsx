@@ -7,6 +7,8 @@ import {
   openExerciseExplorer,
   type ExerciseExplorerSelection,
 } from '../lib/exercise-explorer'
+import { resolveBodyweightFlag } from '../lib/exercise-meta'
+import { formatClock, formatRestOptionLabel, REST_OPTIONS_SEC } from '../lib/workout-timing'
 import type { WorkoutPlan } from '../types/workout'
 import {
   addExerciseToPlan,
@@ -49,14 +51,6 @@ function createSet(reps = '', weightKg = '', rir = ''): ExerciseSetInput {
   return { reps, weightKg, rir }
 }
 
-function formatClock(totalSeconds: number): string {
-  const safe = Math.max(0, totalSeconds)
-  const h = String(Math.floor(safe / 3600)).padStart(2, '0')
-  const m = String(Math.floor((safe % 3600) / 60)).padStart(2, '0')
-  const s = String(safe % 60).padStart(2, '0')
-  return `${h}:${m}:${s}`
-}
-
 function formatDateTime(value: Date | null): string {
   if (!value) {
     return '-'
@@ -66,21 +60,6 @@ function formatDateTime(value: Date | null): string {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(value)
-}
-
-const REST_OPTIONS_SEC = [
-  ...Array.from({ length: 6 }, (_, index) => (index + 1) * 10),
-  ...Array.from({ length: 8 }, (_, index) => 90 + index * 30),
-]
-
-function formatRestOptionLabel(totalSeconds: number): string {
-  if (totalSeconds < 60) {
-    return `${totalSeconds}s`
-  }
-
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-  return seconds === 0 ? `${minutes}min` : `${minutes}min ${seconds}s`
 }
 
 function parsePositiveInt(value: string, fallback = 0): number {
@@ -99,30 +78,6 @@ function toFiniteNumber(value: unknown): number | null {
 
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : null
-}
-
-const BODYWEIGHT_HINTS = [
-  /flex[aã]o/i,
-  /barra\s*f(i|í)xa/i,
-  /pull\s*up/i,
-  /chin\s*up/i,
-  /mergulho/i,
-  /\bdip\b/i,
-  /prancha/i,
-  /plank/i,
-  /burpee/i,
-]
-
-function isLikelyBodyweight(name: string): boolean {
-  return BODYWEIGHT_HINTS.some((pattern) => pattern.test(name))
-}
-
-function resolveBodyweightFlag(flag: boolean | undefined, name: string): boolean {
-  if (flag === true) {
-    return true
-  }
-
-  return isLikelyBodyweight(name)
 }
 
 function mapPlanToActiveExercises(plan: WorkoutPlan): ActiveExercise[] {
