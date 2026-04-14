@@ -1083,7 +1083,7 @@ export function TrainPage() {
               <div key={`${exercise.exerciseId}-${exerciseIndex}`} className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="flex min-w-0 items-start gap-3">
-                  <div className="h-16 w-16 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface-hover)]">
+                  <div className="h-20 w-20 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] sm:h-24 sm:w-24">
                     {exercise.thumbnailUrl ? (
                       <img
                         src={exercise.thumbnailUrl}

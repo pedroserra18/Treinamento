@@ -380,6 +380,14 @@ export function WorkoutsPage({
     }
   }
 
+  const stopExploringExercises = (planId: string) => {
+    setHasExploredByPlan((current) => ({ ...current, [planId]: false }))
+    setOptionsByPlan((current) => ({
+      ...current,
+      [planId]: [],
+    }))
+  }
+
   const addToPlan = useCallback(async (plan: WorkoutPlan, option: ExerciseOption) => {
     const alreadyExists = plan.exercises.some((entry) => entry.exercise.id === option.id)
     if (alreadyExists) {
@@ -879,6 +887,17 @@ export function WorkoutsPage({
                 >
                   Explorar exercicios
                 </button>
+                {hasExploredByPlan[plan.id] ? (
+                  <button
+                    type="button"
+                    className="rounded-lg border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--muted)]"
+                    onClick={() => {
+                      stopExploringExercises(plan.id)
+                    }}
+                  >
+                    Parar exploracao
+                  </button>
+                ) : null}
               </div>
 
               <div className="mt-2 max-h-72 overflow-y-auto pr-1">
@@ -896,7 +915,7 @@ export function WorkoutsPage({
                   {(optionsByPlan[plan.id] ?? []).map((option) => (
                     <article key={option.id} className="rounded-xl border border-[var(--line)] p-3">
                       <div className="flex items-start gap-3">
-                        <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface-hover)]">
+                        <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] sm:h-20 sm:w-20">
                           {option.thumbnailUrl ? (
                             <img
                               src={option.thumbnailUrl}
@@ -1222,7 +1241,7 @@ export function WorkoutsPage({
                           {replaceOptions.map((option) => (
                             <article key={option.id} className="rounded-xl border border-[var(--line)] p-3">
                               <div className="flex items-start gap-3">
-                                <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface-hover)]">
+                                <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] sm:h-20 sm:w-20">
                                   {option.thumbnailUrl ? (
                                     <img
                                       src={option.thumbnailUrl}

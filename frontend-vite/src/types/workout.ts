@@ -71,8 +71,25 @@ export type WorkoutSessionHistory = {
   startedAt: string | null
   endedAt: string | null
   durationSec: number | null
+  caloriesBurned: number | null
   notes: string | null
   historyEntriesCount: number
+  history: Array<{
+    id: string
+    setNumber: number
+    reps: number | null
+    weightKg: number | null
+    durationSec: number | null
+    distanceMeters: number | null
+    perceivedExertion: number | null
+    notes: string | null
+    completedAt: string
+    exercise: {
+      id: string
+      name: string
+      primaryMuscleGroup: string
+    }
+  }>
 }
 
 export type WorkoutHistoryResponse = {
