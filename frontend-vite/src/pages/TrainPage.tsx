@@ -9,6 +9,7 @@ import {
 } from '../lib/exercise-explorer'
 import { isBodyweightEquipment, resolveBodyweightFlag } from '../lib/exercise-meta'
 import { formatClock, formatRestOptionLabel, REST_OPTIONS_SEC } from '../lib/workout-timing'
+import { saveWorkoutSessionImage } from '../lib/workout-session-image'
 import type { WorkoutPlan } from '../types/workout'
 import {
   addExerciseToPlan,
@@ -780,6 +781,14 @@ export function TrainPage() {
         notes: notesSegments.join('\n\n') || undefined,
         exercises: performedSets.length > 0 ? performedSets : undefined,
       })
+
+      if (summaryImageFile) {
+        try {
+          await saveWorkoutSessionImage(started.id, summaryImageFile)
+        } catch {
+          // Keep workout save successful even if browser storage is unavailable.
+        }
+      }
 
       window.alert('Treino salvo com sucesso no historico.')
       resetWorkflow()
