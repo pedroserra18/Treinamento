@@ -2,6 +2,7 @@ import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
 import { TrainPage } from './pages/TrainPage'
 import { HistoryPage } from './pages/HistoryPage'
+import { ProgressPage } from './pages/ProgressPage'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ProfilePage } from './pages/ProfilePage'
 import { RegisterPage } from './pages/RegisterPage'
@@ -88,6 +89,14 @@ function AnimatedRoutes() {
             element={
               <ProtectedRoute>
                 <HistoryPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/progress"
+            element={
+              <ProtectedRoute>
+                <ProgressPage />
               </ProtectedRoute>
             }
           />

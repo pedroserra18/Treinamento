@@ -4,6 +4,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useEffect, useState } from 'react'
 import type { WorkoutSessionHistory } from '../types/workout'
 import { listWorkoutHistory } from '../services/workoutService'
+import { getStoredWorkoutSessionImage } from '../lib/workout-session-image'
 
 function formatDuration(totalSeconds: number | null): string {
   if (!totalSeconds || totalSeconds <= 0) {
@@ -51,10 +52,12 @@ export function HistoryPage() {
   const { authorizedFetch } = useAuth()
   const [items, setItems] = useState<WorkoutSessionHistory[]>([])
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+  const [selectedSessionPhoto, setSelectedSessionPhoto] = useState<{ url: string; endedAt: string | null } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const selectedSession = items.find((session) => session.id === selectedSessionId) ?? null
+  const selectedSessionImageUrl = selectedSession ? getStoredWorkoutSessionImage(selectedSession.id) : null
 
   const groupedExerciseHistory = selectedSession
     ? (() => {
@@ -205,6 +208,30 @@ export function HistoryPage() {
             </div>
           </div>
 
+          {selectedSessionImageUrl ? (
+            <div className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Foto do fim do treino</p>
+              <button
+                type="button"
+                onClick={() =>
+                  setSelectedSessionPhoto({
+                    url: selectedSessionImageUrl,
+                    endedAt: selectedSession.endedAt,
+                  })
+                }
+                className="mx-auto mt-2 block w-full max-w-[17rem] rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] sm:max-w-[20rem]"
+                aria-label="Abrir foto do treino"
+              >
+                <img
+                  src={selectedSessionImageUrl}
+                  alt="Foto registrada ao finalizar o treino"
+                  className="w-full rounded-lg object-cover transition-transform duration-200 hover:scale-[1.01]"
+                  style={{ aspectRatio: '4 / 5', maxHeight: '22rem' }}
+                />
+              </button>
+            </div>
+          ) : null}
+
           <p className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 text-sm text-[var(--muted)]">
             <span className="font-semibold text-[var(--text)]">Observacoes:</span>{' '}
             {selectedSession.notes ?? 'Sem observacoes'}
@@ -273,6 +300,37 @@ export function HistoryPage() {
             )}
           </div>
         </motion.section>
+
+        {selectedSessionPhoto ? (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+            role="dialog"
+            aria-modal="true"
+            onClick={() => setSelectedSessionPhoto(null)}
+          >
+            <button
+              type="button"
+              onClick={() => setSelectedSessionPhoto(null)}
+              className="absolute right-4 top-4 rounded-full border border-white/25 bg-black/50 px-3 py-1 text-sm font-semibold text-white"
+            >
+              Fechar
+            </button>
+
+            <div
+              className="max-h-[90vh] w-full max-w-3xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <img
+                src={selectedSessionPhoto.url}
+                alt="Foto ampliada do treino"
+                className="max-h-[82vh] w-full rounded-2xl object-contain"
+              />
+              <p className="mt-2 text-center text-xs font-semibold text-white/85">
+                {formatDateTime(selectedSessionPhoto.endedAt)}
+              </p>
+            </div>
+          </div>
+        ) : null}
       </section>
     )
   }

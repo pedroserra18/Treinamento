@@ -1,0 +1,472 @@
+import { motion } from 'framer-motion'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useAuth } from '../hooks/useAuth'
+import { searchExercisesForPlan } from '../services/workoutService'
+import {
+  addPinnedExercise,
+  createBodyMeasurement,
+  getExerciseProgress,
+  listBodyMeasurements,
+  removePinnedExercise,
+} from '../services/progressService'
+import type {
+  BodyMeasurement,
+  CreateBodyMeasurementInput,
+  ExerciseProgressItem,
+} from '../types/progress'
+import type { ExerciseOption } from '../types/workout'
+
+function formatDateTime(value: string): string {
+  return new Date(value).toLocaleString('pt-BR')
+}
+
+function toNumberOrUndefined(value: string): number | undefined {
+  const normalized = value.trim().replace(',', '.')
+  if (!normalized) {
+    return undefined
+  }
+
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+export function ProgressPage() {
+  const { authorizedFetch } = useAuth()
+
+  const [tab, setTab] = useState<'exercise' | 'body'>('exercise')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const [exerciseProgress, setExerciseProgress] = useState<ExerciseProgressItem[]>([])
+  const [maxPinned, setMaxPinned] = useState(5)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<ExerciseOption[]>([])
+  const [searching, setSearching] = useState(false)
+
+  const [measurements, setMeasurements] = useState<BodyMeasurement[]>([])
+  const [selectedPhoto, setSelectedPhoto] = useState<{ url: string; date: string } | null>(null)
+  const [showMoreMeasures, setShowMoreMeasures] = useState(false)
+  const [savingMeasurement, setSavingMeasurement] = useState(false)
+
+  const [form, setForm] = useState({
+    date: new Date().toISOString().slice(0, 10),
+    photoUrl: '',
+    weight: '',
+    chest: '',
+    shoulders: '',
+    arms: '',
+    forearms: '',
+    waist: '',
+    hips: '',
+    thighs: '',
+    calves: '',
+    neck: '',
+    bmi: '',
+    bodyFatPercentage: '',
+  })
+
+  const pinnedExerciseIds = useMemo(() => new Set(exerciseProgress.map((item) => item.exercise.id)), [exerciseProgress])
+
+  const loadAll = useCallback(async () => {
+    try {
+      setLoading(true)
+      setError(null)
+
+      const [progressData, bodyData] = await Promise.all([
+        getExerciseProgress(authorizedFetch),
+        listBodyMeasurements(authorizedFetch),
+      ])
+
+      setExerciseProgress(progressData.items)
+      setMaxPinned(progressData.maxPinned)
+      setMeasurements(bodyData.items)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao carregar modulo de progresso')
+    } finally {
+      setLoading(false)
+    }
+  }, [authorizedFetch])
+
+  useEffect(() => {
+    void loadAll()
+  }, [loadAll])
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      const query = searchQuery.trim()
+      if (query.length < 2) {
+        setSearchResults([])
+        return
+      }
+
+      setSearching(true)
+      void searchExercisesForPlan(authorizedFetch, { q: query, limit: 50 })
+        .then((results) => {
+          setSearchResults(results)
+        })
+        .catch((err) => {
+          setError(err instanceof Error ? err.message : 'Erro ao buscar exercicios')
+        })
+        .finally(() => {
+          setSearching(false)
+        })
+    }, 240)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [searchQuery, authorizedFetch])
+
+  const handlePinExercise = async (exerciseId: string) => {
+    if (exerciseProgress.length >= maxPinned) {
+      window.alert(`Voce pode fixar no maximo ${maxPinned} exercicios.`)
+      return
+    }
+
+    try {
+      await addPinnedExercise(authorizedFetch, exerciseId)
+      await loadAll()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao fixar exercicio')
+    }
+  }
+
+  const handleUnpinExercise = async (exerciseId: string) => {
+    try {
+      await removePinnedExercise(authorizedFetch, exerciseId)
+      await loadAll()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao remover exercicio fixado')
+    }
+  }
+
+  const handleSaveMeasurement = async () => {
+    const weightNumber = toNumberOrUndefined(form.weight)
+    if (!form.photoUrl.trim() || weightNumber == null) {
+      return
+    }
+
+    const payload: CreateBodyMeasurementInput = {
+      date: new Date(`${form.date}T00:00:00`).toISOString(),
+      photoUrl: form.photoUrl.trim(),
+      weight: weightNumber,
+      chest: toNumberOrUndefined(form.chest),
+      shoulders: toNumberOrUndefined(form.shoulders),
+      arms: toNumberOrUndefined(form.arms),
+      forearms: toNumberOrUndefined(form.forearms),
+      waist: toNumberOrUndefined(form.waist),
+      hips: toNumberOrUndefined(form.hips),
+      thighs: toNumberOrUndefined(form.thighs),
+      calves: toNumberOrUndefined(form.calves),
+      neck: toNumberOrUndefined(form.neck),
+      bmi: toNumberOrUndefined(form.bmi),
+      bodyFatPercentage: toNumberOrUndefined(form.bodyFatPercentage),
+    }
+
+    try {
+      setSavingMeasurement(true)
+      await createBodyMeasurement(authorizedFetch, payload)
+      await loadAll()
+      setForm((current) => ({
+        ...current,
+        photoUrl: '',
+        weight: '',
+        chest: '',
+        shoulders: '',
+        arms: '',
+        forearms: '',
+        waist: '',
+        hips: '',
+        thighs: '',
+        calves: '',
+        neck: '',
+        bmi: '',
+        bodyFatPercentage: '',
+      }))
+      setShowMoreMeasures(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao salvar medida corporal')
+    } finally {
+      setSavingMeasurement(false)
+    }
+  }
+
+  return (
+    <section className="space-y-5">
+      <motion.header
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.32, ease: 'easeOut' }}
+        className="card-glow-orange rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
+      >
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand)]">Progresso</p>
+        <h1 className="mt-1 text-2xl font-black text-[var(--text)]">Seu acompanhamento</h1>
+        <p className="mt-2 text-sm text-[var(--muted)]">
+          Fixe exercicios principais, acompanhe carga/repeticoes/volume e registre sua evolucao corporal com fotos e medidas.
+        </p>
+      </motion.header>
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setTab('exercise')}
+          className={`rounded-xl border px-4 py-2 text-sm font-semibold ${
+            tab === 'exercise'
+              ? 'border-[var(--brand)] bg-[var(--brand)] text-white'
+              : 'border-[var(--line)] text-[var(--text)]'
+          }`}
+        >
+          Progresso de Exercicios
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab('body')}
+          className={`rounded-xl border px-4 py-2 text-sm font-semibold ${
+            tab === 'body'
+              ? 'border-[var(--brand)] bg-[var(--brand)] text-white'
+              : 'border-[var(--line)] text-[var(--text)]'
+          }`}
+        >
+          Progresso Corporal
+        </button>
+      </div>
+
+      {loading ? <p className="text-sm text-[var(--muted)]">Carregando progresso...</p> : null}
+      {error ? <p className="text-sm text-red-400">{error}</p> : null}
+
+      {tab === 'exercise' ? (
+        <div className="space-y-4">
+          <article className="card-glow-mixed rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-lg font-extrabold text-[var(--text)]">Exercicios fixados</h2>
+              <span className="rounded-full border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--muted)]">
+                {exerciseProgress.length}/{maxPinned}
+              </span>
+            </div>
+            <input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Buscar exercicio para fixar"
+              className="mt-3 w-full rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
+            />
+            {searching ? <p className="mt-2 text-xs text-[var(--muted)]">Buscando...</p> : null}
+
+            <div className="mt-2 max-h-56 space-y-2 overflow-auto pr-1">
+              {searchResults.map((option) => (
+                <div key={option.id} className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-semibold text-[var(--text)]">{option.name}</p>
+                      <p className="text-xs text-[var(--muted)]">{option.primaryMuscleGroup} · {option.difficulty}</p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={pinnedExerciseIds.has(option.id)}
+                      onClick={() => void handlePinExercise(option.id)}
+                      className="rounded-lg border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--text)] disabled:opacity-50"
+                    >
+                      {pinnedExerciseIds.has(option.id) ? 'Fixado' : 'Fixar'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </article>
+
+          <div className="space-y-3">
+            {exerciseProgress.length === 0 ? (
+              <p className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-3 text-sm text-[var(--muted)]">
+                Nenhum exercicio fixado ainda.
+              </p>
+            ) : null}
+
+            {exerciseProgress.map((item) => (
+              <article key={item.exercise.id} className="card-glow-orange rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-base font-extrabold text-[var(--text)]">{item.exercise.name}</h3>
+                    <p className="text-xs text-[var(--muted)]">
+                      {item.exercise.primaryMuscleGroup} · {item.exercise.difficulty}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleUnpinExercise(item.exercise.id)}
+                    className="rounded-lg border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--text)]"
+                  >
+                    Remover
+                  </button>
+                </div>
+
+                <div className="mt-3 space-y-2">
+                  {item.sessions.length === 0 ? (
+                    <p className="text-xs text-[var(--muted)]">Ainda sem historico para este exercicio.</p>
+                  ) : (
+                    item.sessions.map((session) => (
+                      <div key={session.workoutSessionId} className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3">
+                        <p className="text-xs font-semibold text-[var(--text)]">{formatDateTime(session.completedAt)}</p>
+                        <div className="mt-1 grid gap-1 text-xs text-[var(--muted)] sm:grid-cols-3">
+                          <p>Carga maxima: {session.maxLoadKg != null ? `${session.maxLoadKg} kg` : '-'}</p>
+                          <p>Max reps: {session.maxReps != null ? session.maxReps : '-'}</p>
+                          <p>Volume total: {session.totalVolumeKg > 0 ? `${session.totalVolumeKg.toFixed(1)} kg` : '-'}</p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <article className="card-glow-mixed rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+            <h2 className="text-lg font-extrabold text-[var(--text)]">Novo registro corporal</h2>
+
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+                Data
+                <input
+                  type="date"
+                  value={form.date}
+                  onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                />
+              </label>
+              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+                Peso (kg) *
+                <input
+                  value={form.weight}
+                  onChange={(event) => setForm((current) => ({ ...current, weight: event.target.value }))}
+                  className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                />
+              </label>
+              <label className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)] sm:col-span-1">
+                URL da foto *
+                <input
+                  value={form.photoUrl}
+                  onChange={(event) => setForm((current) => ({ ...current, photoUrl: event.target.value }))}
+                  placeholder="https://..."
+                  className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                />
+              </label>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowMoreMeasures((value) => !value)}
+              className="mt-3 rounded-lg border border-[var(--line)] px-3 py-1.5 text-xs font-semibold text-[var(--text)]"
+            >
+              {showMoreMeasures ? 'Ocultar medidas opcionais' : 'Adicionar mais medidas'}
+            </button>
+
+            {showMoreMeasures ? (
+              <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                {[
+                  ['chest', 'Peitoral'],
+                  ['shoulders', 'Ombros'],
+                  ['arms', 'Bracos'],
+                  ['forearms', 'Antebracos'],
+                  ['waist', 'Cintura'],
+                  ['hips', 'Quadril'],
+                  ['thighs', 'Coxas'],
+                  ['calves', 'Panturrilhas'],
+                  ['neck', 'Pescoco'],
+                  ['bmi', 'IMC'],
+                  ['bodyFatPercentage', 'BF %'],
+                ].map(([field, label]) => (
+                  <label key={field} className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+                    {label}
+                    <input
+                      value={form[field as keyof typeof form]}
+                      onChange={(event) =>
+                        setForm((current) => ({ ...current, [field]: event.target.value }))
+                      }
+                      className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                    />
+                  </label>
+                ))}
+              </div>
+            ) : null}
+
+            <button
+              type="button"
+              disabled={savingMeasurement || !form.photoUrl.trim() || !form.weight.trim()}
+              onClick={() => void handleSaveMeasurement()}
+              className="mt-4 rounded-xl border border-[var(--brand)] bg-[var(--brand)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {savingMeasurement ? 'Salvando...' : 'Salvar registro'}
+            </button>
+          </article>
+
+          <article className="card-glow-orange rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+            <h3 className="text-base font-extrabold text-[var(--text)]">Historico corporal</h3>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              {measurements.length === 0 ? (
+                <p className="text-sm text-[var(--muted)]">Nenhum registro corporal ainda.</p>
+              ) : (
+                measurements.map((measurement) => (
+                  <article key={measurement.id} className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPhoto({ url: measurement.photoUrl, date: measurement.date })}
+                      className="mx-auto block w-full max-w-[18rem] rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] sm:max-w-[20rem]"
+                      aria-label="Abrir foto corporal"
+                    >
+                      <img
+                        src={measurement.photoUrl}
+                        alt={`Foto corporal em ${formatDateTime(measurement.date)}`}
+                        className="w-full rounded-lg object-cover transition-transform duration-200 hover:scale-[1.01]"
+                        style={{ aspectRatio: '4 / 5', maxHeight: '24rem' }}
+                      />
+                    </button>
+                    <p className="mt-2 text-xs font-semibold text-[var(--text)]">{formatDateTime(measurement.date)}</p>
+                    <div className="mt-1 grid gap-1 text-xs text-[var(--muted)] sm:grid-cols-2">
+                      <p>Peso: {measurement.weight} kg</p>
+                      <p>IMC: {measurement.bmi ?? '-'}</p>
+                      <p>BF: {measurement.bodyFatPercentage != null ? `${measurement.bodyFatPercentage}%` : '-'}</p>
+                      <p>Cintura: {measurement.waist != null ? `${measurement.waist} cm` : '-'}</p>
+                      <p>Peitoral: {measurement.chest != null ? `${measurement.chest} cm` : '-'}</p>
+                      <p>Quadril: {measurement.hips != null ? `${measurement.hips} cm` : '-'}</p>
+                    </div>
+                  </article>
+                ))
+              )}
+            </div>
+          </article>
+        </div>
+      )}
+
+      {selectedPhoto ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setSelectedPhoto(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setSelectedPhoto(null)}
+            className="absolute right-4 top-4 rounded-full border border-white/25 bg-black/50 px-3 py-1 text-sm font-semibold text-white"
+          >
+            Fechar
+          </button>
+
+          <div
+            className="max-h-[90vh] w-full max-w-3xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <img
+              src={selectedPhoto.url}
+              alt={`Foto corporal ampliada em ${formatDateTime(selectedPhoto.date)}`}
+              className="max-h-[82vh] w-full rounded-2xl object-contain"
+            />
+            <p className="mt-2 text-center text-xs font-semibold text-white/85">
+              {formatDateTime(selectedPhoto.date)}
+            </p>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  )
+}
