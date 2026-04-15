@@ -1,6 +1,7 @@
 import { prisma } from "../../config/prisma";
 import { AppError } from "../../shared/errors/app-error";
 import {
+  BodyMeasurementParams,
   CreateBodyMeasurementBody,
   ExerciseParams,
   ListBodyMeasurementsQuery,
@@ -21,6 +22,7 @@ type ProgressDelegate = {
     create: (args: unknown) => Promise<Record<string, unknown>>;
     count: (args: unknown) => Promise<number>;
     findMany: (args: unknown) => Promise<Array<Record<string, unknown>>>;
+    deleteMany: (args: unknown) => Promise<{ count: number }>;
   };
 };
 
@@ -300,6 +302,24 @@ export async function createBodyMeasurement(userId: string, payload: CreateBodyM
       bodyFatPercentage: payload.bodyFatPercentage
     }
   });
+}
+
+export async function removeBodyMeasurement(userId: string, params: BodyMeasurementParams) {
+  const deleted = await progressPrisma.bodyMeasurement.deleteMany({
+    where: {
+      id: params.measurementId,
+      userId
+    }
+  });
+
+  if (deleted.count === 0) {
+    throw new AppError("Body measurement not found", {
+      statusCode: 404,
+      code: "BODY_MEASUREMENT_NOT_FOUND"
+    });
+  }
+
+  return { success: true };
 }
 
 export async function listBodyMeasurements(userId: string, query: ListBodyMeasurementsQuery) {

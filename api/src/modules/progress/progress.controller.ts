@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import {
+  removeBodyMeasurement,
   addPinnedExercise,
   createBodyMeasurement,
   listBodyMeasurements,
@@ -8,6 +9,7 @@ import {
   removePinnedExercise
 } from "./progress.service";
 import {
+  BodyMeasurementParams,
   CreateBodyMeasurementBody,
   ExerciseParams,
   ListBodyMeasurementsQuery,
@@ -81,6 +83,19 @@ export async function listBodyMeasurementsController(req: Request, res: Response
   const userId = req.context.userId as string;
   const query = req.query as unknown as ListBodyMeasurementsQuery;
   const data = await listBodyMeasurements(userId, query);
+
+  res.status(200).json({
+    data,
+    meta: {
+      requestId: req.context.requestId
+    }
+  });
+}
+
+export async function removeBodyMeasurementController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as BodyMeasurementParams;
+  const data = await removeBodyMeasurement(userId, params);
 
   res.status(200).json({
     data,

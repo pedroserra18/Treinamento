@@ -951,7 +951,8 @@ export function TrainPage() {
             <img
               src={summaryImagePreview}
               alt="Preview do treino"
-              className="max-h-52 w-full rounded-xl object-cover border border-[var(--line)]"
+              className="mx-auto w-full max-w-[20rem] rounded-xl border border-[var(--line)] object-cover sm:max-w-[24rem]"
+              style={{ aspectRatio: '4 / 5', maxHeight: '20rem' }}
             />
           ) : null}
 
