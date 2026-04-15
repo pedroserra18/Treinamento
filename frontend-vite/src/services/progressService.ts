@@ -110,3 +110,18 @@ export async function createBodyMeasurement(
 
   return payload.data
 }
+
+export async function deleteBodyMeasurement(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  measurementId: string,
+): Promise<void> {
+  const response = await authorizedFetch(`${API_URL}/progress/body-measurements/${measurementId}`, {
+    method: 'DELETE',
+  })
+
+  const payload = await parsePayload<{ success: boolean }>(response)
+
+  if (!response.ok) {
+    throw new Error(payload.errorMessage ?? 'Falha ao excluir registro corporal')
+  }
+}

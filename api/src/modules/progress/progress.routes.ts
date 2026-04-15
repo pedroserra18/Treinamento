@@ -4,6 +4,7 @@ import { asyncHandler } from "../../shared/utils/async-handler";
 import { validateRequest } from "../../middlewares/validation.middleware";
 import { requireCompletedOnboarding } from "../../middlewares/onboarding.middleware";
 import {
+  bodyMeasurementParamsSchema,
   createBodyMeasurementBodySchema,
   exerciseParamsSchema,
   listBodyMeasurementsQuerySchema,
@@ -15,6 +16,7 @@ import {
   listBodyMeasurementsController,
   listExerciseProgressController,
   listPinnedExercisesController,
+  removeBodyMeasurementController,
   removePinnedExerciseController
 } from "./progress.controller";
 
@@ -64,6 +66,14 @@ router.post(
   requireCompletedOnboarding,
   validateRequest({ body: createBodyMeasurementBodySchema }),
   asyncHandler(async (req, res) => createBodyMeasurementController(req, res))
+);
+
+router.delete(
+  "/progress/body-measurements/:measurementId",
+  requireAuth,
+  requireCompletedOnboarding,
+  validateRequest({ params: bodyMeasurementParamsSchema }),
+  asyncHandler(async (req, res) => removeBodyMeasurementController(req, res))
 );
 
 export default router;

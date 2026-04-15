@@ -1,10 +1,12 @@
 import { motion } from 'framer-motion'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
+import { optimizeImageFileToDataUrl } from '../lib/image-processing'
 import { searchExercisesForPlan } from '../services/workoutService'
 import {
   addPinnedExercise,
   createBodyMeasurement,
+  deleteBodyMeasurement,
   getExerciseProgress,
   listBodyMeasurements,
   removePinnedExercise,
@@ -39,18 +41,22 @@ export function ProgressPage() {
 
   const [exerciseProgress, setExerciseProgress] = useState<ExerciseProgressItem[]>([])
   const [maxPinned, setMaxPinned] = useState(5)
+  const [openedPinnedExerciseId, setOpenedPinnedExerciseId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<ExerciseOption[]>([])
   const [searching, setSearching] = useState(false)
 
   const [measurements, setMeasurements] = useState<BodyMeasurement[]>([])
   const [selectedPhoto, setSelectedPhoto] = useState<{ url: string; date: string } | null>(null)
+  const [selectedMeasurement, setSelectedMeasurement] = useState<BodyMeasurement | null>(null)
+  const [measurementPhotoFile, setMeasurementPhotoFile] = useState<File | null>(null)
+  const [measurementPhotoPreview, setMeasurementPhotoPreview] = useState<string | null>(null)
   const [showMoreMeasures, setShowMoreMeasures] = useState(false)
   const [savingMeasurement, setSavingMeasurement] = useState(false)
+  const [deletingMeasurementId, setDeletingMeasurementId] = useState<string | null>(null)
 
   const [form, setForm] = useState({
     date: new Date().toISOString().slice(0, 10),
-    photoUrl: '',
     weight: '',
     chest: '',
     shoulders: '',
@@ -80,6 +86,11 @@ export function ProgressPage() {
       setExerciseProgress(progressData.items)
       setMaxPinned(progressData.maxPinned)
       setMeasurements(bodyData.items)
+
+      // Keep progress panel stable when reloading and clear invalid selection.
+      setOpenedPinnedExerciseId((current) =>
+        current && progressData.items.some((item) => item.exercise.id === current) ? current : null,
+      )
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao carregar modulo de progresso')
     } finally {
@@ -117,6 +128,14 @@ export function ProgressPage() {
     }
   }, [searchQuery, authorizedFetch])
 
+  useEffect(() => {
+    return () => {
+      if (measurementPhotoPreview) {
+        URL.revokeObjectURL(measurementPhotoPreview)
+      }
+    }
+  }, [measurementPhotoPreview])
+
   const handlePinExercise = async (exerciseId: string) => {
     if (exerciseProgress.length >= maxPinned) {
       window.alert(`Voce pode fixar no maximo ${maxPinned} exercicios.`)
@@ -140,36 +159,54 @@ export function ProgressPage() {
     }
   }
 
-  const handleSaveMeasurement = async () => {
-    const weightNumber = toNumberOrUndefined(form.weight)
-    if (!form.photoUrl.trim() || weightNumber == null) {
-      return
+  const handleMeasurementPhotoFile = (file: File | null) => {
+    setMeasurementPhotoFile(file)
+
+    if (measurementPhotoPreview) {
+      URL.revokeObjectURL(measurementPhotoPreview)
+      setMeasurementPhotoPreview(null)
     }
 
-    const payload: CreateBodyMeasurementInput = {
-      date: new Date(`${form.date}T00:00:00`).toISOString(),
-      photoUrl: form.photoUrl.trim(),
-      weight: weightNumber,
-      chest: toNumberOrUndefined(form.chest),
-      shoulders: toNumberOrUndefined(form.shoulders),
-      arms: toNumberOrUndefined(form.arms),
-      forearms: toNumberOrUndefined(form.forearms),
-      waist: toNumberOrUndefined(form.waist),
-      hips: toNumberOrUndefined(form.hips),
-      thighs: toNumberOrUndefined(form.thighs),
-      calves: toNumberOrUndefined(form.calves),
-      neck: toNumberOrUndefined(form.neck),
-      bmi: toNumberOrUndefined(form.bmi),
-      bodyFatPercentage: toNumberOrUndefined(form.bodyFatPercentage),
+    if (file) {
+      setMeasurementPhotoPreview(URL.createObjectURL(file))
+    }
+  }
+
+  const handleSaveMeasurement = async () => {
+    const weightNumber = toNumberOrUndefined(form.weight)
+    if (!measurementPhotoFile || weightNumber == null) {
+      return
     }
 
     try {
       setSavingMeasurement(true)
+      const photoDataUrl = await optimizeImageFileToDataUrl(measurementPhotoFile, {
+        maxEdge: 1200,
+        quality: 0.84,
+        maxOutputBytes: 1_400_000,
+      })
+
+      const payload: CreateBodyMeasurementInput = {
+        date: new Date(`${form.date}T00:00:00`).toISOString(),
+        photoUrl: photoDataUrl,
+        weight: weightNumber,
+        chest: toNumberOrUndefined(form.chest),
+        shoulders: toNumberOrUndefined(form.shoulders),
+        arms: toNumberOrUndefined(form.arms),
+        forearms: toNumberOrUndefined(form.forearms),
+        waist: toNumberOrUndefined(form.waist),
+        hips: toNumberOrUndefined(form.hips),
+        thighs: toNumberOrUndefined(form.thighs),
+        calves: toNumberOrUndefined(form.calves),
+        neck: toNumberOrUndefined(form.neck),
+        bmi: toNumberOrUndefined(form.bmi),
+        bodyFatPercentage: toNumberOrUndefined(form.bodyFatPercentage),
+      }
+
       await createBodyMeasurement(authorizedFetch, payload)
       await loadAll()
       setForm((current) => ({
         ...current,
-        photoUrl: '',
         weight: '',
         chest: '',
         shoulders: '',
@@ -183,11 +220,34 @@ export function ProgressPage() {
         bmi: '',
         bodyFatPercentage: '',
       }))
+      setMeasurementPhotoFile(null)
+      if (measurementPhotoPreview) {
+        URL.revokeObjectURL(measurementPhotoPreview)
+      }
+      setMeasurementPhotoPreview(null)
       setShowMoreMeasures(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao salvar medida corporal')
     } finally {
       setSavingMeasurement(false)
+    }
+  }
+
+  const handleDeleteMeasurement = async (measurementId: string) => {
+    const confirmed = window.confirm('Deseja excluir este registro corporal?')
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      setDeletingMeasurementId(measurementId)
+      await deleteBodyMeasurement(authorizedFetch, measurementId)
+      setSelectedMeasurement((current) => (current?.id === measurementId ? null : current))
+      await loadAll()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao excluir registro corporal')
+    } finally {
+      setDeletingMeasurementId(null)
     }
   }
 
@@ -289,31 +349,46 @@ export function ProgressPage() {
                       {item.exercise.primaryMuscleGroup} · {item.exercise.difficulty}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => void handleUnpinExercise(item.exercise.id)}
-                    className="rounded-lg border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--text)]"
-                  >
-                    Remover
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setOpenedPinnedExerciseId((current) =>
+                          current === item.exercise.id ? null : item.exercise.id,
+                        )
+                      }
+                      className="rounded-lg border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--text)]"
+                    >
+                      {openedPinnedExerciseId === item.exercise.id ? 'Ocultar progresso' : 'Ver progresso'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleUnpinExercise(item.exercise.id)}
+                      className="rounded-lg border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--text)]"
+                    >
+                      Remover
+                    </button>
+                  </div>
                 </div>
 
-                <div className="mt-3 space-y-2">
-                  {item.sessions.length === 0 ? (
-                    <p className="text-xs text-[var(--muted)]">Ainda sem historico para este exercicio.</p>
-                  ) : (
-                    item.sessions.map((session) => (
-                      <div key={session.workoutSessionId} className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3">
-                        <p className="text-xs font-semibold text-[var(--text)]">{formatDateTime(session.completedAt)}</p>
-                        <div className="mt-1 grid gap-1 text-xs text-[var(--muted)] sm:grid-cols-3">
-                          <p>Carga maxima: {session.maxLoadKg != null ? `${session.maxLoadKg} kg` : '-'}</p>
-                          <p>Max reps: {session.maxReps != null ? session.maxReps : '-'}</p>
-                          <p>Volume total: {session.totalVolumeKg > 0 ? `${session.totalVolumeKg.toFixed(1)} kg` : '-'}</p>
+                {openedPinnedExerciseId === item.exercise.id ? (
+                  <div className="mt-3 space-y-2">
+                    {item.sessions.length === 0 ? (
+                      <p className="text-xs text-[var(--muted)]">Ainda sem historico para este exercicio.</p>
+                    ) : (
+                      item.sessions.map((session) => (
+                        <div key={session.workoutSessionId} className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3">
+                          <p className="text-xs font-semibold text-[var(--text)]">{formatDateTime(session.completedAt)}</p>
+                          <div className="mt-1 grid gap-1 text-xs text-[var(--muted)] sm:grid-cols-3">
+                            <p>Carga maxima: {session.maxLoadKg != null ? `${session.maxLoadKg} kg` : '-'}</p>
+                            <p>Max reps: {session.maxReps != null ? session.maxReps : '-'}</p>
+                            <p>Volume total: {session.totalVolumeKg > 0 ? `${session.totalVolumeKg.toFixed(1)} kg` : '-'}</p>
+                          </div>
                         </div>
-                      </div>
-                    ))
-                  )}
-                </div>
+                      ))
+                    )}
+                  </div>
+                ) : null}
               </article>
             ))}
           </div>
@@ -342,15 +417,32 @@ export function ProgressPage() {
                 />
               </label>
               <label className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)] sm:col-span-1">
-                URL da foto *
+                Foto *
                 <input
-                  value={form.photoUrl}
-                  onChange={(event) => setForm((current) => ({ ...current, photoUrl: event.target.value }))}
-                  placeholder="https://..."
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={(event) => handleMeasurementPhotoFile(event.target.files?.[0] ?? null)}
                   className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
                 />
               </label>
             </div>
+
+            {measurementPhotoPreview ? (
+              <button
+                type="button"
+                onClick={() => setSelectedPhoto({ url: measurementPhotoPreview, date: `${form.date}T00:00:00.000Z` })}
+                className="mx-auto mt-3 block w-full max-w-[17rem] rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] sm:max-w-[20rem]"
+                aria-label="Abrir preview da foto"
+              >
+                <img
+                  src={measurementPhotoPreview}
+                  alt="Preview da foto corporal"
+                  className="w-full rounded-lg border border-[var(--line)] object-cover"
+                  style={{ aspectRatio: '4 / 5', maxHeight: '22rem' }}
+                />
+              </button>
+            ) : null}
 
             <button
               type="button"
@@ -391,7 +483,7 @@ export function ProgressPage() {
 
             <button
               type="button"
-              disabled={savingMeasurement || !form.photoUrl.trim() || !form.weight.trim()}
+              disabled={savingMeasurement || !measurementPhotoFile || !form.weight.trim()}
               onClick={() => void handleSaveMeasurement()}
               className="mt-4 rounded-xl border border-[var(--brand)] bg-[var(--brand)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -429,6 +521,24 @@ export function ProgressPage() {
                       <p>Peitoral: {measurement.chest != null ? `${measurement.chest} cm` : '-'}</p>
                       <p>Quadril: {measurement.hips != null ? `${measurement.hips} cm` : '-'}</p>
                     </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedMeasurement(measurement)}
+                        className="rounded-lg border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--text)]"
+                      >
+                        Ver detalhes
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteMeasurement(measurement.id)}
+                        disabled={deletingMeasurementId === measurement.id}
+                        className="rounded-lg border border-red-400/70 px-2 py-1 text-xs font-semibold text-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {deletingMeasurementId === measurement.id ? 'Excluindo...' : 'Excluir registro'}
+                      </button>
+                    </div>
                   </article>
                 ))
               )}
@@ -464,6 +574,61 @@ export function ProgressPage() {
             <p className="mt-2 text-center text-xs font-semibold text-white/85">
               {formatDateTime(selectedPhoto.date)}
             </p>
+          </div>
+        </div>
+      ) : null}
+
+      {selectedMeasurement ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setSelectedMeasurement(null)}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-base font-extrabold text-[var(--text)]">Detalhes completos do registro</h3>
+              <button
+                type="button"
+                onClick={() => setSelectedMeasurement(null)}
+                className="rounded-lg border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--text)]"
+              >
+                Fechar
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setSelectedPhoto({ url: selectedMeasurement.photoUrl, date: selectedMeasurement.date })}
+              className="mx-auto mt-3 block w-full max-w-[17rem] rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] sm:max-w-[20rem]"
+              aria-label="Abrir foto do registro"
+            >
+              <img
+                src={selectedMeasurement.photoUrl}
+                alt={`Foto corporal em ${formatDateTime(selectedMeasurement.date)}`}
+                className="w-full rounded-lg object-cover"
+                style={{ aspectRatio: '4 / 5', maxHeight: '22rem' }}
+              />
+            </button>
+
+            <div className="mt-4 grid gap-2 text-sm text-[var(--muted)] sm:grid-cols-2">
+              <p><span className="font-semibold text-[var(--text)]">Data:</span> {formatDateTime(selectedMeasurement.date)}</p>
+              <p><span className="font-semibold text-[var(--text)]">Peso:</span> {selectedMeasurement.weight} kg</p>
+              <p><span className="font-semibold text-[var(--text)]">Peitoral:</span> {selectedMeasurement.chest != null ? `${selectedMeasurement.chest} cm` : '-'}</p>
+              <p><span className="font-semibold text-[var(--text)]">Ombros:</span> {selectedMeasurement.shoulders != null ? `${selectedMeasurement.shoulders} cm` : '-'}</p>
+              <p><span className="font-semibold text-[var(--text)]">Bracos:</span> {selectedMeasurement.arms != null ? `${selectedMeasurement.arms} cm` : '-'}</p>
+              <p><span className="font-semibold text-[var(--text)]">Antebracos:</span> {selectedMeasurement.forearms != null ? `${selectedMeasurement.forearms} cm` : '-'}</p>
+              <p><span className="font-semibold text-[var(--text)]">Cintura:</span> {selectedMeasurement.waist != null ? `${selectedMeasurement.waist} cm` : '-'}</p>
+              <p><span className="font-semibold text-[var(--text)]">Quadril:</span> {selectedMeasurement.hips != null ? `${selectedMeasurement.hips} cm` : '-'}</p>
+              <p><span className="font-semibold text-[var(--text)]">Coxas:</span> {selectedMeasurement.thighs != null ? `${selectedMeasurement.thighs} cm` : '-'}</p>
+              <p><span className="font-semibold text-[var(--text)]">Panturrilhas:</span> {selectedMeasurement.calves != null ? `${selectedMeasurement.calves} cm` : '-'}</p>
+              <p><span className="font-semibold text-[var(--text)]">Pescoco:</span> {selectedMeasurement.neck != null ? `${selectedMeasurement.neck} cm` : '-'}</p>
+              <p><span className="font-semibold text-[var(--text)]">IMC:</span> {selectedMeasurement.bmi ?? '-'}</p>
+              <p><span className="font-semibold text-[var(--text)]">BF:</span> {selectedMeasurement.bodyFatPercentage != null ? `${selectedMeasurement.bodyFatPercentage}%` : '-'}</p>
+            </div>
           </div>
         </div>
       ) : null}
