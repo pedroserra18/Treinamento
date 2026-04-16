@@ -4,6 +4,8 @@ import { useAuth } from '../hooks/useAuth'
 import { useEffect, useMemo, useState } from 'react'
 import { BrandLogo } from '../components/common/BrandLogo'
 
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1'
+
 type WorkoutRecommendation = {
   division: string
   daysPerWeek: number
@@ -79,7 +81,7 @@ export function HomePage() {
       setLoading(true)
       setError(null)
 
-      await authorizedFetch('http://localhost:4000/api/v1/recommendations/workout')
+      await authorizedFetch(`${API_URL}/recommendations/workout`)
         .then(async (response) => {
         const payload = (await response.json().catch(() => null)) as
           | {
