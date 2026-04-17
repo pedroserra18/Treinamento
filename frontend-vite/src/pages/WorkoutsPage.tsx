@@ -6,6 +6,8 @@ import {
 } from '../lib/exercise-explorer'
 import { MUSCLE_OPTIONS, resolveBodyweightFlag } from '../lib/exercise-meta'
 import type { ExerciseOption, WorkoutPlan } from '../types/workout'
+import { SetTypeSelector } from '../components/common/SetTypeSelector'
+import { type SetType, type DropEntry } from '../components/common/setTypeOptions'
 import {
   addExerciseToPlan,
   createWorkoutPlan,
@@ -25,6 +27,10 @@ type SeriesDraft = {
   loadKg: string
   rpe: string
   rir: string
+  setType: SetType
+  dropSets: DropEntry[]
+  clusterReps: string
+  clusterCount: string
 }
 
 type PerformanceDraft = {
@@ -39,6 +45,10 @@ function createSeriesDraft(initial?: Partial<SeriesDraft>): SeriesDraft {
     loadKg: initial?.loadKg ?? '',
     rpe: initial?.rpe ?? '',
     rir: initial?.rir ?? '',
+    setType: initial?.setType ?? 'normal',
+    dropSets: initial?.dropSets ?? [{ weightKg: '', reps: '' }],
+    clusterReps: initial?.clusterReps ?? '',
+    clusterCount: initial?.clusterCount ?? '',
   }
 }
 
@@ -62,7 +72,16 @@ function parsePerformanceFromNotes(notes: string | null): Partial<PerformanceDra
     const parsed = JSON.parse(raw) as {
       reps?: number
       sets?: number
-      series?: Array<{ reps?: number; loadKg?: number; rpe?: number; rir?: number }>
+      series?: Array<{
+        reps?: number
+        loadKg?: number
+        rpe?: number
+        rir?: number
+        setType?: SetType
+        dropSets?: Array<{ weightKg?: number; reps?: number }>
+        clusterReps?: number
+        clusterCount?: number
+      }>
     }
 
     if (Array.isArray(parsed.series) && parsed.series.length > 0) {
@@ -73,6 +92,16 @@ function parsePerformanceFromNotes(notes: string | null): Partial<PerformanceDra
             loadKg: entry.loadKg != null ? String(entry.loadKg) : '',
             rpe: entry.rpe != null ? String(entry.rpe) : '',
             rir: entry.rir != null ? String(entry.rir) : '',
+            setType: entry.setType ?? 'normal',
+            dropSets:
+              Array.isArray(entry.dropSets) && entry.dropSets.length > 0
+                ? entry.dropSets.map((d) => ({
+                    weightKg: d.weightKg != null ? String(d.weightKg) : '',
+                    reps: d.reps != null ? String(d.reps) : '',
+                  }))
+                : [{ weightKg: '', reps: '' }],
+            clusterReps: entry.clusterReps != null ? String(entry.clusterReps) : '',
+            clusterCount: entry.clusterCount != null ? String(entry.clusterCount) : '',
           }),
         ),
       }
@@ -94,20 +123,53 @@ function parsePerformanceFromNotes(notes: string | null): Partial<PerformanceDra
 function buildNotesWithPerformance(existing: string | null, draft: PerformanceDraft): string {
   const base = (existing ?? '').split(PERF_MARKER)[0].trim()
   const validSeries = draft.series
-    .map((entry) => ({
-      reps: Number(entry.reps),
-      loadKg: entry.loadKg ? Number(entry.loadKg) : undefined,
-      rpe: entry.rpe ? Number(entry.rpe) : undefined,
-      rir: entry.rir ? Number(entry.rir) : undefined,
-    }))
-    .filter((entry) => Number.isFinite(entry.reps) && entry.reps > 0)
+    .map((entry) => {
+      const setType = entry.setType ?? 'normal'
+
+      if (setType === 'drop') {
+        const validDrops = entry.dropSets
+          .map((d) => ({
+            weightKg: d.weightKg ? Number(d.weightKg) : undefined,
+            reps: Number(d.reps),
+          }))
+          .filter((d) => Number.isFinite(d.reps) && d.reps > 0)
+        if (validDrops.length === 0) return null
+        // Use first drop reps as the canonical reps for plan metadata
+        return { reps: validDrops[0]!.reps, setType, dropSets: validDrops }
+      }
+
+      if (setType === 'cluster') {
+        const cr = Number(entry.clusterReps)
+        const cc = Number(entry.clusterCount)
+        if (!Number.isFinite(cr) || cr <= 0 || !Number.isFinite(cc) || cc <= 0) return null
+        return {
+          reps: Math.round(cr * cc),
+          loadKg: entry.loadKg ? Number(entry.loadKg) : undefined,
+          rir: entry.rir ? Number(entry.rir) : undefined,
+          setType,
+          clusterReps: cr,
+          clusterCount: cc,
+        }
+      }
+
+      const reps = Number(entry.reps)
+      if (!Number.isFinite(reps) || reps <= 0) return null
+      return {
+        reps,
+        loadKg: entry.loadKg ? Number(entry.loadKg) : undefined,
+        rpe: entry.rpe ? Number(entry.rpe) : undefined,
+        rir: entry.rir ? Number(entry.rir) : undefined,
+        setType: setType === 'normal' ? undefined : setType,
+      }
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
 
   const payload = {
     sets: validSeries.length,
     reps: validSeries[0]?.reps,
-    rpe: validSeries[0]?.rpe,
-    rir: validSeries[0]?.rir,
-    loadKg: validSeries[0]?.loadKg,
+    rpe: 'rpe' in (validSeries[0] ?? {}) ? (validSeries[0] as { rpe?: number }).rpe : undefined,
+    rir: 'rir' in (validSeries[0] ?? {}) ? (validSeries[0] as { rir?: number }).rir : undefined,
+    loadKg: 'loadKg' in (validSeries[0] ?? {}) ? (validSeries[0] as { loadKg?: number }).loadKg : undefined,
     series: validSeries,
   }
 
@@ -521,6 +583,53 @@ export function WorkoutsPage({
         },
       }
     })
+  }
+
+  const addDropEntry = (planExerciseId: string, seriesIndex: number) => {
+    setDraftByExercise((current) => ({
+      ...current,
+      [planExerciseId]: {
+        series: (current[planExerciseId]?.series ?? [createSeriesDraft()]).map((s, idx) =>
+          idx === seriesIndex
+            ? { ...s, dropSets: [...s.dropSets, { weightKg: '', reps: '' }] }
+            : s,
+        ),
+      },
+    }))
+  }
+
+  const removeDropEntry = (planExerciseId: string, seriesIndex: number, dropIndex: number) => {
+    setDraftByExercise((current) => ({
+      ...current,
+      [planExerciseId]: {
+        series: (current[planExerciseId]?.series ?? [createSeriesDraft()]).map((s, idx) => {
+          if (idx !== seriesIndex) return s
+          const next = s.dropSets.filter((_, dIdx) => dIdx !== dropIndex)
+          return { ...s, dropSets: next.length > 0 ? next : [{ weightKg: '', reps: '' }] }
+        }),
+      },
+    }))
+  }
+
+  const patchDropEntry = (
+    planExerciseId: string,
+    seriesIndex: number,
+    dropIndex: number,
+    patch: Partial<DropEntry>,
+  ) => {
+    setDraftByExercise((current) => ({
+      ...current,
+      [planExerciseId]: {
+        series: (current[planExerciseId]?.series ?? [createSeriesDraft()]).map((s, idx) =>
+          idx === seriesIndex
+            ? {
+                ...s,
+                dropSets: s.dropSets.map((d, dIdx) => (dIdx === dropIndex ? { ...d, ...patch } : d)),
+              }
+            : s,
+        ),
+      },
+    }))
   }
 
   const saveExerciseMetrics = async (planId: string, planExerciseId: string, refresh = true): Promise<boolean> => {
@@ -1140,54 +1249,174 @@ export function WorkoutsPage({
                           {draft.series.map((series, seriesIndex) => (
                             <div
                               key={`${item.id}-serie-${seriesIndex}`}
-                              className={`grid gap-2 rounded-xl border border-[var(--line)] p-3 ${
-                                showLoad
-                                  ? 'sm:grid-cols-[50px_1fr_1fr_1fr_auto]'
-                                  : 'sm:grid-cols-[50px_1fr_1fr_auto]'
-                              }`}
+                              className="space-y-2 rounded-xl border border-[var(--line)] p-3"
                             >
-                              <p className="self-center text-xs font-bold text-[var(--muted)]">Serie {seriesIndex + 1}</p>
-                              {showLoad ? (
-                                <label className="text-[11px] uppercase text-[var(--muted)]">
-                                  Peso (kg)
-                                  <input
-                                    value={series.loadKg}
-                                    onChange={(event) =>
-                                      patchSeries(item.id, seriesIndex, {
-                                        loadKg: event.target.value.replace(/[^\d.]/g, ''),
-                                      })
-                                    }
-                                    className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
-                                  />
-                                </label>
-                              ) : null}
-                              <label className="text-[11px] uppercase text-[var(--muted)]">
-                                Repeticoes
-                                <input
-                                  value={series.reps}
-                                  onChange={(event) =>
-                                    patchSeries(item.id, seriesIndex, { reps: event.target.value.replace(/[^\d]/g, '') })
-                                  }
-                                  className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                              {/* Header: label + type selector + remove */}
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="shrink-0 text-xs font-bold text-[var(--muted)]">
+                                  Serie {seriesIndex + 1}
+                                </span>
+                                <SetTypeSelector
+                                  value={series.setType}
+                                  onChange={(val) => patchSeries(item.id, seriesIndex, { setType: val })}
                                 />
-                              </label>
-                              <label className="text-[11px] uppercase text-[var(--muted)]">
-                                RIR
-                                <input
-                                  value={series.rir}
-                                  onChange={(event) =>
-                                    patchSeries(item.id, seriesIndex, { rir: event.target.value.replace(/[^\d]/g, '') })
-                                  }
-                                  className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
-                                />
-                              </label>
-                              <button
-                                type="button"
-                                className="self-end rounded-lg border border-red-500/60 px-2 py-1 text-xs font-semibold text-red-300"
-                                onClick={() => removeSeries(item.id, seriesIndex)}
-                              >
-                                Remover
-                              </button>
+                                <button
+                                  type="button"
+                                  className="ml-auto rounded-lg border border-red-500/60 px-2 py-1 text-xs font-semibold text-red-300"
+                                  onClick={() => removeSeries(item.id, seriesIndex)}
+                                >
+                                  Remover
+                                </button>
+                              </div>
+
+                              {series.setType === 'drop' ? (
+                                /* Drop set inputs */
+                                <div className="space-y-2 pl-1">
+                                  {series.dropSets.map((drop, dropIdx) => (
+                                    <div
+                                      key={dropIdx}
+                                      className={`grid gap-2 ${showLoad ? 'grid-cols-[auto_1fr_1fr_auto]' : 'grid-cols-[auto_1fr_auto]'}`}
+                                    >
+                                      <span className="self-center whitespace-nowrap text-[11px] font-semibold text-[var(--muted)]">
+                                        Drop {dropIdx + 1}
+                                      </span>
+                                      {showLoad ? (
+                                        <label className="text-[11px] uppercase text-[var(--muted)]">
+                                          Peso (kg)
+                                          <input
+                                            value={drop.weightKg}
+                                            onChange={(e) =>
+                                              patchDropEntry(item.id, seriesIndex, dropIdx, {
+                                                weightKg: e.target.value.replace(/[^\d.]/g, ''),
+                                              })
+                                            }
+                                            className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                                          />
+                                        </label>
+                                      ) : null}
+                                      <label className="text-[11px] uppercase text-[var(--muted)]">
+                                        Reps
+                                        <input
+                                          value={drop.reps}
+                                          onChange={(e) =>
+                                            patchDropEntry(item.id, seriesIndex, dropIdx, {
+                                              reps: e.target.value.replace(/[^\d]/g, ''),
+                                            })
+                                          }
+                                          className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                                        />
+                                      </label>
+                                      <button
+                                        type="button"
+                                        onClick={() => removeDropEntry(item.id, seriesIndex, dropIdx)}
+                                        disabled={series.dropSets.length <= 1}
+                                        className="self-end rounded-lg border border-red-500/60 px-2 py-1 text-xs font-semibold text-red-300 disabled:opacity-40"
+                                      >
+                                        ×
+                                      </button>
+                                    </div>
+                                  ))}
+                                  <button
+                                    type="button"
+                                    onClick={() => addDropEntry(item.id, seriesIndex)}
+                                    className="rounded-lg border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--text)]"
+                                  >
+                                    + Adicionar Drop
+                                  </button>
+                                </div>
+                              ) : series.setType === 'cluster' ? (
+                                /* Cluster set inputs */
+                                <div className={`grid gap-2 ${showLoad ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
+                                  {showLoad ? (
+                                    <label className="text-[11px] uppercase text-[var(--muted)]">
+                                      Peso (kg)
+                                      <input
+                                        value={series.loadKg}
+                                        onChange={(event) =>
+                                          patchSeries(item.id, seriesIndex, {
+                                            loadKg: event.target.value.replace(/[^\d.]/g, ''),
+                                          })
+                                        }
+                                        className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                                      />
+                                    </label>
+                                  ) : null}
+                                  <label className="text-[11px] uppercase text-[var(--muted)]">
+                                    Reps/Cluster
+                                    <input
+                                      value={series.clusterReps}
+                                      placeholder="3"
+                                      onChange={(event) =>
+                                        patchSeries(item.id, seriesIndex, {
+                                          clusterReps: event.target.value.replace(/[^\d]/g, ''),
+                                        })
+                                      }
+                                      className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                                    />
+                                  </label>
+                                  <label className="text-[11px] uppercase text-[var(--muted)]">
+                                    Nº Clusters
+                                    <input
+                                      value={series.clusterCount}
+                                      placeholder="4"
+                                      onChange={(event) =>
+                                        patchSeries(item.id, seriesIndex, {
+                                          clusterCount: event.target.value.replace(/[^\d]/g, ''),
+                                        })
+                                      }
+                                      className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                                    />
+                                  </label>
+                                  <label className="text-[11px] uppercase text-[var(--muted)]">
+                                    RIR
+                                    <input
+                                      value={series.rir}
+                                      onChange={(event) =>
+                                        patchSeries(item.id, seriesIndex, { rir: event.target.value.replace(/[^\d]/g, '') })
+                                      }
+                                      className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                                    />
+                                  </label>
+                                </div>
+                              ) : (
+                                /* Normal / Warmup / Failure inputs */
+                                <div className={`grid gap-2 ${showLoad ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
+                                  {showLoad ? (
+                                    <label className="text-[11px] uppercase text-[var(--muted)]">
+                                      Peso (kg)
+                                      <input
+                                        value={series.loadKg}
+                                        onChange={(event) =>
+                                          patchSeries(item.id, seriesIndex, {
+                                            loadKg: event.target.value.replace(/[^\d.]/g, ''),
+                                          })
+                                        }
+                                        className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                                      />
+                                    </label>
+                                  ) : null}
+                                  <label className="text-[11px] uppercase text-[var(--muted)]">
+                                    Repeticoes
+                                    <input
+                                      value={series.reps}
+                                      onChange={(event) =>
+                                        patchSeries(item.id, seriesIndex, { reps: event.target.value.replace(/[^\d]/g, '') })
+                                      }
+                                      className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                                    />
+                                  </label>
+                                  <label className="text-[11px] uppercase text-[var(--muted)]">
+                                    RIR
+                                    <input
+                                      value={series.rir}
+                                      onChange={(event) =>
+                                        patchSeries(item.id, seriesIndex, { rir: event.target.value.replace(/[^\d]/g, '') })
+                                      }
+                                      className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                                    />
+                                  </label>
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>
