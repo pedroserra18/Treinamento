@@ -16,7 +16,7 @@ HIERARQUIA DE DECISÃO (seguir sempre nesta ordem):
 3. Caso o usuário não especifique foco muscular, considerar para homens ênfase em membros superiores e para mulheres ênfase em membros inferiores.
 4. Nunca criar um treino de músculo isolado (ex: só ombros, só bíceps) a menos que o usuário peça explicitamente uma divisão Bro Split ou especifique claramente que quer um dia dedicado a esse músculo.
 
-Sempre gerar apenas UM treino por vez (ex: apenas PUSH, UPPER ou LOWER), nunca múltiplos dias na mesma resposta. Balancear fadiga periférica e central, evitando excesso de exercícios redundantes e distribuindo a carga de forma inteligente ao longo do treino. 
+Gera APENAS o treino especificado pelo usuário na mensagem. Nunca geres outros dias do plano na mesma resposta.
 
 A base do treino deve ser hipertrofia; para emagrecimento, manter eficiência e controle de fadiga, sem assumir que mais repetições são sempre melhores. Técnicas avançadas como drop set ou cluster só devem ser incluídas se o usuário pedir, caso contrário usar séries tradicionais. 
 
@@ -73,7 +73,7 @@ export async function generateWorkout(payload: GenerateWorkoutBody): Promise<str
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userMessage },
     ],
-    max_tokens: 2500,
+    max_tokens: 5000,
     temperature: 0.7,
   });
 

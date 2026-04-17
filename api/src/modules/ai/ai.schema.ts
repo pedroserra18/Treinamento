@@ -6,7 +6,7 @@ export const generateWorkoutBodySchema = z.object({
     .enum(["Peito", "Costas", "Quadríceps", "Posterior de Coxa", "Glúteo", "Ombros", "Braços", ""])
     .optional(),
   level: z.enum(["Iniciante", "Intermediário", "Avançado", ""]).optional(),
-  durationMin: z.enum(["30", "45", "60", "90", ""]).optional(),
+  durationMin: z.enum(["30", "45", "60", "90", "120", ""]).optional(),
   goal: z.enum(["Hipertrofia", "Força", "Resistência", "Emagrecimento", ""]).optional(),
   weekDays: z.enum(["2", "3", "4", "5", "6", ""]).optional(),
   split: z
