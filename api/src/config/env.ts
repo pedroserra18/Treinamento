@@ -103,7 +103,10 @@ const envSchema = z.object({
   ENFORCE_HTTPS: z.preprocess(coerceBoolean, z.boolean().optional()),
   SENTRY_DSN: z.string().optional(),
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().optional(),
-  OTEL_SERVICE_NAME: z.string().default("acad-api")
+  OTEL_SERVICE_NAME: z.string().default("acad-api"),
+
+  OPENAI_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  OPENAI_MODEL: z.preprocess(emptyToUndefined, z.string().optional())
 });
 
 const parsedEnv = envSchema.safeParse(process.env);
@@ -187,5 +190,8 @@ export const env = {
   enforceHttps,
   sentryDsn: data.SENTRY_DSN,
   otelExporterEndpoint: data.OTEL_EXPORTER_OTLP_ENDPOINT,
-  otelServiceName: data.OTEL_SERVICE_NAME
+  otelServiceName: data.OTEL_SERVICE_NAME,
+
+  openaiApiKey: data.OPENAI_API_KEY,
+  openaiModel: data.OPENAI_MODEL ?? "gpt-4o-mini",
 };

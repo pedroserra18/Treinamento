@@ -2,6 +2,8 @@ import { motion } from 'framer-motion'
 import { useAuth } from '../hooks/useAuth'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { WorkoutsPage } from './WorkoutsPage'
+import { SetTypeSelector } from '../components/common/SetTypeSelector'
+import { type SetType, type DropEntry } from '../components/common/setTypeOptions'
 import {
   getExerciseExplorerSelectionEventName,
   openExerciseExplorer,
@@ -31,6 +33,10 @@ type ExerciseSetInput = {
   reps: string
   weightKg: string
   rir: string
+  setType: SetType
+  dropSets: DropEntry[]
+  clusterReps: string
+  clusterCount: string
 }
 
 type ActiveExercise = {
@@ -50,7 +56,7 @@ type ActiveExercise = {
 }
 
 function createSet(reps = '', weightKg = '', rir = ''): ExerciseSetInput {
-  return { reps, weightKg, rir }
+  return { reps, weightKg, rir, setType: 'normal', dropSets: [{ weightKg: '', reps: '' }], clusterReps: '', clusterCount: '' }
 }
 
 function formatDateTime(value: Date | null): string {
@@ -118,6 +124,32 @@ function calculateTotals(exercises: ActiveExercise[]): { totalSeries: number; to
 
   exercises.forEach((exercise) => {
     exercise.sets.forEach((setInput) => {
+      if (setInput.setType === 'drop') {
+        const hasAnyDrop = setInput.dropSets.some((d) => Number(d.reps) > 0)
+        if (!hasAnyDrop) return
+        totalSeries += 1
+        setInput.dropSets.forEach((drop) => {
+          const r = Number(drop.reps)
+          const w = Number(drop.weightKg)
+          if (Number.isFinite(r) && r > 0 && Number.isFinite(w) && w > 0) {
+            totalVolumeKg += w * r
+          }
+        })
+        return
+      }
+
+      if (setInput.setType === 'cluster') {
+        const cr = Number(setInput.clusterReps)
+        const cc = Number(setInput.clusterCount)
+        if (!Number.isFinite(cr) || cr <= 0 || !Number.isFinite(cc) || cc <= 0) return
+        totalSeries += 1
+        const weight = Number(setInput.weightKg)
+        if (Number.isFinite(weight) && weight > 0) {
+          totalVolumeKg += weight * cr * cc
+        }
+        return
+      }
+
       const reps = Number(setInput.reps)
       if (!Number.isFinite(reps) || reps <= 0) {
         return
@@ -669,6 +701,60 @@ export function TrainPage() {
     )
   }
 
+  const addDropEntry = (exerciseIndex: number, setIndex: number) => {
+    setActiveExercises((current) =>
+      current.map((exercise, eIdx) => {
+        if (eIdx !== exerciseIndex) return exercise
+        return {
+          ...exercise,
+          sets: exercise.sets.map((s, sIdx) => {
+            if (sIdx !== setIndex) return s
+            return { ...s, dropSets: [...s.dropSets, { weightKg: '', reps: '' }] }
+          }),
+        }
+      }),
+    )
+  }
+
+  const removeDropEntry = (exerciseIndex: number, setIndex: number, dropIndex: number) => {
+    setActiveExercises((current) =>
+      current.map((exercise, eIdx) => {
+        if (eIdx !== exerciseIndex) return exercise
+        return {
+          ...exercise,
+          sets: exercise.sets.map((s, sIdx) => {
+            if (sIdx !== setIndex) return s
+            const next = s.dropSets.filter((_, dIdx) => dIdx !== dropIndex)
+            return { ...s, dropSets: next.length > 0 ? next : [{ weightKg: '', reps: '' }] }
+          }),
+        }
+      }),
+    )
+  }
+
+  const patchDropEntry = (
+    exerciseIndex: number,
+    setIndex: number,
+    dropIndex: number,
+    patch: Partial<DropEntry>,
+  ) => {
+    setActiveExercises((current) =>
+      current.map((exercise, eIdx) => {
+        if (eIdx !== exerciseIndex) return exercise
+        return {
+          ...exercise,
+          sets: exercise.sets.map((s, sIdx) => {
+            if (sIdx !== setIndex) return s
+            return {
+              ...s,
+              dropSets: s.dropSets.map((d, dIdx) => (dIdx === dropIndex ? { ...d, ...patch } : d)),
+            }
+          }),
+        }
+      }),
+    )
+  }
+
   const handleSummaryImage = (file: File | null) => {
     setSummaryImageFile(file)
 
@@ -727,6 +813,56 @@ export function TrainPage() {
         const setNumber = index + 1
         const lastSet = lastPerformanceByExercise[exercise.exerciseId]?.[setNumber]
 
+        // Drop set: flatten each drop into its own history entry
+        if (setInput.setType === 'drop') {
+          const validDrops = setInput.dropSets.filter((d) => {
+            const r = Number(d.reps)
+            return Number.isFinite(r) && r > 0
+          })
+          if (validDrops.length === 0) return acc
+
+          validDrops.forEach((drop, dropIdx) => {
+            const r = Number(drop.reps)
+            const w = Number(drop.weightKg.replace(',', '.'))
+            acc.push({
+              exerciseId: exercise.exerciseId,
+              setNumber: setNumber * 100 + dropIdx + 1,
+              reps: r,
+              weightKg:
+                !isEffectiveBodyweightExercise(exercise) && Number.isFinite(w) && w > 0
+                  ? w
+                  : undefined,
+              notes: `[tipo:drop][drop:${dropIdx + 1}/${validDrops.length}]`,
+            })
+          })
+          return acc
+        }
+
+        // Cluster set: store total reps (clusterReps × clusterCount)
+        if (setInput.setType === 'cluster') {
+          const cr = Number(setInput.clusterReps)
+          const cc = Number(setInput.clusterCount)
+          if (!Number.isFinite(cr) || cr <= 0 || !Number.isFinite(cc) || cc <= 0) return acc
+          const totalReps = Math.round(cr * cc)
+          const weightRaw = setInput.weightKg.trim().replace(',', '.')
+          const weightKg = weightRaw.length > 0 ? Number(weightRaw) : NaN
+          const rirRaw = setInput.rir.trim()
+          const rir = rirRaw.length > 0 ? Number(rirRaw) : NaN
+          const noteParts = [`[tipo:cluster][cr:${cr}][cc:${cc}]`]
+          if (Number.isFinite(rir) && rir >= 0) noteParts.push(`RIR: ${Math.floor(rir)}`)
+          acc.push({
+            exerciseId: exercise.exerciseId,
+            setNumber,
+            reps: totalReps,
+            weightKg:
+              !isEffectiveBodyweightExercise(exercise) && Number.isFinite(weightKg) && weightKg > 0
+                ? weightKg
+                : undefined,
+            notes: noteParts.join(' '),
+          })
+          return acc
+        }
+
         const repsRaw = setInput.reps.trim()
         const weightRaw = setInput.weightKg.trim().replace(',', '.')
         const rirRaw = setInput.rir.trim()
@@ -748,6 +884,13 @@ export function TrainPage() {
         const weightKg = weightRaw.length > 0 ? Number(weightRaw) : NaN
         const rir = rirRaw.length > 0 ? Number(rirRaw) : NaN
 
+        const typeTag =
+          setInput.setType === 'warmup'
+            ? '[tipo:aquecimento] '
+            : setInput.setType === 'failure'
+              ? '[tipo:falhada] '
+              : ''
+
         acc.push({
           exerciseId: exercise.exerciseId,
           setNumber,
@@ -756,7 +899,10 @@ export function TrainPage() {
             !isEffectiveBodyweightExercise(exercise) && Number.isFinite(weightKg) && weightKg > 0
               ? weightKg
               : undefined,
-          notes: Number.isFinite(rir) && rir >= 0 ? `RIR: ${Math.floor(rir)}` : undefined,
+          notes:
+            typeTag || (Number.isFinite(rir) && rir >= 0)
+              ? `${typeTag}${Number.isFinite(rir) && rir >= 0 ? `RIR: ${Math.floor(rir)}` : ''}`.trim() || undefined
+              : undefined,
         })
 
         return acc
@@ -1183,61 +1329,187 @@ export function TrainPage() {
                     return (
                   <div
                     key={`${exercise.exerciseId}-${setIndex}`}
-                    className={`grid gap-2 rounded-xl border border-[var(--line)] p-3 ${
-                      showLoadInput
-                        ? 'sm:grid-cols-[50px_1fr_1fr_1fr_auto]'
-                        : 'sm:grid-cols-[50px_1fr_1fr_auto]'
-                    }`}
+                    className="space-y-2 rounded-xl border border-[var(--line)] p-3"
                   >
-                    <p className="self-center text-xs font-bold text-[var(--muted)]">Serie {setIndex + 1}</p>
-                    {showLoadInput ? (
-                      <label className="text-[11px] uppercase text-[var(--muted)]">
-                        Peso (kg)
-                        <input
-                          value={setInput.weightKg}
-                          placeholder={weightPlaceholder}
-                          onChange={(event) =>
-                            patchSet(exerciseIndex, setIndex, {
-                              weightKg: event.target.value.replace(/[^\d.]/g, ''),
-                            })
-                          }
-                          className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
-                        />
-                      </label>
-                    ) : null}
-                    <label className="text-[11px] uppercase text-[var(--muted)]">
-                      Repeticoes
-                      <input
-                        value={setInput.reps}
-                        placeholder={repsPlaceholder}
-                        onChange={(event) =>
-                          patchSet(exerciseIndex, setIndex, {
-                            reps: event.target.value.replace(/[^\d]/g, ''),
-                          })
-                        }
-                        className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                    {/* Header: label + type selector + remove */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="shrink-0 text-xs font-bold text-[var(--muted)]">
+                        Serie {setIndex + 1}
+                      </span>
+                      <SetTypeSelector
+                        value={setInput.setType}
+                        onChange={(val) => patchSet(exerciseIndex, setIndex, { setType: val })}
                       />
-                    </label>
-                    <label className="text-[11px] uppercase text-[var(--muted)]">
-                      RIR
-                      <input
-                        value={setInput.rir}
-                        placeholder={rirPlaceholder}
-                        onChange={(event) =>
-                          patchSet(exerciseIndex, setIndex, {
-                            rir: event.target.value.replace(/[^\d]/g, ''),
-                          })
-                        }
-                        className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => removeSet(exerciseIndex, setIndex)}
-                      className="self-end rounded-lg border border-red-500/60 px-2 py-1 text-xs font-semibold text-red-300"
-                    >
-                      Remover
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => removeSet(exerciseIndex, setIndex)}
+                        className="ml-auto rounded-lg border border-red-500/60 px-2 py-1 text-xs font-semibold text-red-300"
+                      >
+                        Remover
+                      </button>
+                    </div>
+
+                    {setInput.setType === 'drop' ? (
+                      /* Drop set inputs */
+                      <div className="space-y-2 pl-1">
+                        {setInput.dropSets.map((drop, dropIdx) => (
+                          <div
+                            key={dropIdx}
+                            className={`grid gap-2 ${showLoadInput ? 'grid-cols-[auto_1fr_1fr_auto]' : 'grid-cols-[auto_1fr_auto]'}`}
+                          >
+                            <span className="self-center whitespace-nowrap text-[11px] font-semibold text-[var(--muted)]">
+                              Drop {dropIdx + 1}
+                            </span>
+                            {showLoadInput ? (
+                              <label className="text-[11px] uppercase text-[var(--muted)]">
+                                Peso (kg)
+                                <input
+                                  value={drop.weightKg}
+                                  placeholder={dropIdx === 0 ? weightPlaceholder : 'kg'}
+                                  onChange={(e) =>
+                                    patchDropEntry(exerciseIndex, setIndex, dropIdx, {
+                                      weightKg: e.target.value.replace(/[^\d.]/g, ''),
+                                    })
+                                  }
+                                  className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                                />
+                              </label>
+                            ) : null}
+                            <label className="text-[11px] uppercase text-[var(--muted)]">
+                              Reps
+                              <input
+                                value={drop.reps}
+                                placeholder={dropIdx === 0 ? repsPlaceholder : 'reps'}
+                                onChange={(e) =>
+                                  patchDropEntry(exerciseIndex, setIndex, dropIdx, {
+                                    reps: e.target.value.replace(/[^\d]/g, ''),
+                                  })
+                                }
+                                className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => removeDropEntry(exerciseIndex, setIndex, dropIdx)}
+                              disabled={setInput.dropSets.length <= 1}
+                              className="self-end rounded-lg border border-red-500/60 px-2 py-1 text-xs font-semibold text-red-300 disabled:opacity-40"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => addDropEntry(exerciseIndex, setIndex)}
+                          className="rounded-lg border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--text)]"
+                        >
+                          + Adicionar Drop
+                        </button>
+                      </div>
+                    ) : setInput.setType === 'cluster' ? (
+                      /* Cluster set inputs */
+                      <div className={`grid gap-2 ${showLoadInput ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
+                        {showLoadInput ? (
+                          <label className="text-[11px] uppercase text-[var(--muted)]">
+                            Peso (kg)
+                            <input
+                              value={setInput.weightKg}
+                              placeholder={weightPlaceholder}
+                              onChange={(event) =>
+                                patchSet(exerciseIndex, setIndex, {
+                                  weightKg: event.target.value.replace(/[^\d.]/g, ''),
+                                })
+                              }
+                              className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                            />
+                          </label>
+                        ) : null}
+                        <label className="text-[11px] uppercase text-[var(--muted)]">
+                          Reps/Cluster
+                          <input
+                            value={setInput.clusterReps}
+                            placeholder="3"
+                            onChange={(event) =>
+                              patchSet(exerciseIndex, setIndex, {
+                                clusterReps: event.target.value.replace(/[^\d]/g, ''),
+                              })
+                            }
+                            className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                          />
+                        </label>
+                        <label className="text-[11px] uppercase text-[var(--muted)]">
+                          Nº Clusters
+                          <input
+                            value={setInput.clusterCount}
+                            placeholder="4"
+                            onChange={(event) =>
+                              patchSet(exerciseIndex, setIndex, {
+                                clusterCount: event.target.value.replace(/[^\d]/g, ''),
+                              })
+                            }
+                            className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                          />
+                        </label>
+                        <label className="text-[11px] uppercase text-[var(--muted)]">
+                          RIR
+                          <input
+                            value={setInput.rir}
+                            placeholder={rirPlaceholder}
+                            onChange={(event) =>
+                              patchSet(exerciseIndex, setIndex, {
+                                rir: event.target.value.replace(/[^\d]/g, ''),
+                              })
+                            }
+                            className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                          />
+                        </label>
+                      </div>
+                    ) : (
+                      /* Normal / Warmup / Failure inputs */
+                      <div className={`grid gap-2 ${showLoadInput ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
+                        {showLoadInput ? (
+                          <label className="text-[11px] uppercase text-[var(--muted)]">
+                            Peso (kg)
+                            <input
+                              value={setInput.weightKg}
+                              placeholder={weightPlaceholder}
+                              onChange={(event) =>
+                                patchSet(exerciseIndex, setIndex, {
+                                  weightKg: event.target.value.replace(/[^\d.]/g, ''),
+                                })
+                              }
+                              className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                            />
+                          </label>
+                        ) : null}
+                        <label className="text-[11px] uppercase text-[var(--muted)]">
+                          Repeticoes
+                          <input
+                            value={setInput.reps}
+                            placeholder={repsPlaceholder}
+                            onChange={(event) =>
+                              patchSet(exerciseIndex, setIndex, {
+                                reps: event.target.value.replace(/[^\d]/g, ''),
+                              })
+                            }
+                            className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                          />
+                        </label>
+                        <label className="text-[11px] uppercase text-[var(--muted)]">
+                          RIR
+                          <input
+                            value={setInput.rir}
+                            placeholder={rirPlaceholder}
+                            onChange={(event) =>
+                              patchSet(exerciseIndex, setIndex, {
+                                rir: event.target.value.replace(/[^\d]/g, ''),
+                              })
+                            }
+                            className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                          />
+                        </label>
+                      </div>
+                    )}
                   </div>
                     )
                   })()

@@ -16,6 +16,7 @@ import { GoogleCallbackPage } from './pages/GoogleCallbackPage'
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { WorkoutRecommendationsPage } from './pages/WorkoutRecommendationsPage'
+import { AIWorkoutPage } from './pages/AIWorkoutPage'
 
 function AnimatedRoutes() {
   const location = useLocation()
@@ -73,6 +74,14 @@ function AnimatedRoutes() {
             element={
               <ProtectedRoute>
                 <WorkoutRecommendationsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/ai-workout"
+            element={
+              <ProtectedRoute>
+                <AIWorkoutPage />
               </ProtectedRoute>
             }
           />
