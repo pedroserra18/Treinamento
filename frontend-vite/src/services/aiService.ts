@@ -27,6 +27,11 @@ export type AIWorkoutData = {
   exercises: AIExercise[]
 }
 
+export type WorkoutSection = {
+  displayText: string
+  workoutData: AIWorkoutData | null
+}
+
 export type SaveAIWorkoutResult = {
   planId: string
   planName: string
@@ -35,28 +40,50 @@ export type SaveAIWorkoutResult = {
 
 const WORKOUT_DATA_START = '---WORKOUT_DATA_START---'
 const WORKOUT_DATA_END = '---WORKOUT_DATA_END---'
+const WORKOUT_SEP = '---TREINO_SEP---'
 
-/** Splits the raw AI text into the human-readable part and the structured JSON. */
-export function parseAIResponse(raw: string): { displayText: string; workoutData: AIWorkoutData | null } {
+/** Splits the raw AI text into sections (one per training day) each paired with its structured data. */
+export function parseAIResponse(raw: string): { sections: WorkoutSection[] } {
+  // 1. Extract the JSON block from the end
   const startIdx = raw.indexOf(WORKOUT_DATA_START)
-  if (startIdx === -1) {
-    return { displayText: raw.trim(), workoutData: null }
-  }
+  let displayRaw = raw.trim()
+  let workoutsArray: AIWorkoutData[] = []
 
-  const displayText = raw.slice(0, startIdx).trim()
-  const remainder = raw.slice(startIdx + WORKOUT_DATA_START.length)
-  const endIdx = remainder.indexOf(WORKOUT_DATA_END)
-  const rawJson = (endIdx !== -1 ? remainder.slice(0, endIdx) : remainder).trim()
+  if (startIdx !== -1) {
+    displayRaw = raw.slice(0, startIdx).trim()
+    const remainder = raw.slice(startIdx + WORKOUT_DATA_START.length)
+    const endIdx = remainder.indexOf(WORKOUT_DATA_END)
+    const rawJson = (endIdx !== -1 ? remainder.slice(0, endIdx) : remainder).trim()
 
-  try {
-    const data = JSON.parse(rawJson) as AIWorkoutData
-    if (data.planName && Array.isArray(data.exercises)) {
-      return { displayText, workoutData: data }
+    try {
+      const parsed = JSON.parse(rawJson)
+      if (Array.isArray(parsed)) {
+        workoutsArray = parsed.filter(
+          (d): d is AIWorkoutData => Boolean(d?.planName && Array.isArray(d?.exercises)),
+        )
+      } else if (parsed?.planName && Array.isArray(parsed?.exercises)) {
+        workoutsArray = [parsed as AIWorkoutData]
+      }
+    } catch {
+      // ignore parse errors — workoutsArray stays empty
     }
-    return { displayText, workoutData: null }
-  } catch {
-    return { displayText, workoutData: null }
   }
+
+  // 2. Split display text by the separator marker
+  const textParts = displayRaw
+    .split(WORKOUT_SEP)
+    .map((s) => s.trim())
+    .filter(Boolean)
+
+  const parts = textParts.length > 0 ? textParts : [displayRaw]
+
+  // 3. Pair each text section with its workout data by index
+  const sections: WorkoutSection[] = parts.map((text, i) => ({
+    displayText: text,
+    workoutData: workoutsArray[i] ?? null,
+  }))
+
+  return { sections }
 }
 
 async function parseJsonSafe<T>(response: Response): Promise<T | null> {
@@ -83,7 +110,7 @@ function extractApiError(payload: unknown, statusCode: number): string {
 export async function generateAIWorkout(
   authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
   input: GenerateWorkoutInput,
-): Promise<{ displayText: string; workoutData: AIWorkoutData | null }> {
+): Promise<{ sections: WorkoutSection[] }> {
   const response = await authorizedFetch(`${API_URL}/ai/generate-workout`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

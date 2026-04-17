@@ -2,9 +2,13 @@ import { motion } from 'framer-motion'
 import { useCallback, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import { generateAIWorkout, saveAIWorkout, type AIWorkoutData } from '../services/aiService'
+import {
+  generateAIWorkout,
+  saveAIWorkout,
+  type WorkoutSection,
+} from '../services/aiService'
 
-// ─── Filter options aligned with the system prompt logic ─────────────────────
+// ─── Filter options ───────────────────────────────────────────────────────────
 
 const MUSCLE_OPTIONS = [
   { value: '', label: 'Sem foco específico' },
@@ -34,7 +38,6 @@ const DURATION_OPTIONS = [
   { value: '120', label: '120 min' },
 ]
 
-// Frequência semanal → a IA usa para escolher a divisão automaticamente
 const WEEK_DAYS_OPTIONS = [
   { value: '', label: 'Não especificada' },
   { value: '2', label: '2 dias/semana' },
@@ -44,7 +47,6 @@ const WEEK_DAYS_OPTIONS = [
   { value: '6', label: '6 dias/semana' },
 ]
 
-// Divisão de treino — automático ou especificado pelo utilizador
 const SPLIT_OPTIONS = [
   { value: '', label: 'Automática (pela frequência)' },
   { value: 'Full Body', label: 'Full Body' },
@@ -63,37 +65,90 @@ const EQUIPMENT_OPTIONS = [
 const SELECT_CLASS =
   'w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)]/40'
 
-// ─── Component ───────────────────────────────────────────────────────────────
+// ─── Workout plan logic ───────────────────────────────────────────────────────
+
+function getEffectiveSplit(split: string, days: number): string {
+  if (split) return split
+  if (days <= 3) return 'Full Body'
+  if (days <= 4) return 'Upper/Lower'
+  return 'Push/Pull/Legs'
+}
+
+/** Returns the ordered list of workout labels for the given split + frequency. */
+function getWorkoutLabels(split: string, days: number): string[] {
+  const s = getEffectiveSplit(split, days)
+
+  if (s === 'Full Body') {
+    if (days <= 1) return ['Full Body']
+    return Array.from({ length: days }, (_, i) => `Full Body ${String.fromCharCode(65 + i)}`)
+  }
+
+  if (s === 'Upper/Lower') {
+    if (days <= 2) return ['Upper', 'Lower']
+    if (days === 3) return ['Upper', 'Lower A', 'Lower B']
+    return ['Upper A', 'Upper B', 'Lower A', 'Lower B']
+  }
+
+  if (s === 'Push/Pull/Legs') {
+    if (days <= 3) return ['Push', 'Pull', 'Legs']
+    if (days === 4) return ['Push A', 'Pull A', 'Legs', 'Push B']
+    if (days === 5) return ['Push A', 'Pull A', 'Legs', 'Push B', 'Pull B']
+    return ['Push A', 'Pull A', 'Legs A', 'Push B', 'Pull B', 'Legs B']
+  }
+
+  if (s === 'Torso/Limbs') {
+    if (days <= 2) return ['Torso', 'Limbs']
+    if (days === 3) return ['Torso A', 'Torso B', 'Limbs']
+    return ['Torso A', 'Torso B', 'Limbs A', 'Limbs B']
+  }
+
+  if (s === 'Bro Split') {
+    const labels = ['Peito', 'Costas', 'Pernas', 'Ombros', 'Braços']
+    return labels.slice(0, Math.min(days, labels.length))
+  }
+
+  return ['Treino']
+}
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type SaveResult = {
+  planId: string
+  planName: string
+  foundCount: number
+  totalCount: number
+}
+
+type GeneratingStep = {
+  current: number
+  total: number
+  label: string
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export function AIWorkoutPage() {
   const { authorizedFetch } = useAuth()
   const navigate = useNavigate()
 
-  // Basic filters
+  // Filters
   const [prompt, setPrompt] = useState('')
   const [muscleGroup, setMuscleGroup] = useState('')
   const [goal, setGoal] = useState('')
   const [durationMin, setDurationMin] = useState('')
-
-  // New filters matching system prompt logic
   const [weekDays, setWeekDays] = useState('')
   const [split, setSplit] = useState('')
   const [equipment, setEquipment] = useState('')
   const [advancedTechniques, setAdvancedTechniques] = useState(false)
   const [injuries, setInjuries] = useState('')
 
-  // State
+  // Result state
   const [loading, setLoading] = useState(false)
+  const [generatingStep, setGeneratingStep] = useState<GeneratingStep | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [displayText, setDisplayText] = useState<string | null>(null)
-  const [workoutData, setWorkoutData] = useState<AIWorkoutData | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [saveResult, setSaveResult] = useState<{
-    planId: string
-    planName: string
-    foundCount: number
-    totalCount: number
-  } | null>(null)
+  const [sections, setSections] = useState<WorkoutSection[]>([])
+  const [savingIndex, setSavingIndex] = useState<number | null>(null)
+  const [saveResults, setSaveResults] = useState<Record<number, SaveResult>>({})
 
   const resultRef = useRef<HTMLDivElement>(null)
 
@@ -103,69 +158,119 @@ export function AIWorkoutPage() {
       return
     }
 
+    const days = weekDays ? parseInt(weekDays, 10) : 0
+    const labels = days >= 2 ? getWorkoutLabels(split, days) : null
+    const effectiveSplit = days >= 2 ? getEffectiveSplit(split, days) : split
+
     setLoading(true)
     setError(null)
-    setDisplayText(null)
-    setWorkoutData(null)
-    setSaveResult(null)
+    setSections([])
+    setSaveResults({})
+    setGeneratingStep(null)
 
     try {
-      const result = await generateAIWorkout(authorizedFetch, {
-        prompt: prompt.trim(),
-        muscleGroup: muscleGroup || undefined,
-        goal: goal || undefined,
-        durationMin: durationMin || undefined,
-        weekDays: weekDays || undefined,
-        split: split || undefined,
-        equipment: equipment || undefined,
-        advancedTechniques: advancedTechniques || undefined,
-        injuries: injuries.trim() || undefined,
-      })
+      if (labels && labels.length > 1) {
+        // ── Multiple workouts: one API call per label ──────────────────────
+        const accumulated: WorkoutSection[] = []
 
-      setDisplayText(result.displayText)
-      setWorkoutData(result.workoutData)
+        for (let i = 0; i < labels.length; i++) {
+          const label = labels[i]
+          setGeneratingStep({ current: i + 1, total: labels.length, label })
 
-      setTimeout(() => {
-        resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      }, 100)
+          const result = await generateAIWorkout(authorizedFetch, {
+            prompt: `${prompt.trim()} — Gera APENAS o treino "${label}" (dia ${i + 1} de ${labels.length} do plano ${effectiveSplit}). Não incluas os outros dias. Seja conciso nas observações para garantir que o bloco ---WORKOUT_DATA_START--- caiba no final da resposta. OBRIGATÓRIO: inclui sempre o bloco JSON no final.`,
+            muscleGroup: muscleGroup || undefined,
+            goal: goal || undefined,
+            durationMin: durationMin || undefined,
+            weekDays: weekDays || undefined,
+            split: effectiveSplit || undefined,
+            equipment: equipment || undefined,
+            advancedTechniques: advancedTechniques || undefined,
+            injuries: injuries.trim() || undefined,
+          })
+
+          const section = result.sections[0]
+          if (section) {
+            accumulated.push({
+              displayText: section.displayText,
+              workoutData: section.workoutData
+                ? { ...section.workoutData, planName: section.workoutData.planName || label }
+                : null,
+            })
+            // Update UI progressively as each workout completes
+            setSections([...accumulated])
+          }
+
+          // Scroll to results after the first workout arrives
+          if (i === 0) {
+            setTimeout(() => {
+              resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            }, 100)
+          }
+        }
+      } else {
+        // ── Single workout ─────────────────────────────────────────────────
+        setGeneratingStep({ current: 1, total: 1, label: '' })
+
+        const result = await generateAIWorkout(authorizedFetch, {
+          prompt: prompt.trim(),
+          muscleGroup: muscleGroup || undefined,
+          goal: goal || undefined,
+          durationMin: durationMin || undefined,
+          weekDays: weekDays || undefined,
+          split: split || undefined,
+          equipment: equipment || undefined,
+          advancedTechniques: advancedTechniques || undefined,
+          injuries: injuries.trim() || undefined,
+        })
+
+        setSections(result.sections)
+
+        setTimeout(() => {
+          resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }, 100)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao gerar treino. Tenta novamente.')
     } finally {
       setLoading(false)
+      setGeneratingStep(null)
     }
   }, [
     authorizedFetch, prompt, muscleGroup, goal, durationMin,
     weekDays, split, equipment, advancedTechniques, injuries,
   ])
 
-  const handleSave = useCallback(async () => {
-    if (!workoutData) {
-      setError('Sem dados estruturados para guardar. Tenta gerar novamente.')
-      return
-    }
+  const handleSaveOne = useCallback(async (index: number) => {
+    const wd = sections[index]?.workoutData
+    if (!wd) return
 
-    setSaving(true)
+    setSavingIndex(index)
     setError(null)
-    setSaveResult(null)
 
     try {
       const result = await saveAIWorkout(authorizedFetch, {
-        planName: workoutData.planName,
-        exercises: workoutData.exercises,
+        planName: wd.planName,
+        exercises: wd.exercises,
       })
 
-      setSaveResult({
-        planId: result.planId,
-        planName: result.planName,
-        foundCount: result.savedExercises.filter((e) => e.found).length,
-        totalCount: result.savedExercises.length,
-      })
+      setSaveResults((prev) => ({
+        ...prev,
+        [index]: {
+          planId: result.planId,
+          planName: result.planName,
+          foundCount: result.savedExercises.filter((e) => e.found).length,
+          totalCount: result.savedExercises.length,
+        },
+      }))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao guardar treino.')
     } finally {
-      setSaving(false)
+      setSavingIndex(null)
     }
-  }, [authorizedFetch, workoutData])
+  }, [authorizedFetch, sections])
+
+  const hasResults = sections.length > 0
 
   return (
     <section className="space-y-4">
@@ -207,7 +312,7 @@ export function AIWorkoutPage() {
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Ex: quero um treino de costas, tenho 4 dias por semana, foco em hipertrofia..."
+            placeholder="Ex: quero treino para hipertrofia, academia completa..."
             rows={3}
             maxLength={600}
             className="w-full resize-none rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)]/40"
@@ -252,9 +357,23 @@ export function AIWorkoutPage() {
               </select>
             </div>
           </div>
+
+          {/* Preview of workouts to be generated */}
+          {weekDays && parseInt(weekDays, 10) >= 2 ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {getWorkoutLabels(split, parseInt(weekDays, 10)).map((label) => (
+                <span
+                  key={label}
+                  className="rounded-full border border-[var(--brand)]/30 bg-[var(--brand)]/8 px-3 py-1 text-xs font-semibold text-[var(--brand)]"
+                >
+                  {label}
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
 
-        {/* Row 2: Foco Muscular + Nível + Objetivo + Duração */}
+        {/* Row 2: Foco Muscular + Objetivo + Duração */}
         <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
             Personalização
@@ -333,7 +452,7 @@ export function AIWorkoutPage() {
           >
             {loading ? 'A gerar...' : 'Gerar Treino'}
           </button>
-          {displayText ? (
+          {hasResults && !loading ? (
             <button
               type="button"
               onClick={() => void handleGenerate()}
@@ -346,95 +465,107 @@ export function AIWorkoutPage() {
         </div>
       </motion.article>
 
-      {/* Loading */}
-      {loading ? (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="flex items-center gap-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5"
-        >
-          <div className="h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-[var(--brand)] border-t-transparent" />
-          <p className="text-sm text-[var(--muted)]">A IA está a criar o teu treino personalizado...</p>
-        </motion.div>
-      ) : null}
+      {/* Results area (shown below the form) */}
+      <div ref={resultRef} className="space-y-4">
 
-      {/* Result */}
-      {displayText && !loading ? (
-        <motion.article
-          ref={resultRef}
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 space-y-4"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-lg font-extrabold text-[var(--text)]">
-              {workoutData?.planName ?? 'Treino Gerado'}
-            </h2>
-            {workoutData ? (
-              <span className="rounded-full border border-[var(--brand)]/40 bg-[var(--brand)]/10 px-3 py-1 text-xs font-semibold text-[var(--brand)]">
-                {workoutData.exercises.length} exercício{workoutData.exercises.length !== 1 ? 's' : ''}
-              </span>
-            ) : null}
-          </div>
+        {/* Completed workout cards — shown progressively */}
+        {sections.map((section, idx) => (
+          <motion.article
+            key={idx}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 space-y-4"
+          >
+            {/* Card header */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-lg font-extrabold text-[var(--text)]">
+                {section.workoutData?.planName ?? `Treino ${idx + 1}`}
+              </h2>
+              <div className="flex items-center gap-2">
+                {generatingStep && generatingStep.total > 1 ? (
+                  <span className="rounded-full border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--muted)]">
+                    {idx + 1}/{generatingStep.total}
+                  </span>
+                ) : null}
+                {section.workoutData ? (
+                  <span className="rounded-full border border-[var(--brand)]/40 bg-[var(--brand)]/10 px-3 py-1 text-xs font-semibold text-[var(--brand)]">
+                    {section.workoutData.exercises.length} exercício{section.workoutData.exercises.length !== 1 ? 's' : ''}
+                  </span>
+                ) : null}
+              </div>
+            </div>
 
-          {/* AI text */}
-          <div className="rounded-xl border border-[var(--line)] p-4">
-            <AITextRenderer text={displayText} />
-          </div>
+            {/* AI text */}
+            <div className="rounded-xl border border-[var(--line)] p-4">
+              <AITextRenderer text={section.displayText} />
+            </div>
 
-          {/* Save */}
-          <div className="flex flex-wrap items-center gap-3">
-            {workoutData && !saveResult ? (
-              <button
-                type="button"
-                onClick={() => void handleSave()}
-                disabled={saving}
-                className="rounded-xl bg-[var(--brand)] px-5 py-2 text-sm font-bold text-white disabled:opacity-60"
+            {/* Save area */}
+            {!saveResults[idx] ? (
+              section.workoutData ? (
+                <button
+                  type="button"
+                  onClick={() => void handleSaveOne(idx)}
+                  disabled={savingIndex !== null}
+                  className="rounded-xl bg-[var(--brand)] px-5 py-2 text-sm font-bold text-white disabled:opacity-60"
+                >
+                  {savingIndex === idx ? 'A guardar...' : 'Guardar Treino'}
+                </button>
+              ) : (
+                <p className="text-xs text-[var(--muted)]">
+                  Dados estruturados não disponíveis. Clica em "Gerar Novamente".
+                </p>
+              )
+            ) : (
+              <motion.div
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-xl border border-green-500/40 bg-green-500/10 p-4 space-y-2"
               >
-                {saving ? 'A guardar...' : 'Guardar Treino'}
-              </button>
-            ) : null}
-            {!workoutData && !saveResult ? (
-              <p className="text-xs text-[var(--muted)]">
-                A IA não gerou dados estruturados. Clica em "Gerar Novamente" para tentar de novo.
-              </p>
-            ) : null}
-          </div>
+                <p className="text-sm font-bold text-green-400">
+                  "{saveResults[idx].planName}" guardado com sucesso!
+                </p>
+                <p className="text-xs text-[var(--muted)]">
+                  {saveResults[idx].foundCount} de {saveResults[idx].totalCount} exercício
+                  {saveResults[idx].totalCount !== 1 ? 's' : ''} adicionado
+                  {saveResults[idx].foundCount !== 1 ? 's' : ''} à rotina.
+                  {saveResults[idx].foundCount < saveResults[idx].totalCount
+                    ? ' Alguns exercícios não foram encontrados na base de dados — podes adicioná-los manualmente.'
+                    : ''}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => navigate('/workouts')}
+                  className="rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)]"
+                >
+                  Ver nas Rotinas
+                </button>
+              </motion.div>
+            )}
+          </motion.article>
+        ))}
 
-          {/* Save result */}
-          {saveResult ? (
-            <motion.div
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="rounded-xl border border-green-500/40 bg-green-500/10 p-4 space-y-2"
-            >
-              <p className="text-sm font-bold text-green-400">
-                "{saveResult.planName}" guardado com sucesso!
-              </p>
-              <p className="text-xs text-[var(--muted)]">
-                {saveResult.foundCount} de {saveResult.totalCount} exercício
-                {saveResult.totalCount !== 1 ? 's' : ''} adicionado
-                {saveResult.foundCount !== 1 ? 's' : ''} à rotina.
-                {saveResult.foundCount < saveResult.totalCount
-                  ? ' Alguns exercícios não foram encontrados na base de dados — podes adicioná-los manualmente.'
-                  : ''}
-              </p>
-              <button
-                type="button"
-                onClick={() => navigate('/train')}
-                className="rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)]"
-              >
-                Ver nas Rotinas
-              </button>
-            </motion.div>
-          ) : null}
-        </motion.article>
-      ) : null}
+        {/* Loading indicator for next workout */}
+        {loading ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="flex items-center gap-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5"
+          >
+            <div className="h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-[var(--brand)] border-t-transparent" />
+            <p className="text-sm text-[var(--muted)]">
+              {generatingStep && generatingStep.total > 1
+                ? `A gerar treino ${generatingStep.current} de ${generatingStep.total} — ${generatingStep.label}...`
+                : 'A IA está a criar o teu treino personalizado...'}
+            </p>
+          </motion.div>
+        ) : null}
+      </div>
     </section>
   )
 }
 
-// ─── Light markdown renderer ─────────────────────────────────────────────────
+// ─── Light markdown renderer ──────────────────────────────────────────────────
 
 function AITextRenderer({ text }: { text: string }) {
   const lines = text.split('\n')
@@ -450,10 +581,8 @@ function AITextRenderer({ text }: { text: string }) {
             </h3>
           )
         }
-        if (trimmed.startsWith('### ') || trimmed.startsWith('**') && trimmed.endsWith('**')) {
-          const content = trimmed.startsWith('### ')
-            ? trimmed.slice(4)
-            : trimmed.slice(2, -2)
+        if (trimmed.startsWith('### ') || (trimmed.startsWith('**') && trimmed.endsWith('**'))) {
+          const content = trimmed.startsWith('### ') ? trimmed.slice(4) : trimmed.slice(2, -2)
           return (
             <h4 key={idx} className="mt-3 font-bold text-[var(--text)]">
               {content}

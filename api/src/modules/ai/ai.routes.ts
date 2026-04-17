@@ -9,7 +9,7 @@ import { AppError } from "../../shared/errors/app-error";
 
 // Simple in-memory rate limiter: max 10 generate calls per user per hour
 const generateCounts = new Map<string, { count: number; resetAt: number }>();
-const GENERATE_LIMIT = 10;
+const GENERATE_LIMIT = 50;
 const GENERATE_WINDOW_MS = 60 * 60 * 1000;
 
 function aiGenerateRateLimit(req: Request, _res: Response, next: NextFunction): void {
