@@ -3,37 +3,98 @@ import { prisma } from "../../config/prisma";
 import { AppError } from "../../shared/errors/app-error";
 import { GenerateWorkoutBody, SaveAIWorkoutBody } from "./ai.schema";
 
-const SYSTEM_PROMPT = `
-Você é um especialista em treinamento físico baseado em evidências científicas, com foco em hipertrofia, desempenho e controle de fadiga. Sua tarefa é gerar UM treino por vez, personalizado de acordo com as preferências do usuário. 
+const MUSCLE_GROUP_LABELS: Record<string, string> = {
+  CHEST: "PEITO",
+  BACK: "COSTAS",
+  SHOULDERS: "OMBROS",
+  BICEPS: "BÍCEPS",
+  TRICEPS: "TRÍCEPS",
+  QUADS: "QUADRÍCEPS",
+  HAMSTRINGS: "POSTERIOR DE COXA",
+  GLUTES: "GLÚTEOS",
+  CALVES: "PANTURRILHA",
+  CORE: "CORE",
+  ABDOMEN: "ABDÔMEN",
+  FOREARM: "ANTEBRAÇO",
+  ARMS: "BRAÇOS",
+  LEGS: "PERNAS",
+  ADDUCTORS: "ADUTORES",
+  FULL_BODY: "CORPO INTEIRO",
+};
 
-Evite redundância de exercícios e escolha exercícios que atinjam diferentes porções do músculo (ex: alongado, encurtado, neutro), priorizando eficiência e lógica biomecânica. O range de repetições PADRÃO é 5-9 — use repsMin:5 e repsMax:9 como base. Só aumente para 8-12 se o usuário pedir repetições mais altas ou objetivo for emagrecimento. Nunca use 8-12 como padrão sem justificativa.
+async function buildExerciseList(userId?: string): Promise<string> {
+  const exercises = await prisma.exercise.findMany({
+    where: {
+      isActive: true,
+      OR: [
+        { scope: "GLOBAL" },
+        ...(userId ? [{ scope: "PRIVATE" as const, ownerUserId: userId }] : []),
+      ],
+    },
+    select: { name: true, primaryMuscleGroup: true },
+    orderBy: [{ primaryMuscleGroup: "asc" }, { name: "asc" }],
+  });
 
-Use como padrão 2 a 3 séries por exercício — NÃO use sempre 3 séries em todos os exercícios. Exercícios compostos principais: 3 séries; exercícios isoladores ou acessórios: 2 séries como padrão. Aumente o volume apenas se houver foco intenso num músculo específico ou se o usuário pedir mais volume. O descanso padrão deve ser de 120 a 180 segundos, podendo ser ajustado conforme objetivo do usuário, com mínimo de 10 segundos e máximo de 5 minutos.
+  const grouped: Record<string, string[]> = {};
+  for (const ex of exercises) {
+    const label = MUSCLE_GROUP_LABELS[ex.primaryMuscleGroup] ?? ex.primaryMuscleGroup;
+    if (!grouped[label]) grouped[label] = [];
+    grouped[label].push(ex.name);
+  }
 
-HIERARQUIA DE DECISÃO (seguir sempre nesta ordem):
-1. A ESTRUTURA do treino é determinada pela frequência semanal: 2-3 dias → Full Body ou Upper/Lower; 4 dias → Upper/Lower ou Torso/Limbs; 5-6 dias → PPL (Push/Pull/Legs). Se o usuário especificar a divisão explicitamente, seguir exatamente o que pediu.
-2. O FOCO MUSCULAR é uma ÊNFASE dentro da estrutura correta — significa incluir mais exercícios e volume para aquele músculo, NÃO criar um treino isolado dedicado a um único músculo. Exemplo: 3 dias/semana com foco em ombros → gerar Full Body ou Upper com ênfase em ombros (mais exercícios de ombro), não um treino só de ombros.
-3. Caso o usuário não especifique foco muscular, considerar para homens ênfase em membros superiores e para mulheres ênfase em membros inferiores.
-4. Nunca criar um treino de músculo isolado (ex: só ombros, só bíceps) a menos que o usuário peça explicitamente uma divisão Bro Split ou especifique claramente que quer um dia dedicado a esse músculo.
+  return Object.entries(grouped)
+    .map(([group, names]) => `${group}: ${names.join(", ")}`)
+    .join("\n");
+}
 
-Gera APENAS o treino especificado pelo usuário na mensagem. Nunca geres outros dias do plano na mesma resposta.
+const BASE_SYSTEM_PROMPT = `
+Você é um especialista em treinamento físico baseado em evidências científicas, com foco em hipertrofia, desempenho e controle de fadiga.
 
-A base do treino deve ser hipertrofia; para emagrecimento, manter eficiência e controle de fadiga, sem assumir que mais repetições são sempre melhores. Técnicas avançadas como drop set ou cluster só devem ser incluídas se o usuário pedir, caso contrário usar séries tradicionais. 
+EXERCÍCIOS — REGRA CRÍTICA:
+- Usa SOMENTE os exercícios da lista fornecida no final deste prompt, com os nomes EXATOS como escritos.
+- NUNCA inventes nomes de exercícios. NUNCA uses um exercício que não esteja na lista.
+- Se não houver exercício ideal para um grupo muscular, escolhe o mais próximo disponível na lista.
 
-Sempre orientar progressão de carga, incentivando evolução por aumento de peso, repetições ou melhora na execução, promovendo evolução gradual e consistente. Em exercícios que exigem muito do sistema nervoso central (especialmente compostos pesados), orientar deixar 1 a 2 repetições em reserva (RIR 1-2), enquanto exercícios isolados podem se aproximar mais da falha. 
+COBERTURA MUSCULAR OBRIGATÓRIA POR TIPO DE TREINO:
+- FULL BODY: cada sessão DEVE obrigatoriamente incluir exercícios de QUADRÍCEPS, POSTERIOR DE COXA ou GLÚTEOS, PEITO ou OMBROS (push), COSTAS (pull), e ABDÔMEN ou CORE. Nunca omitas nenhum destes grupos numa sessão Full Body.
+- UPPER: cobre push (peito, ombros, tríceps) e pull (costas, bíceps) equilibradamente.
+- LOWER: cobre quadríceps, posterior de coxa, glúteos e panturrilha.
+- PUSH: peito, ombros, tríceps.
+- PULL: costas, bíceps.
+- LEGS: quadríceps, posterior de coxa, glúteos, panturrilha.
+- Não repitas o mesmo exercício em dias diferentes do mesmo plano.
 
-Se o usuário não definir a ordem dos exercícios, organizar com compostos primeiro e isoladores depois, sempre pensando na manutenção da fadiga. Adaptar o treino ao ambiente: se o usuário não tiver determinada máquina ou equipamento, substituir por alternativas equivalentes; se treinar em casa, montar treino com peso corporal ou equipamentos disponíveis informados. 
+HIERARQUIA DE DECISÃO:
+1. A estrutura do treino é determinada pela frequência semanal: 2-3 dias → Full Body ou Upper/Lower; 4 dias → Upper/Lower ou Torso/Limbs; 5-6 dias → PPL. Se o usuário especificar a divisão, seguir exatamente.
+2. O foco muscular é uma ênfase dentro da estrutura — inclui mais exercícios e volume para aquele músculo, não um treino isolado.
+3. Para homens sem foco especificado: ênfase em membros superiores. Para mulheres: ênfase em membros inferiores.
+4. Nunca cria treino de músculo isolado (só bíceps, só ombros) a menos que o usuário peça explicitamente Bro Split.
 
-Caso o usuário relate dor em algum exercício, não incluir esse exercício; caso tenha alguma lesão, evitar movimentos que possam agravá-la, sempre priorizando segurança. Ajustar o volume e quantidade de exercícios conforme o tempo disponível informado pelo usuário. 
+VOLUME E SÉRIES:
+- Range de repetições padrão: 5-9 (repsMin:5, repsMax:9). Só usa 8-12 se objetivo for emagrecimento ou usuário pedir.
+- Séries: exercícios compostos principais → 3 séries; isoladores/acessórios → 2 séries.
+- Descanso padrão: 120-180 segundos. Mínimo 10s, máximo 300s.
+- Técnicas avançadas (drop set, cluster) só se o usuário pedir.
 
-A resposta deve conter: nome do treino (ex: Upper A, Push, Lower), objetivo, lista de exercícios com nome, séries, repetições e descanso, e observações curtas incluindo progressão de carga, RIR quando necessário e dicas práticas. Não adicionar explicações longas; ser direto, técnico e garantir que o treino seja aplicável na prática.
+PROGRESSÃO: orienta aumento de peso, repetições ou melhora na execução. Em compostos pesados: deixar 1-2 reps em reserva (RIR 1-2). Em isolados: pode aproximar da falha.
+LESÕES: não inclui exercícios que causem dor ou agravem lesões relatadas.
 
-FORMATO OBRIGATÓRIO — NUNCA OMITIR: Imediatamente após o treino completo (sem nenhum texto depois), adiciona SEMPRE este bloco exato. Se precisar encurtar a resposta para caber, reduza as observações, mas JAMAIS omita este bloco:
+FORMATO OBRIGATÓRIO DA RESPOSTA EM TEXTO:
+O texto deve conter SOMENTE (sem listar os exercícios — eles vão no bloco JSON):
+## [Nome do Treino]
+**Objetivo:** [descrição do objetivo]
+
+**Observações:**
+- [dica prática 1 sobre progressão ou execução]
+- [dica prática 2]
+
+Logo após o texto, adiciona SEMPRE este bloco exato (sem nenhum texto depois):
 ---WORKOUT_DATA_START---
-{"planName":"Nome do Treino","exercises":[{"name":"Exercício Composto","sets":3,"repsMin":5,"repsMax":9,"restSec":150},{"name":"Exercício Isolador","sets":2,"repsMin":5,"repsMax":9,"restSec":120}]}
+{"planName":"Nome do Treino","exercises":[{"name":"Nome Exato do Exercício","sets":3,"repsMin":5,"repsMax":9,"restSec":150}]}
 ---WORKOUT_DATA_END---
-Use os nomes dos exercícios em português do Brasil. O bloco JSON deve ser minificado (numa só linha). Inclua TODOS os exercícios do treino no array.
-`;
+
+O JSON deve ser minificado (uma linha). Inclui TODOS os exercícios do treino no array. Os nomes no JSON devem ser EXATAMENTE iguais aos da lista de exercícios disponíveis abaixo.
+`.trim();
 
 function getOpenAIClient(): OpenAI {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -46,8 +107,11 @@ function getOpenAIClient(): OpenAI {
   return new OpenAI({ apiKey });
 }
 
-export async function generateWorkout(payload: GenerateWorkoutBody): Promise<string> {
+export async function generateWorkout(payload: GenerateWorkoutBody, userId?: string): Promise<string> {
   const client = getOpenAIClient();
+
+  const exerciseList = await buildExerciseList(userId);
+  const systemPrompt = `${BASE_SYSTEM_PROMPT}\n\nEXERCÍCIOS DISPONÍVEIS NO BANCO DE DADOS (usa APENAS estes):\n${exerciseList}`;
 
   const params: string[] = [];
   if (payload.weekDays) params.push(`Frequência semanal: ${payload.weekDays} dias/semana`);
@@ -70,7 +134,7 @@ export async function generateWorkout(payload: GenerateWorkoutBody): Promise<str
   const response = await client.chat.completions.create({
     model,
     messages: [
-      { role: "system", content: SYSTEM_PROMPT },
+      { role: "system", content: systemPrompt },
       { role: "user", content: userMessage },
     ],
     max_tokens: 5000,
@@ -98,7 +162,6 @@ export async function saveAIWorkout(
   userId: string,
   payload: SaveAIWorkoutBody
 ): Promise<{ planId: string; planName: string; savedExercises: SavedExercise[] }> {
-  // 1. Create the plan
   const plan = await prisma.workoutPlan.create({
     data: {
       userId,
@@ -109,39 +172,29 @@ export async function saveAIWorkout(
   });
 
   const savedExercises: SavedExercise[] = [];
-
-  // 2. For each exercise, search the DB and add to plan
   let orderIndex = 1;
+
   for (const exerciseInput of payload.exercises) {
-    // Try exact match first, then partial
     const found = await prisma.exercise.findFirst({
       where: {
         isActive: true,
         OR: [{ scope: "GLOBAL" }, { scope: "PRIVATE", ownerUserId: userId }],
-        name: { contains: exerciseInput.name, mode: "insensitive" },
+        name: { equals: exerciseInput.name, mode: "insensitive" },
       },
       select: { id: true, name: true },
     });
 
     if (!found) {
-      // Try first word match for partial exercise names
-      const firstWord = exerciseInput.name.split(" ")[0];
-      const fallback = firstWord
-        ? await prisma.exercise.findFirst({
-            where: {
-              isActive: true,
-              OR: [{ scope: "GLOBAL" }, { scope: "PRIVATE", ownerUserId: userId }],
-              name: { startsWith: firstWord, mode: "insensitive" },
-            },
-            select: { id: true, name: true },
-          })
-        : null;
-
-      savedExercises.push({
-        name: exerciseInput.name,
-        found: !!fallback,
-        exerciseId: fallback?.id,
+      const fallback = await prisma.exercise.findFirst({
+        where: {
+          isActive: true,
+          OR: [{ scope: "GLOBAL" }, { scope: "PRIVATE", ownerUserId: userId }],
+          name: { contains: exerciseInput.name, mode: "insensitive" },
+        },
+        select: { id: true, name: true },
       });
+
+      savedExercises.push({ name: exerciseInput.name, found: !!fallback, exerciseId: fallback?.id });
 
       if (fallback) {
         await prisma.workoutPlanExercise.create({
@@ -158,10 +211,10 @@ export async function saveAIWorkout(
         });
       }
     } else {
-      // Check for duplicate in this plan
       const alreadyAdded = savedExercises.some((s) => s.exerciseId === found.id);
+      savedExercises.push({ name: exerciseInput.name, found: true, exerciseId: found.id });
+
       if (!alreadyAdded) {
-        savedExercises.push({ name: exerciseInput.name, found: true, exerciseId: found.id });
         await prisma.workoutPlanExercise.create({
           data: {
             workoutPlanId: plan.id,
@@ -174,8 +227,6 @@ export async function saveAIWorkout(
             notes: exerciseInput.notes ?? null,
           },
         });
-      } else {
-        savedExercises.push({ name: exerciseInput.name, found: true, exerciseId: found.id });
       }
     }
   }

@@ -74,7 +74,6 @@ function getEffectiveSplit(split: string, days: number): string {
   return 'Push/Pull/Legs'
 }
 
-/** Returns the ordered list of workout labels for the given split + frequency. */
 function getWorkoutLabels(split: string, days: number): string[] {
   const s = getEffectiveSplit(split, days)
 
@@ -131,7 +130,6 @@ export function AIWorkoutPage() {
   const { authorizedFetch } = useAuth()
   const navigate = useNavigate()
 
-  // Filters
   const [prompt, setPrompt] = useState('')
   const [muscleGroup, setMuscleGroup] = useState('')
   const [goal, setGoal] = useState('')
@@ -142,7 +140,6 @@ export function AIWorkoutPage() {
   const [advancedTechniques, setAdvancedTechniques] = useState(false)
   const [injuries, setInjuries] = useState('')
 
-  // Result state
   const [loading, setLoading] = useState(false)
   const [generatingStep, setGeneratingStep] = useState<GeneratingStep | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -170,7 +167,6 @@ export function AIWorkoutPage() {
 
     try {
       if (labels && labels.length > 1) {
-        // ── Multiple workouts: one API call per label ──────────────────────
         const accumulated: WorkoutSection[] = []
 
         for (let i = 0; i < labels.length; i++) {
@@ -178,7 +174,7 @@ export function AIWorkoutPage() {
           setGeneratingStep({ current: i + 1, total: labels.length, label })
 
           const result = await generateAIWorkout(authorizedFetch, {
-            prompt: `${prompt.trim()} — Gera APENAS o treino "${label}" (dia ${i + 1} de ${labels.length} do plano ${effectiveSplit}). Não incluas os outros dias. Seja conciso nas observações para garantir que o bloco ---WORKOUT_DATA_START--- caiba no final da resposta. OBRIGATÓRIO: inclui sempre o bloco JSON no final.`,
+            prompt: `${prompt.trim()} — Gera APENAS o treino "${label}" (dia ${i + 1} de ${labels.length} do plano ${effectiveSplit}). Não incluas os outros dias. OBRIGATÓRIO: inclui sempre o bloco JSON no final.`,
             muscleGroup: muscleGroup || undefined,
             goal: goal || undefined,
             durationMin: durationMin || undefined,
@@ -197,11 +193,9 @@ export function AIWorkoutPage() {
                 ? { ...section.workoutData, planName: section.workoutData.planName || label }
                 : null,
             })
-            // Update UI progressively as each workout completes
             setSections([...accumulated])
           }
 
-          // Scroll to results after the first workout arrives
           if (i === 0) {
             setTimeout(() => {
               resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -209,7 +203,6 @@ export function AIWorkoutPage() {
           }
         }
       } else {
-        // ── Single workout ─────────────────────────────────────────────────
         setGeneratingStep({ current: 1, total: 1, label: '' })
 
         const result = await generateAIWorkout(authorizedFetch, {
@@ -282,11 +275,10 @@ export function AIWorkoutPage() {
       >
         <h1 className="text-2xl font-black text-[var(--text)]">Treino por IA</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Descreve o que pretendes e a IA gera um treino personalizado baseado em evidências científicas.
+          Descreve o que pretendes e a IA gera um treino personalizado com exercícios do teu banco de dados.
         </p>
       </motion.header>
 
-      {/* Error */}
       {error ? (
         <motion.p
           initial={{ opacity: 0 }}
@@ -304,7 +296,6 @@ export function AIWorkoutPage() {
         transition={{ delay: 0.05 }}
         className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 space-y-5"
       >
-        {/* Prompt */}
         <div>
           <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--muted)] mb-2">
             Descreve o treino
@@ -320,45 +311,30 @@ export function AIWorkoutPage() {
           <p className="mt-1 text-right text-xs text-[var(--muted)]">{prompt.length}/600</p>
         </div>
 
-        {/* Row 1: Frequência + Divisão + Equipamento */}
         <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
             Estrutura do treino
           </p>
           <div className="grid gap-3 sm:grid-cols-3">
             <div>
-              <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">
-                Frequência semanal
-              </label>
+              <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">Frequência semanal</label>
               <select value={weekDays} onChange={(e) => setWeekDays(e.target.value)} className={SELECT_CLASS}>
-                {WEEK_DAYS_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
+                {WEEK_DAYS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">
-                Divisão de treino
-              </label>
+              <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">Divisão de treino</label>
               <select value={split} onChange={(e) => setSplit(e.target.value)} className={SELECT_CLASS}>
-                {SPLIT_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
+                {SPLIT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">
-                Equipamento disponível
-              </label>
+              <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">Equipamento disponível</label>
               <select value={equipment} onChange={(e) => setEquipment(e.target.value)} className={SELECT_CLASS}>
-                {EQUIPMENT_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
+                {EQUIPMENT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
           </div>
-
-          {/* Preview of workouts to be generated */}
           {weekDays && parseInt(weekDays, 10) >= 2 ? (
             <div className="mt-3 flex flex-wrap gap-2">
               {getWorkoutLabels(split, parseInt(weekDays, 10)).map((label) => (
@@ -373,46 +349,32 @@ export function AIWorkoutPage() {
           ) : null}
         </div>
 
-        {/* Row 2: Foco Muscular + Objetivo + Duração */}
         <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
             Personalização
           </p>
           <div className="grid gap-3 sm:grid-cols-3">
             <div>
-              <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">
-                Foco muscular
-              </label>
+              <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">Foco muscular</label>
               <select value={muscleGroup} onChange={(e) => setMuscleGroup(e.target.value)} className={SELECT_CLASS}>
-                {MUSCLE_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
+                {MUSCLE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">
-                Objetivo
-              </label>
+              <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">Objetivo</label>
               <select value={goal} onChange={(e) => setGoal(e.target.value)} className={SELECT_CLASS}>
-                {GOAL_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
+                {GOAL_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">
-                Duração
-              </label>
+              <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">Duração</label>
               <select value={durationMin} onChange={(e) => setDurationMin(e.target.value)} className={SELECT_CLASS}>
-                {DURATION_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
+                {DURATION_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
           </div>
         </div>
 
-        {/* Row 3: Técnicas avançadas + Lesões */}
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="flex items-center gap-3 rounded-xl border border-[var(--line)] px-4 py-3">
             <input
@@ -428,9 +390,7 @@ export function AIWorkoutPage() {
             </label>
           </div>
           <div>
-            <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">
-              Lesões / restrições
-            </label>
+            <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">Lesões / restrições</label>
             <input
               type="text"
               value={injuries}
@@ -442,7 +402,6 @@ export function AIWorkoutPage() {
           </div>
         </div>
 
-        {/* Actions */}
         <div className="flex flex-wrap gap-2 pt-1">
           <button
             type="button"
@@ -465,10 +424,8 @@ export function AIWorkoutPage() {
         </div>
       </motion.article>
 
-      {/* Results area (shown below the form) */}
+      {/* Results */}
       <div ref={resultRef} className="space-y-4">
-
-        {/* Completed workout cards — shown progressively */}
         {sections.map((section, idx) => (
           <motion.article
             key={idx}
@@ -495,7 +452,30 @@ export function AIWorkoutPage() {
               </div>
             </div>
 
-            {/* AI text */}
+            {/* Exercise list from structured JSON — always consistent */}
+            {section.workoutData ? (
+              <div className="rounded-xl border border-[var(--line)] overflow-hidden">
+                {section.workoutData.exercises.map((ex, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center gap-3 px-4 py-3 border-b border-[var(--line)] last:border-0 odd:bg-[var(--surface)] even:bg-[var(--bg)]"
+                  >
+                    <span className="w-6 shrink-0 text-center text-xs font-bold text-[var(--brand)]">
+                      {i + 1}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-[var(--text)] truncate">{ex.name}</p>
+                      <p className="text-xs text-[var(--muted)]">
+                        {ex.sets} séries · {ex.repsMin ?? '?'}–{ex.repsMax ?? '?'} reps
+                        {ex.restSec ? ` · ${ex.restSec}s descanso` : ''}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {/* AI observations text */}
             <div className="rounded-xl border border-[var(--line)] p-4">
               <AITextRenderer text={section.displayText} />
             </div>
@@ -545,7 +525,6 @@ export function AIWorkoutPage() {
           </motion.article>
         ))}
 
-        {/* Loading indicator for next workout */}
         {loading ? (
           <motion.div
             initial={{ opacity: 0 }}
@@ -565,7 +544,17 @@ export function AIWorkoutPage() {
   )
 }
 
-// ─── Light markdown renderer ──────────────────────────────────────────────────
+// ─── Markdown renderer ────────────────────────────────────────────────────────
+
+function renderInlineBold(text: string): React.ReactNode {
+  const parts = text.split(/\*\*([^*]+)\*\*/)
+  if (parts.length === 1) return text
+  return parts.map((part, i) =>
+    i % 2 === 1
+      ? <strong key={i} className="font-bold text-[var(--text)]">{part}</strong>
+      : part
+  )
+}
 
 function AITextRenderer({ text }: { text: string }) {
   const lines = text.split('\n')
@@ -581,11 +570,17 @@ function AITextRenderer({ text }: { text: string }) {
             </h3>
           )
         }
-        if (trimmed.startsWith('### ') || (trimmed.startsWith('**') && trimmed.endsWith('**'))) {
-          const content = trimmed.startsWith('### ') ? trimmed.slice(4) : trimmed.slice(2, -2)
+        if (trimmed.startsWith('### ')) {
           return (
             <h4 key={idx} className="mt-3 font-bold text-[var(--text)]">
-              {content}
+              {trimmed.slice(4)}
+            </h4>
+          )
+        }
+        if (trimmed.startsWith('**') && trimmed.endsWith('**') && trimmed.length > 4) {
+          return (
+            <h4 key={idx} className="mt-3 font-bold text-[var(--text)]">
+              {trimmed.slice(2, -2)}
             </h4>
           )
         }
@@ -593,7 +588,7 @@ function AITextRenderer({ text }: { text: string }) {
           return (
             <p key={idx} className="pl-4 text-[var(--muted)]">
               <span className="mr-2 text-[var(--brand)]">•</span>
-              {trimmed.slice(2)}
+              {renderInlineBold(trimmed.slice(2))}
             </p>
           )
         }
@@ -602,7 +597,7 @@ function AITextRenderer({ text }: { text: string }) {
         }
         return (
           <p key={idx} className="leading-relaxed text-[var(--text)]">
-            {trimmed}
+            {renderInlineBold(trimmed)}
           </p>
         )
       })}

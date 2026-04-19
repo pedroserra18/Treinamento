@@ -4,7 +4,8 @@ import { generateWorkout, saveAIWorkout } from "./ai.service";
 
 export async function generateWorkoutController(req: Request, res: Response): Promise<void> {
   const body = req.body as GenerateWorkoutBody;
-  const text = await generateWorkout(body);
+  const userId = req.context?.userId;
+  const text = await generateWorkout(body, userId);
   res.json({ text });
 }
 
