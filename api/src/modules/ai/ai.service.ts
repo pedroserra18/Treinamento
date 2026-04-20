@@ -55,39 +55,49 @@ EXERCÍCIOS — REGRA CRÍTICA:
 - NUNCA inventes nomes de exercícios. NUNCA uses um exercício que não esteja na lista.
 - Se não houver exercício ideal para um grupo muscular, escolhe o mais próximo disponível na lista.
 
+ORDEM DOS EXERCÍCIOS — REGRA OBRIGATÓRIA:
+Sempre começa pelos exercícios do músculo com FOCO/ÊNFASE do usuário. Coloca todos os exercícios desse músculo primeiro, depois os demais grupos musculares em ordem de prioridade (compostos antes de isoladores).
+
+LIMITES MÁXIMOS DE SÉRIES POR MÚSCULO POR SESSÃO (não ultrapassa estes limites, a menos que o usuário peça explicitamente mais volume):
+- Upper/Lower: máximo 7 séries por músculo por sessão
+- Full Body: máximo 4 séries por músculo por sessão
+- Torso/Limbs: máximo 7 séries por músculo por sessão
+- PPL (Push/Pull/Legs): máximo 10 séries por músculo por sessão
+- Bro Split: máximo 14 séries por músculo por sessão
+
+VOLUME ALVO POR GRUPO MUSCULAR (dentro dos limites acima):
+- COSTAS: 4 a 5 séries por sessão (aguenta mais volume; usa 2 exercícios se necessário).
+- QUADRÍCEPS: 4 a 5 séries por sessão.
+- GLÚTEOS: 4 a 5 séries por sessão.
+- MÚSCULO COM FOCO/ÊNFASE DO USUÁRIO: 4 a 5 séries, podendo usar 2 exercícios para atingir esse volume.
+- PANTURRILHA e POSTERIOR DE COXA: 2 a 3 séries por sessão.
+- DEMAIS MÚSCULOS: 3 séries por sessão.
+- As séries são totais por grupo muscular e podem ser distribuídas em 1 ou 2 exercícios.
+
 COBERTURA MUSCULAR OBRIGATÓRIA — REGRAS ABSOLUTAS:
 
 UPPER (qualquer variante A/B):
-- DEVE obrigatoriamente incluir pelo menos 1 exercício de cada grupo: PEITO, OMBROS, COSTAS, BÍCEPS, TRÍCEPS.
+- DEVE incluir obrigatoriamente pelo menos 1 exercício de CADA um destes grupos: PEITO, OMBROS, COSTAS, BÍCEPS, TRÍCEPS.
 - Incluir também 1 exercício de ABDÔMEN ou CORE.
-- NUNCA incluir exercícios de pernas, quadríceps, posterior de coxa, glúteos ou panturrilha num treino Upper — mesmo que o foco muscular do usuário seja de membros inferiores.
-- Se o foco muscular for de membros superiores (peito, costas, ombros, bíceps, tríceps), aplica ênfase naquele músculo com mais exercícios e volume.
-- Se o foco muscular for de membros inferiores, ignora o foco e monta o Upper normalmente sem ênfase especial.
+- O resultado típico é 8 a 10 exercícios por sessão Upper para cobrir todos os grupos com o volume correto.
+- NUNCA incluir exercícios de pernas, quadríceps, posterior de coxa, glúteos ou panturrilha num treino Upper.
+- Se o foco for de membros inferiores, ignora e monta o Upper normalmente.
 
 LOWER (qualquer variante A/B):
-- DEVE obrigatoriamente incluir exercícios de QUADRÍCEPS, POSTERIOR DE COXA, GLÚTEOS e PANTURRILHA.
-- NUNCA incluir exercícios de peito, costas, ombros, bíceps ou tríceps num treino Lower — mesmo que o foco muscular do usuário seja de membros superiores.
-- Se o foco muscular for de membros inferiores (quadríceps, posterior, glúteos), aplica ênfase naquele músculo com mais exercícios e volume.
-- Se o foco muscular for de membros superiores, ignora o foco e monta o Lower normalmente.
+- DEVE incluir obrigatoriamente exercícios de QUADRÍCEPS, POSTERIOR DE COXA, GLÚTEOS e PANTURRILHA.
+- O resultado típico é 6 a 8 exercícios por sessão Lower para cobrir todos os grupos com o volume correto.
+- NUNCA incluir exercícios de peito, costas, ombros, bíceps ou tríceps num treino Lower.
+- Se o foco for de membros superiores, ignora e monta o Lower normalmente.
 
-FULL BODY: cada sessão DEVE incluir QUADRÍCEPS, POSTERIOR DE COXA ou GLÚTEOS, PEITO ou OMBROS (push), COSTAS (pull), e ABDÔMEN ou CORE.
+FULL BODY: cada sessão DEVE incluir QUADRÍCEPS, POSTERIOR DE COXA ou GLÚTEOS, PEITO ou OMBROS (push), COSTAS (pull), e ABDÔMEN ou CORE. Resultado típico: 6 a 8 exercícios.
 PUSH: peito, ombros, tríceps. PULL: costas, bíceps. LEGS: quadríceps, posterior de coxa, glúteos, panturrilha.
 Não repitas o mesmo exercício em dias diferentes do mesmo plano.
 
-VOLUME POR GRUPO MUSCULAR — SÉRIES POR SESSÃO:
-- COSTAS: sempre 4 a 5 séries por sessão (aguenta mais volume).
-- QUADRÍCEPS: 4 a 5 séries por sessão.
-- GLÚTEOS: 4 a 5 séries por sessão.
-- MÚSCULO COM FOCO/ÊNFASE DO USUÁRIO: 4 a 5 séries por sessão, com exercícios a mais para esse grupo.
-- PANTURRILHA e POSTERIOR DE COXA: 2 a 3 séries por sessão.
-- DEMAIS MÚSCULOS sem ênfase especial: 3 séries por sessão.
-- As séries acima são totais por grupo muscular, podendo ser distribuídas em 1 ou 2 exercícios.
-
 HIERARQUIA DE DECISÃO:
-1. A estrutura do treino é determinada pela frequência semanal: 2-3 dias → Full Body ou Upper/Lower; 4 dias → Upper/Lower ou Torso/Limbs; 5-6 dias → PPL. Se o usuário especificar a divisão, seguir exatamente.
-2. O foco muscular é uma ênfase dentro da estrutura — mais exercícios e volume para aquele músculo, respeitando as restrições de cobertura por tipo de treino acima.
-3. Para homens sem foco especificado: ênfase em membros superiores. Para mulheres: ênfase em membros inferiores.
-4. Nunca cria treino de músculo isolado (só bíceps, só ombros) a menos que o usuário peça explicitamente Bro Split.
+1. A estrutura é determinada pela frequência: 2-3 dias → Full Body ou Upper/Lower; 4 dias → Upper/Lower ou Torso/Limbs; 5-6 dias → PPL. Se o usuário especificar, seguir exatamente.
+2. O foco muscular é ênfase dentro da estrutura — mais exercícios e volume para aquele músculo, respeitando as restrições acima.
+3. Para homens sem foco: ênfase em membros superiores. Para mulheres: ênfase em membros inferiores.
+4. Nunca cria treino de músculo isolado a menos que o usuário peça explicitamente Bro Split.
 
 REPETIÇÕES E DESCANSO:
 - Range padrão: 5-9 reps (repsMin:5, repsMax:9). Só usa 8-12 se objetivo for emagrecimento ou usuário pedir.
@@ -155,7 +165,7 @@ export async function generateWorkout(payload: GenerateWorkoutBody, userId?: str
       { role: "system", content: systemPrompt },
       { role: "user", content: userMessage },
     ],
-    max_tokens: 5000,
+    max_tokens: 8000,
     temperature: 0.7,
   });
 
