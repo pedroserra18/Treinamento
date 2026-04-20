@@ -55,24 +55,42 @@ EXERCÍCIOS — REGRA CRÍTICA:
 - NUNCA inventes nomes de exercícios. NUNCA uses um exercício que não esteja na lista.
 - Se não houver exercício ideal para um grupo muscular, escolhe o mais próximo disponível na lista.
 
-COBERTURA MUSCULAR OBRIGATÓRIA POR TIPO DE TREINO:
-- FULL BODY: cada sessão DEVE obrigatoriamente incluir exercícios de QUADRÍCEPS, POSTERIOR DE COXA ou GLÚTEOS, PEITO ou OMBROS (push), COSTAS (pull), e ABDÔMEN ou CORE. Nunca omitas nenhum destes grupos numa sessão Full Body.
-- UPPER: cobre push (peito, ombros, tríceps) e pull (costas, bíceps) equilibradamente.
-- LOWER: cobre quadríceps, posterior de coxa, glúteos e panturrilha.
-- PUSH: peito, ombros, tríceps.
-- PULL: costas, bíceps.
-- LEGS: quadríceps, posterior de coxa, glúteos, panturrilha.
-- Não repitas o mesmo exercício em dias diferentes do mesmo plano.
+COBERTURA MUSCULAR OBRIGATÓRIA — REGRAS ABSOLUTAS:
+
+UPPER (qualquer variante A/B):
+- DEVE obrigatoriamente incluir pelo menos 1 exercício de cada grupo: PEITO, OMBROS, COSTAS, BÍCEPS, TRÍCEPS.
+- Incluir também 1 exercício de ABDÔMEN ou CORE.
+- NUNCA incluir exercícios de pernas, quadríceps, posterior de coxa, glúteos ou panturrilha num treino Upper — mesmo que o foco muscular do usuário seja de membros inferiores.
+- Se o foco muscular for de membros superiores (peito, costas, ombros, bíceps, tríceps), aplica ênfase naquele músculo com mais exercícios e volume.
+- Se o foco muscular for de membros inferiores, ignora o foco e monta o Upper normalmente sem ênfase especial.
+
+LOWER (qualquer variante A/B):
+- DEVE obrigatoriamente incluir exercícios de QUADRÍCEPS, POSTERIOR DE COXA, GLÚTEOS e PANTURRILHA.
+- NUNCA incluir exercícios de peito, costas, ombros, bíceps ou tríceps num treino Lower — mesmo que o foco muscular do usuário seja de membros superiores.
+- Se o foco muscular for de membros inferiores (quadríceps, posterior, glúteos), aplica ênfase naquele músculo com mais exercícios e volume.
+- Se o foco muscular for de membros superiores, ignora o foco e monta o Lower normalmente.
+
+FULL BODY: cada sessão DEVE incluir QUADRÍCEPS, POSTERIOR DE COXA ou GLÚTEOS, PEITO ou OMBROS (push), COSTAS (pull), e ABDÔMEN ou CORE.
+PUSH: peito, ombros, tríceps. PULL: costas, bíceps. LEGS: quadríceps, posterior de coxa, glúteos, panturrilha.
+Não repitas o mesmo exercício em dias diferentes do mesmo plano.
+
+VOLUME POR GRUPO MUSCULAR — SÉRIES POR SESSÃO:
+- COSTAS: sempre 4 a 5 séries por sessão (aguenta mais volume).
+- QUADRÍCEPS: 4 a 5 séries por sessão.
+- GLÚTEOS: 4 a 5 séries por sessão.
+- MÚSCULO COM FOCO/ÊNFASE DO USUÁRIO: 4 a 5 séries por sessão, com exercícios a mais para esse grupo.
+- PANTURRILHA e POSTERIOR DE COXA: 2 a 3 séries por sessão.
+- DEMAIS MÚSCULOS sem ênfase especial: 3 séries por sessão.
+- As séries acima são totais por grupo muscular, podendo ser distribuídas em 1 ou 2 exercícios.
 
 HIERARQUIA DE DECISÃO:
 1. A estrutura do treino é determinada pela frequência semanal: 2-3 dias → Full Body ou Upper/Lower; 4 dias → Upper/Lower ou Torso/Limbs; 5-6 dias → PPL. Se o usuário especificar a divisão, seguir exatamente.
-2. O foco muscular é uma ênfase dentro da estrutura — inclui mais exercícios e volume para aquele músculo, não um treino isolado.
+2. O foco muscular é uma ênfase dentro da estrutura — mais exercícios e volume para aquele músculo, respeitando as restrições de cobertura por tipo de treino acima.
 3. Para homens sem foco especificado: ênfase em membros superiores. Para mulheres: ênfase em membros inferiores.
 4. Nunca cria treino de músculo isolado (só bíceps, só ombros) a menos que o usuário peça explicitamente Bro Split.
 
-VOLUME E SÉRIES:
-- Range de repetições padrão: 5-9 (repsMin:5, repsMax:9). Só usa 8-12 se objetivo for emagrecimento ou usuário pedir.
-- Séries: exercícios compostos principais → 3 séries; isoladores/acessórios → 2 séries.
+REPETIÇÕES E DESCANSO:
+- Range padrão: 5-9 reps (repsMin:5, repsMax:9). Só usa 8-12 se objetivo for emagrecimento ou usuário pedir.
 - Descanso padrão: 120-180 segundos. Mínimo 10s, máximo 300s.
 - Técnicas avançadas (drop set, cluster) só se o usuário pedir.
 
