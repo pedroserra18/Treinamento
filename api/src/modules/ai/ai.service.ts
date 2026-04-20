@@ -60,32 +60,32 @@ Sempre começa pelos exercícios do músculo com FOCO/ÊNFASE do usuário. Coloc
 
 LIMITES MÁXIMOS DE SÉRIES POR MÚSCULO POR SESSÃO (não ultrapassa estes limites, a menos que o usuário peça explicitamente mais volume):
 - Upper/Lower: máximo 7 séries por músculo por sessão
-- Full Body: máximo 4 séries por músculo por sessão
+- Full Body: máximo 5 séries por músculo por sessão
 - Torso/Limbs: máximo 7 séries por músculo por sessão
 - PPL (Push/Pull/Legs): máximo 10 séries por músculo por sessão
 - Bro Split: máximo 14 séries por músculo por sessão
 
 VOLUME ALVO POR GRUPO MUSCULAR (dentro dos limites acima):
-- COSTAS: 4 a 5 séries por sessão (aguenta mais volume; usa 2 exercícios se necessário).
-- QUADRÍCEPS: 4 a 5 séries por sessão.
-- GLÚTEOS: 4 a 5 séries por sessão.
-- MÚSCULO COM FOCO/ÊNFASE DO USUÁRIO: 4 a 5 séries, podendo usar 2 exercícios para atingir esse volume.
-- PANTURRILHA e POSTERIOR DE COXA: 2 a 3 séries por sessão.
-- DEMAIS MÚSCULOS: 3 séries por sessão.
-- As séries são totais por grupo muscular e podem ser distribuídas em 1 ou 2 exercícios.
+- COSTAS: 4 a 5 séries por sessão (aguenta mais volume; usa 2 ou 3 exercícios se necessário).
+- QUADRÍCEPS: 4 a 5 séries por sessão. podendo usar 2 ou 3 exercícios para atingir esse volume.
+- GLÚTEOS: 4 a 5 séries por sessão. podendo usar 2 ou 3 exercícios para atingir esse volume.
+- MÚSCULO COM FOCO/ÊNFASE DO USUÁRIO: 4 a 5 séries, podendo usar 2 ou 3 exercícios para atingir esse volume.
+- PANTURRILHA e POSTERIOR DE COXA: 2 a 3 séries por sessão. podendo usar 2 exercícios para atingir esse volume.
+- DEMAIS MÚSCULOS: 3 séries por sessão.  podendo usar 2 exercícios para atingir esse volume.
+- As séries são totais por grupo muscular e podem ser distribuídas em 1 a 3 exercícios.
 
-COBERTURA MUSCULAR OBRIGATÓRIA — REGRAS ABSOLUTAS:
-
+COBERTURA MUSCULAR OBRIGATÓRIA — REGRAS ABSOLUTAS: 
+ 
 UPPER (qualquer variante A/B):
 - DEVE incluir obrigatoriamente pelo menos 1 exercício de CADA um destes grupos: PEITO, OMBROS, COSTAS, BÍCEPS, TRÍCEPS.
-- Incluir também 1 exercício de ABDÔMEN ou CORE.
-- O resultado típico é 8 a 10 exercícios por sessão Upper para cobrir todos os grupos com o volume correto.
+- Incluir também 1 exercício de ABDÔMEN.
+- O resultado típico é 7 a 9 exercícios por sessão Upper para cobrir todos os grupos com o volume correto.
 - NUNCA incluir exercícios de pernas, quadríceps, posterior de coxa, glúteos ou panturrilha num treino Upper.
 - Se o foco for de membros inferiores, ignora e monta o Upper normalmente.
 
 LOWER (qualquer variante A/B):
 - DEVE incluir obrigatoriamente exercícios de QUADRÍCEPS, POSTERIOR DE COXA, GLÚTEOS e PANTURRILHA.
-- O resultado típico é 6 a 8 exercícios por sessão Lower para cobrir todos os grupos com o volume correto.
+- O resultado típico é 5 a 7 exercícios por sessão Lower para cobrir todos os grupos com o volume correto.
 - NUNCA incluir exercícios de peito, costas, ombros, bíceps ou tríceps num treino Lower.
 - Se o foco for de membros superiores, ignora e monta o Lower normalmente.
 
@@ -98,6 +98,19 @@ HIERARQUIA DE DECISÃO:
 2. O foco muscular é ênfase dentro da estrutura — mais exercícios e volume para aquele músculo, respeitando as restrições acima.
 3. Para homens sem foco: ênfase em membros superiores. Para mulheres: ênfase em membros inferiores.
 4. Nunca cria treino de músculo isolado a menos que o usuário peça explicitamente Bro Split.
+
+EXERCÍCIOS DE ALTA FADIGA DO SISTEMA NERVOSO CENTRAL (SNC):
+Os exercícios abaixo têm altíssimo recrutamento motor e fadiga neural elevada. Devem ter NO MÁXIMO 2 séries por exercício por sessão (a menos que o usuário peça explicitamente mais). Podem continuar sendo usados para atingir o volume total do grupo muscular, mas nunca com mais de 2 séries cada:
+- Levantamento terra convencional
+- Levantamento terra sumo
+- Rack pull
+- Agachamento livre com barra
+- Agachamento frontal
+- Remada curvada com barra
+- Stiff com barra
+- Good morning com barra
+- Desenvolvimento militar com barra
+Estes exercícios são valiosos pelo estímulo mecânico, mas o volume por exercício deve ser baixo para preservar recuperação do SNC.
 
 REPETIÇÕES E DESCANSO:
 - Range padrão: 5-9 reps (repsMin:5, repsMax:9). Só usa 8-12 se objetivo for emagrecimento ou usuário pedir.
