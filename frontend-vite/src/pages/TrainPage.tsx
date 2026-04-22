@@ -1181,18 +1181,18 @@ export function TrainPage() {
     return (
       <section className="space-y-4">
 
-        {/* Fixed bottom rest timer bar */}
+        {/* Fixed bottom rest timer bar — mirrors navbar positioning */}
         {runningExercise ? (
           <motion.div
             initial={{ y: 100, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            className={`fixed bottom-0 left-0 right-0 z-50 border-t shadow-2xl px-4 py-3 ${
+            className={`fixed bottom-3 left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2 rounded-2xl border shadow-2xl px-4 py-3 ${
               runningExercise.restRemainingSec <= 10
                 ? 'border-red-500/50 bg-red-950/95'
                 : 'border-green-500/40 bg-[var(--surface)]'
             }`}
           >
-            <div className="mx-auto flex max-w-2xl items-center gap-4">
+            <div className="flex items-center gap-4">
               <div className="flex-1 min-w-0">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
                   Descansando
@@ -1219,9 +1219,9 @@ export function TrainPage() {
           <motion.div
             initial={{ y: 100, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
-            className="fixed bottom-0 left-0 right-0 z-50 border-t border-green-500/40 bg-[var(--surface)] shadow-2xl px-4 py-3 pointer-events-none"
+            className="fixed bottom-3 left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2 rounded-2xl border border-green-500/40 bg-[var(--surface)] shadow-2xl px-4 py-3 pointer-events-none"
           >
-            <div className="mx-auto flex max-w-2xl items-center justify-center gap-3">
+            <div className="flex items-center justify-center gap-3">
               <span className="text-2xl text-green-400">✓</span>
               <p className="text-base font-bold text-[var(--text)]">Descanso acabou!</p>
               <span className="text-sm text-[var(--muted)]">— {restFinishedName}</span>
