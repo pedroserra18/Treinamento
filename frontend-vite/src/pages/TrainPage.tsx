@@ -1181,46 +1181,52 @@ export function TrainPage() {
     return (
       <section className="space-y-4">
 
-        {/* Floating rest timer card */}
+        {/* Fixed bottom rest timer bar */}
         {runningExercise ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              className="pointer-events-auto mx-4 w-full max-w-xs rounded-2xl border border-[var(--brand)]/40 bg-[var(--surface)] p-6 shadow-2xl text-center space-y-3"
-            >
-              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-                Descansando
-              </p>
-              <p className="text-sm font-semibold text-[var(--text)] truncate">
-                {runningExercise.exerciseName}
-              </p>
-              <p className="text-6xl font-black tabular-nums text-[var(--brand)]">
+          <motion.div
+            initial={{ y: 100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            className={`fixed bottom-0 left-0 right-0 z-50 border-t shadow-2xl px-4 py-3 ${
+              runningExercise.restRemainingSec <= 10
+                ? 'border-red-500/50 bg-red-950/95'
+                : 'border-green-500/40 bg-[var(--surface)]'
+            }`}
+          >
+            <div className="mx-auto flex max-w-2xl items-center gap-4">
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+                  Descansando
+                </p>
+                <p className="truncate text-sm font-semibold text-[var(--text)]">
+                  {runningExercise.exerciseName}
+                </p>
+              </div>
+              <p className={`text-4xl font-black tabular-nums shrink-0 ${
+                runningExercise.restRemainingSec <= 10 ? 'text-red-400' : 'text-green-400'
+              }`}>
                 {formatClock(runningExercise.restRemainingSec)}
               </p>
               <button
                 type="button"
                 onClick={() => toggleRestTimer(activeExercises.indexOf(runningExercise))}
-                className="w-full rounded-xl border border-[var(--line)] py-2 text-sm font-semibold text-[var(--text)]"
+                className="shrink-0 rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)]"
               >
-                Pular descanso
+                Pular
               </button>
-            </motion.div>
-          </div>
+            </div>
+          </motion.div>
         ) : restFinishedName ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              className="pointer-events-none mx-4 w-full max-w-xs rounded-2xl border border-green-500/40 bg-[var(--surface)] p-6 shadow-2xl text-center space-y-2"
-            >
-              <p className="text-4xl font-black text-green-400">✓</p>
-              <p className="text-lg font-bold text-[var(--text)]">Descanso acabou!</p>
-              <p className="text-sm text-[var(--muted)]">{restFinishedName}</p>
-            </motion.div>
-          </div>
+          <motion.div
+            initial={{ y: 100, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            className="fixed bottom-0 left-0 right-0 z-50 border-t border-green-500/40 bg-[var(--surface)] shadow-2xl px-4 py-3 pointer-events-none"
+          >
+            <div className="mx-auto flex max-w-2xl items-center justify-center gap-3">
+              <span className="text-2xl text-green-400">✓</span>
+              <p className="text-base font-bold text-[var(--text)]">Descanso acabou!</p>
+              <span className="text-sm text-[var(--muted)]">— {restFinishedName}</span>
+            </div>
+          </motion.div>
         ) : null}
 
         <motion.header
