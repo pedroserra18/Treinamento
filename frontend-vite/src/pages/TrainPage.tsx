@@ -608,9 +608,9 @@ export function TrainPage() {
             return {
               ...s,
               checked: true,
-              weightKg: lastSet?.weightKg != null ? String(lastSet.weightKg) : s.weightKg,
-              reps: lastSet?.reps != null ? String(lastSet.reps) : s.reps,
-              rir: lastSet?.rir != null ? String(lastSet.rir) : s.rir,
+              weightKg: s.weightKg.trim() === '' && lastSet?.weightKg != null ? String(lastSet.weightKg) : s.weightKg,
+              reps: s.reps.trim() === '' && lastSet?.reps != null ? String(lastSet.reps) : s.reps,
+              rir: s.rir.trim() === '' && lastSet?.rir != null ? String(lastSet.rir) : s.rir,
             }
           })
 
