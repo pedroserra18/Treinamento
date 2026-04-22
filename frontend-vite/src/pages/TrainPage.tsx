@@ -37,6 +37,7 @@ type ExerciseSetInput = {
   dropSets: DropEntry[]
   clusterReps: string
   clusterCount: string
+  checked: boolean
 }
 
 type ActiveExercise = {
@@ -56,7 +57,7 @@ type ActiveExercise = {
 }
 
 function createSet(reps = '', weightKg = '', rir = ''): ExerciseSetInput {
-  return { reps, weightKg, rir, setType: 'normal', dropSets: [{ weightKg: '', reps: '' }], clusterReps: '', clusterCount: '' }
+  return { reps, weightKg, rir, setType: 'normal', dropSets: [{ weightKg: '', reps: '' }], clusterReps: '', clusterCount: '', checked: false }
 }
 
 function formatDateTime(value: Date | null): string {
@@ -591,6 +592,41 @@ export function TrainPage() {
       ),
     )
   }
+
+  const completeSet = useCallback(
+    (exerciseIndex: number, setIndex: number) => {
+      setActiveExercises((current) =>
+        current.map((exercise, idx) => {
+          if (idx !== exerciseIndex) return exercise
+
+          const wasChecked = exercise.sets[setIndex]?.checked ?? false
+          const lastSet = lastPerformanceByExercise[exercise.exerciseId]?.[setIndex + 1]
+
+          const newSets = exercise.sets.map((s, sIdx) => {
+            if (sIdx !== setIndex) return s
+            if (wasChecked) return { ...s, checked: false }
+            return {
+              ...s,
+              checked: true,
+              weightKg: lastSet?.weightKg != null ? String(lastSet.weightKg) : s.weightKg,
+              reps: lastSet?.reps != null ? String(lastSet.reps) : s.reps,
+              rir: lastSet?.rir != null ? String(lastSet.rir) : s.rir,
+            }
+          })
+
+          const shouldStartRest = !wasChecked && exercise.restDurationSec > 0
+
+          return {
+            ...exercise,
+            sets: newSets,
+            restRemainingSec: shouldStartRest ? exercise.restDurationSec : exercise.restRemainingSec,
+            restRunning: shouldStartRest ? true : exercise.restRunning,
+          }
+        }),
+      )
+    },
+    [lastPerformanceByExercise],
+  )
 
   const startRestEdit = (exerciseIndex: number) => {
     const target = activeExercises[exerciseIndex]
@@ -1329,10 +1365,26 @@ export function TrainPage() {
                     return (
                   <div
                     key={`${exercise.exerciseId}-${setIndex}`}
-                    className="space-y-2 rounded-xl border border-[var(--line)] p-3"
+                    className={`space-y-2 rounded-xl border p-3 transition-colors ${
+                      setInput.checked
+                        ? 'border-green-500/50 bg-green-500/5'
+                        : 'border-[var(--line)]'
+                    }`}
                   >
-                    {/* Header: label + type selector + remove */}
+                    {/* Header: check + label + type selector + remove */}
                     <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => completeSet(exerciseIndex, setIndex)}
+                        title={setInput.checked ? 'Clique para desmarcar' : 'Concluir série (preenche com última sessão)'}
+                        className={`h-7 w-7 shrink-0 rounded-full border-2 flex items-center justify-center text-sm font-bold transition-colors ${
+                          setInput.checked
+                            ? 'border-green-500 bg-green-500 text-white'
+                            : 'border-[var(--line)] bg-transparent text-[var(--muted)] hover:border-green-500/60 hover:text-green-400'
+                        }`}
+                      >
+                        ✓
+                      </button>
                       <span className="shrink-0 text-xs font-bold text-[var(--muted)]">
                         Serie {setIndex + 1}
                       </span>
