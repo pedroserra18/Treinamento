@@ -204,6 +204,7 @@ export function TrainPage() {
   >({})
   const [editingRestExerciseIndex, setEditingRestExerciseIndex] = useState<number | null>(null)
   const [restDraftSec, setRestDraftSec] = useState('0')
+  const [restFinishedName, setRestFinishedName] = useState<string | null>(null)
 
   const [summaryName, setSummaryName] = useState('')
   const [summaryDurationMin, setSummaryDurationMin] = useState('')
@@ -255,30 +256,27 @@ export function TrainPage() {
     }
 
     const id = window.setInterval(() => {
-      setActiveExercises((current) =>
-        current.map((exercise) => {
-          if (!exercise.restRunning) {
-            return exercise
-          }
-
+      setActiveExercises((current) => {
+        const next = current.map((exercise) => {
+          if (!exercise.restRunning) return exercise
           if (exercise.restRemainingSec <= 1) {
-            return {
-              ...exercise,
-              restRemainingSec: 0,
-              restRunning: false,
-            }
+            setRestFinishedName(exercise.exerciseName)
+            return { ...exercise, restRemainingSec: 0, restRunning: false }
           }
-
-          return {
-            ...exercise,
-            restRemainingSec: exercise.restRemainingSec - 1,
-          }
-        }),
-      )
+          return { ...exercise, restRemainingSec: exercise.restRemainingSec - 1 }
+        })
+        return next
+      })
     }, 1000)
 
     return () => window.clearInterval(id)
   }, [screen])
+
+  useEffect(() => {
+    if (!restFinishedName) return
+    const id = window.setTimeout(() => setRestFinishedName(null), 3000)
+    return () => window.clearTimeout(id)
+  }, [restFinishedName])
 
   useEffect(() => {
     return () => {
@@ -622,6 +620,12 @@ export function TrainPage() {
             restRemainingSec: shouldStartRest ? exercise.restDurationSec : exercise.restRemainingSec,
             restRunning: shouldStartRest ? true : exercise.restRunning,
           }
+        }).map((exercise, idx) => {
+          // stop rest on all OTHER exercises when starting a new one
+          if (idx !== exerciseIndex && current[exerciseIndex]?.sets[setIndex]?.checked === false) {
+            return { ...exercise, restRunning: false }
+          }
+          return exercise
         }),
       )
     },
@@ -1172,8 +1176,53 @@ export function TrainPage() {
   }
 
   if (screen === 'ACTIVE') {
+    const runningExercise = activeExercises.find((e) => e.restRunning)
+
     return (
       <section className="space-y-4">
+
+        {/* Floating rest timer card */}
+        {runningExercise ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="pointer-events-auto mx-4 w-full max-w-xs rounded-2xl border border-[var(--brand)]/40 bg-[var(--surface)] p-6 shadow-2xl text-center space-y-3"
+            >
+              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                Descansando
+              </p>
+              <p className="text-sm font-semibold text-[var(--text)] truncate">
+                {runningExercise.exerciseName}
+              </p>
+              <p className="text-6xl font-black tabular-nums text-[var(--brand)]">
+                {formatClock(runningExercise.restRemainingSec)}
+              </p>
+              <button
+                type="button"
+                onClick={() => toggleRestTimer(activeExercises.indexOf(runningExercise))}
+                className="w-full rounded-xl border border-[var(--line)] py-2 text-sm font-semibold text-[var(--text)]"
+              >
+                Pular descanso
+              </button>
+            </motion.div>
+          </div>
+        ) : restFinishedName ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="pointer-events-none mx-4 w-full max-w-xs rounded-2xl border border-green-500/40 bg-[var(--surface)] p-6 shadow-2xl text-center space-y-2"
+            >
+              <p className="text-4xl font-black text-green-400">✓</p>
+              <p className="text-lg font-bold text-[var(--text)]">Descanso acabou!</p>
+              <p className="text-sm text-[var(--muted)]">{restFinishedName}</p>
+            </motion.div>
+          </div>
+        ) : null}
+
         <motion.header
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -1330,20 +1379,8 @@ export function TrainPage() {
                       Descanso {formatClock(exercise.restDurationSec)}
                     </button>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => toggleRestTimer(exerciseIndex)}
-                    disabled={exercise.restDurationSec <= 0}
-                    className="rounded-lg border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--text)]"
-                  >
-                    {exercise.restRunning ? 'Pausar descanso' : 'Iniciar descanso'}
-                  </button>
                 </div>
               </div>
-
-              <p className="mt-1 text-sm text-[var(--muted)]">
-                Descanso atual: {formatClock(exercise.restRemainingSec)} (toque em "Descanso" para editar)
-              </p>
 
               <div className="mt-3 space-y-2">
                 {exercise.sets.map((setInput, setIndex) => (
