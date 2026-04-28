@@ -7,7 +7,19 @@
       "Bash(npm install *)",
       "Bash(npm --prefix frontend-vite run lint)",
       "Bash(npx eslint *)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(node -e \"require\\('./dist/index.js'\\)\")",
+      "Bash(npx ts-node *)",
+      "Bash(npx prisma *)",
+      "Bash(node -e ' *)",
+      "Bash(curl -s -X POST http://localhost:4000/api/v1/auth/login -H \"Content-Type: application/json\" -d \"{\\\\\"email\\\\\":\\\\\"pedrovasco199134@gmail.com\\\\\",\\\\\"password\\\\\":\\\\\"test\\\\\"}\")",
+      "Bash(curl -s -X POST http://localhost:4000/api/v1/auth/login -H \"Content-Type: application/json\" -d \"{\\\\\"email\\\\\":\\\\\"pedrovasco199134@gmail.com\\\\\",\\\\\"password\\\\\":\\\\\"Palcs1991\\\\\"}\")",
+      "Bash(npx tsx *)",
+      "Bash(curl -s -X POST http://localhost:4000/api/v1/auth/login -H \"Content-Type: application/json\" -d \"{\\\\\"email\\\\\":\\\\\"pedrovasco199134@gmail.com\\\\\",\\\\\"password\\\\\":\\\\\"Palcs1991@\\\\\"}\")",
+      "Read(//tmp/**)",
+      "Bash(kill %1)",
+      "Bash(powershell -Command \"Get-Process -Name 'node' -ErrorAction SilentlyContinue | Stop-Process -Force; Get-Process -Name 'tsx' -ErrorAction SilentlyContinue | Stop-Process -Force\")",
+      "Bash(powershell -Command \"Get-Process -Name 'node' -ErrorAction SilentlyContinue | Stop-Process -Force\")"
     ]
   }
 }
