@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion'
+import { createPortal } from 'react-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { WorkoutsPage } from './WorkoutsPage'
@@ -588,6 +589,16 @@ export function TrainPage() {
             : { ...exercise, restRunning: !exercise.restRunning }
           : exercise,
       ),
+    )
+  }
+
+  const adjustRestTimer = (exerciseIndex: number, deltaSec: number) => {
+    setActiveExercises((current) =>
+      current.map((exercise, idx) => {
+        if (idx !== exerciseIndex) return exercise
+        const next = Math.max(1, exercise.restRemainingSec + deltaSec)
+        return { ...exercise, restRemainingSec: next }
+      }),
     )
   }
 
@@ -1181,53 +1192,79 @@ export function TrainPage() {
     return (
       <section className="space-y-4">
 
-        {/* Fixed bottom rest timer bar — mirrors navbar positioning */}
-        {runningExercise ? (
-          <motion.div
-            initial={{ y: 100, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            className={`fixed bottom-3 left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2 rounded-2xl border shadow-2xl px-4 py-3 ${
-              runningExercise.restRemainingSec <= 10
-                ? 'border-red-500/50 bg-red-950/95'
-                : 'border-green-500/40 bg-[var(--surface)]'
-            }`}
-          >
-            <div className="flex items-center gap-4">
-              <div className="flex-1 min-w-0">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
-                  Descansando
-                </p>
-                <p className="truncate text-sm font-semibold text-[var(--text)]">
-                  {runningExercise.exerciseName}
-                </p>
-              </div>
-              <p className={`text-4xl font-black tabular-nums shrink-0 ${
-                runningExercise.restRemainingSec <= 10 ? 'text-red-400' : 'text-green-400'
-              }`}>
-                {formatClock(runningExercise.restRemainingSec)}
-              </p>
-              <button
-                type="button"
-                onClick={() => toggleRestTimer(activeExercises.indexOf(runningExercise))}
-                className="shrink-0 rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)]"
-              >
-                Pular
-              </button>
-            </div>
-          </motion.div>
-        ) : restFinishedName ? (
-          <motion.div
-            initial={{ y: 100, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            className="fixed bottom-3 left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2 rounded-2xl border border-green-500/40 bg-[var(--surface)] shadow-2xl px-4 py-3 pointer-events-none"
-          >
-            <div className="flex items-center justify-center gap-3">
-              <span className="text-2xl text-green-400">✓</span>
-              <p className="text-base font-bold text-[var(--text)]">Descanso acabou!</p>
-              <span className="text-sm text-[var(--muted)]">— {restFinishedName}</span>
-            </div>
-          </motion.div>
-        ) : null}
+        {/* Fixed bottom rest timer bar — rendered via portal to escape framer-motion transform context */}
+        {runningExercise
+          ? createPortal(
+              (() => {
+                const isLow = runningExercise.restRemainingSec <= 10
+                const runningIndex = activeExercises.indexOf(runningExercise)
+                return (
+                  <motion.div
+                    key="rest-running"
+                    initial={{ y: 100, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    className={`fixed bottom-3 left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2 rounded-2xl border shadow-2xl px-4 py-3 bg-[var(--surface)] ${
+                      isLow ? 'border-red-500/40' : 'border-green-500/40'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
+                          Descansando
+                        </p>
+                        <p className="truncate text-sm font-semibold text-[var(--text)]">
+                          {runningExercise.exerciseName}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => adjustRestTimer(runningIndex, -15)}
+                        className="shrink-0 rounded-xl border border-[var(--line)] px-3 py-2 text-xs font-bold text-[var(--muted)]"
+                      >
+                        −15s
+                      </button>
+                      <p className={`text-4xl font-black tabular-nums shrink-0 ${
+                        isLow ? 'text-red-400' : 'text-green-400'
+                      }`}>
+                        {formatClock(runningExercise.restRemainingSec)}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => adjustRestTimer(runningIndex, 15)}
+                        className="shrink-0 rounded-xl border border-[var(--line)] px-3 py-2 text-xs font-bold text-[var(--muted)]"
+                      >
+                        +15s
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => toggleRestTimer(runningIndex)}
+                        className="shrink-0 rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)]"
+                      >
+                        Pular
+                      </button>
+                    </div>
+                  </motion.div>
+                )
+              })(),
+              document.body,
+            )
+          : restFinishedName
+            ? createPortal(
+                <motion.div
+                  key="rest-finished"
+                  initial={{ y: 100, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  className="fixed bottom-3 left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2 rounded-2xl border border-green-500/40 bg-[var(--surface)] shadow-2xl px-4 py-3 pointer-events-none"
+                >
+                  <div className="flex items-center justify-center gap-3">
+                    <span className="text-2xl text-green-400">✓</span>
+                    <p className="text-base font-bold text-[var(--text)]">Descanso acabou!</p>
+                    <span className="text-sm text-[var(--muted)]">— {restFinishedName}</span>
+                  </div>
+                </motion.div>,
+                document.body,
+              )
+            : null}
 
         <motion.header
           initial={{ opacity: 0, y: 8 }}
