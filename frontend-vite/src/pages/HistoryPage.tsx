@@ -1,12 +1,41 @@
 import { motion } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { WorkoutSessionHistory } from '../types/workout'
 import { listWorkoutHistory } from '../services/workoutService'
 import { getStoredWorkoutSessionImage } from '../lib/workout-session-image'
 import { SkeletonCard } from '../components/common/Skeleton'
 import { Dumbbell } from 'lucide-react'
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts'
+
+type Period = 'week' | 'month' | '3months' | 'all'
+
+function getWeekLabel(date: Date): string {
+  const d = new Date(date)
+  d.setDate(d.getDate() - d.getDay() + 1)
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+}
+
+function buildVolumeChart(items: WorkoutSessionHistory[]) {
+  const byWeek = new Map<string, number>()
+  for (const session of items) {
+    if (!session.endedAt) continue
+    const label = getWeekLabel(new Date(session.endedAt))
+    const vol = session.history.reduce((acc, e) => acc + (e.weightKg ?? 0) * (e.reps ?? 0), 0)
+    byWeek.set(label, (byWeek.get(label) ?? 0) + vol)
+  }
+  return Array.from(byWeek.entries())
+    .map(([week, volume]) => ({ week, volume: Math.round(volume) }))
+    .slice(-8)
+}
 
 function formatDuration(totalSeconds: number | null): string {
   if (!totalSeconds || totalSeconds <= 0) {
@@ -57,6 +86,18 @@ export function HistoryPage() {
   const [selectedSessionPhoto, setSelectedSessionPhoto] = useState<{ url: string; endedAt: string | null } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [period, setPeriod] = useState<Period>('all')
+
+  const filteredItems = useMemo(() => {
+    if (period === 'all') return items
+    const cutoff = new Date()
+    if (period === 'week') cutoff.setDate(cutoff.getDate() - 7)
+    else if (period === 'month') cutoff.setMonth(cutoff.getMonth() - 1)
+    else cutoff.setMonth(cutoff.getMonth() - 3)
+    return items.filter((s) => s.endedAt && new Date(s.endedAt) >= cutoff)
+  }, [items, period])
+
+  const chartData = useMemo(() => buildVolumeChart(filteredItems), [filteredItems])
 
   const selectedSession = items.find((session) => session.id === selectedSessionId) ?? null
   const selectedSessionImageUrl = selectedSession ? getStoredWorkoutSessionImage(selectedSession.id) : null
@@ -362,6 +403,44 @@ export function HistoryPage() {
 
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
 
+      {/* Period filter */}
+      <div className="flex flex-wrap gap-2">
+        {(['week', 'month', '3months', 'all'] as Period[]).map((p) => (
+          <button
+            key={p}
+            type="button"
+            onClick={() => setPeriod(p)}
+            className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+              period === p
+                ? 'border-[var(--brand)] bg-[var(--brand)] text-white'
+                : 'border-[var(--line)] text-[var(--muted)]'
+            }`}
+          >
+            {p === 'week' ? 'Semana' : p === 'month' ? 'Mês' : p === '3months' ? '3 meses' : 'Tudo'}
+          </button>
+        ))}
+      </div>
+
+      {/* Volume chart */}
+      {!loading && chartData.length > 0 ? (
+        <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">Volume semanal (kg)</p>
+          <ResponsiveContainer width="100%" height={160}>
+            <BarChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+              <XAxis dataKey="week" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
+              <Tooltip
+                contentStyle={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 8, fontSize: 12 }}
+                labelStyle={{ color: 'var(--text)' }}
+                itemStyle={{ color: 'var(--brand)' }}
+                formatter={(v) => [`${v} kg`, 'Volume']}
+              />
+              <Bar dataKey="volume" fill="var(--brand)" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      ) : null}
+
       <div className="grid gap-3">
         {loading ? (
           <>
@@ -382,7 +461,11 @@ export function HistoryPage() {
           </div>
         ) : null}
 
-        {items.map((session, index) => (
+        {!loading && !error && items.length > 0 && filteredItems.length === 0 ? (
+          <p className="py-4 text-center text-sm text-[var(--muted)]">Nenhum treino no período selecionado.</p>
+        ) : null}
+
+        {filteredItems.map((session, index) => (
           (() => {
             const totalVolumeKg = calculateTotalVolumeKg(session)
 

@@ -181,6 +181,8 @@ function PostCard({ post, userId, onLike, onDelete, onProfileClick }: {
   )
 }
 
+type FeedFilter = 'todos' | 'curtidos'
+
 export function FeedPage() {
   const { authorizedFetch, user } = useAuth()
   const navigate = useNavigate()
@@ -190,6 +192,7 @@ export function FeedPage() {
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<UserSearchResult[]>([])
   const [searching, setSearching] = useState(false)
+  const [filter, setFilter] = useState<FeedFilter>('todos')
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const load = useCallback(async () => {
@@ -253,6 +256,8 @@ export function FeedPage() {
     }
   }
 
+  const filteredPosts = filter === 'curtidos' ? posts.filter((p) => p.likedByMe) : posts
+
   return (
     <section className="space-y-4">
       <motion.header
@@ -262,6 +267,20 @@ export function FeedPage() {
       >
         <h1 className="text-2xl font-black text-[var(--text)]">Feed</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">Treinos da comunidade e dos seus amigos.</p>
+        <div className="mt-3 flex gap-2">
+          {(['todos', 'curtidos'] as FeedFilter[]).map((f) => (
+            <button
+              key={f}
+              type="button"
+              onClick={() => setFilter(f)}
+              className={`rounded-full px-4 py-1.5 text-xs font-bold capitalize transition-all ${
+                filter === f ? 'bg-[var(--brand)] text-white' : 'border border-[var(--line)] text-[var(--muted)]'
+              }`}
+            >
+              {f === 'todos' ? 'Todos' : 'Curtidos'}
+            </button>
+          ))}
+        </div>
       </motion.header>
 
       {/* Search */}
@@ -321,10 +340,12 @@ export function FeedPage() {
         </div>
       )}
 
-      {!loading && posts.length === 0 && (
+      {!loading && filteredPosts.length === 0 && (
         <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-10 text-center">
           <Rss size={36} className="mx-auto mb-3 text-[var(--muted)]" strokeWidth={1.5} />
-          <p className="text-base font-bold text-[var(--text)]">Nenhum post ainda</p>
+          <p className="text-base font-bold text-[var(--text)]">
+            {filter === 'curtidos' ? 'Nenhum post curtido ainda' : 'Nenhum post ainda'}
+          </p>
           <p className="mt-1 text-sm text-[var(--muted)]">Siga outros usuários ou finalize um treino para publicar!</p>
         </div>
       )}

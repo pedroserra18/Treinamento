@@ -65,6 +65,19 @@ const EQUIPMENT_OPTIONS = [
 const SELECT_CLASS =
   'w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)]/40'
 
+function detectMuscleGroup(name: string): { label: string; color: string } | null {
+  const n = name.toLowerCase()
+  if (/supino|crucifixo|voador|peitoral|chest/.test(n)) return { label: 'Peito', color: 'bg-red-500/15 text-red-400 border-red-500/30' }
+  if (/remada|barra fixa|puxada|pulldown|costas|latíssimo|trapézio|row/.test(n)) return { label: 'Costas', color: 'bg-blue-500/15 text-blue-400 border-blue-500/30' }
+  if (/desenvolvimento|elevação lateral|press ombro|shoulder|ombro|deltóide/.test(n)) return { label: 'Ombros', color: 'bg-purple-500/15 text-purple-400 border-purple-500/30' }
+  if (/rosca|curl|bícep/.test(n)) return { label: 'Bíceps', color: 'bg-amber-500/15 text-amber-400 border-amber-500/30' }
+  if (/trícep|extensão|pulley|dip/.test(n)) return { label: 'Tríceps', color: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30' }
+  if (/agachamento|leg|cadeira|mesa|afundo|lunges|squat|stiff|perna/.test(n)) return { label: 'Pernas', color: 'bg-green-500/15 text-green-400 border-green-500/30' }
+  if (/glúteo|hip thrust|elevação pélvica/.test(n)) return { label: 'Glúteo', color: 'bg-pink-500/15 text-pink-400 border-pink-500/30' }
+  if (/prancha|abdom|crunch|plank/.test(n)) return { label: 'Core', color: 'bg-slate-500/15 text-slate-400 border-slate-500/30' }
+  return null
+}
+
 // ─── Workout plan logic ───────────────────────────────────────────────────────
 
 function getEffectiveSplit(split: string, days: number): string {
@@ -464,7 +477,10 @@ export function AIWorkoutPage() {
                       {i + 1}
                     </span>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-[var(--text)] truncate">{ex.name}</p>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <p className="text-sm font-semibold text-[var(--text)] truncate">{ex.name}</p>
+                        {(() => { const m = detectMuscleGroup(ex.name); return m ? <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${m.color}`}>{m.label}</span> : null })()}
+                      </div>
                       <p className="text-xs text-[var(--muted)]">
                         {ex.sets} séries · {ex.repsMin ?? '?'}–{ex.repsMax ?? '?'} reps
                         {ex.restSec ? ` · ${ex.restSec}s descanso` : ''}
