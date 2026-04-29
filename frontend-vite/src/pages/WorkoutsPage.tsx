@@ -35,6 +35,10 @@ type SeriesDraft = {
 
 type PerformanceDraft = {
   series: SeriesDraft[]
+  repsMode: 'fixed' | 'range'
+  fixedReps: string
+  rangeMin: string
+  rangeMax: string
 }
 
 const PERF_MARKER = '__PERF__:'
@@ -269,8 +273,15 @@ export function WorkoutsPage({
               createSeriesDraft({ reps: String(exercise.repsMax ?? exercise.repsMin ?? '') }),
             )
 
+            const repsMin = exercise.repsMin ?? null
+            const repsMax = exercise.repsMax ?? null
+            const isRange = repsMin !== null && repsMax !== null && repsMin !== repsMax
             next[exercise.id] = {
               series: fromNotes.series?.length ? fromNotes.series : fallbackSeries,
+              repsMode: isRange ? 'range' : 'fixed',
+              fixedReps: String(repsMax ?? repsMin ?? ''),
+              rangeMin: String(repsMin ?? ''),
+              rangeMax: String(repsMax ?? ''),
             }
           })
         })
@@ -550,10 +561,18 @@ export function WorkoutsPage({
     }
   }, [addToPlan, createOnlyMode, createdPlanId, plans, selectedPlanId])
 
+  const patchDraft = (planExerciseId: string, patch: Partial<Omit<PerformanceDraft, 'series'>>) => {
+    setDraftByExercise((current) => ({
+      ...current,
+      [planExerciseId]: { ...current[planExerciseId], ...patch },
+    }))
+  }
+
   const patchSeries = (planExerciseId: string, seriesIndex: number, patch: Partial<SeriesDraft>) => {
     setDraftByExercise((current) => ({
       ...current,
       [planExerciseId]: {
+        ...current[planExerciseId],
         series:
           current[planExerciseId]?.series.map((entry, index) =>
             index === seriesIndex ? { ...entry, ...patch } : entry,
@@ -566,6 +585,7 @@ export function WorkoutsPage({
     setDraftByExercise((current) => ({
       ...current,
       [planExerciseId]: {
+        ...current[planExerciseId],
         series: [...(current[planExerciseId]?.series ?? [createSeriesDraft()]), createSeriesDraft()],
       },
     }))
@@ -579,6 +599,7 @@ export function WorkoutsPage({
       return {
         ...current,
         [planExerciseId]: {
+          ...current[planExerciseId],
           series: nextSeries.length ? nextSeries : [createSeriesDraft()],
         },
       }
@@ -589,6 +610,7 @@ export function WorkoutsPage({
     setDraftByExercise((current) => ({
       ...current,
       [planExerciseId]: {
+        ...current[planExerciseId],
         series: (current[planExerciseId]?.series ?? [createSeriesDraft()]).map((s, idx) =>
           idx === seriesIndex
             ? { ...s, dropSets: [...s.dropSets, { weightKg: '', reps: '' }] }
@@ -602,6 +624,7 @@ export function WorkoutsPage({
     setDraftByExercise((current) => ({
       ...current,
       [planExerciseId]: {
+        ...current[planExerciseId],
         series: (current[planExerciseId]?.series ?? [createSeriesDraft()]).map((s, idx) => {
           if (idx !== seriesIndex) return s
           const next = s.dropSets.filter((_, dIdx) => dIdx !== dropIndex)
@@ -620,6 +643,7 @@ export function WorkoutsPage({
     setDraftByExercise((current) => ({
       ...current,
       [planExerciseId]: {
+        ...current[planExerciseId],
         series: (current[planExerciseId]?.series ?? [createSeriesDraft()]).map((s, idx) =>
           idx === seriesIndex
             ? {
@@ -641,7 +665,12 @@ export function WorkoutsPage({
       return false
     }
 
-    const validSeries = draft.series.filter((series) => Number(series.reps) > 0)
+    const effectiveSeries =
+      draft.repsMode === 'fixed'
+        ? draft.series.map((s) => ({ ...s, reps: draft.fixedReps }))
+        : draft.series
+
+    const validSeries = effectiveSeries.filter((series) => Number(series.reps) > 0)
 
     if (validSeries.length === 0) {
       setError('Adicione ao menos uma serie com repeticoes maior que 0 antes de salvar.')
@@ -666,15 +695,24 @@ export function WorkoutsPage({
         ? typedExerciseName
         : null
 
-    const normalizedReps = validSeries.map((series) => Math.max(1, Math.min(50, Math.floor(Number(series.reps)))))
-    const repsMin = Math.min(...normalizedReps)
-    const repsMax = Math.max(...normalizedReps)
     const sets = Math.min(12, validSeries.length)
 
+    let repsMin: number
+    let repsMax: number
+    if (draft.repsMode === 'range') {
+      repsMin = Math.max(1, Math.min(50, Math.floor(Number(draft.rangeMin) || 1)))
+      repsMax = Math.max(repsMin, Math.min(50, Math.floor(Number(draft.rangeMax) || repsMin)))
+    } else {
+      const fixedVal = Math.max(1, Math.min(50, Math.floor(Number(draft.fixedReps) || 1)))
+      repsMin = fixedVal
+      repsMax = fixedVal
+    }
+
     const normalizedDraft: PerformanceDraft = {
+      ...draft,
       series: validSeries.slice(0, sets).map((series) =>
         createSeriesDraft({
-          reps: String(Math.max(1, Math.min(50, Math.floor(Number(series.reps))))),
+          reps: series.reps,
           loadKg: (() => {
             const effectiveBodyweight = resolveBodyweightFlag(
               targetExercise.exercise.isBodyweight,
@@ -1245,6 +1283,54 @@ export function WorkoutsPage({
 
                     {expandedByExercise[item.id] ? (
                       <div className="mt-3 rounded-lg border border-[var(--line)] p-2">
+                        {/* Reps mode toggle */}
+                        <div className="mb-3 flex flex-wrap items-end gap-3">
+                          <div className="flex rounded-lg border border-[var(--line)] overflow-hidden text-xs font-semibold">
+                            <button
+                              type="button"
+                              onClick={() => patchDraft(item.id, { repsMode: 'fixed' })}
+                              className={`px-3 py-1.5 transition-colors ${draft.repsMode === 'fixed' ? 'bg-[var(--brand)] text-white' : 'text-[var(--muted)]'}`}
+                            >
+                              Reps fixas
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => patchDraft(item.id, { repsMode: 'range' })}
+                              className={`px-3 py-1.5 transition-colors ${draft.repsMode === 'range' ? 'bg-[var(--brand)] text-white' : 'text-[var(--muted)]'}`}
+                            >
+                              Margem de reps
+                            </button>
+                          </div>
+                          {draft.repsMode === 'fixed' ? (
+                            <label className="text-[11px] uppercase text-[var(--muted)]">
+                              Reps
+                              <input
+                                value={draft.fixedReps}
+                                onChange={(e) => patchDraft(item.id, { fixedReps: e.target.value.replace(/[^\d]/g, '') })}
+                                className="mt-1 w-20 rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                              />
+                            </label>
+                          ) : (
+                            <div className="flex gap-2">
+                              <label className="text-[11px] uppercase text-[var(--muted)]">
+                                Mín
+                                <input
+                                  value={draft.rangeMin}
+                                  onChange={(e) => patchDraft(item.id, { rangeMin: e.target.value.replace(/[^\d]/g, '') })}
+                                  className="mt-1 w-16 rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                                />
+                              </label>
+                              <label className="text-[11px] uppercase text-[var(--muted)]">
+                                Máx
+                                <input
+                                  value={draft.rangeMax}
+                                  onChange={(e) => patchDraft(item.id, { rangeMax: e.target.value.replace(/[^\d]/g, '') })}
+                                  className="mt-1 w-16 rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                                />
+                              </label>
+                            </div>
+                          )}
+                        </div>
                         <div className="space-y-2">
                           {draft.series.map((series, seriesIndex) => (
                             <div
@@ -1380,7 +1466,7 @@ export function WorkoutsPage({
                                 </div>
                               ) : (
                                 /* Normal / Warmup / Failure inputs */
-                                <div className={`grid gap-2 ${showLoad ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
+                                <div className={`grid gap-2 ${showLoad ? (draft.repsMode === 'fixed' ? 'sm:grid-cols-2' : 'sm:grid-cols-3') : (draft.repsMode === 'fixed' ? 'sm:grid-cols-1' : 'sm:grid-cols-2')}`}>
                                   {showLoad ? (
                                     <label className="text-[11px] uppercase text-[var(--muted)]">
                                       Peso (kg)
@@ -1395,16 +1481,18 @@ export function WorkoutsPage({
                                       />
                                     </label>
                                   ) : null}
-                                  <label className="text-[11px] uppercase text-[var(--muted)]">
-                                    Repeticoes
-                                    <input
-                                      value={series.reps}
-                                      onChange={(event) =>
-                                        patchSeries(item.id, seriesIndex, { reps: event.target.value.replace(/[^\d]/g, '') })
-                                      }
-                                      className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
-                                    />
-                                  </label>
+                                  {draft.repsMode !== 'fixed' && (
+                                    <label className="text-[11px] uppercase text-[var(--muted)]">
+                                      Repeticoes
+                                      <input
+                                        value={series.reps}
+                                        onChange={(event) =>
+                                          patchSeries(item.id, seriesIndex, { reps: event.target.value.replace(/[^\d]/g, '') })
+                                        }
+                                        className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                                      />
+                                    </label>
+                                  )}
                                   <label className="text-[11px] uppercase text-[var(--muted)]">
                                     RIR
                                     <input

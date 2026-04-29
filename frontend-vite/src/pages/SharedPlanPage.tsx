@@ -166,15 +166,17 @@ export function SharedPlanPage() {
                     {item.sets && (
                       <p className="text-sm font-black text-[var(--text)]">
                         {item.sets}x{' '}
-                        {item.repsMin && item.repsMax
-                          ? `${item.repsMin}–${item.repsMax}`
+                        {item.repsMin != null && item.repsMax != null
+                          ? item.repsMin === item.repsMax
+                            ? item.repsMin
+                            : `${item.repsMin}–${item.repsMax}`
                           : (item.repsMax ?? item.repsMin ?? '?')}
                       </p>
                     )}
                     {item.restSec && (
                       <p className="text-xs text-[var(--muted)]">Descanso {item.restSec}s</p>
                     )}
-                    {item.notes && (
+                    {item.notes && !item.notes.startsWith('__PERF__:') && (
                       <p className="mt-0.5 text-[11px] text-[var(--muted)] italic line-clamp-1">{item.notes}</p>
                     )}
                   </div>
