@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../hooks/useAuth'
-import { Flame, Layers, Dumbbell } from 'lucide-react'
+import { Flame, Layers, Dumbbell, Plus, Play, Search, Pencil } from 'lucide-react'
 import { SkeletonCard } from '../components/common/Skeleton'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPost, sharePlan, type PostPrivacy } from '../services/socialService'
@@ -1818,7 +1818,7 @@ export function TrainPage() {
   }
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-5">
       <motion.header
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
@@ -1831,8 +1831,9 @@ export function TrainPage() {
           <button
             type="button"
             onClick={beginEmptyTraining}
-            className="rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white"
+            className="flex items-center justify-center gap-2 rounded-xl bg-[var(--brand)] px-4 py-2.5 text-sm font-bold text-white"
           >
+            <Plus size={15} />
             Iniciar Treinamento Vazio
           </button>
           <button
@@ -1845,8 +1846,9 @@ export function TrainPage() {
                 section?.scrollIntoView({ behavior: 'smooth', block: 'start' })
               })
             }}
-            className="rounded-xl border border-[var(--line)] px-4 py-2 text-center text-sm font-semibold text-[var(--text)]"
+            className="flex items-center justify-center gap-2 rounded-xl border border-[var(--line)] px-4 py-2.5 text-center text-sm font-semibold text-[var(--text)]"
           >
+            <Plus size={15} />
             Nova Rotina
           </button>
           <button
@@ -1856,8 +1858,9 @@ export function TrainPage() {
                 context: showRoutineManager ? 'ROUTINE_EDIT' : undefined,
               })
             }}
-            className="rounded-xl border border-[var(--line)] px-4 py-2 text-center text-sm font-semibold text-[var(--text)]"
+            className="flex items-center justify-center gap-2 rounded-xl border border-[var(--line)] px-4 py-2.5 text-center text-sm font-semibold text-[var(--text)]"
           >
+            <Search size={15} />
             Explorar Exercicios
           </button>
         </div>
@@ -1865,10 +1868,10 @@ export function TrainPage() {
 
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
 
-      <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
-        <div className="mb-3 flex items-center justify-between">
+      <div>
+        <div className="mb-3 flex items-center justify-between px-1">
           <h2 className="text-xl font-extrabold text-[var(--text)]">Minhas Rotinas</h2>
-          <span className="text-sm text-[var(--muted)]">{plans.length}</span>
+          <span className="rounded-full border border-[var(--line)] bg-[var(--surface)] px-2.5 py-0.5 text-xs font-bold text-[var(--muted)]">{plans.length}</span>
         </div>
 
         {loadingPlans ? (
@@ -1888,7 +1891,7 @@ export function TrainPage() {
 
         <div className="space-y-3">
           {plans.map((plan) => (
-            <div key={plan.id} className="relative rounded-xl border border-[var(--line)] p-3">
+            <div key={plan.id} className="relative rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
               <div data-routine-menu className="absolute right-3 top-3">
                 <button
                   type="button"
@@ -1948,7 +1951,7 @@ export function TrainPage() {
                 ) : null}
               </div>
 
-              <h3 className="text-lg font-bold text-[var(--text)]">{plan.name}</h3>
+              <h3 className="pr-10 text-lg font-bold text-[var(--text)]">{plan.name}</h3>
               <p className="mt-1 text-sm text-[var(--muted)] line-clamp-2">
                 {plan.description || 'Rotina personalizada para seus objetivos.'}
               </p>
@@ -1956,8 +1959,9 @@ export function TrainPage() {
                 <button
                   type="button"
                   onClick={() => beginRoutineTraining(plan)}
-                  className="rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white"
+                  className="flex items-center gap-1.5 rounded-xl border border-emerald-500/60 px-4 py-2 text-sm font-bold text-emerald-500"
                 >
+                  <Play size={13} />
                   Iniciar Rotina
                 </button>
                 <button
@@ -1966,15 +1970,16 @@ export function TrainPage() {
                     setActivePlanId(plan.id)
                     setScreen('EDIT')
                   }}
-                  className="rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)]"
+                  className="flex items-center gap-1.5 rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)]"
                 >
+                  <Pencil size={13} />
                   Editar Rotina
                 </button>
               </div>
             </div>
           ))}
         </div>
-      </article>
+      </div>
 
       {shareLinkModal ? createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setShareLinkModal(null)}>
