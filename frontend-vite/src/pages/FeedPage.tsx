@@ -1,10 +1,12 @@
 import { motion, AnimatePresence } from 'framer-motion'
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import { getFeed, toggleLike, deletePost, searchUsers, followUser, unfollowUser, type FeedPost, type UserSearchResult, type WorkoutExerciseSummary } from '../services/socialService'
+import { getFeed, toggleLike, deletePost, searchUsers, followUser, unfollowUser, getFollowing, type FeedPost, type UserSearchResult, type WorkoutExerciseSummary } from '../services/socialService'
 import { SkeletonCard } from '../components/common/Skeleton'
-import { Rss } from 'lucide-react'
+import { Rss, Users } from 'lucide-react'
+
+const PAGE_SIZE = 5
 
 function formatDuration(sec: number | null): string {
   if (!sec) return '-'
@@ -56,9 +58,10 @@ function ExerciseStatsRow({ ex }: { ex: WorkoutExerciseSummary }) {
   )
 }
 
-function PostCard({ post, userId, onLike, onDelete, onProfileClick }: {
+function PostCard({ post, userId, isFriend, onLike, onDelete, onProfileClick }: {
   post: FeedPost
   userId: string | undefined
+  isFriend: boolean
   onLike: (id: string) => void
   onDelete: (id: string) => void
   onProfileClick: (id: string) => void
@@ -78,14 +81,28 @@ function PostCard({ post, userId, onLike, onDelete, onProfileClick }: {
             onClick={() => onProfileClick(post.user.id)}
             className="flex items-center gap-2 text-left"
           >
-            <div className="h-9 w-9 shrink-0 rounded-full border border-[var(--line)] bg-[var(--surface-hover)] overflow-hidden">
-              {post.user.avatarUrl
-                ? <img src={post.user.avatarUrl} alt="" className="h-full w-full object-cover" />
-                : <span className="flex h-full w-full items-center justify-center text-xs font-bold text-[var(--muted)]">{(post.user.name ?? '?')[0]?.toUpperCase()}</span>
-              }
+            <div className="relative">
+              <div className="h-9 w-9 shrink-0 rounded-full border border-[var(--line)] bg-[var(--surface-hover)] overflow-hidden">
+                {post.user.avatarUrl
+                  ? <img src={post.user.avatarUrl} alt="" className="h-full w-full object-cover" />
+                  : <span className="flex h-full w-full items-center justify-center text-xs font-bold text-[var(--muted)]">{(post.user.name ?? '?')[0]?.toUpperCase()}</span>
+                }
+              </div>
+              {isFriend && (
+                <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-emerald-500 ring-2 ring-[var(--surface)]">
+                  <Users size={7} className="text-white" />
+                </span>
+              )}
             </div>
             <div>
-              <p className="text-sm font-bold text-[var(--text)]">{post.user.name ?? 'Usuário'}</p>
+              <div className="flex items-center gap-1.5">
+                <p className="text-sm font-bold text-[var(--text)]">{post.user.name ?? 'Usuário'}</p>
+                {isFriend && (
+                  <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-500">
+                    Amigo
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-[var(--muted)]">{timeAgo(post.createdAt)}</p>
             </div>
           </button>
@@ -193,13 +210,19 @@ export function FeedPage() {
   const [searchResults, setSearchResults] = useState<UserSearchResult[]>([])
   const [searching, setSearching] = useState(false)
   const [filter, setFilter] = useState<FeedFilter>('todos')
+  const [followingIds, setFollowingIds] = useState<Set<string>>(new Set())
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const load = useCallback(async () => {
     try {
       setLoading(true)
-      const data = await getFeed(authorizedFetch)
+      const [data, following] = await Promise.all([
+        getFeed(authorizedFetch),
+        getFollowing(authorizedFetch).catch(() => [] as UserSearchResult[]),
+      ])
       setPosts(data)
+      setFollowingIds(new Set(following.map((u) => u.id)))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar feed')
     } finally {
@@ -208,6 +231,9 @@ export function FeedPage() {
   }, [authorizedFetch])
 
   useEffect(() => { void load() }, [load])
+
+  // Resetar paginação ao trocar filtro
+  useEffect(() => { setVisibleCount(PAGE_SIZE) }, [filter])
 
   const handleLike = async (postId: string) => {
     try {
@@ -256,7 +282,19 @@ export function FeedPage() {
     }
   }
 
-  const filteredPosts = filter === 'curtidos' ? posts.filter((p) => p.likedByMe) : posts
+  // Prioriza amigos, depois ordena por data
+  const sortedPosts = useMemo(() => {
+    const filtered = filter === 'curtidos' ? posts.filter((p) => p.likedByMe) : posts
+    return [...filtered].sort((a, b) => {
+      const aFriend = followingIds.has(a.user.id) ? 0 : 1
+      const bFriend = followingIds.has(b.user.id) ? 0 : 1
+      if (aFriend !== bFriend) return aFriend - bFriend
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    })
+  }, [posts, filter, followingIds])
+
+  const visiblePosts = sortedPosts.slice(0, visibleCount)
+  const hasMore = visibleCount < sortedPosts.length
 
   return (
     <section className="space-y-4">
@@ -340,7 +378,7 @@ export function FeedPage() {
         </div>
       )}
 
-      {!loading && filteredPosts.length === 0 && (
+      {!loading && sortedPosts.length === 0 && (
         <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-10 text-center">
           <Rss size={36} className="mx-auto mb-3 text-[var(--muted)]" strokeWidth={1.5} />
           <p className="text-base font-bold text-[var(--text)]">
@@ -351,17 +389,32 @@ export function FeedPage() {
       )}
 
       <div className="space-y-4">
-        {posts.map((post) => (
+        {visiblePosts.map((post) => (
           <PostCard
             key={post.id}
             post={post}
             userId={user?.id}
+            isFriend={followingIds.has(post.user.id)}
             onLike={handleLike}
             onDelete={handleDelete}
             onProfileClick={(id) => navigate(`/u/${id}`)}
           />
         ))}
       </div>
+
+      {hasMore && (
+        <button
+          type="button"
+          onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+          className="w-full rounded-2xl border border-[var(--line)] bg-[var(--surface)] py-3 text-sm font-semibold text-[var(--muted)] transition-colors hover:text-[var(--text)]"
+        >
+          Carregar mais ({sortedPosts.length - visibleCount} restantes)
+        </button>
+      )}
+
+      {!hasMore && sortedPosts.length > PAGE_SIZE && (
+        <p className="py-2 text-center text-xs text-[var(--muted)]">Todos os posts foram carregados.</p>
+      )}
     </section>
   )
 }
