@@ -5,6 +5,8 @@ import { useEffect, useState } from 'react'
 import type { WorkoutSessionHistory } from '../types/workout'
 import { listWorkoutHistory } from '../services/workoutService'
 import { getStoredWorkoutSessionImage } from '../lib/workout-session-image'
+import { SkeletonCard } from '../components/common/Skeleton'
+import { Dumbbell } from 'lucide-react'
 
 function formatDuration(totalSeconds: number | null): string {
   if (!totalSeconds || totalSeconds <= 0) {
@@ -358,14 +360,26 @@ export function HistoryPage() {
         </div>
       </motion.header>
 
-      {loading ? <p className="text-sm text-[var(--muted)]">Carregando historico...</p> : null}
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
 
       <div className="grid gap-3">
+        {loading ? (
+          <>
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard />
+          </>
+        ) : null}
+
         {!loading && !error && items.length === 0 ? (
-          <p className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 text-sm text-[var(--muted)]">
-            Nenhum treino registrado no historico.
-          </p>
+          <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-10 text-center">
+            <Dumbbell size={36} className="mx-auto mb-3 text-[var(--muted)]" strokeWidth={1.5} />
+            <p className="text-base font-bold text-[var(--text)]">Nenhum treino registrado</p>
+            <p className="mt-1 text-sm text-[var(--muted)]">Finalize seu primeiro treino para ver o histórico aqui.</p>
+            <Link to="/train" className="mt-4 inline-block rounded-xl bg-[var(--brand)] px-5 py-2 text-sm font-bold text-white">
+              Ir para Treinar
+            </Link>
+          </div>
         ) : null}
 
         {items.map((session, index) => (

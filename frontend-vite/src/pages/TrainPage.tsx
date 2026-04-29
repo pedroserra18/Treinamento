@@ -1,6 +1,8 @@
 import { motion } from 'framer-motion'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../hooks/useAuth'
+import { Flame, Layers, Dumbbell } from 'lucide-react'
+import { SkeletonCard } from '../components/common/Skeleton'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPost, sharePlan, type PostPrivacy } from '../services/socialService'
 import { WorkoutsPage } from './WorkoutsPage'
@@ -128,7 +130,7 @@ function calculateTotals(exercises: ActiveExercise[]): { totalSeries: number; to
   exercises.forEach((exercise) => {
     exercise.sets.forEach((setInput) => {
       if (setInput.setType === 'drop') {
-        const hasAnyDrop = setInput.dropSets.some((d) => Number(d.reps) > 0)
+        const hasAnyDrop = setInput.checked || setInput.dropSets.some((d) => Number(d.reps) > 0)
         if (!hasAnyDrop) return
         totalSeries += 1
         setInput.dropSets.forEach((drop) => {
@@ -144,24 +146,26 @@ function calculateTotals(exercises: ActiveExercise[]): { totalSeries: number; to
       if (setInput.setType === 'cluster') {
         const cr = Number(setInput.clusterReps)
         const cc = Number(setInput.clusterCount)
-        if (!Number.isFinite(cr) || cr <= 0 || !Number.isFinite(cc) || cc <= 0) return
+        const isValid = (Number.isFinite(cr) && cr > 0 && Number.isFinite(cc) && cc > 0) || setInput.checked
+        if (!isValid) return
         totalSeries += 1
         const weight = Number(setInput.weightKg)
-        if (Number.isFinite(weight) && weight > 0) {
+        if (Number.isFinite(weight) && weight > 0 && Number.isFinite(cr) && cr > 0 && Number.isFinite(cc) && cc > 0) {
           totalVolumeKg += weight * cr * cc
         }
         return
       }
 
       const reps = Number(setInput.reps)
-      if (!Number.isFinite(reps) || reps <= 0) {
+      const effectiveReps = Number.isFinite(reps) && reps > 0 ? reps : Number(exercise.suggestedReps)
+      if (!setInput.checked && (!Number.isFinite(reps) || reps <= 0)) {
         return
       }
 
       totalSeries += 1
       const weight = Number(setInput.weightKg)
-      if (Number.isFinite(weight) && weight > 0) {
-        totalVolumeKg += weight * reps
+      if (Number.isFinite(weight) && weight > 0 && Number.isFinite(effectiveReps) && effectiveReps > 0) {
+        totalVolumeKg += weight * effectiveReps
       }
     })
   })
@@ -930,7 +934,7 @@ export function TrainPage() {
         const weightRaw = setInput.weightKg.trim().replace(',', '.')
         const rirRaw = setInput.rir.trim()
 
-        const hasAnyInput = repsRaw.length > 0 || weightRaw.length > 0 || rirRaw.length > 0
+        const hasAnyInput = setInput.checked || repsRaw.length > 0 || weightRaw.length > 0 || rirRaw.length > 0
         if (!hasAnyInput) {
           return acc
         }
@@ -1119,9 +1123,9 @@ export function TrainPage() {
             <button
               type="button"
               onClick={backToActiveTraining}
-              className="rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--text)]"
+              className="flex items-center gap-1.5 rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--text)]"
             >
-              {'<- Voltar'}
+              ← Voltar
             </button>
           </div>
         </motion.header>
@@ -1154,13 +1158,19 @@ export function TrainPage() {
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-xl border border-[var(--line)] p-3">
-              <p className="text-xs uppercase tracking-wide text-[var(--muted)]">Volume total</p>
-              <p className="mt-1 text-2xl font-black text-[var(--text)]">{totals.totalVolumeKg} kg</p>
+            <div className="relative overflow-hidden rounded-2xl border border-[var(--brand)]/20 bg-gradient-to-br from-[color-mix(in_srgb,var(--brand)_12%,var(--surface))] to-[var(--surface)] p-4">
+              <div className="flex items-center gap-2 text-[var(--brand)]">
+                <Flame size={16} />
+                <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">Volume total</p>
+              </div>
+              <p className="mt-2 text-3xl font-black text-[var(--text)]">{totals.totalVolumeKg} <span className="text-lg font-semibold text-[var(--muted)]">kg</span></p>
             </div>
-            <div className="rounded-xl border border-[var(--line)] p-3">
-              <p className="text-xs uppercase tracking-wide text-[var(--muted)]">Series realizadas</p>
-              <p className="mt-1 text-2xl font-black text-[var(--text)]">{totals.totalSeries}</p>
+            <div className="relative overflow-hidden rounded-2xl border border-[var(--accent-blue)]/20 bg-gradient-to-br from-[color-mix(in_srgb,var(--accent-blue)_10%,var(--surface))] to-[var(--surface)] p-4">
+              <div className="flex items-center gap-2 text-[var(--accent-blue)]">
+                <Layers size={16} />
+                <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">Séries realizadas</p>
+              </div>
+              <p className="mt-2 text-3xl font-black text-[var(--text)]">{totals.totalSeries}</p>
             </div>
           </div>
 
@@ -1861,10 +1871,19 @@ export function TrainPage() {
           <span className="text-sm text-[var(--muted)]">{plans.length}</span>
         </div>
 
-        {loadingPlans ? <p className="text-sm text-[var(--muted)]">Carregando rotinas...</p> : null}
+        {loadingPlans ? (
+          <div className="space-y-3">
+            <SkeletonCard />
+            <SkeletonCard />
+          </div>
+        ) : null}
 
         {!loadingPlans && plans.length === 0 ? (
-          <p className="text-sm text-[var(--muted)]">Voce ainda nao possui rotinas salvas.</p>
+          <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-8 text-center">
+            <Dumbbell size={32} className="mx-auto mb-3 text-[var(--muted)]" strokeWidth={1.5} />
+            <p className="text-sm font-bold text-[var(--text)]">Nenhuma rotina criada ainda</p>
+            <p className="mt-1 text-xs text-[var(--muted)]">Crie sua primeira rotina para começar a treinar.</p>
+          </div>
         ) : null}
 
         <div className="space-y-3">
