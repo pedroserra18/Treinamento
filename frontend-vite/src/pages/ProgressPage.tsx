@@ -1,5 +1,14 @@
 import { motion } from 'framer-motion'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  CartesianGrid,
+} from 'recharts'
 import { useAuth } from '../hooks/useAuth'
 import { optimizeImageFileToDataUrl } from '../lib/image-processing'
 import { searchExercisesForPlan } from '../services/workoutService'
@@ -372,20 +381,56 @@ export function ProgressPage() {
                 </div>
 
                 {openedPinnedExerciseId === item.exercise.id ? (
-                  <div className="mt-3 space-y-2">
+                  <div className="mt-3 space-y-3">
                     {item.sessions.length === 0 ? (
                       <p className="text-xs text-[var(--muted)]">Ainda sem historico para este exercicio.</p>
                     ) : (
-                      item.sessions.map((session) => (
-                        <div key={session.workoutSessionId} className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3">
-                          <p className="text-xs font-semibold text-[var(--text)]">{formatDateTime(session.completedAt)}</p>
-                          <div className="mt-1 grid gap-1 text-xs text-[var(--muted)] sm:grid-cols-3">
-                            <p>Carga maxima: {session.maxLoadKg != null ? `${session.maxLoadKg} kg` : '-'}</p>
-                            <p>Max reps: {session.maxReps != null ? session.maxReps : '-'}</p>
-                            <p>Volume total: {session.totalVolumeKg > 0 ? `${session.totalVolumeKg.toFixed(1)} kg` : '-'}</p>
+                      <>
+                        {(() => {
+                          const chartData = [...item.sessions]
+                            .sort((a, b) => new Date(a.completedAt).getTime() - new Date(b.completedAt).getTime())
+                            .map((s) => ({
+                              date: new Date(s.completedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+                              carga: s.maxLoadKg ?? 0,
+                              volume: Math.round(s.totalVolumeKg),
+                            }))
+                          const pr = Math.max(...item.sessions.map((s) => s.maxLoadKg ?? 0))
+                          return (
+                            <>
+                              {pr > 0 ? (
+                                <div className="flex items-center gap-2">
+                                  <span className="rounded-full border border-amber-400/50 bg-amber-400/10 px-2 py-0.5 text-[10px] font-bold text-amber-400">
+                                    PR {pr} kg
+                                  </span>
+                                  <span className="text-[10px] text-[var(--muted)]">carga maxima registrada</span>
+                                </div>
+                              ) : null}
+                              <ResponsiveContainer width="100%" height={130}>
+                                <LineChart data={chartData} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
+                                  <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" />
+                                  <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
+                                  <YAxis tick={{ fontSize: 9, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
+                                  <Tooltip
+                                    contentStyle={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 8, fontSize: 11 }}
+                                    formatter={(v) => [`${v} kg`, 'Carga']}
+                                  />
+                                  <Line type="monotone" dataKey="carga" stroke="var(--brand)" strokeWidth={2} dot={{ r: 3 }} />
+                                </LineChart>
+                              </ResponsiveContainer>
+                            </>
+                          )
+                        })()}
+                        {item.sessions.map((session) => (
+                          <div key={session.workoutSessionId} className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3">
+                            <p className="text-xs font-semibold text-[var(--text)]">{formatDateTime(session.completedAt)}</p>
+                            <div className="mt-1 grid gap-1 text-xs text-[var(--muted)] sm:grid-cols-3">
+                              <p>Carga maxima: {session.maxLoadKg != null ? `${session.maxLoadKg} kg` : '-'}</p>
+                              <p>Max reps: {session.maxReps != null ? session.maxReps : '-'}</p>
+                              <p>Volume total: {session.totalVolumeKg > 0 ? `${session.totalVolumeKg.toFixed(1)} kg` : '-'}</p>
+                            </div>
                           </div>
-                        </div>
-                      ))
+                        ))}
+                      </>
                     )}
                   </div>
                 ) : null}
@@ -490,6 +535,32 @@ export function ProgressPage() {
               {savingMeasurement ? 'Salvando...' : 'Salvar registro'}
             </button>
           </article>
+
+          {measurements.length >= 2 ? (
+            <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">Evolucao do peso (kg)</p>
+              <ResponsiveContainer width="100%" height={150}>
+                <LineChart
+                  data={[...measurements]
+                    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+                    .map((m) => ({
+                      date: new Date(m.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+                      peso: m.weight,
+                    }))}
+                  margin={{ top: 4, right: 4, left: -20, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} domain={['auto', 'auto']} />
+                  <Tooltip
+                    contentStyle={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 8, fontSize: 11 }}
+                    formatter={(v) => [`${v} kg`, 'Peso']}
+                  />
+                  <Line type="monotone" dataKey="peso" stroke="#34d399" strokeWidth={2} dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </article>
+          ) : null}
 
           <article className="card-glow-orange rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
             <h3 className="text-base font-extrabold text-[var(--text)]">Historico corporal</h3>

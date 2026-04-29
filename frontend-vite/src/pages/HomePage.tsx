@@ -3,6 +3,48 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useEffect, useMemo, useState } from 'react'
 import { BrandLogo } from '../components/common/BrandLogo'
+import { listWorkoutHistory } from '../services/workoutService'
+import type { WorkoutSessionHistory } from '../types/workout'
+import { Flame, Dumbbell, TrendingUp, CalendarDays } from 'lucide-react'
+
+function calcVolumeKg(session: WorkoutSessionHistory): number {
+  return session.history.reduce((acc, e) => acc + (e.weightKg ?? 0) * (e.reps ?? 0), 0)
+}
+
+function computeHomeStats(items: WorkoutSessionHistory[]) {
+  const completed = items.filter((s) => s.endedAt)
+  const sorted = [...completed].sort(
+    (a, b) => new Date(b.endedAt!).getTime() - new Date(a.endedAt!).getTime(),
+  )
+
+  const today = new Date()
+  const last30: { day: string; active: boolean }[] = []
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(today)
+    d.setDate(d.getDate() - i)
+    last30.push({ day: d.toISOString().slice(0, 10), active: false })
+  }
+
+  const sessionDays = new Set(sorted.map((s) => s.endedAt!.slice(0, 10)))
+  for (const entry of last30) entry.active = sessionDays.has(entry.day)
+
+  const weekStart = new Date(today)
+  weekStart.setDate(today.getDate() - ((today.getDay() + 6) % 7))
+  weekStart.setHours(0, 0, 0, 0)
+  const weekSessions = completed.filter((s) => new Date(s.endedAt!) >= weekStart)
+  const weekVolume = weekSessions.reduce((acc, s) => acc + calcVolumeKg(s), 0)
+
+  let streak = 0
+  const check = new Date(today)
+  check.setHours(0, 0, 0, 0)
+  if (!sessionDays.has(check.toISOString().slice(0, 10))) check.setDate(check.getDate() - 1)
+  while (sessionDays.has(check.toISOString().slice(0, 10))) {
+    streak++
+    check.setDate(check.getDate() - 1)
+  }
+
+  return { heatmap: last30, weekCount: weekSessions.length, weekVolume, streak, lastWorkout: sorted[0] ?? null }
+}
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1'
 
@@ -65,6 +107,16 @@ export function HomePage() {
   const [recommendations, setRecommendations] = useState<WorkoutRecommendation[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [historyItems, setHistoryItems] = useState<WorkoutSessionHistory[]>([])
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+    void listWorkoutHistory(authorizedFetch)
+      .then((r) => setHistoryItems(r.items))
+      .catch(() => { /* silent */ })
+  }, [authorizedFetch, isAuthenticated])
+
+  const stats = useMemo(() => computeHomeStats(historyItems), [historyItems])
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -177,6 +229,67 @@ export function HomePage() {
           </Link>
         </div>
       </motion.div>
+
+      {isAuthenticated ? (
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, ease: 'easeOut', delay: 0.06 }}
+          className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-4 sm:p-5"
+        >
+          <div className="mb-4 grid grid-cols-3 gap-3">
+            <div className="flex flex-col items-center rounded-2xl border border-[var(--line)] bg-gradient-to-br from-orange-500/10 to-transparent p-3 text-center">
+              <Flame size={18} className="text-orange-400" />
+              <p className="mt-1 text-2xl font-black text-[var(--text)]">{stats.streak}</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">Sequencia</p>
+            </div>
+            <div className="flex flex-col items-center rounded-2xl border border-[var(--line)] bg-gradient-to-br from-[var(--brand)]/10 to-transparent p-3 text-center">
+              <Dumbbell size={18} className="text-[var(--brand)]" />
+              <p className="mt-1 text-2xl font-black text-[var(--text)]">{stats.weekCount}</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">Treinos</p>
+            </div>
+            <div className="flex flex-col items-center rounded-2xl border border-[var(--line)] bg-gradient-to-br from-emerald-500/10 to-transparent p-3 text-center">
+              <TrendingUp size={18} className="text-emerald-400" />
+              <p className="mt-1 text-2xl font-black text-[var(--text)]">{stats.weekVolume > 0 ? `${Math.round(stats.weekVolume / 1000)}k` : '0'}</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">Vol. kg</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 mb-2">
+            <CalendarDays size={13} className="text-[var(--muted)]" />
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--muted)]">Ultimos 30 dias</p>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {stats.heatmap.map(({ day, active }) => (
+              <div
+                key={day}
+                title={day}
+                className={`h-4 w-4 rounded-sm transition-colors ${active ? 'bg-[var(--brand)]' : 'bg-[var(--surface-hover)]'}`}
+              />
+            ))}
+          </div>
+
+          {stats.lastWorkout ? (
+            <div className="mt-4 flex items-center justify-between gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2">
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">Ultimo treino</p>
+                <p className="truncate text-sm font-bold text-[var(--text)]">
+                  {stats.lastWorkout.workoutPlan?.name ?? 'Treino livre'}
+                </p>
+                <p className="text-xs text-[var(--muted)]">
+                  {new Date(stats.lastWorkout.endedAt!).toLocaleDateString('pt-BR')}
+                </p>
+              </div>
+              <Link
+                to="/history"
+                className="shrink-0 rounded-lg border border-[var(--line)] px-3 py-1.5 text-xs font-semibold text-[var(--text)]"
+              >
+                Ver
+              </Link>
+            </div>
+          ) : null}
+        </motion.div>
+      ) : null}
 
       <motion.div
         initial={{ opacity: 0, y: 18 }}
