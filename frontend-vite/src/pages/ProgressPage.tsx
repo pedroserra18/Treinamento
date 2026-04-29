@@ -420,7 +420,7 @@ export function ProgressPage() {
                             </>
                           )
                         })()}
-                        {item.sessions.map((session) => (
+                        {[...item.sessions].sort((a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime()).map((session) => (
                           <div key={session.workoutSessionId} className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3">
                             <p className="text-xs font-semibold text-[var(--text)]">{formatDateTime(session.completedAt)}</p>
                             <div className="mt-1 grid gap-1 text-xs text-[var(--muted)] sm:grid-cols-3">
