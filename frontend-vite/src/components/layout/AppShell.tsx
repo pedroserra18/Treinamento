@@ -12,9 +12,29 @@ import {
   type ExerciseExplorerOpenPayload,
 } from '../../lib/exercise-explorer'
 import { MUSCLE_OPTIONS } from '../../lib/exercise-meta'
+import {
+  Home,
+  Dumbbell,
+  Sparkles,
+  Rss,
+  Bot,
+  History,
+  TrendingUp,
+  Users,
+  User,
+  LogIn,
+} from 'lucide-react'
 
 type AppShellProps = {
   children: React.ReactNode
+}
+
+type NavItem = {
+  to: string
+  label: string
+  icon: React.ReactNode
+  authRequired?: boolean
+  adminOnly?: boolean
 }
 
 export function AppShell({ children }: AppShellProps) {
@@ -34,20 +54,14 @@ export function AppShell({ children }: AppShellProps) {
   const fetchExplorerResults = useCallback(
     async (query: string, muscle: string, limit: number) => {
       const normalizedQuery = query.trim().toLowerCase()
-      const normalizedMuscle = muscle
-      const cacheKey = `${normalizedQuery}::${normalizedMuscle}::${limit}`
+      const cacheKey = `${normalizedQuery}::${muscle}::${limit}`
       const cached = explorerSearchCacheRef.current.get(cacheKey)
-
-      if (cached) {
-        return cached
-      }
-
+      if (cached) return cached
       const results = await searchExercisesForPlan(authorizedFetch, {
         q: query.trim() || undefined,
         primaryMuscleGroup: muscle || undefined,
         limit,
       })
-
       explorerSearchCacheRef.current.set(cacheKey, results)
       return results
     },
@@ -58,72 +72,108 @@ export function AppShell({ children }: AppShellProps) {
 
   useEffect(() => {
     const eventName = getExerciseExplorerEventName()
-
     const handler = (event: Event) => {
       const customEvent = event as CustomEvent<ExerciseExplorerOpenPayload>
       const payload = customEvent.detail
-
-      if (payload?.initialQuery) {
-        setExplorerQuery(payload.initialQuery)
-      }
-
-      if (payload?.initialMuscle) {
-        setExplorerMuscle(payload.initialMuscle)
-      }
-
+      if (payload?.initialQuery) setExplorerQuery(payload.initialQuery)
+      if (payload?.initialMuscle) setExplorerMuscle(payload.initialMuscle)
       setExplorerContext(payload?.context ?? null)
-
       setIsExplorerOpen(true)
     }
-
     window.addEventListener(eventName, handler)
-
-    return () => {
-      window.removeEventListener(eventName, handler)
-    }
+    return () => window.removeEventListener(eventName, handler)
   }, [])
 
   useEffect(() => {
-    if (!isExplorerOpen) {
-      return
-    }
-
+    if (!isExplorerOpen) return
     const timeoutId = window.setTimeout(() => {
       const query = explorerQuery.trim()
       const requestId = ++explorerRequestIdRef.current
-
       setExplorerLoading(true)
       setExplorerError(null)
-
       void fetchExplorerResults(query, explorerMuscle, 200)
         .then((results) => {
-          if (requestId !== explorerRequestIdRef.current) {
-            return
-          }
-
+          if (requestId !== explorerRequestIdRef.current) return
           setExplorerResults(results)
         })
         .catch((error) => {
-          if (requestId !== explorerRequestIdRef.current) {
-            return
-          }
-
+          if (requestId !== explorerRequestIdRef.current) return
           setExplorerError(error instanceof Error ? error.message : 'Erro ao buscar exercicios')
         })
         .finally(() => {
-          if (requestId !== explorerRequestIdRef.current) {
-            return
-          }
-
+          if (requestId !== explorerRequestIdRef.current) return
           setExplorerLoading(false)
         })
     }, 250)
-
     return () => window.clearTimeout(timeoutId)
   }, [explorerMuscle, explorerQuery, fetchExplorerResults, isExplorerOpen])
 
+  const navItems: NavItem[] = [
+    { to: '/', label: 'Home', icon: <Home size={15} /> },
+    { to: '/train', label: 'Treinar', icon: <Dumbbell size={15} />, authRequired: true },
+    { to: '/workout-recommendations', label: 'Recom.', icon: <Sparkles size={15} /> },
+    { to: '/feed', label: 'Feed', icon: <Rss size={15} />, authRequired: true },
+    { to: '/ai-workout', label: 'IA', icon: <Bot size={15} />, authRequired: true },
+    { to: '/history', label: 'Histórico', icon: <History size={15} />, authRequired: true },
+    { to: '/progress', label: 'Progr.', icon: <TrendingUp size={15} />, authRequired: true },
+    { to: '/admin/users', label: 'Usuários', icon: <Users size={15} />, authRequired: true, adminOnly: true },
+  ]
+
+  const profileItem: NavItem = isAuthenticated
+    ? { to: '/profile', label: user?.name ? `Perfil (${user.name.split(' ')[0]})` : 'Perfil', icon: <User size={15} /> }
+    : { to: '/login', label: 'Login', icon: <LogIn size={15} /> }
+
+  const visibleItems = [
+    ...navItems.filter((item) => {
+      if (item.adminOnly) return isAuthenticated && user?.role === 'ADMIN'
+      if (item.authRequired) return isAuthenticated
+      return true
+    }),
+    profileItem,
+  ]
+
+  // Bottom nav — 5 itens principais para mobile
+  const bottomNavItems = [
+    visibleItems.find((i) => i.to === '/'),
+    visibleItems.find((i) => i.to === '/train'),
+    visibleItems.find((i) => i.to === '/feed'),
+    visibleItems.find((i) => i.to === '/history'),
+    profileItem,
+  ].filter(Boolean) as NavItem[]
+
+  const topNavLinkClass = ({ isActive }: { isActive: boolean }) =>
+    `flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-all duration-200 ${
+      isActive
+        ? 'bg-[var(--brand)] text-white'
+        : 'text-[var(--muted)] hover:bg-[var(--surface-hover)]'
+    }`
+
+  const bottomNavLinkClass = ({ isActive }: { isActive: boolean }) =>
+    `flex flex-col items-center gap-0.5 rounded-xl px-3 py-1.5 text-[10px] font-semibold transition-all duration-200 ${
+      isActive
+        ? 'bg-[var(--brand)] text-white'
+        : 'text-[var(--muted)] hover:bg-[var(--surface-hover)]'
+    }`
+
   return (
-    <div className="mx-auto min-h-screen max-w-5xl px-4 pb-8 pt-24 sm:px-6 lg:px-8">
+    <div className="mx-auto min-h-screen max-w-5xl px-4 pb-24 pt-24 sm:pb-8 sm:px-6 lg:px-8">
+
+      {/* Navbar pill — separada no topo */}
+      <nav className="fixed top-3 left-1/2 z-20 flex w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2 items-center justify-around rounded-full border border-[var(--line)] bg-[var(--surface)] p-2 shadow-lg backdrop-blur-md">
+        {visibleItems.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            end={item.to === '/'}
+            className={topNavLinkClass}
+          >
+            {item.icon}
+            <span>{item.label}</span>
+          </NavLink>
+        ))}
+      </nav>
+
+      {/* Header com logo + sair + tema — abaixo da navbar */}
       <header className="mb-5 flex items-center justify-between gap-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-3 shadow-sm">
         <Link to="/" className="min-w-0">
           <BrandLogo className="flex items-center gap-2" />
@@ -144,12 +194,23 @@ export function AppShell({ children }: AppShellProps) {
 
       <main>{children}</main>
 
+      {/* Bottom nav — visível apenas no mobile */}
+      <nav className="fixed bottom-0 left-0 right-0 z-20 flex items-center justify-around border-t border-[var(--line)] bg-[var(--surface)]/95 px-2 pb-safe pt-2 backdrop-blur-md sm:hidden">
+        {bottomNavItems.map((item) => (
+          <NavLink key={item.to} to={item.to} end={item.to === '/'} className={bottomNavLinkClass}>
+            {item.icon}
+            <span>{item.label}</span>
+          </NavLink>
+        ))}
+      </nav>
+
+      {/* Exercise Explorer overlay */}
       {isExplorerOpen ? (
         <section className="fixed left-1/2 top-[4.6rem] z-30 w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2">
-          <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 shadow-2xl backdrop-blur">
+          <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)]/95 p-4 shadow-2xl backdrop-blur-md">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-sm font-extrabold uppercase tracking-[0.14em] text-[var(--text)]">
-                Explorar exercicios
+              <h3 className="text-xs font-extrabold uppercase tracking-widest text-[var(--muted)]">
+                Explorar exercícios
               </h3>
               <div className="flex gap-2">
                 <button
@@ -169,7 +230,7 @@ export function AppShell({ children }: AppShellProps) {
                   }}
                   className="rounded-lg border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--text)]"
                 >
-                  Parar exploracao
+                  Fechar
                 </button>
               </div>
             </div>
@@ -178,7 +239,7 @@ export function AppShell({ children }: AppShellProps) {
               <input
                 value={explorerQuery}
                 onChange={(event) => setExplorerQuery(event.target.value)}
-                placeholder="Buscar exercicio"
+                placeholder="Buscar exercício..."
                 className="rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
               />
               <select
@@ -186,30 +247,40 @@ export function AppShell({ children }: AppShellProps) {
                 onChange={(event) => setExplorerMuscle(event.target.value)}
                 className="rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
               >
-                <option value="">Todos os musculos</option>
+                <option value="">Todos os músculos</option>
                 {muscleOptions.map((muscle) => (
-                  <option key={muscle} value={muscle}>
-                    {muscle}
-                  </option>
+                  <option key={muscle} value={muscle}>{muscle}</option>
                 ))}
               </select>
             </div>
 
             <div className="mt-3 max-h-72 space-y-2 overflow-auto pr-1">
-              {explorerLoading ? <p className="text-sm text-[var(--muted)]">Buscando exercicios...</p> : null}
+              {explorerLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="flex gap-3 rounded-xl border border-[var(--line)] p-3 animate-pulse">
+                      <div className="h-16 w-16 shrink-0 rounded-lg bg-[var(--surface-hover)]" />
+                      <div className="flex-1 space-y-2 py-1">
+                        <div className="h-3 w-2/3 rounded bg-[var(--surface-hover)]" />
+                        <div className="h-3 w-1/3 rounded bg-[var(--surface-hover)]" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
               {explorerError ? <p className="text-sm text-red-400">{explorerError}</p> : null}
               {!explorerLoading && !explorerError && explorerResults.length === 0 ? (
-                <p className="text-sm text-[var(--muted)]">Nenhum exercicio encontrado para o filtro atual.</p>
+                <p className="py-4 text-center text-sm text-[var(--muted)]">Nenhum exercício encontrado.</p>
               ) : null}
 
               {explorerResults.map((exercise) => (
-                <article key={exercise.id} className="rounded-xl border border-[var(--line)] p-3">
+                <article key={exercise.id} className="rounded-xl border border-[var(--line)] p-3 transition-colors hover:border-[color-mix(in_srgb,var(--brand)_40%,var(--line))]">
                   <div className="flex items-start gap-3">
                     <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] sm:h-20 sm:w-20">
                       {exercise.thumbnailUrl ? (
                         <img
                           src={exercise.thumbnailUrl}
-                          alt={`Imagem do exercicio ${exercise.name}`}
+                          alt={`Imagem do exercício ${exercise.name}`}
                           className="h-full w-full object-cover"
                         />
                       ) : (
@@ -218,39 +289,33 @@ export function AppShell({ children }: AppShellProps) {
                         </div>
                       )}
                     </div>
-
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-bold text-[var(--text)]">{exercise.name}</p>
                       <p className="text-xs text-[var(--muted)]">
-                        {exercise.primaryMuscleGroup} • {exercise.difficulty}
+                        {exercise.primaryMuscleGroup} · {exercise.difficulty}
                       </p>
-
                       <div className="mt-2 flex flex-wrap gap-2">
                         <button
                           type="button"
                           disabled={!explorerContext}
-                          onClick={() => {
-                            selectExerciseFromExplorer(exercise)
-                          }}
+                          onClick={() => selectExerciseFromExplorer(exercise)}
                           className="rounded-lg border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {explorerContext === 'ACTIVE_WORKOUT'
                             ? 'Adicionar ao treino ativo'
                             : explorerContext === 'ROUTINE_EDIT'
-                              ? 'Adicionar na rotina em edicao'
-                              : 'Abra um treino ou rotina para adicionar'}
+                              ? 'Adicionar na rotina'
+                              : 'Abra um treino para adicionar'}
                         </button>
                         <button
                           type="button"
                           disabled={!exercise.videoUrl}
                           onClick={() => {
-                            if (exercise.videoUrl) {
-                              window.open(exercise.videoUrl, '_blank', 'noopener,noreferrer')
-                            }
+                            if (exercise.videoUrl) window.open(exercise.videoUrl, '_blank', 'noopener,noreferrer')
                           }}
                           className="rounded-lg border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          {exercise.videoUrl ? 'Ver video' : 'Video em breve'}
+                          {exercise.videoUrl ? 'Ver vídeo' : 'Vídeo em breve'}
                         </button>
                       </div>
                     </div>
@@ -261,144 +326,6 @@ export function AppShell({ children }: AppShellProps) {
           </div>
         </section>
       ) : null}
-
-      <nav className="fixed top-3 left-1/2 z-20 flex w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2 items-center justify-around rounded-full border border-[var(--line)] bg-[var(--surface)] p-2 shadow-lg backdrop-blur">
-        <NavLink
-          to="/"
-          className={({ isActive }) =>
-            `rounded-full px-4 py-2 text-sm font-medium transition ${
-              isActive
-                ? 'bg-[var(--brand)] text-white'
-                : 'text-[var(--muted)] hover:bg-[var(--surface-hover)]'
-            }`
-          }
-        >
-          Home
-        </NavLink>
-        <NavLink
-          to="/train"
-          className={({ isActive }) =>
-            `rounded-full px-4 py-2 text-sm font-medium transition ${
-              isActive
-                ? 'bg-[var(--brand)] text-white'
-                : 'text-[var(--muted)] hover:bg-[var(--surface-hover)]'
-            }`
-          }
-        >
-          Treinar
-        </NavLink>
-        <NavLink
-          to="/workout-recommendations"
-          className={({ isActive }) =>
-            `rounded-full px-4 py-2 text-sm font-medium transition ${
-              isActive
-                ? 'bg-[var(--brand)] text-white'
-                : 'text-[var(--muted)] hover:bg-[var(--surface-hover)]'
-            }`
-          }
-        >
-          Recom.
-        </NavLink>
-        {isAuthenticated ? (
-          <NavLink
-            to="/feed"
-            className={({ isActive }) =>
-              `rounded-full px-4 py-2 text-sm font-medium transition ${
-                isActive
-                  ? 'bg-[var(--brand)] text-white'
-                  : 'text-[var(--muted)] hover:bg-[var(--surface-hover)]'
-              }`
-            }
-          >
-            Feed
-          </NavLink>
-        ) : null}
-        {isAuthenticated ? (
-          <NavLink
-            to="/ai-workout"
-            className={({ isActive }) =>
-              `rounded-full px-4 py-2 text-sm font-medium transition ${
-                isActive
-                  ? 'bg-[var(--brand)] text-white'
-                  : 'text-[var(--muted)] hover:bg-[var(--surface-hover)]'
-              }`
-            }
-          >
-            IA
-          </NavLink>
-        ) : null}
-        {isAuthenticated ? (
-          <NavLink
-            to="/history"
-            className={({ isActive }) =>
-              `rounded-full px-4 py-2 text-sm font-medium transition ${
-                isActive
-                  ? 'bg-[var(--brand)] text-white'
-                  : 'text-[var(--muted)] hover:bg-[var(--surface-hover)]'
-              }`
-            }
-          >
-            Historico
-          </NavLink>
-        ) : null}
-        {isAuthenticated ? (
-          <NavLink
-            to="/progress"
-            className={({ isActive }) =>
-              `rounded-full px-4 py-2 text-sm font-medium transition ${
-                isActive
-                  ? 'bg-[var(--brand)] text-white'
-                  : 'text-[var(--muted)] hover:bg-[var(--surface-hover)]'
-              }`
-            }
-          >
-            Progr.
-          </NavLink>
-        ) : null}
-        {isAuthenticated ? (
-          user?.role === 'ADMIN' ? (
-            <NavLink
-              to="/admin/users"
-              className={({ isActive }) =>
-                `rounded-full px-4 py-2 text-sm font-medium transition ${
-                  isActive
-                    ? 'bg-[var(--brand)] text-white'
-                    : 'text-[var(--muted)] hover:bg-[var(--surface-hover)]'
-                }`
-              }
-            >
-              Usuarios
-            </NavLink>
-          ) : null
-        ) : null}
-        {isAuthenticated ? (
-          <NavLink
-            to="/profile"
-            className={({ isActive }) =>
-              `rounded-full px-4 py-2 text-sm font-medium transition ${
-                isActive
-                  ? 'bg-[var(--brand)] text-white'
-                  : 'text-[var(--muted)] hover:bg-[var(--surface-hover)]'
-              }`
-            }
-          >
-            {user?.name ? `Perfil (${user.name.split(' ')[0]})` : 'Perfil'}
-          </NavLink>
-        ) : (
-          <NavLink
-            to="/login"
-            className={({ isActive }) =>
-              `rounded-full px-4 py-2 text-sm font-medium transition ${
-                isActive
-                  ? 'bg-[var(--brand)] text-white'
-                  : 'text-[var(--muted)] hover:bg-[var(--surface-hover)]'
-              }`
-            }
-          >
-            Login
-          </NavLink>
-        )}
-      </nav>
     </div>
   )
 }

@@ -3,6 +3,8 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { getFeed, toggleLike, deletePost, searchUsers, followUser, unfollowUser, type FeedPost, type UserSearchResult, type WorkoutExerciseSummary } from '../services/socialService'
+import { SkeletonCard } from '../components/common/Skeleton'
+import { Rss } from 'lucide-react'
 
 function formatDuration(sec: number | null): string {
   if (!sec) return '-'
@@ -312,13 +314,18 @@ export function FeedPage() {
       {error && <p className="text-sm text-red-400">{error}</p>}
 
       {loading && (
-        <p className="text-sm text-[var(--muted)]">Carregando...</p>
+        <div className="space-y-4">
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+        </div>
       )}
 
       {!loading && posts.length === 0 && (
-        <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-8 text-center">
-          <p className="text-[var(--muted)]">Nenhum post ainda.</p>
-          <p className="mt-1 text-sm text-[var(--muted)]">Siga outros usuários ou poste seu treino ao finalizar!</p>
+        <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-10 text-center">
+          <Rss size={36} className="mx-auto mb-3 text-[var(--muted)]" strokeWidth={1.5} />
+          <p className="text-base font-bold text-[var(--text)]">Nenhum post ainda</p>
+          <p className="mt-1 text-sm text-[var(--muted)]">Siga outros usuários ou finalize um treino para publicar!</p>
         </div>
       )}
 
