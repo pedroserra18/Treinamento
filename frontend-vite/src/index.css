@@ -26,17 +26,46 @@
   --accent-blue: #60a5ff;
 }
 
-/* Themed card shadows for a warmer, cohesive visual identity across the app. */
+/* ─── Card interactive hover — lift + shadow em todos os cards ─ */
+
+/* Seleciona todos os cards pelo padrão de classes do Tailwind */
+[class*="rounded-2xl"][class*="border"],
+[class*="rounded-3xl"][class*="border"],
+.card-glow-orange,
+.card-glow-blue,
+.card-glow-mixed {
+  transition: transform 200ms ease, box-shadow 200ms ease;
+}
+
+[class*="rounded-2xl"][class*="border"]:hover,
+[class*="rounded-3xl"][class*="border"]:hover,
+.card-glow-orange:hover,
+.card-glow-blue:hover,
+.card-glow-mixed:hover {
+  transform: translateY(-3px);
+}
+
+/* Themed card shadows */
 .card-glow-orange {
   box-shadow:
     0 16px 36px -28px color-mix(in srgb, var(--brand) 65%, transparent),
     0 2px 8px -6px rgba(0, 0, 0, 0.25);
+}
+.card-glow-orange:hover {
+  box-shadow:
+    0 22px 40px -24px color-mix(in srgb, var(--brand) 72%, transparent),
+    0 6px 18px -8px rgba(0, 0, 0, 0.28);
 }
 
 .card-glow-blue {
   box-shadow:
     0 16px 36px -28px color-mix(in srgb, var(--accent-blue) 60%, transparent),
     0 2px 8px -6px rgba(0, 0, 0, 0.22);
+}
+.card-glow-blue:hover {
+  box-shadow:
+    0 22px 40px -24px color-mix(in srgb, var(--accent-blue) 68%, transparent),
+    0 6px 18px -8px rgba(0, 0, 0, 0.25);
 }
 
 .card-glow-mixed {
@@ -45,20 +74,29 @@
     0 10px 24px -22px color-mix(in srgb, var(--accent-blue) 45%, transparent),
     0 2px 8px -6px rgba(0, 0, 0, 0.25);
 }
+.card-glow-mixed:hover {
+  box-shadow:
+    0 22px 40px -22px color-mix(in srgb, var(--brand) 65%, transparent),
+    0 14px 28px -18px color-mix(in srgb, var(--accent-blue) 55%, transparent),
+    0 6px 18px -8px rgba(0, 0, 0, 0.28);
+}
 
+/* Cards genéricos (sem classe card-glow) */
 [class*="rounded-2xl"][class*="border"][class*="bg-[var(--surface)]"],
-[class*="rounded-2xl"][class*="border"][class*="bg-[var(--surface-hover)]"] {
+[class*="rounded-2xl"][class*="border"][class*="bg-[var(--surface-hover)]"],
+[class*="rounded-3xl"][class*="border"][class*="bg-[var(--surface)]"] {
   box-shadow:
     0 14px 30px -30px color-mix(in srgb, var(--brand) 70%, transparent),
     0 2px 8px -7px rgba(0, 0, 0, 0.2);
 }
 
 [class*="rounded-2xl"][class*="border"][class*="bg-[var(--surface)]"]:hover,
-[class*="rounded-2xl"][class*="border"][class*="bg-[var(--surface-hover)]"]:hover {
+[class*="rounded-2xl"][class*="border"][class*="bg-[var(--surface-hover)]"]:hover,
+[class*="rounded-3xl"][class*="border"][class*="bg-[var(--surface)]"]:hover {
   box-shadow:
-    0 16px 36px -28px color-mix(in srgb, var(--brand) 72%, transparent),
-    0 12px 24px -24px color-mix(in srgb, var(--accent-blue) 45%, transparent),
-    0 2px 10px -7px rgba(0, 0, 0, 0.22);
+    0 20px 38px -24px color-mix(in srgb, var(--brand) 75%, transparent),
+    0 12px 24px -20px color-mix(in srgb, var(--accent-blue) 40%, transparent),
+    0 4px 12px -6px rgba(0, 0, 0, 0.22);
 }
 
 * {
@@ -182,14 +220,24 @@ select option {
   button,
   input[type="button"],
   input[type="submit"],
-  a[class*="rounded"][class*="px-"][class*="py-"] {
+  a[class*="rounded"][class*="px-"][class*="py-"],
+  [class*="rounded-2xl"][class*="border"],
+  [class*="rounded-3xl"][class*="border"],
+  .card-glow-orange,
+  .card-glow-blue,
+  .card-glow-mixed {
     transition: none;
   }
 
   button:hover,
   input[type="button"]:hover,
   input[type="submit"]:hover,
-  a[class*="rounded"][class*="px-"][class*="py-"]:hover {
+  a[class*="rounded"][class*="px-"][class*="py-"]:hover,
+  [class*="rounded-2xl"][class*="border"]:hover,
+  [class*="rounded-3xl"][class*="border"]:hover,
+  .card-glow-orange:hover,
+  .card-glow-blue:hover,
+  .card-glow-mixed:hover {
     transform: none;
     box-shadow: none;
   }
