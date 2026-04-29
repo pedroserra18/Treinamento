@@ -8,6 +8,7 @@ import securityRoutes from "../modules/security/security.routes";
 import dashboardRoutes from "../modules/dashboard/dashboard.routes";
 import recommendationRoutes from "../modules/recommendation/recommendation.routes";
 import aiRoutes from "../modules/ai/ai.routes";
+import { socialRouter } from "../modules/social/social.routes";
 import { Router } from "express";
 
 const router = Router();
@@ -21,6 +22,7 @@ router.use(progressRoutes);
 router.use(recommendationRoutes);
 router.use(workoutRoutes);
 router.use(aiRoutes);
+router.use("/social", socialRouter);
 router.use(securityRoutes);
 
 export default router;

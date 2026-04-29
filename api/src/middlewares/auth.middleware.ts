@@ -10,6 +10,24 @@ type AccessTokenClaims = {
   tokenType?: "access" | "refresh";
 };
 
+export function optionalAuth(req: Request, _res: Response, next: NextFunction): void {
+  const authHeader = req.header("authorization");
+  if (authHeader?.startsWith("Bearer ")) {
+    const token = authHeader.slice("Bearer ".length).trim();
+    try {
+      const decoded = jwt.verify(token, env.jwtSecret, {
+        issuer: env.jwtIssuer,
+        audience: env.jwtAudience
+      }) as AccessTokenClaims;
+      if (!decoded.tokenType || decoded.tokenType === "access") {
+        req.context.userId = decoded.sub;
+        req.context.userRole = decoded.role;
+      }
+    } catch { /* ignore invalid token */ }
+  }
+  next();
+}
+
 export function requireAuth(req: Request, _res: Response, next: NextFunction): void {
   const authHeader = req.header("authorization");
   if (!authHeader?.startsWith("Bearer ")) {

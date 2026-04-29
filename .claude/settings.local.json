@@ -19,7 +19,12 @@
       "Read(//tmp/**)",
       "Bash(kill %1)",
       "Bash(powershell -Command \"Get-Process -Name 'node' -ErrorAction SilentlyContinue | Stop-Process -Force; Get-Process -Name 'tsx' -ErrorAction SilentlyContinue | Stop-Process -Force\")",
-      "Bash(powershell -Command \"Get-Process -Name 'node' -ErrorAction SilentlyContinue | Stop-Process -Force\")"
+      "Bash(powershell -Command \"Get-Process -Name 'node' -ErrorAction SilentlyContinue | Stop-Process -Force\")",
+      "Bash(curl -s -H \"Authorization: Bearer test\" http://localhost:4000/api/v1/social/feed?page=1)",
+      "Bash(curl -s http://localhost:4000/api/v1/social/feed?page=1 -H \"Authorization: Bearer invalidtoken\")",
+      "Bash(taskkill /F /IM node.exe)",
+      "Bash(taskkill //F //IM node.exe)",
+      "Bash(npx vite *)"
     ]
   }
 }

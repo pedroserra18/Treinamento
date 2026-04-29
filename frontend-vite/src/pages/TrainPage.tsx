@@ -2,6 +2,7 @@ import { motion } from 'framer-motion'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPost, sharePlan, type PostPrivacy } from '../services/socialService'
 import { WorkoutsPage } from './WorkoutsPage'
 import { SetTypeSelector } from '../components/common/SetTypeSelector'
 import { type SetType, type DropEntry } from '../components/common/setTypeOptions'
@@ -26,7 +27,7 @@ import {
   updatePlanExercise,
 } from '../services/workoutService'
 
-type TrainScreen = 'DASHBOARD' | 'ACTIVE' | 'SUMMARY'
+type TrainScreen = 'DASHBOARD' | 'ACTIVE' | 'SUMMARY' | 'EDIT'
 type TrainOriginMode = 'EMPTY' | 'ROUTINE'
 type RoutineManagerMode = 'CREATE' | 'EDIT'
 
@@ -186,6 +187,7 @@ export function TrainPage() {
   const [showRoutineManager, setShowRoutineManager] = useState(false)
   const [routineManagerMode, setRoutineManagerMode] = useState<RoutineManagerMode>('CREATE')
   const [openRoutineMenuId, setOpenRoutineMenuId] = useState<string | null>(null)
+  const [shareLinkModal, setShareLinkModal] = useState<{ link: string; planName: string } | null>(null)
 
   const [activePlanId, setActivePlanId] = useState<string>('')
   const [activePlanName, setActivePlanName] = useState<string>('Treinamento vazio')
@@ -212,6 +214,11 @@ export function TrainPage() {
   const [summaryNotes, setSummaryNotes] = useState('')
   const [summaryImageFile, setSummaryImageFile] = useState<File | null>(null)
   const [summaryImagePreview, setSummaryImagePreview] = useState<string | null>(null)
+  const [postPrivacy, setPostPrivacy] = useState<PostPrivacy>('PUBLIC')
+  const [postCaption, setPostCaption] = useState('')
+  const [savedSessionId, setSavedSessionId] = useState<string | null>(null)
+  const [posting, setPosting] = useState(false)
+  const [postDone, setPostDone] = useState(false)
   const interactionOrderByExerciseRef = useRef<Record<string, number>>({})
   const interactionOrderCounterRef = useRef(0)
 
@@ -513,6 +520,11 @@ export function TrainPage() {
       URL.revokeObjectURL(summaryImagePreview)
     }
     setSummaryImagePreview(null)
+    setSavedSessionId(null)
+    setPostCaption('')
+    setPostPrivacy('PUBLIC')
+    setPosting(false)
+    setPostDone(false)
     interactionOrderByExerciseRef.current = {}
     interactionOrderCounterRef.current = 0
   }
@@ -967,6 +979,7 @@ export function TrainPage() {
       const started = await startWorkoutSession(authorizedFetch, {
         workoutPlanId: originMode === 'ROUTINE' ? activePlanId : undefined,
       })
+      setSavedSessionId(started.id)
 
       const notesSegments = [summaryNotes.trim()].filter(Boolean)
       if (summaryImageFile) {
@@ -986,9 +999,6 @@ export function TrainPage() {
           // Keep workout save successful even if browser storage is unavailable.
         }
       }
-
-      window.alert('Treino salvo com sucesso no historico.')
-      resetWorkflow()
 
       await reloadPlans()
     } catch (err) {
@@ -1014,30 +1024,50 @@ export function TrainPage() {
   }
 
   const handleShareRoutine = async (plan: WorkoutPlan) => {
-    const lines = [
-      `Rotina: ${plan.name}`,
-      plan.description ? `Descricao: ${plan.description}` : 'Descricao: Sem descricao',
-      'Exercicios:',
-      ...plan.exercises.map((item, index) => {
-        const exerciseName = item.customName ?? item.exercise.name
-        const sets = item.sets ?? 0
-        const repsMin = item.repsMin ?? 0
-        const repsMax = item.repsMax ?? repsMin
-        return `${index + 1}. ${exerciseName} - ${sets}x ${repsMin}-${repsMax}`
-      }),
-    ]
-
-    const shareText = lines.join('\n')
-
     try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(shareText)
-        window.alert('Resumo da rotina copiado para a area de transferencia.')
-      } else {
-        window.alert(shareText)
-      }
-    } catch {
-      window.alert(shareText)
+      setError(null)
+      const { token } = await sharePlan(authorizedFetch, plan.id)
+      const link = `${window.location.origin}/shared/${token}`
+      setShareLinkModal({ link, planName: plan.name })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao gerar link de compartilhamento')
+    }
+  }
+
+  const handleExportPDF = (plan: WorkoutPlan) => {
+    const exerciseRows = plan.exercises
+      .map((item, i) => {
+        const name = item.customName ?? item.exercise.name
+        const sets = item.sets ?? '—'
+        const reps = item.repsMin && item.repsMax ? `${item.repsMin}–${item.repsMax}` : (item.repsMax ?? item.repsMin ?? '—')
+        const rest = item.restSec ? `${item.restSec}s` : '—'
+        return `<tr>
+          <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb">${i + 1}. ${name}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:center">${sets}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:center">${reps}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;text-align:center">${rest}</td>
+        </tr>`
+      })
+      .join('')
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
+      <title>${plan.name}</title>
+      <style>body{font-family:Arial,sans-serif;padding:32px;color:#111}h1{margin:0 0 4px}p{color:#666;margin:0 0 24px}table{width:100%;border-collapse:collapse}th{background:#f3f4f6;padding:8px 12px;text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#6b7280}</style>
+    </head><body>
+      <h1>${plan.name}</h1>
+      <p>${plan.description ?? 'Rotina personalizada'}</p>
+      <table>
+        <thead><tr><th>Exercicio</th><th>Series</th><th>Reps</th><th>Descanso</th></tr></thead>
+        <tbody>${exerciseRows}</tbody>
+      </table>
+      <p style="margin-top:32px;font-size:12px;color:#9ca3af">Gerado pelo SerraAthlo</p>
+      <script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}</` + `script>
+    </body></html>`
+
+    const win = window.open('', '_blank')
+    if (win) {
+      win.document.write(html)
+      win.document.close()
     }
   }
 
@@ -1164,24 +1194,138 @@ export function TrainPage() {
             />
           </label>
 
-          <div className="flex flex-wrap gap-2">
+          {!savedSessionId ? (
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void saveTraining()}
+                disabled={saving}
+                className="rounded-xl bg-[var(--brand)] px-5 py-2 text-sm font-bold text-white disabled:opacity-60"
+              >
+                {saving ? 'Salvando...' : 'Salvar Treino'}
+              </button>
+              <button
+                type="button"
+                onClick={resetWorkflow}
+                className="rounded-xl border border-red-500/60 px-5 py-2 text-sm font-bold text-red-300"
+              >
+                Descartar Treinamento
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm font-semibold text-green-400">Treino salvo com sucesso!</p>
+              {!postDone ? (
+                <>
+                  <p className="text-sm font-semibold text-[var(--text)]">Deseja postar este treino?</p>
+                  <div className="flex gap-2 flex-wrap">
+                    {(['PUBLIC', 'FRIENDS', 'PRIVATE'] as PostPrivacy[]).map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setPostPrivacy(p)}
+                        className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition-colors ${
+                          postPrivacy === p
+                            ? 'border-[var(--brand)] bg-[var(--brand)]/10 text-[var(--brand)]'
+                            : 'border-[var(--line)] text-[var(--muted)]'
+                        }`}
+                      >
+                        {p === 'PUBLIC' ? 'Público' : p === 'FRIENDS' ? 'Amigos' : 'Privado'}
+                      </button>
+                    ))}
+                  </div>
+                  <textarea
+                    value={postCaption}
+                    onChange={(e) => setPostCaption(e.target.value)}
+                    placeholder="Legenda do post (opcional)"
+                    rows={2}
+                    className="w-full rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={posting}
+                      onClick={async () => {
+                        try {
+                          setPosting(true)
+                          await createPost(authorizedFetch, {
+                            workoutSessionId: savedSessionId,
+                            caption: postCaption.trim() || undefined,
+                            photoUrl: summaryImagePreview ?? undefined,
+                            privacy: postPrivacy,
+                          })
+                          setPostDone(true)
+                        } catch (err) {
+                          setError(err instanceof Error ? err.message : 'Erro ao postar')
+                        } finally {
+                          setPosting(false)
+                        }
+                      }}
+                      className="rounded-xl bg-[var(--brand)] px-5 py-2 text-sm font-bold text-white disabled:opacity-60"
+                    >
+                      {posting ? 'Postando...' : 'Postar treino'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={resetWorkflow}
+                      className="rounded-xl border border-[var(--line)] px-5 py-2 text-sm font-semibold text-[var(--text)]"
+                    >
+                      Pular
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-sm text-green-400">Post publicado!</p>
+                  <button
+                    type="button"
+                    onClick={resetWorkflow}
+                    className="rounded-xl bg-[var(--brand)] px-5 py-2 text-sm font-bold text-white"
+                  >
+                    Concluir
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </article>
+      </section>
+    )
+  }
+
+  if (screen === 'EDIT') {
+    const editingPlan = plans.find((p) => p.id === activePlanId)
+    return (
+      <section className="space-y-4">
+        <motion.header
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-black text-[var(--text)]">Editando rotina</h1>
+              <p className="mt-1 text-sm text-[var(--muted)]">{editingPlan?.name ?? ''}</p>
+            </div>
             <button
               type="button"
-              onClick={() => void saveTraining()}
-              disabled={saving}
-              className="rounded-xl bg-[var(--brand)] px-5 py-2 text-sm font-bold text-white disabled:opacity-60"
+              onClick={() => setScreen('DASHBOARD')}
+              className="rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--text)]"
             >
-              {saving ? 'Salvando...' : 'Salvar Treino'}
-            </button>
-            <button
-              type="button"
-              onClick={resetWorkflow}
-              className="rounded-xl border border-red-500/60 px-5 py-2 text-sm font-bold text-red-300"
-            >
-              Descartar Treinamento
+              {'<- Voltar'}
             </button>
           </div>
-        </article>
+        </motion.header>
+        <WorkoutsPage
+          selectedPlanId={activePlanId}
+          onlySelectedPlan
+          showCreateSection={false}
+          createOnlyMode={false}
+          onPlanSaved={async () => {
+            await reloadPlans(activePlanId)
+            setScreen('DASHBOARD')
+          }}
+        />
       </section>
     )
   }
@@ -1771,6 +1915,16 @@ export function TrainPage() {
                     >
                       Duplicar rotina
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOpenRoutineMenuId(null)
+                        handleExportPDF(plan)
+                      }}
+                      className="block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
+                    >
+                      Salvar como PDF
+                    </button>
                   </div>
                 ) : null}
               </div>
@@ -1791,12 +1945,7 @@ export function TrainPage() {
                   type="button"
                   onClick={() => {
                     setActivePlanId(plan.id)
-                    setRoutineManagerMode('EDIT')
-                    setShowRoutineManager(true)
-                    requestAnimationFrame(() => {
-                      const section = document.getElementById('treinar-rotinas-section')
-                      section?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                    })
+                    setScreen('EDIT')
                   }}
                   className="rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)]"
                 >
@@ -1807,6 +1956,56 @@ export function TrainPage() {
           ))}
         </div>
       </article>
+
+      {shareLinkModal ? createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setShareLinkModal(null)}>
+          <div
+            className="w-full max-w-md rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-extrabold text-[var(--text)]">Compartilhar rotina</h3>
+            <p className="mt-1 text-sm text-[var(--muted)]">{shareLinkModal.planName}</p>
+            <div className="mt-4 flex items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2">
+              <span className="flex-1 truncate text-xs text-[var(--text)]">{shareLinkModal.link}</span>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(shareLinkModal.link)
+                    window.alert('Link copiado!')
+                  } catch {
+                    window.prompt('Copie o link:', shareLinkModal.link)
+                  }
+                }}
+                className="shrink-0 rounded-lg bg-[var(--brand)] px-3 py-1.5 text-xs font-bold text-white"
+              >
+                Copiar
+              </button>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {typeof navigator.share === 'function' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void navigator.share({ title: shareLinkModal.planName, url: shareLinkModal.link })
+                  }}
+                  className="rounded-xl bg-green-600 px-4 py-2 text-sm font-bold text-white"
+                >
+                  Compartilhar (WhatsApp, Instagram...)
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setShareLinkModal(null)}
+                className="rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)]"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      ) : null}
 
       {showRoutineManager ? (
         <section id="treinar-rotinas-section" className="space-y-2">

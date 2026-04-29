@@ -21,7 +21,9 @@ import {
   loginWithEmail,
   logoutSession,
   refreshSession,
-  registerWithEmail
+  registerWithEmail,
+  updateAvatar,
+  updatePrivacy
 } from "./auth.service";
 import {
   ForgotPasswordConfirmBody,
@@ -313,6 +315,20 @@ export async function onboardingStatusController(req: Request, res: Response): P
       requestId: req.context.requestId
     }
   });
+}
+
+export async function updatePrivacyController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const { isPrivate, showFollowLists } = req.body as { isPrivate?: boolean; showFollowLists?: boolean };
+  const result = await updatePrivacy(userId, { isPrivate, showFollowLists });
+  res.json({ data: result, meta: { requestId: req.context.requestId } });
+}
+
+export async function updateAvatarController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const { avatarUrl } = req.body as { avatarUrl: string | null };
+  const user = await updateAvatar(userId, avatarUrl ?? null);
+  res.json({ data: { user }, meta: { requestId: req.context.requestId } });
 }
 
 export async function onboardingCompleteController(req: Request, res: Response): Promise<void> {

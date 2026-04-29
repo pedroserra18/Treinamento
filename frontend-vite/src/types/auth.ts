@@ -6,6 +6,9 @@ export type AuthUser = {
   sex: 'MALE' | 'FEMALE' | 'OTHER'
   availableDaysPerWeek: number | null
   onboardingCompleted: boolean
+  avatarUrl?: string | null
+  isPrivate?: boolean
+  showFollowLists?: boolean
 }
 
 export type AuthTokens = {

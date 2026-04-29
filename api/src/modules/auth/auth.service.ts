@@ -28,6 +28,8 @@ type SafeUser = {
   sex: "MALE" | "FEMALE" | "OTHER";
   availableDaysPerWeek: number | null;
   onboardingCompleted: boolean;
+  isPrivate: boolean;
+  showFollowLists: boolean;
 };
 
 type AuthTokens = {
@@ -198,6 +200,8 @@ function toSafeUser(user: {
   sex: "MALE" | "FEMALE" | "OTHER";
   availableDaysPerWeek: number | null;
   onboardingCompletedAt: Date | null;
+  isPrivate?: boolean;
+  showFollowLists?: boolean;
 }): SafeUser {
   return {
     id: user.id,
@@ -206,7 +210,9 @@ function toSafeUser(user: {
     role: user.role,
     sex: user.sex,
     availableDaysPerWeek: user.availableDaysPerWeek,
-    onboardingCompleted: Boolean(user.onboardingCompletedAt && user.availableDaysPerWeek)
+    onboardingCompleted: Boolean(user.onboardingCompletedAt && user.availableDaysPerWeek),
+    isPrivate: user.isPrivate ?? false,
+    showFollowLists: user.showFollowLists ?? true
   };
 }
 
@@ -240,7 +246,8 @@ export async function registerWithEmail(data: RegisterBody): Promise<AuthResult>
       role: true,
       sex: true,
       availableDaysPerWeek: true,
-      onboardingCompletedAt: true
+      onboardingCompletedAt: true,
+      isPrivate: true, showFollowLists: true
     }
   });
 
@@ -278,6 +285,7 @@ export async function loginWithEmail(data: LoginBody): Promise<AuthResult> {
       sex: true,
       availableDaysPerWeek: true,
       onboardingCompletedAt: true,
+      isPrivate: true, showFollowLists: true,
       passwordHash: true,
       failedLoginAttempts: true,
       isDeleted: true,
@@ -437,6 +445,7 @@ export async function getAuthenticatedProfile(userId: string): Promise<SafeUser>
       sex: true,
       availableDaysPerWeek: true,
       onboardingCompletedAt: true,
+      isPrivate: true, showFollowLists: true,
       isDeleted: true,
       status: true
     }
@@ -483,6 +492,30 @@ export async function getOnboardingStatus(userId: string): Promise<{
   };
 }
 
+export async function updatePrivacy(
+  userId: string,
+  fields: { isPrivate?: boolean; showFollowLists?: boolean }
+): Promise<{ isPrivate: boolean; showFollowLists: boolean }> {
+  await prisma.user.update({ where: { id: userId }, data: fields });
+  const updated = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { isPrivate: true, showFollowLists: true }
+  });
+  return updated;
+}
+
+export async function updateAvatar(userId: string, avatarUrl: string | null): Promise<SafeUser> {
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: { avatarUrl },
+    select: {
+      id: true, name: true, email: true, role: true,
+      sex: true, availableDaysPerWeek: true, onboardingCompletedAt: true, isPrivate: true, showFollowLists: true
+    },
+  });
+  return toSafeUser(updated);
+}
+
 export async function completeOnboarding(
   userId: string,
   data: OnboardingCompleteBody
@@ -501,7 +534,8 @@ export async function completeOnboarding(
       role: true,
       sex: true,
       availableDaysPerWeek: true,
-      onboardingCompletedAt: true
+      onboardingCompletedAt: true,
+      isPrivate: true, showFollowLists: true
     }
   });
 

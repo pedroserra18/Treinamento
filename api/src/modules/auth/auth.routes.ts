@@ -30,6 +30,8 @@ import {
   onboardingCompleteController,
   onboardingStatusController,
   profileController,
+  updateAvatarController,
+  updatePrivacyController,
   registerRequestCodeController,
   registerVerifyCodeController,
   refreshController,
@@ -104,7 +106,9 @@ router.post(
 
 router.post("/auth/logout", requireAuth, asyncHandler(async (req, res) => logoutController(req, res)));
 
-router.get("/auth/profile", requireAuth, asyncHandler(async (req, res) => profileController(req, res)));
+router.get("/auth/profile", requireAuth, asyncHandler(async (req, res) => profileController(req, res)))
+router.patch("/auth/profile/avatar", requireAuth, asyncHandler(async (req, res) => updateAvatarController(req, res)));
+router.patch("/auth/profile/privacy", requireAuth, asyncHandler(async (req, res) => updatePrivacyController(req, res)));
 router.get(
   "/auth/onboarding/status",
   requireAuth,
