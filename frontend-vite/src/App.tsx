@@ -17,6 +17,9 @@ import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { WorkoutRecommendationsPage } from './pages/WorkoutRecommendationsPage'
 import { AIWorkoutPage } from './pages/AIWorkoutPage'
+import { FeedPage } from './pages/FeedPage'
+import { PublicProfilePage } from './pages/PublicProfilePage'
+import { SharedPlanPage } from './pages/SharedPlanPage'
 
 function AnimatedRoutes() {
   const location = useLocation()
@@ -109,6 +112,16 @@ function AnimatedRoutes() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/feed"
+            element={
+              <ProtectedRoute>
+                <FeedPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/u/:userId" element={<PublicProfilePage />} />
+          <Route path="/shared/:token" element={<SharedPlanPage />} />
           <Route
             path="/admin/users"
             element={

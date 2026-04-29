@@ -1,0 +1,113 @@
+import { Request, Response } from "express";
+import {
+  createPost, deletePost, toggleLike, getFeed, getUserPosts,
+  followUser, unfollowUser, getFollowers, getFollowing,
+  searchUsers, getPublicProfile, getPublicFollowers, getPublicFollowing, getMutualFollowers,
+  sharePlan, getSharedPlan, saveSharedPlan, compareUsers, compareExercise,
+} from "./social.service";
+import {
+  CreatePostBody, FeedQuery, UserPostsQuery, SearchUsersQuery,
+} from "./social.schema";
+
+export async function createPostController(req: Request, res: Response) {
+  const userId = req.context.userId!;
+  const post = await createPost(userId, req.body as CreatePostBody);
+  res.status(201).json({ data: post });
+}
+
+export async function deletePostController(req: Request, res: Response) {
+  await deletePost(req.context.userId!, req.params["postId"] as string);
+  res.status(204).end();
+}
+
+export async function toggleLikeController(req: Request, res: Response) {
+  const result = await toggleLike(req.context.userId!, req.params["postId"] as string);
+  res.json({ data: result });
+}
+
+export async function getFeedController(req: Request, res: Response) {
+  const { page, pageSize } = req.query as unknown as FeedQuery;
+  const posts = await getFeed(req.context.userId!, page, pageSize);
+  res.json({ data: posts });
+}
+
+export async function getUserPostsController(req: Request, res: Response) {
+  const { page, pageSize } = req.query as unknown as UserPostsQuery;
+  const posts = await getUserPosts(req.context.userId, req.params["userId"] as string, page, pageSize);
+  res.json({ data: posts });
+}
+
+export async function followController(req: Request, res: Response) {
+  await followUser(req.context.userId!, req.params["userId"] as string);
+  res.status(204).end();
+}
+
+export async function unfollowController(req: Request, res: Response) {
+  await unfollowUser(req.context.userId!, req.params["userId"] as string);
+  res.status(204).end();
+}
+
+export async function getFollowersController(req: Request, res: Response) {
+  const followers = await getFollowers(req.context.userId!);
+  res.json({ data: followers });
+}
+
+export async function getFollowingController(req: Request, res: Response) {
+  const following = await getFollowing(req.context.userId!);
+  res.json({ data: following });
+}
+
+export async function searchUsersController(req: Request, res: Response) {
+  const { q, page, pageSize } = req.query as unknown as SearchUsersQuery;
+  const users = await searchUsers(req.context.userId!, q, page, pageSize);
+  res.json({ data: users });
+}
+
+export async function getPublicProfileController(req: Request, res: Response) {
+  const viewerId = req.context?.userId;
+  const profile = await getPublicProfile(viewerId, req.params["userId"] as string);
+  res.json({ data: profile });
+}
+
+export async function getPublicFollowersController(req: Request, res: Response) {
+  const viewerId = req.context?.userId;
+  const users = await getPublicFollowers(viewerId, req.params["userId"] as string);
+  res.json({ data: users });
+}
+
+export async function getPublicFollowingController(req: Request, res: Response) {
+  const viewerId = req.context?.userId;
+  const users = await getPublicFollowing(viewerId, req.params["userId"] as string);
+  res.json({ data: users });
+}
+
+export async function getMutualFollowersController(req: Request, res: Response) {
+  const result = await getMutualFollowers(req.context.userId!, req.params["userId"] as string);
+  res.json({ data: result });
+}
+
+export async function sharePlanController(req: Request, res: Response) {
+  const result = await sharePlan(req.context.userId!, req.params["planId"] as string);
+  res.json({ data: result });
+}
+
+export async function getSharedPlanController(req: Request, res: Response) {
+  const plan = await getSharedPlan(req.params["token"] as string);
+  res.json({ data: plan });
+}
+
+export async function saveSharedPlanController(req: Request, res: Response) {
+  const result = await saveSharedPlan(req.context.userId!, req.params["token"] as string);
+  res.status(201).json({ data: result });
+}
+
+export async function compareUsersController(req: Request, res: Response) {
+  const result = await compareUsers(req.context.userId!, req.params["userId"] as string);
+  res.json({ data: result });
+}
+
+export async function compareExerciseController(req: Request, res: Response) {
+  const { exerciseId } = req.query as { exerciseId: string };
+  const result = await compareExercise(req.context.userId!, req.params["userId"] as string, exerciseId);
+  res.json({ data: result });
+}

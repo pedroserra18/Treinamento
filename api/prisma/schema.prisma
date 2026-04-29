@@ -115,6 +115,12 @@ enum EventCategory {
   SYSTEM
 }
 
+enum PostPrivacy {
+  PUBLIC
+  FRIENDS
+  PRIVATE
+}
+
 enum EventSeverity {
   INFO
   WARNING
@@ -139,6 +145,8 @@ model User {
   failedLoginAttempts Int             @default(0)
   lastLoginAt         DateTime?
   passwordChangedAt   DateTime?
+  isPrivate           Boolean         @default(false)
+  showFollowLists     Boolean         @default(true)
   isDeleted           Boolean         @default(false)
   deletedAt           DateTime?
   createdAt           DateTime        @default(now())
@@ -153,6 +161,11 @@ model User {
   bodyMeasurements  BodyMeasurement[]
   eventLogs         EventLog[]
   customExercises   Exercise[]
+  followers         Follow[]         @relation("UserFollowing")
+  following         Follow[]         @relation("UserFollowers")
+  workoutPosts      WorkoutPost[]
+  postLikes         PostLike[]
+  sharedPlans       SharedPlan[]
 
   @@index([status, isDeleted])
   @@index([role])
@@ -278,6 +291,7 @@ model WorkoutPlan {
   user     User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   sessions WorkoutSession[]
   exercises WorkoutPlanExercise[]
+  sharedPlans SharedPlan[]
 
   @@index([userId, status])
   @@index([startsAt, endsAt])
@@ -324,6 +338,7 @@ model WorkoutSession {
   user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   workoutPlan WorkoutPlan?   @relation(fields: [workoutPlanId], references: [id], onDelete: SetNull)
   history     WorkoutHistory[]
+  post        WorkoutPost?
 
   @@index([userId, scheduledAt])
   @@index([workoutPlanId, status])
@@ -401,4 +416,70 @@ model EventLog {
   @@index([category, severity, occurredAt])
   @@index([requestId])
   @@map("event_logs")
+}
+
+model Follow {
+  id          String   @id @default(cuid())
+  followerId  String
+  followingId String
+  createdAt   DateTime @default(now())
+
+  follower  User @relation("UserFollowers", fields: [followerId], references: [id], onDelete: Cascade)
+  following User @relation("UserFollowing", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@index([followerId])
+  @@index([followingId])
+  @@map("follows")
+}
+
+model WorkoutPost {
+  id               String      @id @default(cuid())
+  userId           String
+  workoutSessionId String?     @unique
+  caption          String?
+  photoUrl         String?
+  privacy          PostPrivacy @default(PUBLIC)
+  likesCount       Int         @default(0)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workoutSession WorkoutSession? @relation(fields: [workoutSessionId], references: [id], onDelete: SetNull)
+  likes          PostLike[]
+
+  @@index([userId, createdAt])
+  @@index([privacy, createdAt])
+  @@map("workout_posts")
+}
+
+model PostLike {
+  id        String   @id @default(cuid())
+  postId    String
+  userId    String
+  createdAt DateTime @default(now())
+
+  post WorkoutPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId])
+  @@index([postId])
+  @@index([userId])
+  @@map("post_likes")
+}
+
+model SharedPlan {
+  id        String    @id @default(cuid())
+  planId    String
+  creatorId String
+  token     String    @unique @default(cuid())
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+
+  plan    WorkoutPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  creator User        @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@index([planId])
+  @@index([token])
+  @@map("shared_plans")
 }
