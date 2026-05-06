@@ -84,9 +84,14 @@ export function SharedPlanPage() {
         <motion.header
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
+          className="relative overflow-hidden rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
         >
-          <div className="flex items-center gap-3">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full opacity-25 blur-3xl animate-[tech-spin_22s_linear_infinite]"
+            style={{ background: 'var(--tech-gradient-conic)' }}
+          />
+          <div className="relative flex items-center gap-3">
             {creator.avatarUrl ? (
               <img src={creator.avatarUrl} alt="" className="h-10 w-10 rounded-full object-cover border border-[var(--line)]" />
             ) : (

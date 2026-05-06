@@ -1,9 +1,24 @@
 import { z } from "zod";
 
+function isAcceptedPhotoValue(value: string): boolean {
+  const normalized = value.trim();
+  if (!normalized) return false;
+  if (/^https?:\/\//i.test(normalized)) return true;
+  if (/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(normalized)) return true;
+  return false;
+}
+
 export const createPostSchema = z.object({
   workoutSessionId: z.string().optional(),
   caption: z.string().max(500).optional(),
-  photoUrl: z.string().url().optional(),
+  photoUrl: z
+    .string()
+    .trim()
+    .max(5_000_000)
+    .refine(isAcceptedPhotoValue, {
+      message: "photoUrl must be a valid http(s) URL or data:image base64",
+    })
+    .optional(),
   privacy: z.enum(["PUBLIC", "FRIENDS", "PRIVATE"]).default("PUBLIC"),
 });
 

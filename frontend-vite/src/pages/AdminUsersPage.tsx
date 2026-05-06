@@ -42,12 +42,17 @@ export function AdminUsersPage() {
 
   return (
     <section className="space-y-4">
-      <header className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
-        <h1 className="text-2xl font-black text-[var(--text)]">Usuarios cadastrados</h1>
-        <p className="text-sm text-[var(--muted)]">Total de usuarios: {totalLabel}</p>
+      <header className="relative overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full opacity-25 blur-3xl animate-[tech-spin_22s_linear_infinite]"
+          style={{ background: 'var(--tech-gradient-conic)' }}
+        />
+        <h1 className="relative text-2xl font-black text-[var(--text)]">Usuarios cadastrados</h1>
+        <p className="relative text-sm text-[var(--muted)]">Total de usuarios: {totalLabel}</p>
 
         {data ? (
-          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+          <div className="relative mt-2 flex flex-wrap gap-2 text-xs">
             <span className="rounded-full bg-emerald-100 px-2 py-1 font-semibold text-emerald-800">
               Reais: {data.summary.realCount}
             </span>

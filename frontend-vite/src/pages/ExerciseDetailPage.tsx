@@ -89,19 +89,30 @@ export function ExerciseDetailPage() {
     <motion.section
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="space-y-4 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 sm:p-6"
+      className="relative space-y-4 overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 sm:p-6"
     >
-      <Link className="text-sm font-semibold text-[var(--brand)]" to="/exercises">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full opacity-20 blur-3xl animate-[tech-spin_22s_linear_infinite]"
+        style={{ background: 'var(--tech-gradient-conic)' }}
+      />
+      <Link className="relative text-sm font-semibold text-[var(--brand)]" to="/exercises">
         Voltar para listagem
       </Link>
 
-      <h1 className="text-2xl font-black text-[var(--text)] sm:text-3xl">{exercise.name}</h1>
+      <h1 className="relative text-2xl font-black text-[var(--text)] sm:text-3xl">{exercise.name}</h1>
 
-      <img
-        src={exercise.thumbnailUrl || '/placeholder-exercise.svg'}
-        alt={`Thumbnail de ${exercise.name}`}
-        className="h-56 w-full rounded-xl object-cover sm:h-72"
-      />
+      <div className="relative overflow-hidden rounded-xl">
+        <img
+          src={exercise.thumbnailUrl || '/placeholder-exercise.svg'}
+          alt={`Thumbnail de ${exercise.name}`}
+          className="h-56 w-full object-cover sm:h-72"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent"
+        />
+      </div>
 
       <div className="grid grid-cols-1 gap-3 text-sm text-[var(--muted)] sm:grid-cols-2">
         <p>

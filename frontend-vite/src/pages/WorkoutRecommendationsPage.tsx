@@ -193,10 +193,15 @@ export function WorkoutRecommendationsPage() {
       <motion.header
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4"
+        className="relative overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4"
       >
-        <h1 className="text-2xl font-black text-[var(--text)]">Recomendacoes de treino</h1>
-        <p className="text-sm text-[var(--muted)]">Escolha uma estrutura e salve como novo treino.</p>
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full opacity-25 blur-3xl animate-[tech-spin_22s_linear_infinite]"
+          style={{ background: 'var(--tech-gradient-conic)' }}
+        />
+        <h1 className="relative text-2xl font-black text-[var(--text)]">Recomendacoes de treino</h1>
+        <p className="relative text-sm text-[var(--muted)]">Escolha uma estrutura e salve como novo treino.</p>
       </motion.header>
 
       <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">

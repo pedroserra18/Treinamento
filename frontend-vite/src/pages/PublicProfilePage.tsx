@@ -9,6 +9,7 @@ import {
   type SimpleUser, type ExerciseCompareResult,
 } from '../services/socialService'
 import { searchExercisesForPlan } from '../services/workoutService'
+import { WorkoutPostImage } from '../components/common/WorkoutPostImage'
 
 function formatDuration(sec: number | null): string {
   if (!sec) return '-'
@@ -329,7 +330,7 @@ function ProfilePostCard({ post }: { post: FeedPost }) {
   const [expanded, setExpanded] = useState(false)
   return (
     <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] overflow-hidden">
-      {post.photoUrl && <img src={post.photoUrl} alt="Foto do treino" className="w-full object-cover max-h-72" />}
+      {post.photoUrl && <WorkoutPostImage src={post.photoUrl} />}
       <div className="p-4 space-y-3">
         {post.caption && <p className="text-sm text-[var(--text)]">{post.caption}</p>}
         <p className="text-xs text-[var(--muted)]">{timeAgo(post.createdAt)}</p>
@@ -504,14 +505,26 @@ export function PublicProfilePage() {
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
+        className="relative overflow-hidden rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
       >
-        <div className="flex items-start gap-4">
-          <div className="h-16 w-16 shrink-0 rounded-full border border-[var(--line)] bg-[var(--surface-hover)] overflow-hidden">
-            {profile.avatarUrl
-              ? <img src={profile.avatarUrl} alt="" className="h-full w-full object-cover" />
-              : <span className="flex h-full w-full items-center justify-center text-xl font-black text-[var(--muted)]">{(profile.name ?? '?')[0]?.toUpperCase()}</span>
-            }
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full opacity-25 blur-3xl animate-[tech-spin_22s_linear_infinite]"
+          style={{ background: 'var(--tech-gradient-conic)' }}
+        />
+        <div className="relative flex items-start gap-4">
+          <div className="relative h-16 w-16 shrink-0">
+            <div
+              aria-hidden
+              className="absolute -inset-[3px] rounded-full animate-[tech-spin_10s_linear_infinite]"
+              style={{ background: 'var(--tech-gradient-conic)' }}
+            />
+            <div className="relative h-full w-full overflow-hidden rounded-full bg-[var(--surface-hover)]">
+              {profile.avatarUrl
+                ? <img src={profile.avatarUrl} alt="" className="h-full w-full object-cover" />
+                : <span className="flex h-full w-full items-center justify-center text-xl font-black text-[var(--muted)]">{(profile.name ?? '?')[0]?.toUpperCase()}</span>
+              }
+            </div>
           </div>
           <div className="flex-1 min-w-0">
             <h1 className="text-xl font-black text-[var(--text)]">{profile.name ?? 'Usuário'}</h1>

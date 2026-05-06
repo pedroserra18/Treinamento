@@ -59,16 +59,22 @@ export function RegisterPage() {
   }
 
   return (
-    <section className="mx-auto max-w-md rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-6 sm:p-8">
-      <div className="mb-6 flex justify-center">
+    <section className="relative mx-auto max-w-md overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-6 sm:p-8">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full opacity-25 blur-3xl animate-[tech-spin_20s_linear_infinite]"
+        style={{ background: 'var(--tech-gradient-conic)' }}
+      />
+      <div className="pointer-events-none absolute -bottom-20 -left-20 h-56 w-56 rounded-full opacity-20 blur-3xl" style={{ background: 'radial-gradient(circle, var(--accent-emerald), transparent 70%)' }} aria-hidden />
+      <div className="relative mb-6 flex justify-center">
         <BrandLogo compact className="h-14 w-auto rounded-xl border border-red-500/35" />
       </div>
-      <h1 className="mb-1 text-2xl font-black text-[var(--text)]">Criar conta</h1>
-      <p className="mb-6 text-sm text-[var(--muted)]">
+      <h1 className="relative mb-1 text-2xl font-black text-[var(--text)]">Criar conta</h1>
+      <p className="relative mb-6 text-sm text-[var(--muted)]">
         Cadastre com email e senha e confirme com o código enviado por e-mail.
       </p>
 
-      <form className="space-y-4" onSubmit={handleSubmit}>
+      <form className="relative space-y-4" onSubmit={handleSubmit}>
         <Input
           label="Nome"
           required

@@ -6,6 +6,7 @@ import type { WorkoutSessionHistory } from '../types/workout'
 import { listWorkoutHistory } from '../services/workoutService'
 import { getStoredWorkoutSessionImage } from '../lib/workout-session-image'
 import { SkeletonCard } from '../components/common/Skeleton'
+import { CountUp } from '../components/common/CountUp'
 import { Dumbbell } from 'lucide-react'
 import {
   BarChart,
@@ -384,16 +385,21 @@ export function HistoryPage() {
         initial={{ opacity: 0, y: 14 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, ease: 'easeOut' }}
-        className="card-glow-orange rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-6"
+        className="card-glow-orange relative overflow-hidden rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-6"
       >
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--brand)]">Historico</p>
-        <h1 className="mt-2 text-3xl font-black text-[var(--text)] sm:text-4xl">Seu progresso recente</h1>
-        <p className="mt-2 max-w-2xl text-sm text-[var(--muted)] sm:text-base">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full opacity-25 blur-3xl animate-[tech-spin_20s_linear_infinite]"
+          style={{ background: 'var(--tech-gradient-conic)' }}
+        />
+        <p className="relative text-xs font-semibold uppercase tracking-[0.2em] text-[var(--brand)]">Historico</p>
+        <h1 className="relative mt-2 text-3xl font-black text-[var(--text)] sm:text-4xl">Seu progresso recente</h1>
+        <p className="relative mt-2 max-w-2xl text-sm text-[var(--muted)] sm:text-base">
           Use este painel para acompanhar consistencia e avaliar evolucao de carga, volume e frequencia.
         </p>
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="relative mt-4 flex flex-wrap gap-2">
           <span className="rounded-full border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-1 text-xs font-semibold text-[var(--muted)]">
-            Sessoes: {items.length}
+            Sessoes: <CountUp value={items.length} className="font-bold text-[var(--text)]" />
           </span>
           <span className="rounded-full border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-1 text-xs font-semibold text-[var(--muted)]">
             Ultima atualizacao: {new Date().toLocaleDateString('pt-BR')}
@@ -427,15 +433,22 @@ export function HistoryPage() {
           <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">Volume semanal (kg)</p>
           <ResponsiveContainer width="100%" height={160}>
             <BarChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+              <defs>
+                <linearGradient id="historyVolumeGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="var(--accent-cyan)" stopOpacity={0.95} />
+                  <stop offset="60%" stopColor="var(--accent-blue)" stopOpacity={0.9} />
+                  <stop offset="100%" stopColor="var(--accent-violet)" stopOpacity={0.85} />
+                </linearGradient>
+              </defs>
               <XAxis dataKey="week" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
               <Tooltip
                 contentStyle={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 8, fontSize: 12 }}
                 labelStyle={{ color: 'var(--text)' }}
-                itemStyle={{ color: 'var(--brand)' }}
+                itemStyle={{ color: 'var(--accent-cyan)' }}
                 formatter={(v) => [`${v} kg`, 'Volume']}
               />
-              <Bar dataKey="volume" fill="var(--brand)" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="volume" fill="url(#historyVolumeGradient)" radius={[6, 6, 0, 0]} animationDuration={800} />
             </BarChart>
           </ResponsiveContainer>
         </div>

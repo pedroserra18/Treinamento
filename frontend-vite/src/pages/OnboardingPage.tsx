@@ -91,13 +91,18 @@ export function OnboardingPage() {
   }
 
   return (
-    <section className="mx-auto max-w-xl rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-6 sm:p-8">
-      <h1 className="text-2xl font-extrabold text-[var(--text)]">Complete seu onboarding</h1>
-      <p className="mt-2 text-sm text-[var(--muted)]">
+    <section className="relative mx-auto max-w-xl overflow-hidden rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-6 sm:p-8">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -right-28 -top-28 h-72 w-72 rounded-full opacity-25 blur-3xl animate-[tech-spin_22s_linear_infinite]"
+        style={{ background: 'var(--tech-gradient-conic)' }}
+      />
+      <h1 className="relative text-2xl font-extrabold text-[var(--text)]">Complete seu onboarding</h1>
+      <p className="relative mt-2 text-sm text-[var(--muted)]">
         Isso leva menos de 1 minuto e ajuda a ajustar recomendacoes de treino.
       </p>
 
-      <form className="mt-6 space-y-6" onSubmit={onSubmit}>
+      <form className="relative mt-6 space-y-6" onSubmit={onSubmit}>
         <fieldset className="space-y-3">
           <legend className="text-sm font-semibold text-[var(--text)]">Sexo</legend>
           <div className="grid gap-2 sm:grid-cols-3">
