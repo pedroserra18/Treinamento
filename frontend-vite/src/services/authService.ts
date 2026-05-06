@@ -47,6 +47,9 @@ function asAuthUser(value: Record<string, unknown>): AuthUser {
     availableDaysPerWeek:
       typeof value.availableDaysPerWeek === 'number' ? value.availableDaysPerWeek : null,
     onboardingCompleted: Boolean(value.onboardingCompleted),
+    avatarUrl: typeof value.avatarUrl === 'string' ? value.avatarUrl : null,
+    isPrivate: Boolean(value.isPrivate),
+    showFollowLists: value.showFollowLists !== false,
   }
 }
 

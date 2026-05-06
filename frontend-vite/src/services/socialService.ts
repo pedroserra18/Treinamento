@@ -199,12 +199,19 @@ export async function compareExercise(authorizedFetch: AuthorizedFetch, userId: 
   return handleResponse<ExerciseCompareResult>(res)
 }
 
-export async function updateAvatar(authorizedFetch: AuthorizedFetch, avatarUrl: string | null): Promise<void> {
-  await authorizedFetch(`${API_URL}/auth/profile/avatar`, {
+export async function updateAvatar(
+  authorizedFetch: AuthorizedFetch,
+  avatarUrl: string | null,
+): Promise<{ avatarUrl: string | null }> {
+  const res = await authorizedFetch(`${API_URL}/auth/profile/avatar`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ avatarUrl }),
   })
+  const json = await res.json().catch(() => null)
+  if (!res.ok) throw new Error(json?.error?.message ?? 'Erro ao salvar avatar')
+  const returned = json?.data?.user?.avatarUrl
+  return { avatarUrl: typeof returned === 'string' ? returned : null }
 }
 
 export async function updatePrivacy(

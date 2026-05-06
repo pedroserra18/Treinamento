@@ -63,10 +63,15 @@ function UserListModal({ title, users, onClose, onNavigate }: {
 }
 
 export function ProfilePage() {
-  const { user, logout, authorizedFetch } = useAuth()
+  const { user, logout, authorizedFetch, refreshUser, applyUserPatch } = useAuth()
   const navigate = useNavigate()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [avatarPreview, setAvatarPreview] = useState<string | null>(user?.avatarUrl ?? null)
+  const [avatarDirty, setAvatarDirty] = useState(false)
+
+  useEffect(() => {
+    if (!avatarDirty) setAvatarPreview(user?.avatarUrl ?? null)
+  }, [user?.avatarUrl, avatarDirty])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
@@ -93,7 +98,34 @@ export function ProfilePage() {
   const handleAvatarChange = (file: File | null) => {
     if (!file) return
     const reader = new FileReader()
-    reader.onload = (e) => setAvatarPreview(e.target?.result as string)
+    reader.onload = (e) => {
+      const original = e.target?.result as string
+      const img = new Image()
+      img.onload = () => {
+        const target = 256
+        const scale = Math.min(target / img.width, target / img.height, 1)
+        const w = Math.round(img.width * scale)
+        const h = Math.round(img.height * scale)
+        const canvas = document.createElement('canvas')
+        canvas.width = w
+        canvas.height = h
+        const ctx = canvas.getContext('2d')
+        if (!ctx) {
+          setAvatarPreview(original)
+          setAvatarDirty(true)
+          return
+        }
+        ctx.drawImage(img, 0, 0, w, h)
+        const compressed = canvas.toDataURL('image/jpeg', 0.85)
+        setAvatarPreview(compressed)
+        setAvatarDirty(true)
+      }
+      img.onerror = () => {
+        setAvatarPreview(original)
+        setAvatarDirty(true)
+      }
+      img.src = original
+    }
     reader.readAsDataURL(file)
   }
 
@@ -102,7 +134,12 @@ export function ProfilePage() {
     try {
       setSaving(true)
       setError(null)
-      await updateAvatar(authorizedFetch, avatarPreview)
+      const result = await updateAvatar(authorizedFetch, avatarPreview)
+      const persistedUrl = result.avatarUrl ?? avatarPreview
+      applyUserPatch({ avatarUrl: persistedUrl })
+      setAvatarPreview(persistedUrl)
+      setAvatarDirty(false)
+      try { await refreshUser() } catch { /* server pode estar atrasado, patch local ja resolveu */ }
       setSuccess(true)
       setTimeout(() => setSuccess(false), 3000)
     } catch (err) {
@@ -142,7 +179,9 @@ export function ProfilePage() {
     try {
       setSaving(true)
       await updateAvatar(authorizedFetch, null)
+      applyUserPatch({ avatarUrl: null })
       setAvatarPreview(null)
+      setAvatarDirty(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao remover avatar')
     } finally {

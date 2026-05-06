@@ -22,6 +22,8 @@ export type AuthState = {
     sex: 'MALE' | 'FEMALE' | 'OTHER'
     availableDaysPerWeek: number
   }) => Promise<void>
+  refreshUser: () => Promise<void>
+  applyUserPatch: (patch: Partial<AuthUser>) => void
   logout: () => Promise<void>
   authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 }

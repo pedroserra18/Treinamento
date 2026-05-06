@@ -30,6 +30,7 @@ type SafeUser = {
   onboardingCompleted: boolean;
   isPrivate: boolean;
   showFollowLists: boolean;
+  avatarUrl: string | null;
 };
 
 type AuthTokens = {
@@ -202,6 +203,7 @@ function toSafeUser(user: {
   onboardingCompletedAt: Date | null;
   isPrivate?: boolean;
   showFollowLists?: boolean;
+  avatarUrl?: string | null;
 }): SafeUser {
   return {
     id: user.id,
@@ -212,7 +214,8 @@ function toSafeUser(user: {
     availableDaysPerWeek: user.availableDaysPerWeek,
     onboardingCompleted: Boolean(user.onboardingCompletedAt && user.availableDaysPerWeek),
     isPrivate: user.isPrivate ?? false,
-    showFollowLists: user.showFollowLists ?? true
+    showFollowLists: user.showFollowLists ?? true,
+    avatarUrl: user.avatarUrl ?? null
   };
 }
 
@@ -247,7 +250,7 @@ export async function registerWithEmail(data: RegisterBody): Promise<AuthResult>
       sex: true,
       availableDaysPerWeek: true,
       onboardingCompletedAt: true,
-      isPrivate: true, showFollowLists: true
+      isPrivate: true, showFollowLists: true, avatarUrl: true
     }
   });
 
@@ -285,7 +288,7 @@ export async function loginWithEmail(data: LoginBody): Promise<AuthResult> {
       sex: true,
       availableDaysPerWeek: true,
       onboardingCompletedAt: true,
-      isPrivate: true, showFollowLists: true,
+      isPrivate: true, showFollowLists: true, avatarUrl: true,
       passwordHash: true,
       failedLoginAttempts: true,
       isDeleted: true,
@@ -445,7 +448,7 @@ export async function getAuthenticatedProfile(userId: string): Promise<SafeUser>
       sex: true,
       availableDaysPerWeek: true,
       onboardingCompletedAt: true,
-      isPrivate: true, showFollowLists: true,
+      isPrivate: true, showFollowLists: true, avatarUrl: true,
       isDeleted: true,
       status: true
     }
@@ -510,7 +513,7 @@ export async function updateAvatar(userId: string, avatarUrl: string | null): Pr
     data: { avatarUrl },
     select: {
       id: true, name: true, email: true, role: true,
-      sex: true, availableDaysPerWeek: true, onboardingCompletedAt: true, isPrivate: true, showFollowLists: true
+      sex: true, availableDaysPerWeek: true, onboardingCompletedAt: true, isPrivate: true, showFollowLists: true, avatarUrl: true
     },
   });
   return toSafeUser(updated);
@@ -535,7 +538,7 @@ export async function completeOnboarding(
       sex: true,
       availableDaysPerWeek: true,
       onboardingCompletedAt: true,
-      isPrivate: true, showFollowLists: true
+      isPrivate: true, showFollowLists: true, avatarUrl: true
     }
   });
 
