@@ -15,7 +15,6 @@ import { MUSCLE_OPTIONS } from '../../lib/exercise-meta'
 import {
   Home,
   Dumbbell,
-  Sparkles,
   Rss,
   Bot,
   History,
@@ -111,7 +110,6 @@ export function AppShell({ children }: AppShellProps) {
   const navItems: NavItem[] = [
     { to: '/', label: 'Home', icon: <Home size={15} /> },
     { to: '/train', label: 'Treinar', icon: <Dumbbell size={15} />, authRequired: true },
-    { to: '/workout-recommendations', label: 'Recom.', icon: <Sparkles size={15} /> },
     { to: '/feed', label: 'Feed', icon: <Rss size={15} />, authRequired: true },
     { to: '/ai-workout', label: 'IA', icon: <Bot size={15} />, authRequired: true },
     { to: '/history', label: 'Histórico', icon: <History size={15} />, authRequired: true },

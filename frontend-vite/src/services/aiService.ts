@@ -11,6 +11,12 @@ export type GenerateWorkoutInput = {
   equipment?: string
   advancedTechniques?: boolean
   injuries?: string
+  gender?: string
+  usedExercises?: string[]
+  heightCm?: number
+  weightKg?: number
+  exerciseCount?: string
+  rirTarget?: string
 }
 
 export type AIExercise = {

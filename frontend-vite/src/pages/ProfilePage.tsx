@@ -2,6 +2,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useRef, useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { CountUp } from '../components/common/CountUp'
 import { updateAvatar, updatePrivacy, getFollowers, getFollowing, type UserSearchResult } from '../services/socialService'
 
 type SocialPanel = 'followers' | 'following' | null
@@ -154,10 +155,15 @@ export function ProfilePage() {
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
+        className="relative overflow-hidden rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
       >
-        <h1 className="text-2xl font-black text-[var(--text)]">Perfil</h1>
-        <p className="mt-1 text-sm text-[var(--muted)]">Gerencie suas informações pessoais.</p>
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full opacity-25 blur-3xl animate-[tech-spin_22s_linear_infinite]"
+          style={{ background: 'var(--tech-gradient-conic)' }}
+        />
+        <h1 className="relative text-2xl font-black text-[var(--text)]">Perfil</h1>
+        <p className="relative mt-1 text-sm text-[var(--muted)]">Gerencie suas informações pessoais.</p>
       </motion.div>
 
       {error && <p className="text-sm text-red-400">{error}</p>}
@@ -165,24 +171,28 @@ export function ProfilePage() {
 
       {/* Social stats */}
       <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
-        <div className="flex gap-6">
+        <div className="grid grid-cols-2 gap-3">
           <button
             type="button"
             onClick={() => setOpenPanel('followers')}
-            className="text-left"
+            className="rounded-xl border border-[var(--line)] bg-gradient-to-br from-[var(--accent-blue)]/10 to-transparent px-4 py-3 text-left disabled:opacity-60"
             disabled={!socialLoaded}
           >
-            <p className="text-xl font-black text-[var(--text)]">{socialLoaded ? followers.length : '—'}</p>
-            <p className="text-xs text-[var(--muted)]">seguidores</p>
+            <p className="text-2xl font-black text-[var(--text)]">
+              {socialLoaded ? <CountUp value={followers.length} /> : '—'}
+            </p>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--muted)]">seguidores</p>
           </button>
           <button
             type="button"
             onClick={() => setOpenPanel('following')}
-            className="text-left"
+            className="rounded-xl border border-[var(--line)] bg-gradient-to-br from-[var(--accent-emerald)]/10 to-transparent px-4 py-3 text-left disabled:opacity-60"
             disabled={!socialLoaded}
           >
-            <p className="text-xl font-black text-[var(--text)]">{socialLoaded ? following.length : '—'}</p>
-            <p className="text-xs text-[var(--muted)]">seguindo</p>
+            <p className="text-2xl font-black text-[var(--text)]">
+              {socialLoaded ? <CountUp value={following.length} /> : '—'}
+            </p>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--muted)]">seguindo</p>
           </button>
         </div>
       </article>
@@ -191,13 +201,20 @@ export function ProfilePage() {
       <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 space-y-4">
         <h2 className="text-base font-extrabold text-[var(--text)]">Foto de perfil</h2>
         <div className="flex items-center gap-4">
-          <div className="h-20 w-20 shrink-0 rounded-full border border-[var(--line)] bg-[var(--surface-hover)] overflow-hidden">
-            {avatarPreview
-              ? <img src={avatarPreview} alt="Avatar" className="h-full w-full object-cover" />
-              : <span className="flex h-full w-full items-center justify-center text-2xl font-black text-[var(--muted)]">
-                  {(user?.name ?? '?')[0]?.toUpperCase()}
-                </span>
-            }
+          <div className="relative h-20 w-20 shrink-0">
+            <div
+              aria-hidden
+              className="absolute -inset-[3px] rounded-full animate-[tech-spin_10s_linear_infinite]"
+              style={{ background: 'var(--tech-gradient-conic)' }}
+            />
+            <div className="relative h-full w-full overflow-hidden rounded-full bg-[var(--surface-hover)]">
+              {avatarPreview
+                ? <img src={avatarPreview} alt="Avatar" className="h-full w-full object-cover" />
+                : <span className="flex h-full w-full items-center justify-center text-2xl font-black text-[var(--muted)]">
+                    {(user?.name ?? '?')[0]?.toUpperCase()}
+                  </span>
+              }
+            </div>
           </div>
           <div className="flex flex-col gap-2">
             <button

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useEffect, useMemo, useState } from 'react'
 import { BrandLogo } from '../components/common/BrandLogo'
+import { CountUp } from '../components/common/CountUp'
 import { listWorkoutHistory } from '../services/workoutService'
 import type { WorkoutSessionHistory } from '../types/workout'
 import { Flame, Dumbbell, TrendingUp, CalendarDays } from 'lucide-react'
@@ -198,7 +199,11 @@ export function HomePage() {
         transition={{ duration: 0.45, ease: 'easeOut' }}
         className="relative overflow-hidden rounded-3xl border border-cyan-400/30 bg-[var(--surface)] p-6 shadow-[0_20px_60px_-30px_rgba(20,184,166,0.65)] sm:p-8"
       >
-        <div className="pointer-events-none absolute -right-14 -top-14 h-44 w-44 rounded-full bg-cyan-400/20 blur-3xl" />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-32 -top-32 h-80 w-80 rounded-full opacity-30 blur-3xl animate-[tech-spin_18s_linear_infinite]"
+          style={{ background: 'var(--tech-gradient-conic)' }}
+        />
         <div className="pointer-events-none absolute -bottom-16 -left-8 h-52 w-52 rounded-full bg-emerald-500/20 blur-3xl" />
 
         <div className="relative mb-3 flex items-center justify-between gap-3">
@@ -239,18 +244,26 @@ export function HomePage() {
         >
           <div className="mb-4 grid grid-cols-3 gap-3">
             <div className="flex flex-col items-center rounded-2xl border border-[var(--line)] bg-gradient-to-br from-orange-500/10 to-transparent p-3 text-center">
-              <Flame size={18} className="text-orange-400" />
-              <p className="mt-1 text-2xl font-black text-[var(--text)]">{stats.streak}</p>
+              <Flame size={18} className="text-orange-400 animate-pulse" />
+              <p className="mt-1 text-2xl font-black text-[var(--text)]">
+                <CountUp value={stats.streak} />
+              </p>
               <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">Sequencia</p>
             </div>
             <div className="flex flex-col items-center rounded-2xl border border-[var(--line)] bg-gradient-to-br from-[var(--brand)]/10 to-transparent p-3 text-center">
               <Dumbbell size={18} className="text-[var(--brand)]" />
-              <p className="mt-1 text-2xl font-black text-[var(--text)]">{stats.weekCount}</p>
+              <p className="mt-1 text-2xl font-black text-[var(--text)]">
+                <CountUp value={stats.weekCount} />
+              </p>
               <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">Treinos</p>
             </div>
             <div className="flex flex-col items-center rounded-2xl border border-[var(--line)] bg-gradient-to-br from-emerald-500/10 to-transparent p-3 text-center">
               <TrendingUp size={18} className="text-emerald-400" />
-              <p className="mt-1 text-2xl font-black text-[var(--text)]">{stats.weekVolume > 0 ? `${Math.round(stats.weekVolume / 1000)}k` : '0'}</p>
+              <p className="mt-1 text-2xl font-black text-[var(--text)]">
+                {stats.weekVolume > 0 ? (
+                  <><CountUp value={Math.round(stats.weekVolume / 1000)} />k</>
+                ) : '0'}
+              </p>
               <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">Vol. kg</p>
             </div>
           </div>
@@ -260,11 +273,15 @@ export function HomePage() {
             <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--muted)]">Ultimos 30 dias</p>
           </div>
           <div className="flex flex-wrap gap-1">
-            {stats.heatmap.map(({ day, active }) => (
-              <div
+            {stats.heatmap.map(({ day, active }, idx) => (
+              <motion.div
                 key={day}
                 title={day}
-                className={`h-4 w-4 rounded-sm transition-colors ${active ? 'bg-[var(--brand)]' : 'bg-[var(--surface-hover)]'}`}
+                initial={{ opacity: 0, scale: 0.6 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.3, delay: 0.01 * idx, ease: 'easeOut' }}
+                className={`h-4 w-4 rounded-sm ${active ? 'shadow-[0_0_8px_rgba(240,54,27,0.5)]' : 'bg-[var(--surface-hover)]'}`}
+                style={active ? { background: 'linear-gradient(135deg, var(--brand), var(--accent-violet))' } : undefined}
               />
             ))}
           </div>

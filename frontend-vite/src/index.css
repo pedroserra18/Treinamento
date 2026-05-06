@@ -12,6 +12,11 @@
   --brand: #f0361b;
   --brand-strong: #c82814;
   --accent-blue: #2f7cf6;
+  --accent-cyan: #06b6d4;
+  --accent-emerald: #10b981;
+  --accent-violet: #a855f7;
+  --tech-gradient: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan), var(--accent-emerald), var(--accent-violet));
+  --tech-gradient-conic: conic-gradient(from 0deg, var(--accent-blue), var(--accent-cyan), var(--accent-emerald), var(--accent-violet), var(--accent-blue));
 }
 
 .dark {
@@ -24,6 +29,84 @@
   --brand: #ff3d21;
   --brand-strong: #d92e17;
   --accent-blue: #60a5ff;
+  --accent-cyan: #22d3ee;
+  --accent-emerald: #34d399;
+  --accent-violet: #c084fc;
+}
+
+/* ─── Tech gradient utilities ──────────────────────────── */
+.tech-text {
+  background: var(--tech-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.tech-bg {
+  background: var(--tech-gradient);
+}
+
+.tech-ring {
+  position: relative;
+  isolation: isolate;
+}
+.tech-ring::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  background: var(--tech-gradient-conic);
+  z-index: -1;
+  animation: tech-spin 10s linear infinite;
+}
+.tech-ring:hover::before {
+  animation-duration: 3s;
+}
+.tech-ring::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--surface);
+  z-index: -1;
+}
+
+@keyframes tech-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes tech-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.05); }
+}
+.tech-glow {
+  position: relative;
+}
+.tech-glow::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border-radius: inherit;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent-cyan) 30%, transparent), transparent 70%);
+  z-index: -1;
+  animation: tech-pulse 3s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* ─── Shimmer skeleton animation ──────────────────────── */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--surface-hover) 0%,
+    color-mix(in srgb, var(--accent-blue) 8%, var(--surface-hover)) 50%,
+    var(--surface-hover) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
 }
 
 /* ─── Card interactive hover — lift + shadow em todos os cards ─ */

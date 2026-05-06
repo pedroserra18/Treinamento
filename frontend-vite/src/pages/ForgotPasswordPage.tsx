@@ -85,13 +85,18 @@ export function ForgotPasswordPage() {
   }
 
   return (
-    <section className="mx-auto max-w-md rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 sm:p-6">
-      <h1 className="mb-2 text-2xl font-extrabold text-[var(--text)]">Recuperar senha</h1>
-      <p className="mb-5 text-sm text-[var(--muted)]">
+    <section className="relative mx-auto max-w-md overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 sm:p-6">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full opacity-25 blur-3xl animate-[tech-spin_22s_linear_infinite]"
+        style={{ background: 'var(--tech-gradient-conic)' }}
+      />
+      <h1 className="relative mb-2 text-2xl font-extrabold text-[var(--text)]">Recuperar senha</h1>
+      <p className="relative mb-5 text-sm text-[var(--muted)]">
         Informe seu e-mail, receba o codigo e defina uma nova senha.
       </p>
 
-      <form className="space-y-3" onSubmit={handleSubmit}>
+      <form className="relative space-y-3" onSubmit={handleSubmit}>
         <label className="block text-sm font-medium text-[var(--text)]">
           Email
           <input

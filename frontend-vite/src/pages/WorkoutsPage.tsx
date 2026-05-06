@@ -19,6 +19,7 @@ import {
   updatePlanExercise,
 } from '../services/workoutService'
 import { formatClock, formatRestOptionLabel, REST_OPTIONS_SEC } from '../lib/workout-timing'
+import { SkeletonCard } from '../components/common/Skeleton'
 
 const muscleOptions = MUSCLE_OPTIONS
 
@@ -905,12 +906,22 @@ export function WorkoutsPage({
 
   return (
     <section className="space-y-5">
-      {loading ? <p className="text-sm text-[var(--muted)]">Carregando treinos...</p> : null}
+      {loading ? (
+        <div className="space-y-3">
+          <SkeletonCard />
+          <SkeletonCard />
+        </div>
+      ) : null}
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
 
       {showCreateSection ? (
-        <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
-          <h2 className="text-lg font-extrabold text-[var(--text)]">Criar treino</h2>
+        <article className="relative overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -right-16 -top-16 h-44 w-44 rounded-full opacity-20 blur-3xl animate-[tech-spin_22s_linear_infinite]"
+            style={{ background: 'var(--tech-gradient-conic)' }}
+          />
+          <h2 className="relative text-lg font-extrabold text-[var(--text)]">Criar treino</h2>
           <div className="mt-2 grid gap-2">
             <input
               value={newPlanName}

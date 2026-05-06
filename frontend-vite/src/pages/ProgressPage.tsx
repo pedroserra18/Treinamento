@@ -266,11 +266,16 @@ export function ProgressPage() {
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.32, ease: 'easeOut' }}
-        className="card-glow-orange rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
+        className="card-glow-orange relative overflow-hidden rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
       >
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand)]">Progresso</p>
-        <h1 className="mt-1 text-2xl font-black text-[var(--text)]">Seu acompanhamento</h1>
-        <p className="mt-2 text-sm text-[var(--muted)]">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full opacity-25 blur-3xl animate-[tech-spin_22s_linear_infinite]"
+          style={{ background: 'var(--tech-gradient-conic)' }}
+        />
+        <p className="relative text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand)]">Progresso</p>
+        <h1 className="relative mt-1 text-2xl font-black text-[var(--text)]">Seu acompanhamento</h1>
+        <p className="relative mt-2 text-sm text-[var(--muted)]">
           Fixe exercicios principais, acompanhe carga/repeticoes/volume e registre sua evolucao corporal com fotos e medidas.
         </p>
       </motion.header>
@@ -407,6 +412,13 @@ export function ProgressPage() {
                               ) : null}
                               <ResponsiveContainer width="100%" height={130}>
                                 <LineChart data={chartData} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
+                                  <defs>
+                                    <linearGradient id={`loadGrad-${item.exercise.id}`} x1="0" y1="0" x2="1" y2="0">
+                                      <stop offset="0%" stopColor="var(--accent-blue)" />
+                                      <stop offset="50%" stopColor="var(--accent-cyan)" />
+                                      <stop offset="100%" stopColor="var(--accent-violet)" />
+                                    </linearGradient>
+                                  </defs>
                                   <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" />
                                   <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
                                   <YAxis tick={{ fontSize: 9, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
@@ -414,7 +426,7 @@ export function ProgressPage() {
                                     contentStyle={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 8, fontSize: 11 }}
                                     formatter={(v) => [`${v} kg`, 'Carga']}
                                   />
-                                  <Line type="monotone" dataKey="carga" stroke="var(--brand)" strokeWidth={2} dot={{ r: 3 }} />
+                                  <Line type="monotone" dataKey="carga" stroke={`url(#loadGrad-${item.exercise.id})`} strokeWidth={2.5} dot={{ r: 3, fill: 'var(--accent-cyan)' }} animationDuration={900} />
                                 </LineChart>
                               </ResponsiveContainer>
                             </>
@@ -549,6 +561,12 @@ export function ProgressPage() {
                     }))}
                   margin={{ top: 4, right: 4, left: -20, bottom: 0 }}
                 >
+                  <defs>
+                    <linearGradient id="bodyWeightGrad" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0%" stopColor="var(--accent-emerald)" />
+                      <stop offset="100%" stopColor="var(--accent-cyan)" />
+                    </linearGradient>
+                  </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--line)" />
                   <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} domain={['auto', 'auto']} />
@@ -556,7 +574,7 @@ export function ProgressPage() {
                     contentStyle={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 8, fontSize: 11 }}
                     formatter={(v) => [`${v} kg`, 'Peso']}
                   />
-                  <Line type="monotone" dataKey="peso" stroke="#34d399" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="peso" stroke="url(#bodyWeightGrad)" strokeWidth={2.5} dot={{ r: 3, fill: 'var(--accent-emerald)' }} animationDuration={900} />
                 </LineChart>
               </ResponsiveContainer>
             </article>

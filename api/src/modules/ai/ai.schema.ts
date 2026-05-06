@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const generateWorkoutBodySchema = z.object({
-  prompt: z.string().trim().min(1, "Descreve o treino que pretendes").max(600),
+  prompt: z.string().trim().min(1, "Descreve o treino que pretendes").max(3000),
   muscleGroup: z
     .enum(["Peito", "Costas", "Quadríceps", "Posterior de Coxa", "Glúteo", "Ombros", "Braços", ""])
     .optional(),
@@ -17,6 +17,12 @@ export const generateWorkoutBodySchema = z.object({
     .optional(),
   advancedTechniques: z.boolean().optional(),
   injuries: z.string().trim().max(200).optional(),
+  gender: z.enum(["Masculino", "Feminino", ""]).optional(),
+  usedExercises: z.array(z.string().trim().min(1).max(200)).max(80).optional(),
+  heightCm: z.number().int().min(100).max(250).optional(),
+  weightKg: z.number().min(30).max(300).optional(),
+  exerciseCount: z.enum(["Curto", "Médio", "Longo", "IA decide", ""]).optional(),
+  rirTarget: z.enum(["Falha", "RIR 1-2", "RIR 3+", "IA decide", ""]).optional(),
 });
 
 export const saveAIWorkoutBodySchema = z.object({

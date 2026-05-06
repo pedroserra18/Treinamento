@@ -1,5 +1,5 @@
-import { motion } from 'framer-motion'
-import { useCallback, useRef, useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import {
@@ -7,122 +7,38 @@ import {
   saveAIWorkout,
   type WorkoutSection,
 } from '../services/aiService'
-
-// ─── Filter options ───────────────────────────────────────────────────────────
-
-const MUSCLE_OPTIONS = [
-  { value: '', label: 'Sem foco específico' },
-  { value: 'Peito', label: 'Peito' },
-  { value: 'Costas', label: 'Costas' },
-  { value: 'Quadríceps', label: 'Quadríceps' },
-  { value: 'Posterior de Coxa', label: 'Posterior de Coxa' },
-  { value: 'Glúteo', label: 'Glúteo' },
-  { value: 'Ombros', label: 'Ombros' },
-  { value: 'Braços', label: 'Braços' },
-]
-
-const GOAL_OPTIONS = [
-  { value: '', label: 'Qualquer objetivo' },
-  { value: 'Hipertrofia', label: 'Hipertrofia' },
-  { value: 'Força', label: 'Força' },
-  { value: 'Resistência', label: 'Resistência' },
-  { value: 'Emagrecimento', label: 'Emagrecimento' },
-]
-
-const DURATION_OPTIONS = [
-  { value: '', label: 'Sem limite' },
-  { value: '30', label: '30 min' },
-  { value: '45', label: '45 min' },
-  { value: '60', label: '60 min' },
-  { value: '90', label: '90 min' },
-  { value: '120', label: '120 min' },
-]
-
-const WEEK_DAYS_OPTIONS = [
-  { value: '', label: 'Não especificada' },
-  { value: '2', label: '2 dias/semana' },
-  { value: '3', label: '3 dias/semana' },
-  { value: '4', label: '4 dias/semana' },
-  { value: '5', label: '5 dias/semana' },
-  { value: '6', label: '6 dias/semana' },
-]
-
-const SPLIT_OPTIONS = [
-  { value: '', label: 'Automática (pela frequência)' },
-  { value: 'Full Body', label: 'Full Body' },
-  { value: 'Upper/Lower', label: 'Upper / Lower' },
-  { value: 'Push/Pull/Legs', label: 'Push / Pull / Legs' },
-  { value: 'Torso/Limbs', label: 'Torso / Limbs' },
-  { value: 'Bro Split', label: 'Bro Split' },
-]
-
-const EQUIPMENT_OPTIONS = [
-  { value: '', label: 'Academia (completa)' },
-  { value: 'Casa com equipamentos', label: 'Casa com equipamentos' },
-  { value: 'Sem equipamento', label: 'Sem equipamento' },
-]
-
-const SELECT_CLASS =
-  'w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)]/40'
-
-function detectMuscleGroup(name: string): { label: string; color: string } | null {
-  const n = name.toLowerCase()
-  if (/supino|crucifixo|voador|peitoral|chest/.test(n)) return { label: 'Peito', color: 'bg-red-500/15 text-red-400 border-red-500/30' }
-  if (/remada|barra fixa|puxada|pulldown|costas|latíssimo|trapézio|row/.test(n)) return { label: 'Costas', color: 'bg-blue-500/15 text-blue-400 border-blue-500/30' }
-  if (/desenvolvimento|elevação lateral|press ombro|shoulder|ombro|deltóide/.test(n)) return { label: 'Ombros', color: 'bg-purple-500/15 text-purple-400 border-purple-500/30' }
-  if (/rosca|curl|bícep/.test(n)) return { label: 'Bíceps', color: 'bg-amber-500/15 text-amber-400 border-amber-500/30' }
-  if (/trícep|extensão|pulley|dip/.test(n)) return { label: 'Tríceps', color: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30' }
-  if (/agachamento|leg|cadeira|mesa|afundo|lunges|squat|stiff|perna/.test(n)) return { label: 'Pernas', color: 'bg-green-500/15 text-green-400 border-green-500/30' }
-  if (/glúteo|hip thrust|elevação pélvica/.test(n)) return { label: 'Glúteo', color: 'bg-pink-500/15 text-pink-400 border-pink-500/30' }
-  if (/prancha|abdom|crunch|plank/.test(n)) return { label: 'Core', color: 'bg-slate-500/15 text-slate-400 border-slate-500/30' }
-  return null
-}
-
-// ─── Workout plan logic ───────────────────────────────────────────────────────
-
-function getEffectiveSplit(split: string, days: number): string {
-  if (split) return split
-  if (days <= 3) return 'Full Body'
-  if (days <= 4) return 'Upper/Lower'
-  return 'Push/Pull/Legs'
-}
-
-function getWorkoutLabels(split: string, days: number): string[] {
-  const s = getEffectiveSplit(split, days)
-
-  if (s === 'Full Body') {
-    if (days <= 1) return ['Full Body']
-    return Array.from({ length: days }, (_, i) => `Full Body ${String.fromCharCode(65 + i)}`)
-  }
-
-  if (s === 'Upper/Lower') {
-    if (days <= 2) return ['Upper', 'Lower']
-    if (days === 3) return ['Upper', 'Lower A', 'Lower B']
-    return ['Upper A', 'Upper B', 'Lower A', 'Lower B']
-  }
-
-  if (s === 'Push/Pull/Legs') {
-    if (days <= 3) return ['Push', 'Pull', 'Legs']
-    if (days === 4) return ['Push A', 'Pull A', 'Legs', 'Push B']
-    if (days === 5) return ['Push A', 'Pull A', 'Legs', 'Push B', 'Pull B']
-    return ['Push A', 'Pull A', 'Legs A', 'Push B', 'Pull B', 'Legs B']
-  }
-
-  if (s === 'Torso/Limbs') {
-    if (days <= 2) return ['Torso', 'Limbs']
-    if (days === 3) return ['Torso A', 'Torso B', 'Limbs']
-    return ['Torso A', 'Torso B', 'Limbs A', 'Limbs B']
-  }
-
-  if (s === 'Bro Split') {
-    const labels = ['Peito', 'Costas', 'Pernas', 'Ombros', 'Braços']
-    return labels.slice(0, Math.min(days, labels.length))
-  }
-
-  return ['Treino']
-}
+import { Bot, ChevronLeft, Clock, Sparkles, CheckCircle2, Pencil, ChevronUp, ChevronDown, RefreshCw, AlertTriangle, X } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+type QuizAnswers = {
+  daysPerWeek: string
+  experience: string
+  age: string
+  gender: string
+  heightCm: string
+  weightKg: string
+  phase: string
+  goal: string
+  location: string
+  equipment: string
+  duration: string
+  muscleFrequency: string
+  repRange: string
+  restTime: string
+  techniques: string[]
+  hasFocus: boolean | null
+  musclesFocus: string[]
+  hasInjury: boolean
+  injuryDescription: string
+  avoidExercises: string
+  exerciseCount: string
+  rirTarget: string
+  hasExtraInfo: boolean | null
+  extraInfo: string
+}
+
+type AppScreen = 'WELCOME' | 'QUIZ' | 'REVIEW' | 'LOADING' | 'RESULT'
 
 type SaveResult = {
   planId: string
@@ -131,354 +47,1567 @@ type SaveResult = {
   totalCount: number
 }
 
-type GeneratingStep = {
-  current: number
-  total: number
-  label: string
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const TOTAL_STEPS = 19
+
+const MUSCLES_LIST = [
+  'Ombro', 'Peito', 'Costas', 'Bíceps', 'Tríceps',
+  'Quadríceps', 'Posterior de Coxa', 'Glúteo', 'Panturrilha', 'Core',
+]
+
+const LOADING_MESSAGES = [
+  'Analisando suas respostas...',
+  'Calculando volume ideal...',
+  'Montando estrutura do treino...',
+  'Selecionando os melhores exercícios...',
+  'Finalizando seu plano personalizado...',
+]
+
+const REP_HINTS: Record<string, string> = {
+  '4–6': 'força máxima',
+  '5–9': 'força e hipertrofia',
+  '6–8': 'força e massa',
+  '8–10': 'hipertrofia',
+  '10–12': 'hipertrofia moderada',
+  '12–15': 'resistência muscular',
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+const GOAL_RECOMMENDED_RANGE: Record<string, string> = {
+  'Força': '4–6',
+  'Hipertrofia': '8–10',
+  'Emagrecimento': '12–15',
+  'Resistência': '12–15',
+  'Recuperação de lesão': '10–12',
+}
+
+const DEFAULT_ANSWERS: QuizAnswers = {
+  daysPerWeek: '',
+  experience: '',
+  age: '',
+  gender: '',
+  heightCm: '',
+  weightKg: '',
+  phase: '',
+  goal: '',
+  location: '',
+  equipment: '',
+  duration: '',
+  muscleFrequency: '',
+  repRange: '',
+  restTime: '',
+  techniques: [],
+  hasFocus: null,
+  musclesFocus: [],
+  hasInjury: false,
+  injuryDescription: '',
+  avoidExercises: '',
+  exerciseCount: '',
+  rirTarget: '',
+  hasExtraInfo: null,
+  extraInfo: '',
+}
+
+// ─── Helper functions ─────────────────────────────────────────────────────────
+
+function detectMuscleGroup(name: string): { label: string; color: string } | null {
+  const n = name.toLowerCase()
+  // Abdômen PRIMEIRO — evita que "elevação de pernas" (abdominal) seja capturado como pernas
+  if (/abdom|crunch|prancha|plank|oblíquo|obliquo|infra|elevac[aã]o de perna|elevação de perna|vacuum/.test(n))
+    return { label: 'Abdômen', color: 'bg-slate-500/15 text-slate-400 border-slate-500/30' }
+  // Posterior de Coxa ANTES de pernas genéricas — stiff/flexora/rdl
+  if (/stiff|mesa flexora|leg curl|cadeira flexora|flexora|posterior de coxa|rdl|romeno|good morning/.test(n))
+    return { label: 'Posterior de Coxa', color: 'bg-orange-500/15 text-orange-400 border-orange-500/30' }
+  // Glúteo ANTES de pernas genéricas
+  if (/glúteo|gluteo|hip thrust|elevac[aã]o pélvica|elevação pélvica|kickback|quadrupedia|sumo/.test(n))
+    return { label: 'Glúteo', color: 'bg-pink-500/15 text-pink-400 border-pink-500/30' }
+  // Panturrilha ANTES de costas — evita que "uni-lateral" seja capturado pelo regex "lat"
+  if (/panturrilha|\bcalf\b|gemeo|gêmeo|sóleo|soleo|burro/.test(n))
+    return { label: 'Panturrilha', color: 'bg-teal-500/15 text-teal-400 border-teal-500/30' }
+  // Ombros posterior (rear delt) ANTES de Peito — evita que "crucifixo inverso/reverso" vire Peito
+  if (/crucifixo inverso|crucifixo reverso|reverse fly|rear delt|remada alta|pássaro|passaro/.test(n))
+    return { label: 'Ombros', color: 'bg-purple-500/15 text-purple-400 border-purple-500/30' }
+  if (/supino|crucifixo|voador|peitoral|chest|crossover|fly\b|flye/.test(n))
+    return { label: 'Peito', color: 'bg-red-500/15 text-red-400 border-red-500/30' }
+  // Costas — \blat\b e \brow\b com word boundary pra não matchar "uniLATeral", "lateRAL", "thROW"
+  if (/remada|barra fixa|puxada|pulldown|\blat\b|trapézio|trapezio|\brow\b|cavalinho|serrote|pull over|pullover/.test(n))
+    return { label: 'Costas', color: 'bg-blue-500/15 text-blue-400 border-blue-500/30' }
+  if (/desenvolvimento|elevac[aã]o lateral|elevação lateral|elevac[aã]o frontal|elevação frontal|press ombro|shoulder|ombro|deltóide|deltoid|arnold|face pull|encolhimento/.test(n))
+    return { label: 'Ombros', color: 'bg-purple-500/15 text-purple-400 border-purple-500/30' }
+  if (/rosca|curl|bícep|bicep|hammer|martelo/.test(n))
+    return { label: 'Bíceps', color: 'bg-amber-500/15 text-amber-400 border-amber-500/30' }
+  if (/trícep|tricep|extensão|extensao|pulley|dip|mergulho|fundinho|testa|skull/.test(n))
+    return { label: 'Tríceps', color: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30' }
+  if (/adutor|adutora/.test(n))
+    return { label: 'Adutores', color: 'bg-violet-500/15 text-violet-400 border-violet-500/30' }
+  if (/abdut[oa]r/.test(n))
+    return { label: 'Abdutores', color: 'bg-fuchsia-500/15 text-fuchsia-400 border-fuchsia-500/30' }
+  if (/agachamento|leg press|hack|cadeira extensora|afundo|lunges|squat|sissy/.test(n))
+    return { label: 'Quadríceps', color: 'bg-green-500/15 text-green-400 border-green-500/30' }
+  return null
+}
+
+function getEffectiveSplit(days: number, muscleFrequency: string): string {
+  if (muscleFrequency === '2x por semana') {
+    if (days <= 2) return 'Full Body'
+    if (days <= 4) return 'Upper/Lower'
+    return 'Push/Pull/Legs'
+  }
+  if (days <= 3) return 'Full Body'
+  if (days <= 4) return 'Upper/Lower'
+  if (days === 5) return 'Push/Pull/Legs'
+  return 'Bro Split'
+}
+
+function getWorkoutLabels(split: string, days: number): string[] {
+  if (split === 'Full Body') {
+    if (days <= 1) return ['Full Body']
+    return Array.from({ length: days }, (_, i) => `Full Body ${String.fromCharCode(65 + i)}`)
+  }
+  if (split === 'Upper/Lower') {
+    if (days <= 2) return ['Upper', 'Lower']
+    if (days === 3) return ['Upper', 'Lower A', 'Lower B']
+    return ['Upper A', 'Upper B', 'Lower A', 'Lower B']
+  }
+  if (split === 'Push/Pull/Legs') {
+    if (days <= 3) return ['Push', 'Pull', 'Legs']
+    if (days === 4) return ['Push A', 'Pull A', 'Legs', 'Push B']
+    if (days === 5) return ['Push A', 'Pull A', 'Legs', 'Push B', 'Pull B']
+    return ['Push A', 'Pull A', 'Legs A', 'Push B', 'Pull B', 'Legs B']
+  }
+  if (split === 'Bro Split') {
+    return ['Peito', 'Costas', 'Pernas', 'Ombros', 'Braços'].slice(0, Math.min(days, 5))
+  }
+  return ['Treino']
+}
+
+// ─── Coverage / volume / duration helpers ────────────────────────────────────
+
+const REQUIRED_BY_SPLIT_KEY: Record<string, string[]> = {
+  'Full Body': ['Peito', 'Costas', 'Ombros', 'Quadríceps', 'Bíceps', 'Tríceps', 'Panturrilha'],
+  'Upper': ['Peito', 'Costas', 'Ombros', 'Bíceps', 'Tríceps'],
+  'Lower': ['Quadríceps', 'Posterior de Coxa', 'Glúteo', 'Panturrilha'],
+  'Push': ['Peito', 'Ombros', 'Tríceps'],
+  'Pull': ['Costas', 'Bíceps'],
+  'Legs': ['Quadríceps', 'Posterior de Coxa', 'Glúteo', 'Panturrilha'],
+}
+
+function getRequiredGroups(dayLabel: string): string[] {
+  const key = Object.keys(REQUIRED_BY_SPLIT_KEY).find(k => dayLabel.startsWith(k))
+  return key ? REQUIRED_BY_SPLIT_KEY[key] : []
+}
+
+function getMissingGroups(exercises: { name: string }[], dayLabel: string): string[] {
+  const required = getRequiredGroups(dayLabel)
+  if (required.length === 0) return []
+  const covered = new Set<string>()
+  for (const ex of exercises) {
+    const m = detectMuscleGroup(ex.name)
+    if (m) covered.add(m.label)
+  }
+  return required.filter(g => !covered.has(g))
+}
+
+type VolumeEntry = { label: string; sets: number; color: string; hex: string }
+
+const MUSCLE_HEX: Record<string, string> = {
+  'Peito': '#ef4444',
+  'Costas': '#3b82f6',
+  'Ombros': '#a855f7',
+  'Bíceps': '#f59e0b',
+  'Tríceps': '#06b6d4',
+  'Quadríceps': '#22c55e',
+  'Posterior de Coxa': '#f97316',
+  'Glúteo': '#ec4899',
+  'Panturrilha': '#14b8a6',
+  'Abdômen': '#64748b',
+  'Adutores': '#8b5cf6',
+  'Abdutores': '#d946ef',
+}
+
+function getWeeklyVolume(sections: WorkoutSection[]): VolumeEntry[] {
+  const map = new Map<string, { sets: number; color: string }>()
+  for (const sec of sections) {
+    if (!sec.workoutData) continue
+    for (const ex of sec.workoutData.exercises) {
+      const m = detectMuscleGroup(ex.name)
+      if (!m) continue
+      const sets = ex.sets ?? 3
+      const cur = map.get(m.label) ?? { sets: 0, color: m.color }
+      cur.sets += sets
+      map.set(m.label, cur)
+    }
+  }
+  return Array.from(map.entries())
+    .map(([label, v]) => ({ label, sets: v.sets, color: v.color, hex: MUSCLE_HEX[label] ?? '#94a3b8' }))
+    .sort((a, b) => b.sets - a.sets)
+}
+
+function estimateDurationMin(exercises: { sets?: number; restSec?: number; repsMax?: number }[]): number {
+  let totalSec = 0
+  for (const ex of exercises) {
+    const sets = ex.sets ?? 3
+    const repsMax = ex.repsMax ?? 10
+    const execSec = Math.max(20, Math.min(60, repsMax * 3))
+    const restSec = ex.restSec ?? 90
+    totalSec += sets * execSec + Math.max(0, sets - 1) * restSec
+  }
+  totalSec += 90 // transição entre exercícios (estimativa fixa pequena)
+  return Math.round(totalSec / 60)
+}
+
+function buildPrompt(a: QuizAnswers, dayLabel: string, dayIdx: number, total: number, split: string): string {
+  const injuryParts = [
+    a.hasInjury && a.injuryDescription ? `Lesão: ${a.injuryDescription}` : '',
+    a.avoidExercises ? `Evitar exercícios: ${a.avoidExercises}` : '',
+  ].filter(Boolean).join(' | ')
+
+  const mandatoryGroups: Record<string, string> = {
+    'Full Body': 'OBRIGATÓRIO neste Full Body — 1 exercício de CADA grupo sem exceção: PEITO · OMBROS · COSTAS · BÍCEPS · TRÍCEPS · QUADRÍCEPS · POSTERIOR DE COXA ou GLÚTEO · PANTURRILHA · ABDÔMEN/CORE. Mínimo 8 exercícios. O foco muscular adiciona volume EXTRA — NÃO substitui outros grupos.',
+    'Upper': 'OBRIGATÓRIO neste Upper — 1 exercício de CADA: PEITO · OMBROS · COSTAS · BÍCEPS · TRÍCEPS · ABDÔMEN.',
+    'Lower': 'OBRIGATÓRIO neste Lower — 1 exercício de CADA: QUADRÍCEPS · POSTERIOR DE COXA · GLÚTEO · PANTURRILHA.',
+    'Push': 'OBRIGATÓRIO neste Push — cobrir: PEITO · OMBROS · TRÍCEPS.',
+    'Pull': 'OBRIGATÓRIO neste Pull — cobrir: COSTAS · BÍCEPS.',
+    'Legs': 'OBRIGATÓRIO neste Legs — cobrir: QUADRÍCEPS · POSTERIOR DE COXA · GLÚTEO · PANTURRILHA.',
+  }
+  const splitKey = Object.keys(mandatoryGroups).find(k => dayLabel.startsWith(k)) ?? ''
+  const mandatoryLine = mandatoryGroups[splitKey] ?? ''
+
+  const physical = [
+    a.heightCm ? `${a.heightCm}cm` : '',
+    a.weightKg ? `${a.weightKg}kg` : '',
+  ].filter(Boolean).join(' · ')
+
+  return [
+    `Cria APENAS o treino "${dayLabel}" (dia ${dayIdx + 1} de ${total} do plano ${split}).`,
+    `Não incluas os outros dias. OBRIGATÓRIO: inclui sempre o bloco JSON no final.`,
+    mandatoryLine ? `\n${mandatoryLine}\n` : '',
+    `PERFIL:`,
+    `- Frequência: ${a.daysPerWeek} dias/semana | Divisão: ${split}`,
+    `- Nível: ${a.experience} | Faixa etária: ${a.age}`,
+    a.gender ? `- Gênero: ${a.gender}` : '',
+    physical ? `- Físico: ${physical}` : '',
+    `- Fase: ${a.phase} | Objetivo: ${a.goal}`,
+    `- Local: ${a.location} | Equipamento: ${a.equipment}`,
+    `- Duração: ${a.duration} min | Frequência muscular: ${a.muscleFrequency}`,
+    `- Faixa de reps: ${a.repRange}`,
+    `- Descanso entre séries: ${a.restTime || 'IA decide'}`,
+    `- Técnicas: ${a.techniques.filter(t => t !== 'Nenhuma').join(', ') || 'Nenhuma'}`,
+    a.exerciseCount && a.exerciseCount !== 'IA decide' ? `- Tamanho do treino: ${a.exerciseCount}` : '',
+    a.rirTarget && a.rirTarget !== 'IA decide' ? `- RIR alvo: ${a.rirTarget}` : '',
+    a.musclesFocus.length > 0 ? `- Foco muscular (volume EXTRA, não exclusivo): ${a.musclesFocus.join(', ')}` : '',
+    injuryParts ? `- RESTRIÇÕES: ${injuryParts}` : '',
+    a.extraInfo ? `- Pedido extra do utilizador: ${a.extraInfo}` : '',
+  ].filter(l => l !== '').join('\n')
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function ProgressBar({ step, total }: { step: number; total: number }) {
+  return (
+    <div className="mb-6">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-xs font-semibold text-[var(--muted)]">Pergunta {step} de {total}</span>
+        <span className="text-xs font-bold text-[var(--brand)]">{Math.round((step / total) * 100)}%</span>
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface-hover)]">
+        <motion.div
+          className="h-full rounded-full bg-[var(--brand)]"
+          animate={{ width: `${(step / total) * 100}%` }}
+          transition={{ duration: 0.35 }}
+        />
+      </div>
+    </div>
+  )
+}
+
+function OptionCard({
+  label, hint, selected, recommended, onClick,
+}: {
+  label: string; hint?: string; selected: boolean; recommended?: boolean; onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`relative w-full rounded-2xl border-2 px-4 py-3 text-left transition-all ${
+        selected
+          ? 'border-[var(--brand)] bg-[color-mix(in_srgb,var(--brand)_10%,var(--surface))]'
+          : 'border-[var(--line)] bg-[var(--surface)] hover:border-[var(--brand)]/50'
+      }`}
+    >
+      {recommended && (
+        <span className="absolute right-3 top-3 rounded-full bg-[var(--brand)]/15 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[var(--brand)]">
+          Recomendado
+        </span>
+      )}
+      <p className={`text-sm font-bold ${selected ? 'text-[var(--brand)]' : 'text-[var(--text)]'}`}>{label}</p>
+      {hint && <p className="mt-0.5 text-[11px] text-[var(--muted)]">{hint}</p>}
+    </button>
+  )
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
 
 export function AIWorkoutPage() {
   const { authorizedFetch } = useAuth()
   const navigate = useNavigate()
 
-  const [prompt, setPrompt] = useState('')
-  const [muscleGroup, setMuscleGroup] = useState('')
-  const [goal, setGoal] = useState('')
-  const [durationMin, setDurationMin] = useState('')
-  const [weekDays, setWeekDays] = useState('')
-  const [split, setSplit] = useState('')
-  const [equipment, setEquipment] = useState('')
-  const [advancedTechniques, setAdvancedTechniques] = useState(false)
-  const [injuries, setInjuries] = useState('')
+  const [appScreen, setAppScreen] = useState<AppScreen>('WELCOME')
+  const ANSWERS_STORAGE_KEY = 'ai-workout-answers-v3'
 
-  const [loading, setLoading] = useState(false)
-  const [generatingStep, setGeneratingStep] = useState<GeneratingStep | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [step, setStep] = useState(0)
+  const [direction, setDirection] = useState(1)
+  const [isEditMode, setIsEditMode] = useState(false)
+  const [answers, setAnswers] = useState<QuizAnswers>(() => {
+    try {
+      const raw = localStorage.getItem(ANSWERS_STORAGE_KEY)
+      if (!raw) return DEFAULT_ANSWERS
+      const parsed = JSON.parse(raw)
+      if (parsed && typeof parsed === 'object') {
+        return { ...DEFAULT_ANSWERS, ...parsed }
+      }
+    } catch {/* ignore */}
+    return DEFAULT_ANSWERS
+  })
+
+  useEffect(() => {
+    try { localStorage.setItem(ANSWERS_STORAGE_KEY, JSON.stringify(answers)) } catch {/* ignore */}
+  }, [answers])
+
+  const hasSavedAnswers = useMemo(() => {
+    return Boolean(answers.daysPerWeek || answers.experience || answers.goal || answers.location)
+  }, [answers.daysPerWeek, answers.experience, answers.goal, answers.location])
+  const [loadingMsgIdx, setLoadingMsgIdx] = useState(0)
   const [sections, setSections] = useState<WorkoutSection[]>([])
+  const [generatingStep, setGeneratingStep] = useState<{ current: number; total: number; label: string } | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [savingIndex, setSavingIndex] = useState<number | null>(null)
   const [saveResults, setSaveResults] = useState<Record<number, SaveResult>>({})
+  const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null)
+  const [extraHistory, setExtraHistory] = useState<string[]>([])
 
   const resultRef = useRef<HTMLDivElement>(null)
 
-  const handleGenerate = useCallback(async () => {
-    if (!prompt.trim()) {
-      setError('Descreve o treino que pretendes gerar.')
+  const EXTRA_HISTORY_KEY = 'ai-workout-extra-history'
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(EXTRA_HISTORY_KEY)
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed)) setExtraHistory(parsed.filter(x => typeof x === 'string').slice(0, 5))
+      }
+    } catch {/* ignore */}
+  }, [])
+
+  const pushExtraHistory = useCallback((value: string) => {
+    const trimmed = value.trim()
+    if (!trimmed) return
+    setExtraHistory(prev => {
+      const next = [trimmed, ...prev.filter(x => x !== trimmed)].slice(0, 5)
+      try { localStorage.setItem(EXTRA_HISTORY_KEY, JSON.stringify(next)) } catch {/* ignore */}
+      return next
+    })
+  }, [])
+
+  useEffect(() => {
+    if (appScreen !== 'LOADING') return
+    const interval = setInterval(() => {
+      setLoadingMsgIdx(i => (i + 1) % LOADING_MESSAGES.length)
+    }, 2000)
+    return () => clearInterval(interval)
+  }, [appScreen])
+
+  const advanceStep = useCallback(() => {
+    setDirection(1)
+    if (isEditMode) { setAppScreen('REVIEW'); return }
+    if (step < TOTAL_STEPS - 1) {
+      setStep(s => s + 1)
+    } else {
+      setAppScreen('REVIEW')
+    }
+  }, [step, isEditMode])
+
+  const goBack = useCallback(() => {
+    setDirection(-1)
+    if (isEditMode) { setAppScreen('REVIEW'); return }
+    if (step > 0) setStep(s => s - 1)
+    else setAppScreen('WELCOME')
+  }, [step, isEditMode])
+
+  const selectAndAdvance = useCallback((key: keyof QuizAnswers, value: string) => {
+    setAnswers(prev => ({ ...prev, [key]: value }))
+    setDirection(1)
+    if (isEditMode) {
+      setTimeout(() => setAppScreen('REVIEW'), 160)
       return
     }
+    setTimeout(() => {
+      setStep(s => {
+        if (s < TOTAL_STEPS - 1) return s + 1
+        setAppScreen('REVIEW')
+        return s
+      })
+    }, 160)
+  }, [isEditMode])
 
-    const days = weekDays ? parseInt(weekDays, 10) : 0
-    const labels = days >= 2 ? getWorkoutLabels(split, days) : null
-    const effectiveSplit = days >= 2 ? getEffectiveSplit(split, days) : split
+  const toggleTechnique = (t: string) => {
+    setAnswers(prev => {
+      if (t === 'Nenhuma') return { ...prev, techniques: ['Nenhuma'] }
+      const without = prev.techniques.filter(x => x !== 'Nenhuma')
+      return {
+        ...prev,
+        techniques: without.includes(t) ? without.filter(x => x !== t) : [...without, t],
+      }
+    })
+  }
 
-    setLoading(true)
+  const toggleMuscle = (m: string) => {
+    setAnswers(prev => {
+      if (prev.musclesFocus.includes(m)) return { ...prev, musclesFocus: prev.musclesFocus.filter(x => x !== m) }
+      if (prev.musclesFocus.length >= 3) return prev
+      return { ...prev, musclesFocus: [...prev.musclesFocus, m] }
+    })
+  }
+
+  const handleGenerate = useCallback(async () => {
+    const days = parseInt(answers.daysPerWeek, 10) || 4
+    const split = getEffectiveSplit(days, answers.muscleFrequency)
+    const labels = getWorkoutLabels(split, days)
+
+    setAppScreen('LOADING')
+    setLoadingMsgIdx(0)
     setError(null)
     setSections([])
     setSaveResults({})
     setGeneratingStep(null)
+    if (answers.extraInfo) pushExtraHistory(answers.extraInfo)
 
     try {
-      if (labels && labels.length > 1) {
-        const accumulated: WorkoutSection[] = []
+      const accumulated: WorkoutSection[] = []
+      const usedExercises: string[] = []
 
-        for (let i = 0; i < labels.length; i++) {
-          const label = labels[i]
-          setGeneratingStep({ current: i + 1, total: labels.length, label })
+      // Map quiz values to API schema enums
+      const equipmentMap: Record<string, string> = {
+        'Academia completa': 'Academia (completa)',
+        'Em casa com equipamentos': 'Casa com equipamentos',
+        'Em casa sem equipamentos': 'Sem equipamento',
+      }
+      const goalMap: Record<string, string> = {
+        'Hipertrofia': 'Hipertrofia',
+        'Força': 'Força',
+        'Emagrecimento': 'Emagrecimento',
+        'Resistência': 'Resistência',
+      }
+      const muscleGroupMap: Record<string, string> = {
+        'Ombro': 'Ombros', 'Peito': 'Peito', 'Costas': 'Costas',
+        'Bíceps': 'Braços', 'Tríceps': 'Braços',
+        'Quadríceps': 'Quadríceps', 'Posterior de Coxa': 'Posterior de Coxa',
+        'Glúteo': 'Glúteo', 'Panturrilha': '', 'Core': '',
+      }
+      const primaryMuscle = answers.musclesFocus.length > 0
+        ? (muscleGroupMap[answers.musclesFocus[0]] || '')
+        : undefined
 
-          const result = await generateAIWorkout(authorizedFetch, {
-            prompt: `${prompt.trim()} — Gera APENAS o treino "${label}" (dia ${i + 1} de ${labels.length} do plano ${effectiveSplit}). Não incluas os outros dias. OBRIGATÓRIO: inclui sempre o bloco JSON no final.`,
-            muscleGroup: muscleGroup || undefined,
-            goal: goal || undefined,
-            durationMin: durationMin || undefined,
-            weekDays: weekDays || undefined,
-            split: effectiveSplit || undefined,
-            equipment: equipment || undefined,
-            advancedTechniques: advancedTechniques || undefined,
-            injuries: injuries.trim() || undefined,
-          })
+      for (let i = 0; i < labels.length; i++) {
+        const label = labels[i]
+        setGeneratingStep({ current: i + 1, total: labels.length, label })
 
-          const section = result.sections[0]
-          if (section) {
-            accumulated.push({
-              displayText: section.displayText,
-              workoutData: section.workoutData
-                ? { ...section.workoutData, planName: section.workoutData.planName || label }
-                : null,
-            })
-            setSections([...accumulated])
-          }
-
-          if (i === 0) {
-            setTimeout(() => {
-              resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-            }, 100)
-          }
-        }
-      } else {
-        setGeneratingStep({ current: 1, total: 1, label: '' })
+        const heightNum = answers.heightCm ? parseInt(answers.heightCm, 10) : NaN
+        const weightNum = answers.weightKg ? parseFloat(answers.weightKg) : NaN
 
         const result = await generateAIWorkout(authorizedFetch, {
-          prompt: prompt.trim(),
-          muscleGroup: muscleGroup || undefined,
-          goal: goal || undefined,
-          durationMin: durationMin || undefined,
-          weekDays: weekDays || undefined,
+          prompt: buildPrompt(answers, label, i, labels.length, split),
+          muscleGroup: primaryMuscle || undefined,
+          level: answers.experience || undefined,
+          durationMin: answers.duration || undefined,
+          goal: goalMap[answers.goal] || undefined,
+          weekDays: answers.daysPerWeek || undefined,
           split: split || undefined,
-          equipment: equipment || undefined,
-          advancedTechniques: advancedTechniques || undefined,
-          injuries: injuries.trim() || undefined,
+          equipment: equipmentMap[answers.location] || undefined,
+          advancedTechniques: answers.techniques.some(t => t !== 'Nenhuma') || undefined,
+          gender: answers.gender || undefined,
+          usedExercises: usedExercises.length > 0 ? usedExercises.slice(-80) : undefined,
+          heightCm: Number.isFinite(heightNum) && heightNum >= 100 && heightNum <= 250 ? heightNum : undefined,
+          weightKg: Number.isFinite(weightNum) && weightNum >= 30 && weightNum <= 300 ? weightNum : undefined,
+          exerciseCount: answers.exerciseCount || undefined,
+          rirTarget: answers.rirTarget || undefined,
+          injuries: [
+            answers.hasInjury && answers.injuryDescription ? `Lesão: ${answers.injuryDescription}` : '',
+            answers.avoidExercises ? `Evitar: ${answers.avoidExercises}` : '',
+          ].filter(Boolean).join('. ') || undefined,
         })
 
-        setSections(result.sections)
+        const section = result.sections[0]
+        if (section) {
+          accumulated.push({
+            displayText: section.displayText,
+            workoutData: section.workoutData
+              ? { ...section.workoutData, planName: section.workoutData.planName || label }
+              : null,
+          })
+          if (section.workoutData) {
+            for (const ex of section.workoutData.exercises) {
+              if (ex.name && !usedExercises.includes(ex.name)) usedExercises.push(ex.name)
+            }
+          }
+          setSections([...accumulated])
+        }
 
-        setTimeout(() => {
-          resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        }, 100)
+        if (i === 0) {
+          setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100)
+        }
       }
+
+      setAppScreen('RESULT')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao gerar treino. Tenta novamente.')
+      setError(err instanceof Error ? err.message : 'Erro ao gerar treino. Tente novamente.')
+      setAppScreen('REVIEW')
     } finally {
-      setLoading(false)
       setGeneratingStep(null)
     }
-  }, [
-    authorizedFetch, prompt, muscleGroup, goal, durationMin,
-    weekDays, split, equipment, advancedTechniques, injuries,
-  ])
+  }, [authorizedFetch, answers, pushExtraHistory])
 
   const handleSaveOne = useCallback(async (index: number) => {
     const wd = sections[index]?.workoutData
     if (!wd) return
-
     setSavingIndex(index)
     setError(null)
-
     try {
-      const result = await saveAIWorkout(authorizedFetch, {
-        planName: wd.planName,
-        exercises: wd.exercises,
-      })
-
-      setSaveResults((prev) => ({
+      const result = await saveAIWorkout(authorizedFetch, { planName: wd.planName, exercises: wd.exercises })
+      setSaveResults(prev => ({
         ...prev,
         [index]: {
           planId: result.planId,
           planName: result.planName,
-          foundCount: result.savedExercises.filter((e) => e.found).length,
+          foundCount: result.savedExercises.filter(e => e.found).length,
           totalCount: result.savedExercises.length,
         },
       }))
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao guardar treino.')
+      setError(err instanceof Error ? err.message : 'Erro ao salvar treino.')
     } finally {
       setSavingIndex(null)
     }
   }, [authorizedFetch, sections])
 
-  const hasResults = sections.length > 0
+  const handleRegenerateDay = useCallback(async (index: number) => {
+    const days = parseInt(answers.daysPerWeek, 10) || 4
+    const split = getEffectiveSplit(days, answers.muscleFrequency)
+    const labels = getWorkoutLabels(split, days)
+    const label = labels[index]
+    if (!label) return
+
+    const muscleGroupMap: Record<string, string> = {
+      'Ombro': 'Ombros', 'Peito': 'Peito', 'Costas': 'Costas',
+      'Bíceps': 'Braços', 'Tríceps': 'Braços',
+      'Quadríceps': 'Quadríceps', 'Posterior de Coxa': 'Posterior de Coxa',
+      'Glúteo': 'Glúteo', 'Panturrilha': '', 'Core': '',
+    }
+    const equipmentMap: Record<string, string> = {
+      'Academia completa': 'Academia (completa)',
+      'Em casa com equipamentos': 'Casa com equipamentos',
+      'Em casa sem equipamentos': 'Sem equipamento',
+    }
+    const goalMap: Record<string, string> = {
+      'Hipertrofia': 'Hipertrofia', 'Força': 'Força', 'Emagrecimento': 'Emagrecimento', 'Resistência': 'Resistência',
+    }
+    const primaryMuscle = answers.musclesFocus.length > 0 ? (muscleGroupMap[answers.musclesFocus[0]] || '') : undefined
+
+    // Used exercises = all current sections except this one
+    const used: string[] = []
+    sections.forEach((s, i) => {
+      if (i === index || !s.workoutData) return
+      for (const ex of s.workoutData.exercises) if (ex.name) used.push(ex.name)
+    })
+
+    setRegeneratingIndex(index)
+    setError(null)
+    try {
+      const heightNum = answers.heightCm ? parseInt(answers.heightCm, 10) : NaN
+      const weightNum = answers.weightKg ? parseFloat(answers.weightKg) : NaN
+      const result = await generateAIWorkout(authorizedFetch, {
+        prompt: buildPrompt(answers, label, index, labels.length, split),
+        muscleGroup: primaryMuscle || undefined,
+        level: answers.experience || undefined,
+        durationMin: answers.duration || undefined,
+        goal: goalMap[answers.goal] || undefined,
+        weekDays: answers.daysPerWeek || undefined,
+        split: split || undefined,
+        equipment: equipmentMap[answers.location] || undefined,
+        advancedTechniques: answers.techniques.some(t => t !== 'Nenhuma') || undefined,
+        gender: answers.gender || undefined,
+        usedExercises: used.length > 0 ? used.slice(-80) : undefined,
+        heightCm: Number.isFinite(heightNum) && heightNum >= 100 && heightNum <= 250 ? heightNum : undefined,
+        weightKg: Number.isFinite(weightNum) && weightNum >= 30 && weightNum <= 300 ? weightNum : undefined,
+        exerciseCount: answers.exerciseCount || undefined,
+        rirTarget: answers.rirTarget || undefined,
+        injuries: [
+          answers.hasInjury && answers.injuryDescription ? `Lesão: ${answers.injuryDescription}` : '',
+          answers.avoidExercises ? `Evitar: ${answers.avoidExercises}` : '',
+        ].filter(Boolean).join('. ') || undefined,
+      })
+      const newSection = result.sections[0]
+      if (newSection) {
+        setSections(prev => prev.map((s, i) => i === index
+          ? { displayText: newSection.displayText, workoutData: newSection.workoutData ? { ...newSection.workoutData, planName: newSection.workoutData.planName || label } : null }
+          : s))
+        setSaveResults(prev => {
+          const copy = { ...prev }
+          delete copy[index]
+          return copy
+        })
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao regenerar dia.')
+    } finally {
+      setRegeneratingIndex(null)
+    }
+  }, [authorizedFetch, answers, sections])
+
+  const moveExercise = useCallback((sectionIndex: number, exIndex: number, dir: -1 | 1) => {
+    setSections(prev => prev.map((s, i) => {
+      if (i !== sectionIndex || !s.workoutData) return s
+      const exs = [...s.workoutData.exercises]
+      const target = exIndex + dir
+      if (target < 0 || target >= exs.length) return s
+      ;[exs[exIndex], exs[target]] = [exs[target], exs[exIndex]]
+      return { ...s, workoutData: { ...s.workoutData, exercises: exs } }
+    }))
+    setSaveResults(prev => {
+      const copy = { ...prev }
+      delete copy[sectionIndex]
+      return copy
+    })
+  }, [])
+
+  const removeExercise = useCallback((sectionIndex: number, exIndex: number) => {
+    setSections(prev => prev.map((s, i) => {
+      if (i !== sectionIndex || !s.workoutData) return s
+      const exs = s.workoutData.exercises.filter((_, idx) => idx !== exIndex)
+      return { ...s, workoutData: { ...s.workoutData, exercises: exs } }
+    }))
+    setSaveResults(prev => {
+      const copy = { ...prev }
+      delete copy[sectionIndex]
+      return copy
+    })
+  }, [])
+
+
+  // ─── WELCOME ──────────────────────────────────────────────────────────────
+
+  if (appScreen === 'WELCOME') {
+    return (
+      <section className="flex min-h-[70vh] items-center justify-center">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="relative w-full max-w-md overflow-hidden rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-8 text-center"
+        >
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full opacity-25 blur-3xl animate-[tech-spin_20s_linear_infinite]"
+            style={{ background: 'var(--tech-gradient-conic)' }}
+          />
+          <div className="relative mx-auto mb-5 h-16 w-16">
+            <div
+              aria-hidden
+              className="absolute -inset-[3px] rounded-2xl animate-[tech-spin_8s_linear_infinite]"
+              style={{ background: 'var(--tech-gradient-conic)' }}
+            />
+            <div className="relative flex h-full w-full items-center justify-center rounded-2xl bg-[var(--surface)]">
+              <Bot size={32} className="text-[var(--brand)]" />
+            </div>
+          </div>
+          <h1 className="text-2xl font-black text-[var(--text)]">
+            Vamos montar seu treino personalizado
+          </h1>
+          <p className="mt-2 text-sm text-[var(--muted)]">
+            Responda {TOTAL_STEPS} perguntas rápidas e a IA cria um plano feito especialmente para você
+          </p>
+          <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--surface-hover)] px-4 py-2">
+            <Clock size={13} className="text-[var(--muted)]" />
+            <span className="text-xs font-semibold text-[var(--muted)]">Menos de 3 minutos</span>
+          </div>
+          {hasSavedAnswers ? (
+            <div className="mt-6 space-y-2">
+              <button
+                type="button"
+                onClick={() => { setStep(0); setIsEditMode(false); setAppScreen('REVIEW') }}
+                className="w-full rounded-2xl bg-[var(--brand)] py-3.5 text-sm font-bold text-white"
+              >
+                Continuar de onde parei
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  try { localStorage.removeItem(ANSWERS_STORAGE_KEY) } catch {/* ignore */}
+                  setStep(0); setAnswers(DEFAULT_ANSWERS); setIsEditMode(false); setAppScreen('QUIZ')
+                }}
+                className="w-full rounded-2xl border border-[var(--line)] py-3 text-xs font-semibold text-[var(--muted)]"
+              >
+                Começar do zero
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => { setStep(0); setAnswers(DEFAULT_ANSWERS); setIsEditMode(false); setAppScreen('QUIZ') }}
+              className="mt-6 w-full rounded-2xl bg-[var(--brand)] py-3.5 text-sm font-bold text-white"
+            >
+              Começar
+            </button>
+          )}
+        </motion.div>
+      </section>
+    )
+  }
+
+  // ─── LOADING ──────────────────────────────────────────────────────────────
+
+  if (appScreen === 'LOADING') {
+    return (
+      <section className="flex min-h-[70vh] items-center justify-center">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="relative w-full max-w-sm overflow-hidden rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-10 text-center"
+        >
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 opacity-30 blur-2xl"
+            style={{ background: 'radial-gradient(circle at 50% 30%, var(--accent-cyan), transparent 60%)' }}
+          />
+          <div className="relative mx-auto mb-6 h-20 w-20">
+            <div
+              aria-hidden
+              className="absolute -inset-3 rounded-full opacity-50 blur-md animate-[tech-pulse_2.4s_ease-in-out_infinite]"
+              style={{ background: 'var(--tech-gradient-conic)' }}
+            />
+            <div
+              aria-hidden
+              className="absolute inset-0 rounded-full animate-[tech-spin_3s_linear_infinite]"
+              style={{ background: 'var(--tech-gradient-conic)' }}
+            />
+            <div className="absolute inset-[3px] flex items-center justify-center rounded-full bg-[var(--surface)]">
+              <Sparkles size={24} className="text-[var(--brand)] animate-pulse" />
+            </div>
+          </div>
+          {generatingStep && generatingStep.total > 1 && (
+            <p className="mb-3 text-[11px] font-bold uppercase tracking-wider text-[var(--brand)]">
+              Dia {generatingStep.current} de {generatingStep.total} — {generatingStep.label}
+            </p>
+          )}
+          <AnimatePresence mode="wait">
+            <motion.p
+              key={loadingMsgIdx}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.3 }}
+              className="text-base font-semibold text-[var(--text)]"
+            >
+              {LOADING_MESSAGES[loadingMsgIdx]}
+            </motion.p>
+          </AnimatePresence>
+          <p className="mt-2 text-xs text-[var(--muted)]">Isso pode levar alguns segundos...</p>
+        </motion.div>
+      </section>
+    )
+  }
+
+  // ─── QUIZ ─────────────────────────────────────────────────────────────────
+
+  if (appScreen === 'QUIZ') {
+    const recommendedRange = GOAL_RECOMMENDED_RANGE[answers.goal] ?? null
+
+    // Steps that need explicit Next button (multi-select or text input)
+    const needsNextButton = [12, 13, 14, 15].includes(step) || (step === 18 && answers.hasExtraInfo === true)
+
+    const stepContent = (() => {
+      switch (step) {
+        case 0:
+          return (
+            <>
+              <h2 className="text-xl font-black text-[var(--text)]">Quantos dias por semana você vai treinar?</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">Escolha sua frequência semanal</p>
+              <div className="mt-5 grid gap-2 sm:grid-cols-2">
+                {[['2', '2x por semana', 'Ideal para começar'], ['3', '3x por semana', 'Bom equilíbrio'], ['4', '4x por semana', 'Frequência eficiente'], ['5', '5x por semana', 'Volume alto'], ['6', '6x por semana', 'Atletas avançados']].map(([val, label, hint]) => (
+                  <OptionCard key={val} label={label} hint={hint} selected={answers.daysPerWeek === val} onClick={() => selectAndAdvance('daysPerWeek', val)} />
+                ))}
+              </div>
+            </>
+          )
+
+        case 1:
+          return (
+            <>
+              <h2 className="text-xl font-black text-[var(--text)]">Qual é o seu nível de experiência?</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">Isso ajuda a calibrar volume e intensidade</p>
+              <div className="mt-5 space-y-2">
+                {[['Iniciante', 'Menos de 1 ano treinando'], ['Intermediário', '1 a 3 anos treinando'], ['Avançado', 'Mais de 3 anos treinando']].map(([val, hint]) => (
+                  <OptionCard key={val} label={val} hint={hint} selected={answers.experience === val} onClick={() => selectAndAdvance('experience', val)} />
+                ))}
+              </div>
+            </>
+          )
+
+        case 2:
+          return (
+            <>
+              <h2 className="text-xl font-black text-[var(--text)]">Qual a sua faixa etária?</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">Influencia a recuperação e o volume recomendado</p>
+              <div className="mt-5 grid gap-2 sm:grid-cols-2">
+                {['Menos de 18', '18–25', '26–35', '36–45', '46–55', '55+'].map(val => (
+                  <OptionCard key={val} label={val + ' anos'} selected={answers.age === val} onClick={() => selectAndAdvance('age', val)} />
+                ))}
+              </div>
+            </>
+          )
+
+        case 3:
+          return (
+            <>
+              <h2 className="text-xl font-black text-[var(--text)]">Qual o seu gênero?</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">Define a ênfase muscular padrão quando não há foco específico</p>
+              <div className="mt-5 space-y-2">
+                {[['Masculino', 'Ênfase padrão em superiores (peito/costas/ombros)'], ['Feminino', 'Ênfase padrão em inferiores (glúteo/posterior/quad)']].map(([val, hint]) => (
+                  <OptionCard key={val} label={val} hint={hint} selected={answers.gender === val} onClick={() => selectAndAdvance('gender', val)} />
+                ))}
+              </div>
+            </>
+          )
+
+        case 4:
+          return (
+            <>
+              <h2 className="text-xl font-black text-[var(--text)]">Qual fase você está atualmente?</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">Define a estratégia de volume e intensidade</p>
+              <div className="mt-5 space-y-2">
+                {[['Ganho de massa', 'Foco em aumentar volume muscular com superávit calórico'], ['Cutting (definição)', 'Manter músculo enquanto perde gordura'], ['Recomposição', 'Ganhar músculo e perder gordura simultaneamente'], ['Manutenção', 'Manter o físico atual com boa qualidade de vida']].map(([val, hint]) => (
+                  <OptionCard key={val} label={val} hint={hint} selected={answers.phase === val} onClick={() => selectAndAdvance('phase', val)} />
+                ))}
+              </div>
+            </>
+          )
+
+        case 5:
+          return (
+            <>
+              <h2 className="text-xl font-black text-[var(--text)]">Qual o foco principal do treino?</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">O objetivo que guia a seleção de exercícios e métodos</p>
+              <div className="mt-5 space-y-2">
+                {[['Hipertrofia', 'Maximizar crescimento muscular'], ['Força', 'Aumentar cargas e força máxima'], ['Emagrecimento', 'Queima de gordura com treinos mais intensos'], ['Resistência', 'Melhorar capacidade cardiovascular e muscular'], ['Recuperação de lesão', 'Treino adaptado para reabilitação']].map(([val, hint]) => (
+                  <OptionCard key={val} label={val} hint={hint} selected={answers.goal === val} onClick={() => selectAndAdvance('goal', val)} />
+                ))}
+              </div>
+            </>
+          )
+
+        case 6:
+          return (
+            <>
+              <h2 className="text-xl font-black text-[var(--text)]">Onde você treina?</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">Define os exercícios e equipamentos disponíveis</p>
+              <div className="mt-5 space-y-2">
+                {[['Academia completa', 'Acesso a todos os aparelhos e pesos livres'], ['Em casa com equipamentos', 'Halteres, barras, elásticos ou banco'], ['Em casa sem equipamentos', 'Apenas peso corporal']].map(([val, hint]) => (
+                  <OptionCard key={val} label={val} hint={hint} selected={answers.location === val} onClick={() => selectAndAdvance('location', val)} />
+                ))}
+              </div>
+            </>
+          )
+
+        case 7:
+          return (
+            <>
+              <h2 className="text-xl font-black text-[var(--text)]">Preferência de equipamentos?</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">Mesmo em academia, você pode ter uma preferência</p>
+              <div className="mt-5 space-y-2">
+                {[['Pesos livres', 'Halteres e barras — mais ativação muscular'], ['Máquinas', 'Maior segurança e isolamento'], ['Misto', 'Combinação de pesos livres e máquinas']].map(([val, hint]) => (
+                  <OptionCard key={val} label={val} hint={hint} selected={answers.equipment === val} onClick={() => selectAndAdvance('equipment', val)} />
+                ))}
+              </div>
+            </>
+          )
+
+        case 8:
+          return (
+            <>
+              <h2 className="text-xl font-black text-[var(--text)]">Duração desejada da sessão?</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">O tempo que você tem disponível por treino</p>
+              <div className="mt-5 grid gap-2 sm:grid-cols-2">
+                {[['30', '30 minutos'], ['45', '45 minutos'], ['60', '1 hora'], ['90', '1h30'], ['120', '2 horas']].map(([val, label]) => (
+                  <OptionCard key={val} label={label} selected={answers.duration === val} onClick={() => selectAndAdvance('duration', val)} />
+                ))}
+              </div>
+            </>
+          )
+
+        case 9:
+          return (
+            <>
+              <h2 className="text-xl font-black text-[var(--text)]">Frequência por grupo muscular?</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">Quantas vezes por semana cada músculo será treinado</p>
+              <div className="mt-5 space-y-2">
+                {[['1x por semana', 'Cada músculo aparece uma vez (ex: Bro Split)'], ['2x por semana', 'Cada músculo aparece duas vezes (ex: Upper/Lower)'], ['IA decide', 'A IA escolhe o melhor split para seu perfil']].map(([val, hint]) => (
+                  <OptionCard key={val} label={val} hint={hint} selected={answers.muscleFrequency === val} onClick={() => selectAndAdvance('muscleFrequency', val)} />
+                ))}
+              </div>
+            </>
+          )
+
+        case 10:
+          return (
+            <>
+              <h2 className="text-xl font-black text-[var(--text)]">Faixa de repetições preferida?</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">Será usada como referência principal nos exercícios</p>
+              <div className="mt-5 grid gap-2 sm:grid-cols-2">
+                {(['4–6', '5–9', '6–8', '8–10', '10–12', '12–15'] as const).map(val => (
+                  <OptionCard
+                    key={val}
+                    label={val + ' reps'}
+                    hint={REP_HINTS[val]}
+                    recommended={val === recommendedRange}
+                    selected={answers.repRange === val}
+                    onClick={() => selectAndAdvance('repRange', val)}
+                  />
+                ))}
+              </div>
+              {recommendedRange && (
+                <p className="mt-3 text-[11px] text-[var(--muted)]">
+                  ★ Faixa recomendada para <span className="font-semibold text-[var(--brand)]">{answers.goal}</span>: {recommendedRange} reps
+                </p>
+              )}
+            </>
+          )
+
+        case 11:
+          return (
+            <>
+              <h2 className="text-xl font-black text-[var(--text)]">Tempo de descanso entre séries?</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">Influencia diretamente a intensidade e o volume da sessão</p>
+              <div className="mt-5 grid gap-2 sm:grid-cols-2">
+                {([
+                  ['30s', '30 segundos', 'Resistência e condicionamento'],
+                  ['45s', '45 segundos', 'Alta intensidade metabólica'],
+                  ['1min', '1 minuto', 'Hipertrofia com densidade'],
+                  ['1min30s', '1 min 30 seg', 'Hipertrofia clássica'],
+                  ['2min', '2 minutos', 'Hipertrofia e força'],
+                  ['2min30s', '2 min 30 seg', 'Força com volume'],
+                  ['3min', '3 minutos', 'Força máxima e compostos pesados'],
+                  ['IA decide', 'IA decide', 'Adaptado ao tipo de exercício'],
+                ] as const).map(([val, label, hint]) => (
+                  <OptionCard key={val} label={label} hint={hint} selected={answers.restTime === val} onClick={() => selectAndAdvance('restTime', val)} />
+                ))}
+              </div>
+            </>
+          )
+
+        case 12:
+          return (
+            <>
+              <h2 className="text-xl font-black text-[var(--text)]">Técnicas avançadas?</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">Selecione uma ou mais (pode escolher várias)</p>
+              <div className="mt-5 space-y-2">
+                {['Nenhuma', 'Drop Set', 'Cluster Set', 'Rest-Pause', 'Bi-Set'].map(t => {
+                  const selected = answers.techniques.includes(t)
+                  return (
+                    <button
+                      type="button"
+                      key={t}
+                      onClick={() => toggleTechnique(t)}
+                      className={`flex w-full items-center justify-between rounded-2xl border-2 px-4 py-3 text-left transition-all ${
+                        selected
+                          ? 'border-[var(--brand)] bg-[color-mix(in_srgb,var(--brand)_10%,var(--surface))]'
+                          : 'border-[var(--line)] bg-[var(--surface)] hover:border-[var(--brand)]/50'
+                      }`}
+                    >
+                      <span className={`text-sm font-bold ${selected ? 'text-[var(--brand)]' : 'text-[var(--text)]'}`}>{t}</span>
+                      {selected && <CheckCircle2 size={16} className="shrink-0 text-[var(--brand)]" />}
+                    </button>
+                  )
+                })}
+              </div>
+            </>
+          )
+
+        case 13:
+          return (
+            <>
+              <h2 className="text-xl font-black text-[var(--text)]">Tem foco muscular específico?</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">Selecione até 3 músculos que quer priorizar</p>
+              <div className="mt-4 flex gap-2">
+                {[true, false].map(val => (
+                  <button
+                    type="button"
+                    key={String(val)}
+                    onClick={() => setAnswers(prev => ({ ...prev, hasFocus: val, musclesFocus: val ? prev.musclesFocus : [] }))}
+                    className={`flex-1 rounded-2xl border-2 py-3 text-sm font-bold transition-all ${
+                      answers.hasFocus === val
+                        ? 'border-[var(--brand)] bg-[color-mix(in_srgb,var(--brand)_10%,var(--surface))] text-[var(--brand)]'
+                        : 'border-[var(--line)] text-[var(--text)] hover:border-[var(--brand)]/50'
+                    }`}
+                  >
+                    {val ? 'Sim' : 'Não'}
+                  </button>
+                ))}
+              </div>
+              {answers.hasFocus === true && (
+                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mt-4">
+                  <p className="mb-2 text-xs font-semibold text-[var(--muted)]">
+                    Selecione até 3 músculos ({answers.musclesFocus.length}/3)
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {MUSCLES_LIST.map(m => {
+                      const selected = answers.musclesFocus.includes(m)
+                      const disabled = !selected && answers.musclesFocus.length >= 3
+                      return (
+                        <button
+                          type="button"
+                          key={m}
+                          onClick={() => !disabled && toggleMuscle(m)}
+                          disabled={disabled}
+                          className={`flex items-center justify-between rounded-xl border-2 px-3 py-2.5 text-sm font-semibold transition-all ${
+                            selected
+                              ? 'border-[var(--brand)] bg-[color-mix(in_srgb,var(--brand)_10%,var(--surface))] text-[var(--brand)]'
+                              : disabled
+                                ? 'border-[var(--line)] text-[var(--muted)] opacity-40'
+                                : 'border-[var(--line)] text-[var(--text)] hover:border-[var(--brand)]/50'
+                          }`}
+                        >
+                          {m}
+                          {selected && <CheckCircle2 size={14} className="shrink-0" />}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </motion.div>
+              )}
+            </>
+          )
+
+        case 14:
+          return (
+            <>
+              <h2 className="text-xl font-black text-[var(--text)]">Lesões ou exercícios para evitar?</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">Opcional — pode pular se não tiver nenhuma restrição</p>
+              <div className="mt-5 space-y-4">
+                <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-bold text-[var(--text)]">Tenho uma lesão</p>
+                    <button
+                      type="button"
+                      onClick={() => setAnswers(prev => ({ ...prev, hasInjury: !prev.hasInjury, injuryDescription: prev.hasInjury ? '' : prev.injuryDescription }))}
+                      className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors ${answers.hasInjury ? 'bg-[var(--brand)]' : 'bg-[var(--line)]'}`}
+                    >
+                      <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${answers.hasInjury ? 'translate-x-5' : 'translate-x-0'}`} />
+                    </button>
+                  </div>
+                  {answers.hasInjury && (
+                    <motion.textarea
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      value={answers.injuryDescription}
+                      onChange={e => setAnswers(prev => ({ ...prev, injuryDescription: e.target.value }))}
+                      placeholder="Descreva sua lesão... Ex: dor no joelho direito, hérnia lombar L4-L5"
+                      rows={3}
+                      className="mt-3 w-full resize-none rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--muted)] focus:outline-none"
+                    />
+                  )}
+                </div>
+                <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-bold text-[var(--text)]">Quero evitar exercícios</p>
+                    <button
+                      type="button"
+                      onClick={() => setAnswers(prev => ({ ...prev, avoidExercises: prev.avoidExercises ? '' : ' ' }))}
+                      className={`relative inline-flex h-6 w-11 shrink-0 rounded-full border-2 border-transparent transition-colors ${answers.avoidExercises.trim() !== '' ? 'bg-[var(--brand)]' : 'bg-[var(--line)]'}`}
+                    >
+                      <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${answers.avoidExercises.trim() !== '' ? 'translate-x-5' : 'translate-x-0'}`} />
+                    </button>
+                  </div>
+                  {answers.avoidExercises.trim() !== '' || answers.avoidExercises === ' ' ? (
+                    <motion.textarea
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      value={answers.avoidExercises.trimStart()}
+                      onChange={e => setAnswers(prev => ({ ...prev, avoidExercises: e.target.value }))}
+                      placeholder="Ex: agachamento livre, supino reto, levantamento terra"
+                      rows={3}
+                      className="mt-3 w-full resize-none rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--muted)] focus:outline-none"
+                    />
+                  ) : null}
+                </div>
+              </div>
+            </>
+          )
+
+        case 15:
+          return (
+            <>
+              <h2 className="text-xl font-black text-[var(--text)]">Altura e peso? (opcional)</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">Ajuda a calibrar carga inicial e cuidados articulares</p>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                <label className="block">
+                  <span className="text-xs font-semibold text-[var(--muted)]">Altura (cm)</span>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={100}
+                    max={250}
+                    value={answers.heightCm}
+                    onChange={e => setAnswers(prev => ({ ...prev, heightCm: e.target.value.replace(/[^\d]/g, '') }))}
+                    placeholder="Ex: 175"
+                    className="mt-1 w-full rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--muted)] focus:outline-none focus:border-[var(--brand)]"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-semibold text-[var(--muted)]">Peso (kg)</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min={30}
+                    max={300}
+                    step="0.1"
+                    value={answers.weightKg}
+                    onChange={e => setAnswers(prev => ({ ...prev, weightKg: e.target.value.replace(/[^\d.,]/g, '').replace(',', '.') }))}
+                    placeholder="Ex: 75"
+                    className="mt-1 w-full rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--muted)] focus:outline-none focus:border-[var(--brand)]"
+                  />
+                </label>
+              </div>
+            </>
+          )
+
+        case 16:
+          return (
+            <>
+              <h2 className="text-xl font-black text-[var(--text)]">Quantos exercícios por treino?</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">Influencia o tamanho da sessão (cobertura obrigatória é mantida)</p>
+              <div className="mt-5 space-y-2">
+                {[
+                  ['Curto', '4-5 exercícios — sessões rápidas e densas'],
+                  ['Médio', '6-7 exercícios — equilíbrio padrão'],
+                  ['Longo', '8-10 exercícios — volume alto'],
+                  ['IA decide', 'A IA escolhe pelo perfil e duração'],
+                ].map(([val, hint]) => (
+                  <OptionCard key={val} label={val} hint={hint} selected={answers.exerciseCount === val} onClick={() => selectAndAdvance('exerciseCount', val)} />
+                ))}
+              </div>
+            </>
+          )
+
+        case 17:
+          return (
+            <>
+              <h2 className="text-xl font-black text-[var(--text)]">Proximidade da falha (RIR)?</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">Quantas repetições deixar na reserva</p>
+              <div className="mt-5 space-y-2">
+                {[
+                  ['Falha', 'Treino até a falha em isolados; RIR 1 em compostos'],
+                  ['RIR 1-2', 'Deixo 1-2 reps na reserva (padrão hipertrofia)'],
+                  ['RIR 3+', 'Deixo 3+ reps na reserva (foco em técnica/recuperação)'],
+                  ['IA decide', 'A IA escolhe pelo nível e exercício'],
+                ].map(([val, hint]) => (
+                  <OptionCard key={val} label={val} hint={hint} selected={answers.rirTarget === val} onClick={() => selectAndAdvance('rirTarget', val)} />
+                ))}
+              </div>
+            </>
+          )
+
+        case 18:
+          return (
+            <>
+              <h2 className="text-xl font-black text-[var(--text)]">Quer adicionar algo para a IA?</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">Exercício específico, observação ou qualquer detalhe extra</p>
+              <div className="mt-4 flex gap-2">
+                {[true, false].map(val => (
+                  <button
+                    type="button"
+                    key={String(val)}
+                    onClick={() => {
+                      if (!val) {
+                        setAnswers(prev => ({ ...prev, hasExtraInfo: false, extraInfo: '' }))
+                        setDirection(1)
+                        setAppScreen('REVIEW')
+                      } else {
+                        setAnswers(prev => ({ ...prev, hasExtraInfo: true }))
+                      }
+                    }}
+                    className={`flex-1 rounded-2xl border-2 py-3 text-sm font-bold transition-all ${
+                      answers.hasExtraInfo === val
+                        ? 'border-[var(--brand)] bg-[color-mix(in_srgb,var(--brand)_10%,var(--surface))] text-[var(--brand)]'
+                        : 'border-[var(--line)] text-[var(--text)] hover:border-[var(--brand)]/50'
+                    }`}
+                  >
+                    {val ? 'Sim' : 'Não'}
+                  </button>
+                ))}
+              </div>
+              {answers.hasExtraInfo === true && (
+                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mt-4">
+                  <p className="mb-2 text-xs font-semibold text-[var(--muted)]">Escreve o que queres incluir ou evitar</p>
+                  <textarea
+                    value={answers.extraInfo}
+                    onChange={e => setAnswers(prev => ({ ...prev, extraInfo: e.target.value }))}
+                    placeholder="Ex: quero incluir agachamento búlgaro, prefiro supino inclinado em vez do reto, adicionar exercício para antebraço..."
+                    rows={4}
+                    className="w-full resize-none rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--muted)] focus:outline-none"
+                  />
+                  {extraHistory.length > 0 && (
+                    <div className="mt-3">
+                      <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--muted)]">Pedidos recentes</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {extraHistory.map((h, i) => (
+                          <button
+                            key={i}
+                            type="button"
+                            onClick={() => setAnswers(prev => ({ ...prev, extraInfo: h }))}
+                            className="max-w-[260px] truncate rounded-full border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-1 text-[11px] font-semibold text-[var(--text)] hover:border-[var(--brand)]/50"
+                            title={h}
+                          >
+                            {h.length > 40 ? h.slice(0, 40) + '…' : h}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </>
+          )
+
+        default:
+          return null
+      }
+    })()
+
+    return (
+      <section className="space-y-4">
+        <div className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5 sm:p-6">
+          {isEditMode ? (
+            <p className="mb-6 text-xs font-bold uppercase tracking-wider text-[var(--brand)]">
+              Editando resposta
+            </p>
+          ) : (
+            <ProgressBar step={step + 1} total={TOTAL_STEPS} />
+          )}
+          <AnimatePresence mode="wait" custom={direction}>
+            <motion.div
+              key={step}
+              custom={direction}
+              variants={{
+                enter: (d: number) => ({ x: d * 50, opacity: 0 }),
+                center: { x: 0, opacity: 1 },
+                exit: (d: number) => ({ x: d * -50, opacity: 0 }),
+              }}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{ duration: 0.22, ease: 'easeInOut' }}
+            >
+              {stepContent}
+            </motion.div>
+          </AnimatePresence>
+          <div className="mt-6 flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={goBack}
+              className="flex items-center gap-1.5 rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)]"
+            >
+              <ChevronLeft size={15} />
+              {isEditMode ? 'Resumo' : step === 0 ? 'Início' : 'Voltar'}
+            </button>
+            {isEditMode ? (
+              needsNextButton && (
+                <button
+                  type="button"
+                  onClick={() => setAppScreen('REVIEW')}
+                  disabled={step === 13 && answers.hasFocus === null}
+                  className="rounded-xl bg-[var(--brand)] px-5 py-2 text-sm font-bold text-white disabled:opacity-50"
+                >
+                  Salvar
+                </button>
+              )
+            ) : (
+              <>
+                {needsNextButton && (
+                  <button
+                    type="button"
+                    onClick={advanceStep}
+                    disabled={step === 13 && answers.hasFocus === null}
+                    className="rounded-xl bg-[var(--brand)] px-5 py-2 text-sm font-bold text-white disabled:opacity-50"
+                  >
+                    {step === TOTAL_STEPS - 1 ? 'Ver resumo' : 'Próximo'}
+                  </button>
+                )}
+                {(step === 14 || step === 15) && (
+                  <button
+                    type="button"
+                    onClick={advanceStep}
+                    className="text-xs text-[var(--muted)] underline underline-offset-2"
+                  >
+                    Pular
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </section>
+    )
+  }
+
+  // ─── REVIEW ───────────────────────────────────────────────────────────────
+
+  if (appScreen === 'REVIEW') {
+    const days = parseInt(answers.daysPerWeek, 10) || 4
+    const split = getEffectiveSplit(days, answers.muscleFrequency)
+    const labels = getWorkoutLabels(split, days)
+
+    const restrictionsValue = [
+      answers.hasInjury && answers.injuryDescription ? `Lesão: ${answers.injuryDescription}` : '',
+      answers.avoidExercises.trim() ? `Evitar: ${answers.avoidExercises.trim()}` : '',
+    ].filter(Boolean).join(' · ') || 'Nenhuma'
+
+    const physicalValue = [
+      answers.heightCm && `${answers.heightCm}cm`,
+      answers.weightKg && `${answers.weightKg}kg`,
+    ].filter(Boolean).join(' · ') || 'Não informado'
+
+    const chips: Array<{ label: string; value: string; step: number }> = [
+      { label: 'Dias', value: answers.daysPerWeek ? `${answers.daysPerWeek}x/semana` : '—', step: 0 },
+      { label: 'Nível', value: answers.experience || '—', step: 1 },
+      { label: 'Idade', value: answers.age || '—', step: 2 },
+      { label: 'Gênero', value: answers.gender || '—', step: 3 },
+      { label: 'Fase', value: answers.phase || '—', step: 4 },
+      { label: 'Objetivo', value: answers.goal || '—', step: 5 },
+      { label: 'Local', value: answers.location || '—', step: 6 },
+      { label: 'Equipamento', value: answers.equipment || '—', step: 7 },
+      { label: 'Duração', value: answers.duration ? `${answers.duration} min` : '—', step: 8 },
+      { label: 'Freq. muscular', value: answers.muscleFrequency || '—', step: 9 },
+      { label: 'Reps', value: answers.repRange || '—', step: 10 },
+      { label: 'Descanso', value: answers.restTime || 'IA decide', step: 11 },
+      { label: 'Técnicas', value: answers.techniques.join(', ') || 'Nenhuma', step: 12 },
+      { label: 'Foco', value: answers.musclesFocus.length > 0 ? answers.musclesFocus.join(', ') : answers.hasFocus === false ? 'Sem foco' : '—', step: 13 },
+      { label: 'Restrições', value: restrictionsValue, step: 14 },
+      { label: 'Físico', value: physicalValue, step: 15 },
+      { label: 'Tamanho', value: answers.exerciseCount || 'IA decide', step: 16 },
+      { label: 'RIR', value: answers.rirTarget || 'IA decide', step: 17 },
+      { label: 'Extra', value: answers.extraInfo || (answers.hasExtraInfo === false ? 'Não' : '—'), step: 18 },
+    ]
+
+    return (
+      <section className="space-y-4">
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5">
+          <p className="text-xs font-bold uppercase tracking-wider text-[var(--brand)]">Quase lá</p>
+          <h1 className="mt-1 text-2xl font-black text-[var(--text)]">Resumo das suas respostas</h1>
+          <p className="mt-1 text-sm text-[var(--muted)]">Divisão gerada: <span className="font-semibold text-[var(--text)]">{split}</span></p>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {labels.map(l => (
+              <span key={l} className="rounded-full border border-[var(--brand)]/30 bg-[var(--brand)]/8 px-3 py-1 text-xs font-semibold text-[var(--brand)]">{l}</span>
+            ))}
+          </div>
+        </motion.div>
+
+        <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+          <p className="mb-2 text-[11px] text-[var(--muted)]">Clica num item para editar só esse campo</p>
+          <div className="flex flex-wrap gap-2">
+            {chips.map(({ label, value, step: chipStep }) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => { setIsEditMode(true); setStep(chipStep); setDirection(0); setAppScreen('QUIZ') }}
+                className="group relative rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-1.5 text-left transition-colors hover:border-[var(--brand)]/50"
+              >
+                <p className="text-[9px] font-bold uppercase tracking-wider text-[var(--muted)]">{label}</p>
+                <p className="pr-4 text-xs font-semibold text-[var(--text)]">{value}</p>
+                <Pencil size={9} className="absolute right-2 top-2 text-[var(--brand)] opacity-0 transition-opacity group-hover:opacity-100" />
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {error && <p className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400">{error}</p>}
+
+        <button
+          type="button"
+          onClick={() => void handleGenerate()}
+          className="w-full rounded-2xl bg-[var(--brand)] py-3.5 text-sm font-bold text-white"
+        >
+          Gerar meu treino com IA
+        </button>
+      </section>
+    )
+  }
+
+  // ─── RESULT ───────────────────────────────────────────────────────────────
 
   return (
-    <section className="space-y-4">
-      {/* Header */}
-      <motion.header
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
-      >
-        <h1 className="text-2xl font-black text-[var(--text)]">Treino por IA</h1>
-        <p className="mt-1 text-sm text-[var(--muted)]">
-          Descreve o que pretendes e a IA gera um treino personalizado com exercícios do teu banco de dados.
-        </p>
-      </motion.header>
-
-      {error ? (
-        <motion.p
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400"
-        >
-          {error}
-        </motion.p>
-      ) : null}
-
-      {/* Form */}
-      <motion.article
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.05 }}
-        className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 space-y-5"
-      >
-        <div>
-          <label className="block text-xs font-semibold uppercase tracking-wide text-[var(--muted)] mb-2">
-            Descreve o treino
-          </label>
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Ex: quero treino para hipertrofia, academia completa..."
-            rows={3}
-            maxLength={600}
-            className="w-full resize-none rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)]/40"
-          />
-          <p className="mt-1 text-right text-xs text-[var(--muted)]">{prompt.length}/600</p>
-        </div>
-
-        <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-            Estrutura do treino
-          </p>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div>
-              <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">Frequência semanal</label>
-              <select value={weekDays} onChange={(e) => setWeekDays(e.target.value)} className={SELECT_CLASS}>
-                {WEEK_DAYS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">Divisão de treino</label>
-              <select value={split} onChange={(e) => setSplit(e.target.value)} className={SELECT_CLASS}>
-                {SPLIT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">Equipamento disponível</label>
-              <select value={equipment} onChange={(e) => setEquipment(e.target.value)} className={SELECT_CLASS}>
-                {EQUIPMENT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-          </div>
-          {weekDays && parseInt(weekDays, 10) >= 2 ? (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {getWorkoutLabels(split, parseInt(weekDays, 10)).map((label) => (
-                <span
-                  key={label}
-                  className="rounded-full border border-[var(--brand)]/30 bg-[var(--brand)]/8 px-3 py-1 text-xs font-semibold text-[var(--brand)]"
-                >
-                  {label}
-                </span>
-              ))}
-            </div>
-          ) : null}
-        </div>
-
-        <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
-            Personalização
-          </p>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div>
-              <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">Foco muscular</label>
-              <select value={muscleGroup} onChange={(e) => setMuscleGroup(e.target.value)} className={SELECT_CLASS}>
-                {MUSCLE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">Objetivo</label>
-              <select value={goal} onChange={(e) => setGoal(e.target.value)} className={SELECT_CLASS}>
-                {GOAL_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">Duração</label>
-              <select value={durationMin} onChange={(e) => setDurationMin(e.target.value)} className={SELECT_CLASS}>
-                {DURATION_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="flex items-center gap-3 rounded-xl border border-[var(--line)] px-4 py-3">
-            <input
-              id="advanced-techniques"
-              type="checkbox"
-              checked={advancedTechniques}
-              onChange={(e) => setAdvancedTechniques(e.target.checked)}
-              className="h-4 w-4 accent-[var(--brand)]"
-            />
-            <label htmlFor="advanced-techniques" className="cursor-pointer text-sm text-[var(--text)]">
-              Incluir técnicas avançadas
-              <span className="ml-1 text-xs text-[var(--muted)]">(Drop Set / Cluster Set)</span>
-            </label>
-          </div>
-          <div>
-            <label className="block text-[11px] font-medium text-[var(--muted)] mb-1">Lesões / restrições</label>
-            <input
-              type="text"
-              value={injuries}
-              onChange={(e) => setInjuries(e.target.value)}
-              placeholder="Ex: dor no ombro direito, hérnia lombar..."
-              maxLength={200}
-              className="w-full rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--muted)] focus:outline-none focus:ring-2 focus:ring-[var(--brand)]/40"
-            />
-          </div>
-        </div>
-
-        <div className="flex flex-wrap gap-2 pt-1">
+    <section className="space-y-4" ref={resultRef}>
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5">
+        <p className="text-xs font-bold uppercase tracking-wider text-[var(--brand)]">Treino gerado</p>
+        <h1 className="mt-1 text-2xl font-black text-[var(--text)]">Seu plano personalizado</h1>
+        <p className="mt-1 text-sm text-[var(--muted)]">{sections.length} dia{sections.length !== 1 ? 's' : ''} de treino criado{sections.length !== 1 ? 's' : ''} pela IA</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              try { localStorage.removeItem(ANSWERS_STORAGE_KEY) } catch {/* ignore */}
+              setStep(0); setAnswers(DEFAULT_ANSWERS); setIsEditMode(false); setAppScreen('QUIZ')
+            }}
+            className="rounded-xl border border-[var(--line)] px-4 py-2 text-xs font-semibold text-[var(--text)]"
+          >
+            Novo questionário
+          </button>
           <button
             type="button"
             onClick={() => void handleGenerate()}
-            disabled={loading || !prompt.trim()}
-            className="rounded-xl bg-[var(--brand)] px-6 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-xl border border-[var(--line)] px-4 py-2 text-xs font-semibold text-[var(--text)]"
           >
-            {loading ? 'A gerar...' : 'Gerar Treino'}
+            Gerar novamente
           </button>
-          {hasResults && !loading ? (
-            <button
-              type="button"
-              onClick={() => void handleGenerate()}
-              disabled={loading}
-              className="rounded-xl border border-[var(--line)] px-5 py-2 text-sm font-semibold text-[var(--text)] disabled:opacity-60"
-            >
-              Gerar Novamente
-            </button>
-          ) : null}
         </div>
-      </motion.article>
+      </motion.div>
 
-      {/* Results */}
-      <div ref={resultRef} className="space-y-4">
-        {sections.map((section, idx) => (
-          <motion.article
-            key={idx}
+      {error && <p className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400">{error}</p>}
+
+      {sections.length > 1 && (() => {
+        const volume = getWeeklyVolume(sections)
+        if (volume.length === 0) return null
+        const TARGET_MIN = 5
+        const TARGET_MAX = 20
+        const maxSets = Math.max(...volume.map(v => v.sets))
+        const scaleMax = Math.max(maxSets, TARGET_MAX + 2)
+        const totalSets = volume.reduce((s, v) => s + v.sets, 0)
+        const targetMinPct = (TARGET_MIN / scaleMax) * 100
+        const targetMaxPct = (TARGET_MAX / scaleMax) * 100
+        const balanced = volume.filter(v => v.sets >= TARGET_MIN && v.sets <= TARGET_MAX).length
+        const getStatus = (sets: number) => {
+          if (sets < TARGET_MIN) return { dot: 'bg-amber-400', text: 'text-amber-400', label: 'baixo' }
+          if (sets > TARGET_MAX) return { dot: 'bg-rose-400', text: 'text-rose-400', label: 'alto' }
+          return { dot: 'bg-emerald-400', text: 'text-emerald-400', label: 'ideal' }
+        }
+        return (
+          <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 space-y-4"
+            className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5"
           >
-            {/* Card header */}
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-lg font-extrabold text-[var(--text)]">
-                {section.workoutData?.planName ?? `Treino ${idx + 1}`}
-              </h2>
-              <div className="flex items-center gap-2">
-                {generatingStep && generatingStep.total > 1 ? (
-                  <span className="rounded-full border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--muted)]">
-                    {idx + 1}/{generatingStep.total}
-                  </span>
-                ) : null}
-                {section.workoutData ? (
-                  <span className="rounded-full border border-[var(--brand)]/40 bg-[var(--brand)]/10 px-3 py-1 text-xs font-semibold text-[var(--brand)]">
-                    {section.workoutData.exercises.length} exercício{section.workoutData.exercises.length !== 1 ? 's' : ''}
-                  </span>
-                ) : null}
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-extrabold text-[var(--text)]">Volume semanal por grupo</h3>
+                <p className="mt-0.5 text-[11px] text-[var(--muted)]">Faixa ideal: 5–20 séries/semana por grupo (hipertrofia)</p>
+              </div>
+              <div className="flex items-baseline gap-3">
+                <div className="text-right">
+                  <p className="text-2xl font-extrabold leading-none text-[var(--text)]">{totalSets}</p>
+                  <p className="mt-1 text-[9px] uppercase tracking-wider text-[var(--muted)]">séries totais</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-2xl font-extrabold leading-none text-emerald-400">{balanced}<span className="text-base text-[var(--muted)]">/{volume.length}</span></p>
+                  <p className="mt-1 text-[9px] uppercase tracking-wider text-[var(--muted)]">na faixa ideal</p>
+                </div>
               </div>
             </div>
 
-            {/* Exercise list from structured JSON — always consistent */}
-            {section.workoutData ? (
-              <div className="rounded-xl border border-[var(--line)] overflow-hidden">
-                {section.workoutData.exercises.map((ex, i) => (
+            <div className="mt-4 flex items-center gap-3 text-[10px] font-medium text-[var(--muted)]">
+              <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> ideal</span>
+              <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> abaixo</span>
+              <span className="flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-rose-400" /> excessivo</span>
+            </div>
+
+            <div className="mt-3 space-y-2">
+              {volume.map(v => {
+                const status = getStatus(v.sets)
+                const widthPct = Math.min(100, (v.sets / scaleMax) * 100)
+                return (
+                  <div key={v.label} className="flex items-center gap-2.5">
+                    <span className="w-24 shrink-0 truncate text-xs font-semibold text-[var(--text)]">{v.label}</span>
+                    <div className="relative h-6 flex-1 overflow-hidden rounded-md bg-[var(--surface-hover)]">
+                      <div
+                        className="absolute inset-y-0 border-x border-emerald-500/25 bg-emerald-500/[0.06]"
+                        style={{ left: `${targetMinPct}%`, width: `${targetMaxPct - targetMinPct}%` }}
+                        aria-hidden
+                      />
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{ width: `${widthPct}%` }}
+                        transition={{ duration: 0.6, ease: 'easeOut' }}
+                        className="relative h-full rounded-r-sm"
+                        style={{
+                          background: `linear-gradient(90deg, ${v.hex}AA 0%, ${v.hex} 100%)`,
+                          boxShadow: `0 0 0 1px ${v.hex}40 inset`,
+                        }}
+                      />
+                    </div>
+                    <div className="flex w-14 shrink-0 items-center justify-end gap-1.5">
+                      <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} title={status.label} />
+                      <span className={`text-xs font-bold ${status.text}`}>{v.sets}</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </motion.div>
+        )
+      })()}
+
+      {sections.map((section, idx) => {
+        const wd = section.workoutData
+        const dayLabel = wd?.planName ?? `Treino ${idx + 1}`
+        const missing = wd ? getMissingGroups(wd.exercises, dayLabel) : []
+        const durationMin = wd ? estimateDurationMin(wd.exercises) : null
+        const targetMin = answers.duration ? parseInt(answers.duration, 10) : null
+        const overTime = targetMin && durationMin ? durationMin > targetMin + 10 : false
+        const isRegenerating = regeneratingIndex === idx
+        return (
+          <motion.article
+            key={idx}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: idx * 0.06 }}
+            className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 space-y-4"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-lg font-extrabold text-[var(--text)]">{dayLabel}</h2>
+              {wd && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full border border-[var(--brand)]/40 bg-[var(--brand)]/10 px-3 py-1 text-xs font-semibold text-[var(--brand)]">
+                    {wd.exercises.length} exercícios
+                  </span>
+                  {durationMin !== null && (
+                    <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${overTime ? 'border-amber-500/40 bg-amber-500/10 text-amber-400' : 'border-[var(--line)] bg-[var(--surface-hover)] text-[var(--muted)]'}`}>
+                      ~{durationMin} min{overTime && targetMin ? ` (alvo ${targetMin})` : ''}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {missing.length > 0 && (
+              <div className="flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3">
+                <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-400" />
+                <div className="flex-1">
+                  <p className="text-xs font-bold text-amber-400">Cobertura incompleta</p>
+                  <p className="mt-0.5 text-[11px] text-amber-400/80">Faltam: {missing.join(', ')} — considera regenerar este dia.</p>
+                </div>
+              </div>
+            )}
+
+            {wd && (
+              <div className="overflow-hidden rounded-xl border border-[var(--line)]">
+                {wd.exercises.map((ex, i) => (
                   <div
                     key={i}
-                    className="flex items-center gap-3 px-4 py-3 border-b border-[var(--line)] last:border-0 odd:bg-[var(--surface)] even:bg-[var(--bg)]"
+                    className="flex items-center gap-3 border-b border-[var(--line)] px-4 py-3 last:border-0 odd:bg-[var(--surface)] even:bg-[var(--surface-hover)]"
                   >
-                    <span className="w-6 shrink-0 text-center text-xs font-bold text-[var(--brand)]">
-                      {i + 1}
-                    </span>
-                    <div className="flex-1 min-w-0">
+                    <span className="w-6 shrink-0 text-center text-xs font-bold text-[var(--brand)]">{i + 1}</span>
+                    <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <p className="text-sm font-semibold text-[var(--text)] truncate">{ex.name}</p>
+                        <p className="text-sm font-semibold text-[var(--text)]">{ex.name}</p>
                         {(() => { const m = detectMuscleGroup(ex.name); return m ? <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${m.color}`}>{m.label}</span> : null })()}
                       </div>
                       <p className="text-xs text-[var(--muted)]">
@@ -486,76 +1615,94 @@ export function AIWorkoutPage() {
                         {ex.restSec ? ` · ${ex.restSec}s descanso` : ''}
                       </p>
                     </div>
+                    {!saveResults[idx] && (
+                      <div className="flex shrink-0 items-center gap-1">
+                        <div className="flex flex-col gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() => moveExercise(idx, i, -1)}
+                            disabled={i === 0}
+                            className="rounded-md border border-[var(--line)] p-1 text-[var(--muted)] hover:border-[var(--brand)]/50 hover:text-[var(--text)] disabled:opacity-30"
+                            title="Mover para cima"
+                          >
+                            <ChevronUp size={12} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moveExercise(idx, i, 1)}
+                            disabled={i === wd.exercises.length - 1}
+                            className="rounded-md border border-[var(--line)] p-1 text-[var(--muted)] hover:border-[var(--brand)]/50 hover:text-[var(--text)] disabled:opacity-30"
+                            title="Mover para baixo"
+                          >
+                            <ChevronDown size={12} />
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeExercise(idx, i)}
+                          disabled={wd.exercises.length <= 1}
+                          className="rounded-md border border-[var(--line)] p-1.5 text-[var(--muted)] hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-400 disabled:opacity-30"
+                          title="Remover exercício"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
-            ) : null}
+            )}
 
-            {/* AI observations text */}
             <div className="rounded-xl border border-[var(--line)] p-4">
               <AITextRenderer text={section.displayText} />
             </div>
 
-            {/* Save area */}
             {!saveResults[idx] ? (
-              section.workoutData ? (
-                <button
-                  type="button"
-                  onClick={() => void handleSaveOne(idx)}
-                  disabled={savingIndex !== null}
-                  className="rounded-xl bg-[var(--brand)] px-5 py-2 text-sm font-bold text-white disabled:opacity-60"
-                >
-                  {savingIndex === idx ? 'A guardar...' : 'Guardar Treino'}
-                </button>
+              wd ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleSaveOne(idx)}
+                    disabled={savingIndex !== null || isRegenerating}
+                    className="rounded-xl bg-[var(--brand)] px-5 py-2 text-sm font-bold text-white disabled:opacity-60"
+                  >
+                    {savingIndex === idx ? 'Salvando...' : 'Salvar como Rotina'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleRegenerateDay(idx)}
+                    disabled={savingIndex !== null || regeneratingIndex !== null}
+                    className="flex items-center gap-1.5 rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)] disabled:opacity-60"
+                  >
+                    <RefreshCw size={13} className={isRegenerating ? 'animate-spin' : ''} />
+                    {isRegenerating ? 'Regenerando...' : 'Regenerar este dia'}
+                  </button>
+                </div>
               ) : (
-                <p className="text-xs text-[var(--muted)]">
-                  Dados estruturados não disponíveis. Clica em "Gerar Novamente".
-                </p>
+                <p className="text-xs text-[var(--muted)]">Dados estruturados indisponíveis. Clique em "Gerar novamente".</p>
               )
             ) : (
               <motion.div
                 initial={{ opacity: 0, y: 4 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="rounded-xl border border-green-500/40 bg-green-500/10 p-4 space-y-2"
+                className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-4 space-y-2"
               >
-                <p className="text-sm font-bold text-green-400">
-                  "{saveResults[idx].planName}" guardado com sucesso!
-                </p>
+                <p className="text-sm font-bold text-emerald-400">"{saveResults[idx].planName}" salvo com sucesso!</p>
                 <p className="text-xs text-[var(--muted)]">
-                  {saveResults[idx].foundCount} de {saveResults[idx].totalCount} exercício
-                  {saveResults[idx].totalCount !== 1 ? 's' : ''} adicionado
-                  {saveResults[idx].foundCount !== 1 ? 's' : ''} à rotina.
-                  {saveResults[idx].foundCount < saveResults[idx].totalCount
-                    ? ' Alguns exercícios não foram encontrados na base de dados — podes adicioná-los manualmente.'
-                    : ''}
+                  {saveResults[idx].foundCount} de {saveResults[idx].totalCount} exercício{saveResults[idx].totalCount !== 1 ? 's' : ''} adicionado{saveResults[idx].foundCount !== 1 ? 's' : ''} à rotina.
                 </p>
                 <button
                   type="button"
-                  onClick={() => navigate('/workouts')}
+                  onClick={() => navigate('/train')}
                   className="rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)]"
                 >
-                  Ver nas Rotinas
+                  Ver em Treinos
                 </button>
               </motion.div>
             )}
           </motion.article>
-        ))}
-
-        {loading ? (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="flex items-center gap-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5"
-          >
-            <div className="h-5 w-5 shrink-0 animate-spin rounded-full border-2 border-[var(--brand)] border-t-transparent" />
-            <p className="text-sm text-[var(--muted)]">
-              {generatingStep && generatingStep.total > 1
-                ? `A gerar treino ${generatingStep.current} de ${generatingStep.total} — ${generatingStep.label}...`
-                : 'A IA está a criar o teu treino personalizado...'}
-            </p>
-          </motion.div>
-        ) : null}
-      </div>
+        )
+      })}
     </section>
   )
 }
@@ -566,56 +1713,22 @@ function renderInlineBold(text: string): React.ReactNode {
   const parts = text.split(/\*\*([^*]+)\*\*/)
   if (parts.length === 1) return text
   return parts.map((part, i) =>
-    i % 2 === 1
-      ? <strong key={i} className="font-bold text-[var(--text)]">{part}</strong>
-      : part
+    i % 2 === 1 ? <strong key={i} className="font-bold text-[var(--text)]">{part}</strong> : part
   )
 }
 
 function AITextRenderer({ text }: { text: string }) {
   const lines = text.split('\n')
-
   return (
     <div className="space-y-1 text-sm text-[var(--text)]">
       {lines.map((line, idx) => {
         const trimmed = line.trim()
-        if (trimmed.startsWith('## ')) {
-          return (
-            <h3 key={idx} className="mt-4 text-base font-extrabold text-[var(--text)] first:mt-0">
-              {trimmed.slice(3)}
-            </h3>
-          )
-        }
-        if (trimmed.startsWith('### ')) {
-          return (
-            <h4 key={idx} className="mt-3 font-bold text-[var(--text)]">
-              {trimmed.slice(4)}
-            </h4>
-          )
-        }
-        if (trimmed.startsWith('**') && trimmed.endsWith('**') && trimmed.length > 4) {
-          return (
-            <h4 key={idx} className="mt-3 font-bold text-[var(--text)]">
-              {trimmed.slice(2, -2)}
-            </h4>
-          )
-        }
-        if (trimmed.startsWith('- ') || trimmed.startsWith('• ')) {
-          return (
-            <p key={idx} className="pl-4 text-[var(--muted)]">
-              <span className="mr-2 text-[var(--brand)]">•</span>
-              {renderInlineBold(trimmed.slice(2))}
-            </p>
-          )
-        }
-        if (trimmed === '') {
-          return <div key={idx} className="h-2" />
-        }
-        return (
-          <p key={idx} className="leading-relaxed text-[var(--text)]">
-            {renderInlineBold(trimmed)}
-          </p>
-        )
+        if (trimmed.startsWith('## ')) return <h3 key={idx} className="mt-4 text-base font-extrabold first:mt-0">{trimmed.slice(3)}</h3>
+        if (trimmed.startsWith('### ')) return <h4 key={idx} className="mt-3 font-bold">{trimmed.slice(4)}</h4>
+        if (trimmed.startsWith('**') && trimmed.endsWith('**') && trimmed.length > 4) return <h4 key={idx} className="mt-3 font-bold">{trimmed.slice(2, -2)}</h4>
+        if (trimmed.startsWith('- ') || trimmed.startsWith('• ')) return <p key={idx} className="pl-4 text-[var(--muted)]"><span className="mr-2 text-[var(--brand)]">•</span>{renderInlineBold(trimmed.slice(2))}</p>
+        if (trimmed === '') return <div key={idx} className="h-2" />
+        return <p key={idx} className="leading-relaxed">{renderInlineBold(trimmed)}</p>
       })}
     </div>
   )

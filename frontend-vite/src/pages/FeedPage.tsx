@@ -4,7 +4,8 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { getFeed, toggleLike, deletePost, searchUsers, followUser, unfollowUser, getFollowing, type FeedPost, type UserSearchResult, type WorkoutExerciseSummary } from '../services/socialService'
 import { SkeletonCard } from '../components/common/Skeleton'
-import { Rss, Users } from 'lucide-react'
+import { WorkoutPostImage } from '../components/common/WorkoutPostImage'
+import { Rss, Users, Heart } from 'lucide-react'
 
 const PAGE_SIZE = 5
 
@@ -68,137 +69,190 @@ function PostCard({ post, userId, isFriend, onLike, onDelete, onProfileClick }: 
 }) {
   const isOwn = post.user.id === userId
   const [expanded, setExpanded] = useState(false)
+  const hasValidPhoto = Boolean(post.photoUrl) && !post.photoUrl!.startsWith('blob:')
+  const hasPhoto = hasValidPhoto
 
   return (
-    <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] overflow-hidden">
-      {post.photoUrl && (
-        <img src={post.photoUrl} alt="Foto do treino" className="w-full object-cover max-h-72" />
-      )}
-      <div className="p-4 space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={() => onProfileClick(post.user.id)}
-            className="flex items-center gap-2 text-left"
-          >
-            <div className="relative">
-              <div className="h-9 w-9 shrink-0 rounded-full border border-[var(--line)] bg-[var(--surface-hover)] overflow-hidden">
-                {post.user.avatarUrl
-                  ? <img src={post.user.avatarUrl} alt="" className="h-full w-full object-cover" />
-                  : <span className="flex h-full w-full items-center justify-center text-xs font-bold text-[var(--muted)]">{(post.user.name ?? '?')[0]?.toUpperCase()}</span>
-                }
-              </div>
-              {isFriend && (
-                <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-emerald-500 ring-2 ring-[var(--surface)]">
-                  <Users size={7} className="text-white" />
-                </span>
-              )}
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <p className="text-sm font-bold text-[var(--text)]">{post.user.name ?? 'Usuário'}</p>
-                {isFriend && (
-                  <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-500">
-                    Amigo
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-[var(--muted)]">{timeAgo(post.createdAt)}</p>
-            </div>
-          </button>
-          {isOwn && (
-            <button
-              type="button"
-              onClick={() => onDelete(post.id)}
-              className="text-xs text-red-400 border border-red-500/40 rounded-lg px-2 py-1"
-            >
-              Deletar
-            </button>
-          )}
-        </div>
-
-        {post.caption && <p className="text-sm text-[var(--text)]">{post.caption}</p>}
-
-        {post.workoutSummary && (
-          <div className="rounded-xl border border-[var(--line)] p-3 space-y-2">
-            {/* Summary row */}
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <div className="flex gap-4">
-                <div>
-                  <p className="text-[10px] uppercase tracking-wide text-[var(--muted)]">Duração</p>
-                  <p className="text-sm font-bold text-[var(--text)]">{formatDuration(post.workoutSummary.durationSec)}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] uppercase tracking-wide text-[var(--muted)]">Volume</p>
-                  <p className="text-sm font-bold text-[var(--text)]">{post.workoutSummary.totalVolumeKg} kg</p>
-                </div>
-                <div>
-                  <p className="text-[10px] uppercase tracking-wide text-[var(--muted)]">Exercícios</p>
-                  <p className="text-sm font-bold text-[var(--text)]">{post.workoutSummary.exercises.length}</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setExpanded((v) => !v)}
-                className="rounded-lg border border-[var(--line)] px-2.5 py-1 text-[11px] font-semibold text-[var(--muted)] shrink-0"
-              >
-                {expanded ? 'Ocultar' : 'Ver stats'}
-              </button>
-            </div>
-
-            {/* Collapsed chips */}
-            {!expanded && (
-              <div className="flex flex-wrap gap-1">
-                {post.workoutSummary.exercises.slice(0, 5).map((ex) => (
-                  <span key={ex.name} className="rounded-full border border-[var(--line)] px-2 py-0.5 text-[11px] text-[var(--muted)]">
-                    {ex.name} · {ex.sets.length}x
-                  </span>
-                ))}
-                {post.workoutSummary.exercises.length > 5 && (
-                  <span className="rounded-full border border-[var(--line)] px-2 py-0.5 text-[11px] text-[var(--muted)]">
-                    +{post.workoutSummary.exercises.length - 5}
-                  </span>
-                )}
-              </div>
-            )}
-
-            {/* Expanded exercise detail */}
-            <AnimatePresence>
-              {expanded && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  transition={{ duration: 0.2 }}
-                  className="overflow-hidden space-y-2"
-                >
-                  {post.workoutSummary.exercises.map((ex) => (
-                    <ExerciseStatsRow key={ex.name} ex={ex} />
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
+    <article className="overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)]">
+      <div className={`flex flex-col ${hasPhoto ? 'md:flex-row' : ''}`}>
+        {hasPhoto && (
+          <div className="relative shrink-0 md:w-[32%] md:max-w-[300px]">
+            <WorkoutPostImage src={post.photoUrl!} />
           </div>
         )}
 
-        <div className="flex items-center gap-3 pt-1">
-          <button
-            type="button"
-            onClick={() => onLike(post.id)}
-            className={`flex items-center gap-1.5 text-sm font-semibold transition-colors ${
-              post.likedByMe ? 'text-[var(--brand)]' : 'text-[var(--muted)]'
-            }`}
-          >
-            <span>{post.likedByMe ? '♥' : '♡'}</span>
-            <span>{post.likesCount}</span>
-          </button>
+        <div className="flex min-w-0 flex-1 flex-col gap-3 p-4 sm:p-5">
+          <header className="flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={() => onProfileClick(post.user.id)}
+              className="flex items-center gap-2 text-left"
+            >
+              <div className="relative">
+                <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full border border-[var(--line)] bg-[var(--surface-hover)]">
+                  {post.user.avatarUrl
+                    ? <img src={post.user.avatarUrl} alt="" className="h-full w-full object-cover" />
+                    : <span className="flex h-full w-full items-center justify-center text-xs font-bold text-[var(--muted)]">{(post.user.name ?? '?')[0]?.toUpperCase()}</span>
+                  }
+                </div>
+                {isFriend && (
+                  <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-emerald-500 ring-2 ring-[var(--surface)]">
+                    <Users size={7} className="text-white" />
+                  </span>
+                )}
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <p className="text-sm font-bold text-[var(--text)]">{post.user.name ?? 'Usuário'}</p>
+                  {isFriend && (
+                    <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-500">
+                      Amigo
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-[var(--muted)]">{timeAgo(post.createdAt)}</p>
+              </div>
+            </button>
+            {isOwn && (
+              <button
+                type="button"
+                onClick={() => onDelete(post.id)}
+                className="rounded-lg border border-red-500/40 px-2 py-1 text-xs text-red-400"
+              >
+                Deletar
+              </button>
+            )}
+          </header>
+
+          {post.caption && <p className="text-sm leading-relaxed text-[var(--text)]">{post.caption}</p>}
+
+          {post.workoutSummary && (
+            <div className="grid grid-cols-3 divide-x divide-[var(--line)] overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface-hover)]/40">
+              <div className="px-3 py-2.5 text-center">
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-[var(--muted)]">Duração</p>
+                <p className="mt-0.5 text-sm font-extrabold text-[var(--text)]">{formatDuration(post.workoutSummary.durationSec)}</p>
+              </div>
+              <div className="px-3 py-2.5 text-center">
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-[var(--muted)]">Volume</p>
+                <p className="mt-0.5 text-sm font-extrabold text-[var(--text)]">{post.workoutSummary.totalVolumeKg} kg</p>
+              </div>
+              <div className="px-3 py-2.5 text-center">
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-[var(--muted)]">Exercícios</p>
+                <p className="mt-0.5 text-sm font-extrabold text-[var(--text)]">{post.workoutSummary.exercises.length}</p>
+              </div>
+            </div>
+          )}
+
+          {post.workoutSummary && (
+            <div className="space-y-2">
+              {!expanded && (
+                <div className="flex flex-wrap gap-1.5">
+                  {post.workoutSummary.exercises.slice(0, 4).map((ex) => (
+                    <span key={ex.name} className="rounded-full border border-[var(--line)] bg-[var(--surface-hover)]/50 px-2.5 py-1 text-[11px] text-[var(--muted)]">
+                      {ex.name} · {ex.sets.length}x
+                    </span>
+                  ))}
+                  {post.workoutSummary.exercises.length > 4 && (
+                    <span className="rounded-full border border-[var(--line)] bg-[var(--surface-hover)]/50 px-2.5 py-1 text-[11px] text-[var(--muted)]">
+                      +{post.workoutSummary.exercises.length - 4}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              <AnimatePresence>
+                {expanded && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="space-y-2 overflow-hidden"
+                  >
+                    {post.workoutSummary.exercises.map((ex) => (
+                      <ExerciseStatsRow key={ex.name} ex={ex} />
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                className="w-full rounded-lg border border-[var(--line)] py-1.5 text-[11px] font-semibold text-[var(--muted)] transition-colors hover:text-[var(--text)]"
+              >
+                {expanded ? 'Ocultar detalhes' : 'Ver stats completos'}
+              </button>
+            </div>
+          )}
+
+          <div className="mt-auto flex items-center gap-3 pt-1">
+            <motion.button
+              type="button"
+              onClick={() => onLike(post.id)}
+              whileTap={{ scale: 0.85 }}
+              whileHover={{ scale: 1.05 }}
+              className={`group relative flex items-center gap-2 text-sm font-bold transition-colors ${
+                post.likedByMe ? 'text-[var(--brand)]' : 'text-[var(--muted)] hover:text-[var(--brand)]'
+              }`}
+              aria-label={post.likedByMe ? 'Descurtir' : 'Curtir'}
+            >
+              <span className="relative inline-flex h-8 w-8 items-center justify-center">
+                <AnimatePresence>
+                  {post.likedByMe && (
+                    <motion.span
+                      key="burst"
+                      initial={{ scale: 0, opacity: 0.7 }}
+                      animate={{ scale: 1.8, opacity: 0 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.55, ease: 'easeOut' }}
+                      aria-hidden
+                      className="pointer-events-none absolute inset-0 rounded-full bg-[var(--brand)]/35 blur-md"
+                    />
+                  )}
+                </AnimatePresence>
+                <motion.span
+                  key={post.likedByMe ? 'liked' : 'unliked'}
+                  initial={post.likedByMe ? { scale: 0.6 } : false}
+                  animate={post.likedByMe ? { scale: [0.6, 1.4, 1] } : { scale: 1 }}
+                  transition={{ duration: 0.45, ease: [0.34, 1.56, 0.64, 1] }}
+                  className="relative inline-flex"
+                >
+                  <Heart
+                    size={26}
+                    strokeWidth={2.2}
+                    className={`transition-transform duration-200 ${
+                      post.likedByMe
+                        ? 'fill-[var(--brand)] drop-shadow-[0_0_6px_rgba(255,77,77,0.45)]'
+                        : 'fill-transparent group-hover:fill-[var(--brand)]/15'
+                    }`}
+                  />
+                </motion.span>
+              </span>
+              <motion.span
+                key={post.likesCount}
+                initial={{ y: -2, opacity: 0.4 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ duration: 0.25 }}
+                className="tabular-nums"
+              >
+                {post.likesCount}
+              </motion.span>
+            </motion.button>
+          </div>
         </div>
       </div>
     </article>
   )
 }
 
-type FeedFilter = 'todos' | 'curtidos'
+type FeedFilter = 'amigos' | 'todos' | 'curtidos'
+
+const FILTER_LABELS: Record<FeedFilter, string> = {
+  amigos: 'Amigos',
+  todos: 'Todos',
+  curtidos: 'Curtidos',
+}
 
 export function FeedPage() {
   const { authorizedFetch, user } = useAuth()
@@ -209,7 +263,7 @@ export function FeedPage() {
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<UserSearchResult[]>([])
   const [searching, setSearching] = useState(false)
-  const [filter, setFilter] = useState<FeedFilter>('todos')
+  const [filter, setFilter] = useState<FeedFilter>('amigos')
   const [followingIds, setFollowingIds] = useState<Set<string>>(new Set())
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -282,16 +336,16 @@ export function FeedPage() {
     }
   }
 
-  // Prioriza amigos, depois ordena por data
   const sortedPosts = useMemo(() => {
-    const filtered = filter === 'curtidos' ? posts.filter((p) => p.likedByMe) : posts
-    return [...filtered].sort((a, b) => {
-      const aFriend = followingIds.has(a.user.id) ? 0 : 1
-      const bFriend = followingIds.has(b.user.id) ? 0 : 1
-      if (aFriend !== bFriend) return aFriend - bFriend
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    const filtered = posts.filter((p) => {
+      if (filter === 'curtidos') return p.likedByMe
+      if (filter === 'amigos') return p.user.id === user?.id || followingIds.has(p.user.id)
+      return true
     })
-  }, [posts, filter, followingIds])
+    return [...filtered].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    )
+  }, [posts, filter, followingIds, user?.id])
 
   const visiblePosts = sortedPosts.slice(0, visibleCount)
   const hasMore = visibleCount < sortedPosts.length
@@ -306,16 +360,16 @@ export function FeedPage() {
         <h1 className="text-2xl font-black text-[var(--text)]">Feed</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">Treinos da comunidade e dos seus amigos.</p>
         <div className="mt-3 flex gap-2">
-          {(['todos', 'curtidos'] as FeedFilter[]).map((f) => (
+          {(['amigos', 'todos', 'curtidos'] as FeedFilter[]).map((f) => (
             <button
               key={f}
               type="button"
               onClick={() => setFilter(f)}
-              className={`rounded-full px-4 py-1.5 text-xs font-bold capitalize transition-all ${
+              className={`rounded-full px-4 py-1.5 text-xs font-bold transition-all ${
                 filter === f ? 'bg-[var(--brand)] text-white' : 'border border-[var(--line)] text-[var(--muted)]'
               }`}
             >
-              {f === 'todos' ? 'Todos' : 'Curtidos'}
+              {FILTER_LABELS[f]}
             </button>
           ))}
         </div>
@@ -382,9 +436,17 @@ export function FeedPage() {
         <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-10 text-center">
           <Rss size={36} className="mx-auto mb-3 text-[var(--muted)]" strokeWidth={1.5} />
           <p className="text-base font-bold text-[var(--text)]">
-            {filter === 'curtidos' ? 'Nenhum post curtido ainda' : 'Nenhum post ainda'}
+            {filter === 'curtidos'
+              ? 'Nenhum post curtido ainda'
+              : filter === 'amigos'
+                ? 'Nenhum post de amigos ainda'
+                : 'Nenhum post ainda'}
           </p>
-          <p className="mt-1 text-sm text-[var(--muted)]">Siga outros usuários ou finalize um treino para publicar!</p>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            {filter === 'amigos'
+              ? 'Siga outros usuários ou troque para "Todos" para ver posts da comunidade.'
+              : 'Siga outros usuários ou finalize um treino para publicar!'}
+          </p>
         </div>
       )}
 

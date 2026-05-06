@@ -1,11 +1,12 @@
 import { motion } from 'framer-motion'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../hooks/useAuth'
-import { Flame, Layers, Dumbbell, Plus, Play, Search, Pencil } from 'lucide-react'
+import { Flame, Layers, Dumbbell, Plus, Play, Search, Pencil, Sparkles } from 'lucide-react'
 import { SkeletonCard } from '../components/common/Skeleton'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPost, sharePlan, type PostPrivacy } from '../services/socialService'
 import { WorkoutsPage } from './WorkoutsPage'
+import { WorkoutRecommendationsPage } from './WorkoutRecommendationsPage'
 import { SetTypeSelector } from '../components/common/SetTypeSelector'
 import { type SetType, type DropEntry } from '../components/common/setTypeOptions'
 import {
@@ -16,6 +17,7 @@ import {
 import { isBodyweightEquipment, resolveBodyweightFlag } from '../lib/exercise-meta'
 import { formatClock, formatRestOptionLabel, REST_OPTIONS_SEC } from '../lib/workout-timing'
 import { saveWorkoutSessionImage } from '../lib/workout-session-image'
+import { optimizeImageFileToDataUrl } from '../lib/image-processing'
 import type { WorkoutPlan } from '../types/workout'
 import {
   addExerciseToPlan,
@@ -29,9 +31,8 @@ import {
   updatePlanExercise,
 } from '../services/workoutService'
 
-type TrainScreen = 'DASHBOARD' | 'ACTIVE' | 'SUMMARY' | 'EDIT'
+type TrainScreen = 'DASHBOARD' | 'ACTIVE' | 'SUMMARY' | 'EDIT' | 'RECOMMENDATIONS' | 'NEW_ROUTINE'
 type TrainOriginMode = 'EMPTY' | 'ROUTINE'
-type RoutineManagerMode = 'CREATE' | 'EDIT'
 
 type ExerciseSetInput = {
   reps: string
@@ -188,8 +189,6 @@ export function TrainPage() {
   const [loadingPlans, setLoadingPlans] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const [showRoutineManager, setShowRoutineManager] = useState(false)
-  const [routineManagerMode, setRoutineManagerMode] = useState<RoutineManagerMode>('CREATE')
   const [openRoutineMenuId, setOpenRoutineMenuId] = useState<string | null>(null)
   const [shareLinkModal, setShareLinkModal] = useState<{ link: string; planName: string } | null>(null)
 
@@ -505,8 +504,6 @@ export function TrainPage() {
 
   const resetWorkflow = () => {
     setScreen('DASHBOARD')
-    setShowRoutineManager(false)
-    setRoutineManagerMode('CREATE')
     setOriginMode('EMPTY')
     setActivePlanName('Treinamento vazio')
     setActiveExercises([])
@@ -537,8 +534,6 @@ export function TrainPage() {
     setError(null)
     interactionOrderByExerciseRef.current = {}
     interactionOrderCounterRef.current = 0
-    setShowRoutineManager(false)
-    setRoutineManagerMode('CREATE')
     setOriginMode('EMPTY')
     setActivePlanName('Treinamento vazio')
     setActiveExercises([])
@@ -553,8 +548,6 @@ export function TrainPage() {
     setError(null)
     interactionOrderByExerciseRef.current = {}
     interactionOrderCounterRef.current = 0
-    setShowRoutineManager(false)
-    setRoutineManagerMode('CREATE')
     setOriginMode('ROUTINE')
     setActivePlanId(plan.id)
     setActivePlanName(plan.name)
@@ -983,7 +976,6 @@ export function TrainPage() {
       const started = await startWorkoutSession(authorizedFetch, {
         workoutPlanId: originMode === 'ROUTINE' ? activePlanId : undefined,
       })
-      setSavedSessionId(started.id)
 
       const notesSegments = [summaryNotes.trim()].filter(Boolean)
       if (summaryImageFile) {
@@ -995,6 +987,8 @@ export function TrainPage() {
         notes: notesSegments.join('\n\n') || undefined,
         exercises: performedSets.length > 0 ? performedSets : undefined,
       })
+
+      setSavedSessionId(started.id)
 
       if (summaryImageFile) {
         try {
@@ -1258,10 +1252,18 @@ export function TrainPage() {
                       onClick={async () => {
                         try {
                           setPosting(true)
+                          let photoDataUrl: string | undefined
+                          if (summaryImageFile) {
+                            photoDataUrl = await optimizeImageFileToDataUrl(summaryImageFile, {
+                              maxEdge: 1200,
+                              quality: 0.82,
+                              maxOutputBytes: 1_500_000,
+                            })
+                          }
                           await createPost(authorizedFetch, {
                             workoutSessionId: savedSessionId,
                             caption: postCaption.trim() || undefined,
-                            photoUrl: summaryImagePreview ?? undefined,
+                            photoUrl: photoDataUrl,
                             privacy: postPrivacy,
                           })
                           setPostDone(true)
@@ -1299,6 +1301,69 @@ export function TrainPage() {
             </div>
           )}
         </article>
+      </section>
+    )
+  }
+
+  if (screen === 'RECOMMENDATIONS') {
+    return (
+      <section className="space-y-4">
+        <motion.header
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-black text-[var(--text)]">Recomendações</h1>
+              <p className="mt-1 text-sm text-[var(--muted)]">Escolha uma estrutura e salve como novo treino.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setScreen('DASHBOARD')}
+              className="flex items-center gap-1.5 rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--text)]"
+            >
+              ← Voltar
+            </button>
+          </div>
+        </motion.header>
+        <WorkoutRecommendationsPage />
+      </section>
+    )
+  }
+
+  if (screen === 'NEW_ROUTINE') {
+    return (
+      <section className="space-y-4">
+        <motion.header
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-black text-[var(--text)]">Nova Rotina</h1>
+              <p className="mt-1 text-sm text-[var(--muted)]">Monte uma nova rotina e salve para usar nos treinos.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setScreen('DASHBOARD')}
+              className="flex items-center gap-1.5 rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--text)]"
+            >
+              ← Voltar
+            </button>
+          </div>
+        </motion.header>
+        <WorkoutsPage
+          selectedPlanId={activePlanId}
+          onlySelectedPlan={false}
+          showCreateSection
+          createOnlyMode
+          onPlanSaved={async () => {
+            await reloadPlans(activePlanId)
+            setScreen('DASHBOARD')
+          }}
+        />
       </section>
     )
   }
@@ -1357,10 +1422,22 @@ export function TrainPage() {
                     key="rest-running"
                     initial={{ y: 100, opacity: 0 }}
                     animate={{ y: 0, opacity: 1 }}
-                    className={`fixed bottom-3 left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2 rounded-2xl border shadow-2xl px-4 py-3 bg-[var(--surface)] ${
-                      isLow ? 'border-red-500/40' : 'border-green-500/40'
+                    className={`fixed bottom-3 left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2 overflow-hidden rounded-2xl border shadow-2xl px-4 py-3 bg-[var(--surface)] ${
+                      isLow ? 'border-red-500/40 animate-pulse' : 'border-green-500/40'
                     }`}
                   >
+                    <div
+                      aria-hidden
+                      className="pointer-events-none absolute left-0 top-0 h-1 transition-[width] duration-1000 ease-linear"
+                      style={{
+                        width: `${runningExercise.restDurationSec > 0
+                          ? Math.max(0, Math.min(100, (runningExercise.restRemainingSec / runningExercise.restDurationSec) * 100))
+                          : 0}%`,
+                        background: isLow
+                          ? 'linear-gradient(90deg, #ef4444, #f97316)'
+                          : 'var(--tech-gradient)',
+                      }}
+                    />
                     <div className="flex items-center gap-3">
                       <div className="flex-1 min-w-0">
                         <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
@@ -1406,12 +1483,25 @@ export function TrainPage() {
             ? createPortal(
                 <motion.div
                   key="rest-finished"
-                  initial={{ y: 100, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  className="fixed bottom-3 left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2 rounded-2xl border border-green-500/40 bg-[var(--surface)] shadow-2xl px-4 py-3 pointer-events-none"
+                  initial={{ y: 100, opacity: 0, scale: 0.95 }}
+                  animate={{ y: 0, opacity: 1, scale: 1 }}
+                  transition={{ type: 'spring', stiffness: 280, damping: 20 }}
+                  className="fixed bottom-3 left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2 overflow-hidden rounded-2xl border border-green-500/40 bg-[var(--surface)] shadow-2xl px-4 py-3 pointer-events-none"
                 >
-                  <div className="flex items-center justify-center gap-3">
-                    <span className="text-2xl text-green-400">✓</span>
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute inset-0 opacity-30"
+                    style={{ background: 'radial-gradient(circle at 50% 50%, rgba(16,185,129,0.45), transparent 70%)' }}
+                  />
+                  <div className="relative flex items-center justify-center gap-3">
+                    <motion.span
+                      initial={{ scale: 0, rotate: -180 }}
+                      animate={{ scale: 1, rotate: 0 }}
+                      transition={{ type: 'spring', stiffness: 350, damping: 15, delay: 0.05 }}
+                      className="text-2xl text-green-400"
+                    >
+                      ✓
+                    </motion.span>
                     <p className="text-base font-bold text-[var(--text)]">Descanso acabou!</p>
                     <span className="text-sm text-[var(--muted)]">— {restFinishedName}</span>
                   </div>
@@ -1827,42 +1917,45 @@ export function TrainPage() {
         <h1 className="text-2xl font-black text-[var(--text)]">Treinos</h1>
         <p className="mt-1 text-sm text-[var(--muted)]">Inicie rapido, escolha uma rotina ou monte seu treino na hora.</p>
 
-        <div className="mt-4 grid gap-2 sm:grid-cols-3">
-          <button
-            type="button"
-            onClick={beginEmptyTraining}
-            className="flex items-center justify-center gap-2 rounded-xl bg-[var(--brand)] px-4 py-2.5 text-sm font-bold text-white"
-          >
-            <Plus size={15} />
-            Iniciar Treinamento Vazio
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setRoutineManagerMode('CREATE')
-              setShowRoutineManager(true)
-              requestAnimationFrame(() => {
-                const section = document.getElementById('treinar-rotinas-section')
-                section?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-              })
-            }}
-            className="flex items-center justify-center gap-2 rounded-xl border border-[var(--line)] px-4 py-2.5 text-center text-sm font-semibold text-[var(--text)]"
-          >
-            <Plus size={15} />
-            Nova Rotina
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              openExerciseExplorer({
-                context: showRoutineManager ? 'ROUTINE_EDIT' : undefined,
-              })
-            }}
-            className="flex items-center justify-center gap-2 rounded-xl border border-[var(--line)] px-4 py-2.5 text-center text-sm font-semibold text-[var(--text)]"
-          >
-            <Search size={15} />
-            Explorar Exercicios
-          </button>
+        <div className="mt-4 space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={beginEmptyTraining}
+              className="flex items-center justify-center gap-2 rounded-xl bg-[var(--brand)] px-4 py-2.5 text-sm font-bold text-white"
+            >
+              <Plus size={15} />
+              Iniciar Vazio
+            </button>
+            <button
+              type="button"
+              onClick={() => setScreen('RECOMMENDATIONS')}
+              className="flex items-center justify-center gap-2 rounded-xl border border-[var(--line)] px-4 py-2.5 text-sm font-semibold text-[var(--text)]"
+            >
+              <Sparkles size={15} />
+              Recomendações
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setScreen('NEW_ROUTINE')}
+              className="flex items-center justify-center gap-2 rounded-xl border border-[var(--line)] px-4 py-2.5 text-center text-sm font-semibold text-[var(--text)]"
+            >
+              <Plus size={15} />
+              Nova Rotina
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                openExerciseExplorer({ context: undefined })
+              }}
+              className="flex items-center justify-center gap-2 rounded-xl border border-[var(--line)] px-4 py-2.5 text-center text-sm font-semibold text-[var(--text)]"
+            >
+              <Search size={15} />
+              Explorar Exercicios
+            </button>
+          </div>
         </div>
       </motion.header>
 
@@ -2031,44 +2124,6 @@ export function TrainPage() {
         document.body,
       ) : null}
 
-      {showRoutineManager ? (
-        <section id="treinar-rotinas-section" className="space-y-2">
-          <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h2 className="text-xl font-extrabold text-[var(--text)]">
-                  {routineManagerMode === 'EDIT' ? 'Editando rotina selecionada' : 'Criar e gerenciar rotinas'}
-                </h2>
-                <p className="mt-1 text-sm text-[var(--muted)]">
-                  {routineManagerMode === 'EDIT'
-                    ? 'Apenas a rotina escolhida esta visivel para edicao.'
-                    : 'Esta area aparece somente quando voce abre "Nova Rotina".'}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowRoutineManager(false)
-                  setRoutineManagerMode('CREATE')
-                }}
-                className="rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--text)]"
-              >
-                Fechar
-              </button>
-            </div>
-          </article>
-          <WorkoutsPage
-            selectedPlanId={activePlanId}
-            onlySelectedPlan={routineManagerMode === 'EDIT'}
-            showCreateSection={routineManagerMode !== 'EDIT'}
-            createOnlyMode={routineManagerMode === 'CREATE'}
-            onPlanSaved={() => {
-              setShowRoutineManager(false)
-              setRoutineManagerMode('CREATE')
-            }}
-          />
-        </section>
-      ) : null}
     </section>
   )
 }

@@ -44,14 +44,20 @@ export function LoginPage() {
   }
 
   return (
-    <section className="mx-auto max-w-md rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-6 sm:p-8">
-      <div className="mb-6 flex justify-center">
+    <section className="relative mx-auto max-w-md overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-6 sm:p-8">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full opacity-25 blur-3xl animate-[tech-spin_20s_linear_infinite]"
+        style={{ background: 'var(--tech-gradient-conic)' }}
+      />
+      <div className="pointer-events-none absolute -bottom-20 -left-20 h-56 w-56 rounded-full opacity-20 blur-3xl" style={{ background: 'radial-gradient(circle, var(--accent-cyan), transparent 70%)' }} aria-hidden />
+      <div className="relative mb-6 flex justify-center">
         <BrandLogo compact className="h-14 w-auto rounded-xl border border-red-500/35" />
       </div>
-      <h1 className="mb-1 text-2xl font-black text-[var(--text)]">Entrar</h1>
-      <p className="mb-6 text-sm text-[var(--muted)]">Acesse com email/senha ou Google.</p>
+      <h1 className="relative mb-1 text-2xl font-black text-[var(--text)]">Entrar</h1>
+      <p className="relative mb-6 text-sm text-[var(--muted)]">Acesse com email/senha ou Google.</p>
 
-      <form className="space-y-4" onSubmit={handleSubmit}>
+      <form className="relative space-y-4" onSubmit={handleSubmit}>
         <Input
           label="Email"
           required
@@ -98,12 +104,12 @@ export function LoginPage() {
         disabled={loading}
         type="button"
         onClick={handleGoogle}
-        className="mt-3 w-full rounded-xl border border-[var(--line)] px-4 py-2.5 text-sm font-semibold text-[var(--text)] disabled:opacity-60"
+        className="relative mt-3 w-full rounded-xl border border-[var(--line)] px-4 py-2.5 text-sm font-semibold text-[var(--text)] disabled:opacity-60"
       >
         Continuar com Google
       </button>
 
-      <div className="mt-5 space-y-2 border-t border-[var(--line)] pt-4">
+      <div className="relative mt-5 space-y-2 border-t border-[var(--line)] pt-4">
         <p className="text-sm text-[var(--muted)]">
           Não tem conta?{' '}
           <Link to="/register" className="font-bold text-[var(--brand)]">
