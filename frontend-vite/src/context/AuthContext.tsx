@@ -184,6 +184,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [logout])
 
+  const refreshUser: AuthState['refreshUser'] = useCallback(async () => {
+    const currentTokens = tokensRef.current
+    if (!currentTokens) return
+    const profile = await getProfile(currentTokens.accessToken)
+    setUser(profile)
+    persistAuth(profile, currentTokens)
+  }, [])
+
+  const applyUserPatch: AuthState['applyUserPatch'] = useCallback((patch) => {
+    const currentTokens = tokensRef.current
+    setUser((prev) => {
+      if (!prev) return prev
+      const next = { ...prev, ...patch }
+      if (currentTokens) persistAuth(next, currentTokens)
+      return next
+    })
+  }, [])
+
   const completeOnboarding: AuthState['completeOnboarding'] = useCallback(async (input) => {
     const profile = await completeOnboardingProfile(authorizedFetch, input)
     const currentTokens = tokensRef.current
@@ -206,6 +224,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       startGoogleSignIn,
       completeGoogleSignIn,
       completeOnboarding,
+      refreshUser,
+      applyUserPatch,
       logout,
       authorizedFetch,
     }),
@@ -219,6 +239,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       startGoogleSignIn,
       completeGoogleSignIn,
       completeOnboarding,
+      refreshUser,
+      applyUserPatch,
       logout,
       authorizedFetch,
     ],
