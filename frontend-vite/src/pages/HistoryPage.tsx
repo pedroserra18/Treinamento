@@ -7,6 +7,7 @@ import { listWorkoutHistory } from '../services/workoutService'
 import { getStoredWorkoutSessionImage } from '../lib/workout-session-image'
 import { SkeletonCard } from '../components/common/Skeleton'
 import { CountUp } from '../components/common/CountUp'
+import { ImageViewer } from '../components/common/ImageViewer'
 import { Dumbbell } from 'lucide-react'
 import {
   BarChart,
@@ -346,34 +347,13 @@ export function HistoryPage() {
         </motion.section>
 
         {selectedSessionPhoto ? (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
-            role="dialog"
-            aria-modal="true"
-            onClick={() => setSelectedSessionPhoto(null)}
-          >
-            <button
-              type="button"
-              onClick={() => setSelectedSessionPhoto(null)}
-              className="absolute right-4 top-4 rounded-full border border-white/25 bg-black/50 px-3 py-1 text-sm font-semibold text-white"
-            >
-              Fechar
-            </button>
-
-            <div
-              className="max-h-[90vh] w-full max-w-3xl"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <img
-                src={selectedSessionPhoto.url}
-                alt="Foto ampliada do treino"
-                className="max-h-[82vh] w-full rounded-2xl object-contain"
-              />
-              <p className="mt-2 text-center text-xs font-semibold text-white/85">
-                {formatDateTime(selectedSessionPhoto.endedAt)}
-              </p>
-            </div>
-          </div>
+          <ImageViewer
+            src={selectedSessionPhoto.url}
+            alt="Foto ampliada do treino"
+            shape="portrait"
+            caption={formatDateTime(selectedSessionPhoto.endedAt)}
+            onClose={() => setSelectedSessionPhoto(null)}
+          />
         ) : null}
       </section>
     )
