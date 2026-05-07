@@ -182,12 +182,41 @@ export async function adminListRemovedPostsByUser(targetUserId: string) {
       privacy: true,
       likesCount: true,
       createdAt: true,
+      updatedAt: true,
       removedAt: true,
       removalReason: true,
       removedByAdminId: true,
+      workoutSession: {
+        select: {
+          id: true,
+          scheduledAt: true,
+          startedAt: true,
+          endedAt: true,
+          durationSec: true,
+          caloriesBurned: true,
+          notes: true,
+          workoutPlan: { select: { id: true, name: true } },
+          _count: { select: { history: true } },
+        },
+      },
     },
   });
-  return posts;
+
+  const adminIds = Array.from(new Set(posts.map((p) => p.removedByAdminId).filter((id): id is string => Boolean(id))));
+  const admins = adminIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: adminIds } },
+        select: { id: true, name: true, email: true },
+      })
+    : [];
+  const adminById = new Map(admins.map((a) => [a.id, a]));
+
+  return posts.map((p) => ({
+    ...p,
+    removedBy: p.removedByAdminId
+      ? { id: p.removedByAdminId, displayName: adminById.get(p.removedByAdminId)?.name ?? adminById.get(p.removedByAdminId)?.email ?? null }
+      : null,
+  }));
 }
 
 export async function adminRestorePost(postId: string) {

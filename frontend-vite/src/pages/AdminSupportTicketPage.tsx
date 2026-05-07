@@ -87,6 +87,176 @@ function MessageBubble({ message }: { message: SupportMessage }) {
   )
 }
 
+const PRIVACY_LABELS: Record<RemovedPost['privacy'], string> = {
+  PUBLIC: 'Público',
+  FOLLOWERS: 'Seguidores',
+  PRIVATE: 'Privado',
+}
+
+function formatDuration(sec: number | null): string {
+  if (!sec || sec <= 0) return '—'
+  const m = Math.floor(sec / 60)
+  const s = sec % 60
+  if (m === 0) return `${s}s`
+  return s > 0 ? `${m}min ${s}s` : `${m}min`
+}
+
+function RemovedPostCard({
+  post,
+  restoring,
+  onRestore,
+}: {
+  post: RemovedPost
+  restoring: boolean
+  onRestore: () => void
+}) {
+  const [photoOpen, setPhotoOpen] = useState(false)
+  const session = post.workoutSession
+
+  return (
+    <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-mono text-[10px] text-[var(--muted)]">ID {post.id.slice(0, 10)}…</span>
+        <span className="rounded-full border border-[var(--line)] px-2 py-0.5 text-[10px] font-semibold text-[var(--muted)]">
+          {PRIVACY_LABELS[post.privacy]}
+        </span>
+        <span className="rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] font-bold text-rose-300">
+          REMOVIDO
+        </span>
+      </div>
+
+      <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+        {post.photoUrl ? (
+          <button
+            type="button"
+            onClick={() => setPhotoOpen(true)}
+            className="block flex-shrink-0 overflow-hidden rounded-lg border border-[var(--line)]"
+          >
+            <img
+              src={post.photoUrl}
+              alt="Foto do post removido"
+              className="h-32 w-32 object-cover transition-transform hover:scale-105"
+            />
+          </button>
+        ) : (
+          <div className="flex h-32 w-32 flex-shrink-0 items-center justify-center rounded-lg border border-dashed border-[var(--line)] bg-[var(--surface)] text-[10px] text-[var(--muted)]">
+            sem foto
+          </div>
+        )}
+
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">Legenda</p>
+            {post.caption ? (
+              <p className="whitespace-pre-wrap break-words text-sm text-[var(--text)]">{post.caption}</p>
+            ) : (
+              <p className="text-xs italic text-[var(--muted)]">(sem legenda)</p>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] sm:grid-cols-3">
+            <div>
+              <span className="block text-[10px] uppercase tracking-wider text-[var(--muted)]">Curtidas</span>
+              <span className="font-bold text-[var(--text)]">{post.likesCount}</span>
+            </div>
+            <div>
+              <span className="block text-[10px] uppercase tracking-wider text-[var(--muted)]">Postado em</span>
+              <span className="text-[var(--text)]">{formatDateTime(post.createdAt)}</span>
+            </div>
+            <div>
+              <span className="block text-[10px] uppercase tracking-wider text-[var(--muted)]">Removido em</span>
+              <span className="text-rose-300">{formatDateTime(post.removedAt)}</span>
+            </div>
+          </div>
+
+          {post.removedBy ? (
+            <p className="text-[11px]">
+              <span className="text-[var(--muted)]">Removido por: </span>
+              <span className="font-semibold text-[var(--text)]">
+                {post.removedBy.displayName ?? `Admin ${post.removedBy.id.slice(0, 8)}`}
+              </span>
+            </p>
+          ) : null}
+
+          {post.removalReason ? (
+            <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-rose-300">Motivo da remoção</p>
+              <p className="mt-0.5 text-xs text-rose-200">{post.removalReason}</p>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {session ? (
+        <div className="mt-3 rounded-lg border border-[var(--line)] bg-[var(--surface)] p-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">Treino vinculado</p>
+          <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] sm:grid-cols-4">
+            <div>
+              <span className="block text-[10px] text-[var(--muted)]">Plano</span>
+              <span className="text-[var(--text)]">{session.workoutPlan?.name ?? '—'}</span>
+            </div>
+            <div>
+              <span className="block text-[10px] text-[var(--muted)]">Duração</span>
+              <span className="text-[var(--text)]">{formatDuration(session.durationSec)}</span>
+            </div>
+            <div>
+              <span className="block text-[10px] text-[var(--muted)]">Calorias</span>
+              <span className="text-[var(--text)]">{session.caloriesBurned ?? '—'}</span>
+            </div>
+            <div>
+              <span className="block text-[10px] text-[var(--muted)]">Exercícios</span>
+              <span className="text-[var(--text)]">{session._count.history}</span>
+            </div>
+            <div className="col-span-2 sm:col-span-2">
+              <span className="block text-[10px] text-[var(--muted)]">Iniciado</span>
+              <span className="text-[var(--text)]">
+                {session.startedAt ? formatDateTime(session.startedAt) : '—'}
+              </span>
+            </div>
+            <div className="col-span-2 sm:col-span-2">
+              <span className="block text-[10px] text-[var(--muted)]">Finalizado</span>
+              <span className="text-[var(--text)]">
+                {session.endedAt ? formatDateTime(session.endedAt) : '—'}
+              </span>
+            </div>
+          </div>
+          {session.notes ? (
+            <p className="mt-2 whitespace-pre-wrap break-words text-[11px] text-[var(--text)]">
+              <span className="text-[var(--muted)]">Notas: </span>
+              {session.notes}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="mt-3 flex justify-end">
+        <button
+          type="button"
+          onClick={onRestore}
+          disabled={restoring}
+          className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-bold text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
+        >
+          <RotateCcw size={12} />
+          {restoring ? 'Restaurando...' : 'Restaurar post'}
+        </button>
+      </div>
+
+      {photoOpen && post.photoUrl ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setPhotoOpen(false)}
+        >
+          <img
+            src={post.photoUrl}
+            alt="Foto ampliada"
+            className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain"
+          />
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export function AdminSupportTicketPage() {
   const { ticketId } = useParams<{ ticketId: string }>()
   const navigate = useNavigate()
@@ -276,48 +446,14 @@ export function AdminSupportTicketPage() {
             {removedPostsOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
           </button>
           {removedPostsOpen ? (
-            <div className="space-y-2 border-t border-[var(--line)] p-3">
+            <div className="space-y-3 border-t border-[var(--line)] p-3">
               {removedPosts.map((post) => (
-                <div
+                <RemovedPostCard
                   key={post.id}
-                  className="flex gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-2"
-                >
-                  {post.photoUrl ? (
-                    <img
-                      src={post.photoUrl}
-                      alt="Post removido"
-                      className="h-20 w-20 flex-shrink-0 rounded-lg object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-20 w-20 flex-shrink-0 items-center justify-center rounded-lg border border-[var(--line)] bg-[var(--surface)] text-[10px] text-[var(--muted)]">
-                      sem foto
-                    </div>
-                  )}
-                  <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    {post.caption ? (
-                      <p className="line-clamp-2 text-xs text-[var(--text)]">{post.caption}</p>
-                    ) : (
-                      <p className="text-xs italic text-[var(--muted)]">(sem legenda)</p>
-                    )}
-                    <p className="text-[10px] text-[var(--muted)]">
-                      Postado em {formatDateTime(post.createdAt)} · Removido em {formatDateTime(post.removedAt)}
-                    </p>
-                    {post.removalReason ? (
-                      <p className="text-[10px] text-rose-300">Motivo: {post.removalReason}</p>
-                    ) : null}
-                    <div className="mt-auto flex justify-end">
-                      <button
-                        type="button"
-                        onClick={() => handleRestorePost(post.id)}
-                        disabled={restoringId === post.id}
-                        className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[11px] font-bold text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
-                      >
-                        <RotateCcw size={12} />
-                        {restoringId === post.id ? 'Restaurando...' : 'Restaurar post'}
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                  post={post}
+                  restoring={restoringId === post.id}
+                  onRestore={() => handleRestorePost(post.id)}
+                />
               ))}
             </div>
           ) : null}
