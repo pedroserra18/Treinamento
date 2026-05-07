@@ -399,10 +399,10 @@ export function HistoryPage() {
         </p>
         <div className="relative mt-4 flex flex-wrap gap-2">
           <span className="rounded-full border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-1 text-xs font-semibold text-[var(--muted)]">
-            Sessoes: <CountUp value={items.length} className="font-bold text-[var(--text)]" />
+            Sessões{period === 'week' ? ' (últimos 7 dias)' : period === 'month' ? ' (últimos 30 dias)' : period === '3months' ? ' (últimos 90 dias)' : ' (total)'}: <CountUp value={filteredItems.length} className="font-bold text-[var(--text)]" />
           </span>
           <span className="rounded-full border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-1 text-xs font-semibold text-[var(--muted)]">
-            Ultima atualizacao: {new Date().toLocaleDateString('pt-BR')}
+            Última atualização: {filteredItems[0]?.endedAt ? new Date(filteredItems[0].endedAt).toLocaleDateString('pt-BR') : '—'}
           </span>
         </div>
       </motion.header>
