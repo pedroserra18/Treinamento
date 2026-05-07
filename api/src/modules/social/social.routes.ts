@@ -3,10 +3,10 @@ import { asyncHandler } from "../../shared/utils/async-handler";
 import { requireAuth, optionalAuth } from "../../middlewares/auth.middleware";
 import { validateRequest as validate } from "../../middlewares/validation.middleware";
 import {
-  createPostSchema, feedQuerySchema, userPostsQuerySchema, searchUsersSchema,
+  createPostSchema, feedQuerySchema, userPostsQuerySchema, searchUsersSchema, updatePostPrivacySchema,
 } from "./social.schema";
 import {
-  createPostController, deletePostController, toggleLikeController,
+  createPostController, deletePostController, updatePostPrivacyController, toggleLikeController,
   getFeedController, getUserPostsController, followController,
   unfollowController, getFollowersController, getFollowingController,
   searchUsersController, getPublicProfileController,
@@ -23,6 +23,7 @@ router.get("/feed", requireAuth, validate({ query: feedQuerySchema }), asyncHand
 // Posts
 router.post("/posts", requireAuth, validate({ body: createPostSchema }), asyncHandler(createPostController));
 router.delete("/posts/:postId", requireAuth, asyncHandler(deletePostController));
+router.patch("/posts/:postId/privacy", requireAuth, validate({ body: updatePostPrivacySchema }), asyncHandler(updatePostPrivacyController));
 router.post("/posts/:postId/like", requireAuth, asyncHandler(toggleLikeController));
 
 // User posts (public profile posts)

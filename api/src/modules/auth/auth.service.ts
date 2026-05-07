@@ -498,13 +498,28 @@ export async function getOnboardingStatus(userId: string): Promise<{
 export async function updatePrivacy(
   userId: string,
   fields: { isPrivate?: boolean; showFollowLists?: boolean }
-): Promise<{ isPrivate: boolean; showFollowLists: boolean }> {
+): Promise<{ isPrivate: boolean; showFollowLists: boolean; downgradedPosts: number }> {
+  const before = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { isPrivate: true },
+  });
+
   await prisma.user.update({ where: { id: userId }, data: fields });
+
+  let downgradedPosts = 0;
+  if (fields.isPrivate === true && before.isPrivate === false) {
+    const result = await prisma.workoutPost.updateMany({
+      where: { userId, privacy: "PUBLIC", removedAt: null },
+      data: { privacy: "FRIENDS" },
+    });
+    downgradedPosts = result.count;
+  }
+
   const updated = await prisma.user.findUniqueOrThrow({
     where: { id: userId },
-    select: { isPrivate: true, showFollowLists: true }
+    select: { isPrivate: true, showFollowLists: true },
   });
-  return updated;
+  return { ...updated, downgradedPosts };
 }
 
 export async function updateAvatar(userId: string, avatarUrl: string | null): Promise<SafeUser> {
