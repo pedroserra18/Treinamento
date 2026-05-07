@@ -384,6 +384,21 @@ export function ProfilePage() {
         </button>
       </article>
 
+      {/* Suporte */}
+      <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 space-y-3">
+        <h2 className="text-base font-extrabold text-[var(--text)]">Ajuda e suporte</h2>
+        <p className="text-sm text-[var(--muted)]">
+          Dúvida, bug ou contestar uma decisão? Abra um ticket — respondemos em até 48h.
+        </p>
+        <button
+          type="button"
+          onClick={() => navigate('/support')}
+          className="rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
+        >
+          Abrir central de suporte
+        </button>
+      </article>
+
       {/* Logout */}
       <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
         <button
