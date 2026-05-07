@@ -221,12 +221,17 @@ export async function updateAvatar(
 export async function updatePrivacy(
   authorizedFetch: AuthorizedFetch,
   fields: { isPrivate?: boolean; showFollowLists?: boolean }
-): Promise<void> {
-  await authorizedFetch(`${API_URL}/auth/profile/privacy`, {
+): Promise<{ isPrivate: boolean; showFollowLists: boolean }> {
+  const res = await authorizedFetch(`${API_URL}/auth/profile/privacy`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(fields),
   })
+  const json = await res.json().catch(() => null)
+  if (!res.ok) {
+    throw new Error(json?.error?.message ?? 'Erro ao salvar privacidade')
+  }
+  return json?.data as { isPrivate: boolean; showFollowLists: boolean }
 }
 
 export async function getPublicFollowers(authorizedFetch: AuthorizedFetch, userId: string): Promise<SimpleUser[]> {

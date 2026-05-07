@@ -168,11 +168,14 @@ export function ProfilePage() {
   const handleTogglePrivacy = async () => {
     const next = !isPrivate
     setIsPrivate(next)
+    setSavingPrivacy(true)
+    setError(null)
     try {
-      setSavingPrivacy(true)
-      await updatePrivacy(authorizedFetch, { isPrivate: next })
-    } catch {
+      const updated = await updatePrivacy(authorizedFetch, { isPrivate: next })
+      applyUserPatch({ isPrivate: updated.isPrivate, showFollowLists: updated.showFollowLists })
+    } catch (err) {
       setIsPrivate(!next)
+      setError(err instanceof Error ? err.message : 'Erro ao salvar privacidade')
     } finally {
       setSavingPrivacy(false)
     }
@@ -181,11 +184,14 @@ export function ProfilePage() {
   const handleToggleShowFollowLists = async () => {
     const next = !showFollowLists
     setShowFollowLists(next)
+    setSavingPrivacy(true)
+    setError(null)
     try {
-      setSavingPrivacy(true)
-      await updatePrivacy(authorizedFetch, { showFollowLists: next })
-    } catch {
+      const updated = await updatePrivacy(authorizedFetch, { showFollowLists: next })
+      applyUserPatch({ isPrivate: updated.isPrivate, showFollowLists: updated.showFollowLists })
+    } catch (err) {
       setShowFollowLists(!next)
+      setError(err instanceof Error ? err.message : 'Erro ao salvar privacidade')
     } finally {
       setSavingPrivacy(false)
     }
