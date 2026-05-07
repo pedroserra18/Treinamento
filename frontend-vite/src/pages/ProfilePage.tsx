@@ -1,8 +1,10 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { useRef, useState, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { CountUp } from '../components/common/CountUp'
+import { ImageViewer } from '../components/common/ImageViewer'
 import { updateAvatar, updatePrivacy, getFollowers, getFollowing, type UserSearchResult } from '../services/socialService'
 
 type SocialPanel = 'followers' | 'following' | null
@@ -13,9 +15,20 @@ function UserListModal({ title, users, onClose, onNavigate }: {
   onClose: () => void
   onNavigate: (id: string) => void
 }) {
-  return (
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prevOverflow
+    }
+  }, [onClose])
+
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center p-4"
+      className="fixed inset-0 z-[9998] flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center p-4"
       onClick={onClose}
     >
       <motion.div
@@ -23,7 +36,8 @@ function UserListModal({ title, users, onClose, onNavigate }: {
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 24 }}
         transition={{ duration: 0.2 }}
-        className="w-full max-w-sm rounded-2xl border border-[var(--line)] bg-[var(--surface)] overflow-hidden"
+        className="flex w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] shadow-2xl"
+        style={{ maxHeight: 'min(80vh, 560px)' }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--line)]">
@@ -36,7 +50,7 @@ function UserListModal({ title, users, onClose, onNavigate }: {
             ✕
           </button>
         </div>
-        <div className="max-h-80 overflow-y-auto divide-y divide-[var(--line)]">
+        <div className="flex-1 overflow-y-auto divide-y divide-[var(--line)] overscroll-contain">
           {users.length === 0 && (
             <p className="px-4 py-6 text-sm text-center text-[var(--muted)]">Nenhum usuário aqui ainda.</p>
           )}
@@ -58,7 +72,8 @@ function UserListModal({ title, users, onClose, onNavigate }: {
           ))}
         </div>
       </motion.div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -83,6 +98,7 @@ export function ProfilePage() {
   const [following, setFollowing] = useState<UserSearchResult[]>([])
   const [socialLoaded, setSocialLoaded] = useState(false)
   const [openPanel, setOpenPanel] = useState<SocialPanel>(null)
+  const [viewerOpen, setViewerOpen] = useState(false)
 
   const loadSocial = useCallback(async () => {
     try {
@@ -240,13 +256,19 @@ export function ProfilePage() {
       <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 space-y-4">
         <h2 className="text-base font-extrabold text-[var(--text)]">Foto de perfil</h2>
         <div className="flex items-center gap-4">
-          <div className="relative h-20 w-20 shrink-0">
+          <button
+            type="button"
+            onClick={() => avatarPreview && setViewerOpen(true)}
+            disabled={!avatarPreview}
+            aria-label="Ver foto em tamanho grande"
+            className="relative h-20 w-20 shrink-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] disabled:cursor-default"
+          >
             <div
               aria-hidden
               className="absolute -inset-[3px] rounded-full animate-[tech-spin_10s_linear_infinite]"
               style={{ background: 'var(--tech-gradient-conic)' }}
             />
-            <div className="relative h-full w-full overflow-hidden rounded-full bg-[var(--surface-hover)]">
+            <div className={`relative h-full w-full overflow-hidden rounded-full bg-[var(--surface-hover)] transition-transform ${avatarPreview ? 'group-hover:scale-[1.03] active:scale-95 hover:scale-[1.04] cursor-zoom-in' : ''}`}>
               {avatarPreview
                 ? <img src={avatarPreview} alt="Avatar" className="h-full w-full object-cover" />
                 : <span className="flex h-full w-full items-center justify-center text-2xl font-black text-[var(--muted)]">
@@ -254,7 +276,7 @@ export function ProfilePage() {
                   </span>
               }
             </div>
-          </div>
+          </button>
           <div className="flex flex-col gap-2">
             <button
               type="button"
@@ -381,6 +403,13 @@ export function ProfilePage() {
             users={openPanel === 'followers' ? followers : following}
             onClose={() => setOpenPanel(null)}
             onNavigate={(id) => navigate(`/u/${id}`)}
+          />
+        )}
+        {viewerOpen && avatarPreview && (
+          <ImageViewer
+            src={avatarPreview}
+            alt={user?.name ?? null}
+            onClose={() => setViewerOpen(false)}
           />
         )}
       </AnimatePresence>

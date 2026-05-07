@@ -1,5 +1,7 @@
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { ImageViewer } from '../components/common/ImageViewer'
 import {
   LineChart,
   Line,
@@ -636,91 +638,105 @@ export function ProgressPage() {
         </div>
       )}
 
-      {selectedPhoto ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
-          role="dialog"
-          aria-modal="true"
-          onClick={() => setSelectedPhoto(null)}
-        >
-          <button
-            type="button"
-            onClick={() => setSelectedPhoto(null)}
-            className="absolute right-4 top-4 rounded-full border border-white/25 bg-black/50 px-3 py-1 text-sm font-semibold text-white"
-          >
-            Fechar
-          </button>
-
-          <div
-            className="max-h-[90vh] w-full max-w-3xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <img
-              src={selectedPhoto.url}
-              alt={`Foto corporal ampliada em ${formatDateTime(selectedPhoto.date)}`}
-              className="max-h-[82vh] w-full rounded-2xl object-contain"
-            />
-            <p className="mt-2 text-center text-xs font-semibold text-white/85">
-              {formatDateTime(selectedPhoto.date)}
-            </p>
-          </div>
-        </div>
-      ) : null}
+      <AnimatePresence>
+        {selectedPhoto ? (
+          <ImageViewer
+            src={selectedPhoto.url}
+            alt={`Foto corporal em ${formatDateTime(selectedPhoto.date)}`}
+            shape="portrait"
+            caption={formatDateTime(selectedPhoto.date)}
+            onClose={() => setSelectedPhoto(null)}
+          />
+        ) : null}
+      </AnimatePresence>
 
       {selectedMeasurement ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
-          role="dialog"
-          aria-modal="true"
-          onClick={() => setSelectedMeasurement(null)}
-        >
-          <div
-            className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="text-base font-extrabold text-[var(--text)]">Detalhes completos do registro</h3>
-              <button
-                type="button"
-                onClick={() => setSelectedMeasurement(null)}
-                className="rounded-lg border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--text)]"
-              >
-                Fechar
-              </button>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setSelectedPhoto({ url: selectedMeasurement.photoUrl, date: selectedMeasurement.date })}
-              className="mx-auto mt-3 block w-full max-w-[17rem] rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] sm:max-w-[20rem]"
-              aria-label="Abrir foto do registro"
-            >
-              <img
-                src={selectedMeasurement.photoUrl}
-                alt={`Foto corporal em ${formatDateTime(selectedMeasurement.date)}`}
-                className="w-full rounded-lg object-cover"
-                style={{ aspectRatio: '4 / 5', maxHeight: '22rem' }}
-              />
-            </button>
-
-            <div className="mt-4 grid gap-2 text-sm text-[var(--muted)] sm:grid-cols-2">
-              <p><span className="font-semibold text-[var(--text)]">Data:</span> {formatDateTime(selectedMeasurement.date)}</p>
-              <p><span className="font-semibold text-[var(--text)]">Peso:</span> {selectedMeasurement.weight} kg</p>
-              <p><span className="font-semibold text-[var(--text)]">Peitoral:</span> {selectedMeasurement.chest != null ? `${selectedMeasurement.chest} cm` : '-'}</p>
-              <p><span className="font-semibold text-[var(--text)]">Ombros:</span> {selectedMeasurement.shoulders != null ? `${selectedMeasurement.shoulders} cm` : '-'}</p>
-              <p><span className="font-semibold text-[var(--text)]">Bracos:</span> {selectedMeasurement.arms != null ? `${selectedMeasurement.arms} cm` : '-'}</p>
-              <p><span className="font-semibold text-[var(--text)]">Antebracos:</span> {selectedMeasurement.forearms != null ? `${selectedMeasurement.forearms} cm` : '-'}</p>
-              <p><span className="font-semibold text-[var(--text)]">Cintura:</span> {selectedMeasurement.waist != null ? `${selectedMeasurement.waist} cm` : '-'}</p>
-              <p><span className="font-semibold text-[var(--text)]">Quadril:</span> {selectedMeasurement.hips != null ? `${selectedMeasurement.hips} cm` : '-'}</p>
-              <p><span className="font-semibold text-[var(--text)]">Coxas:</span> {selectedMeasurement.thighs != null ? `${selectedMeasurement.thighs} cm` : '-'}</p>
-              <p><span className="font-semibold text-[var(--text)]">Panturrilhas:</span> {selectedMeasurement.calves != null ? `${selectedMeasurement.calves} cm` : '-'}</p>
-              <p><span className="font-semibold text-[var(--text)]">Pescoco:</span> {selectedMeasurement.neck != null ? `${selectedMeasurement.neck} cm` : '-'}</p>
-              <p><span className="font-semibold text-[var(--text)]">IMC:</span> {selectedMeasurement.bmi ?? '-'}</p>
-              <p><span className="font-semibold text-[var(--text)]">BF:</span> {selectedMeasurement.bodyFatPercentage != null ? `${selectedMeasurement.bodyFatPercentage}%` : '-'}</p>
-            </div>
-          </div>
-        </div>
+        <MeasurementDetailsModal
+          measurement={selectedMeasurement}
+          onClose={() => setSelectedMeasurement(null)}
+          onOpenPhoto={() => setSelectedPhoto({ url: selectedMeasurement.photoUrl, date: selectedMeasurement.date })}
+        />
       ) : null}
     </section>
+  )
+}
+
+function MeasurementDetailsModal({ measurement, onClose, onOpenPhoto }: {
+  measurement: BodyMeasurement
+  onClose: () => void
+  onOpenPhoto: () => void
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prevOverflow
+    }
+  }, [onClose])
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+      role="dialog"
+      aria-modal="true"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ opacity: 0, y: 16, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 16, scale: 0.96 }}
+        transition={{ type: 'spring', stiffness: 240, damping: 22 }}
+        className="flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] shadow-2xl"
+        style={{ maxHeight: 'min(90vh, 720px)' }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="overflow-y-auto overscroll-contain p-4">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-base font-extrabold text-[var(--text)]">Detalhes completos do registro</h3>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--text)]"
+            >
+              Fechar
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={onOpenPhoto}
+            className="mx-auto mt-3 block w-full max-w-[17rem] rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] sm:max-w-[20rem]"
+            aria-label="Abrir foto do registro"
+          >
+            <img
+              src={measurement.photoUrl}
+              alt={`Foto corporal em ${formatDateTime(measurement.date)}`}
+              className="w-full rounded-lg object-cover"
+              style={{ aspectRatio: '4 / 5', maxHeight: '22rem' }}
+            />
+          </button>
+
+          <div className="mt-4 grid gap-2 text-sm text-[var(--muted)] sm:grid-cols-2">
+            <p><span className="font-semibold text-[var(--text)]">Data:</span> {formatDateTime(measurement.date)}</p>
+            <p><span className="font-semibold text-[var(--text)]">Peso:</span> {measurement.weight} kg</p>
+            <p><span className="font-semibold text-[var(--text)]">Peitoral:</span> {measurement.chest != null ? `${measurement.chest} cm` : '-'}</p>
+            <p><span className="font-semibold text-[var(--text)]">Ombros:</span> {measurement.shoulders != null ? `${measurement.shoulders} cm` : '-'}</p>
+            <p><span className="font-semibold text-[var(--text)]">Bracos:</span> {measurement.arms != null ? `${measurement.arms} cm` : '-'}</p>
+            <p><span className="font-semibold text-[var(--text)]">Antebracos:</span> {measurement.forearms != null ? `${measurement.forearms} cm` : '-'}</p>
+            <p><span className="font-semibold text-[var(--text)]">Cintura:</span> {measurement.waist != null ? `${measurement.waist} cm` : '-'}</p>
+            <p><span className="font-semibold text-[var(--text)]">Quadril:</span> {measurement.hips != null ? `${measurement.hips} cm` : '-'}</p>
+            <p><span className="font-semibold text-[var(--text)]">Coxas:</span> {measurement.thighs != null ? `${measurement.thighs} cm` : '-'}</p>
+            <p><span className="font-semibold text-[var(--text)]">Panturrilhas:</span> {measurement.calves != null ? `${measurement.calves} cm` : '-'}</p>
+            <p><span className="font-semibold text-[var(--text)]">Pescoco:</span> {measurement.neck != null ? `${measurement.neck} cm` : '-'}</p>
+            <p><span className="font-semibold text-[var(--text)]">IMC:</span> {measurement.bmi ?? '-'}</p>
+            <p><span className="font-semibold text-[var(--text)]">BF:</span> {measurement.bodyFatPercentage != null ? `${measurement.bodyFatPercentage}%` : '-'}</p>
+          </div>
+        </div>
+      </motion.div>
+    </div>,
+    document.body,
   )
 }

@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { X } from 'lucide-react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { AnimatePresence } from 'framer-motion'
+import { ImageViewer } from './ImageViewer'
 
 export function WorkoutPostImage({ src, alt = 'Foto do treino' }: { src: string; alt?: string }) {
   const [open, setOpen] = useState(false)
@@ -55,34 +55,7 @@ export function WorkoutPostImage({ src, alt = 'Foto do treino' }: { src: string;
       </div>
 
       <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setOpen(false)}
-            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/85 p-4"
-          >
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); setOpen(false) }}
-              className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white backdrop-blur transition-colors hover:bg-white/20"
-              aria-label="Fechar"
-            >
-              <X size={20} />
-            </button>
-            <motion.img
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              src={src}
-              alt={alt}
-              onClick={(e) => e.stopPropagation()}
-              className="max-h-[92vh] max-w-[92vw] rounded-lg object-contain shadow-2xl"
-            />
-          </motion.div>
-        )}
+        {open && <ImageViewer src={src} alt={alt} shape="circle" onClose={() => setOpen(false)} />}
       </AnimatePresence>
     </>
   )
