@@ -131,13 +131,29 @@ export function SupportTicketPage() {
   }
 
   if (error || !data) {
+    const isNotFound = !error || /não encontrado/i.test(error)
     return (
-      <div className="space-y-3">
+      <section className="space-y-3">
         <Link to="/support" className="inline-flex items-center gap-1 text-sm text-[var(--brand)]">
-          <ArrowLeft size={14} /> Voltar
+          <ArrowLeft size={14} /> Voltar para suporte
         </Link>
-        <p className="text-sm text-red-400">{error ?? 'Ticket não encontrado'}</p>
-      </div>
+        <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-6 text-center">
+          <p className="text-base font-bold text-[var(--text)]">
+            {isNotFound ? 'Ticket indisponível' : 'Erro ao carregar'}
+          </p>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            {isNotFound
+              ? 'Esse ticket não pertence à sua conta atual ou não existe mais. Se você trocou de conta, o ticket fica visível apenas para o usuário que o abriu.'
+              : error}
+          </p>
+          <Link
+            to="/support"
+            className="mt-4 inline-block rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white"
+          >
+            Ir para central de suporte
+          </Link>
+        </div>
+      </section>
     )
   }
 
