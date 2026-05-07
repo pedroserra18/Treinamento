@@ -4,6 +4,7 @@ import {
   followUser, unfollowUser, getFollowers, getFollowing,
   searchUsers, getPublicProfile, getPublicFollowers, getPublicFollowing, getMutualFollowers,
   sharePlan, getSharedPlan, saveSharedPlan, compareUsers, compareExercise,
+  adminListRemovedPostsByUser, adminRestorePost,
 } from "./social.service";
 import {
   CreatePostBody, FeedQuery, UserPostsQuery, SearchUsersQuery,
@@ -110,4 +111,14 @@ export async function compareExerciseController(req: Request, res: Response) {
   const { exerciseId } = req.query as { exerciseId: string };
   const result = await compareExercise(req.context.userId!, req.params["userId"] as string, exerciseId);
   res.json({ data: result });
+}
+
+export async function adminListRemovedPostsController(req: Request, res: Response) {
+  const items = await adminListRemovedPostsByUser(req.params["userId"] as string);
+  res.json({ data: { items } });
+}
+
+export async function adminRestorePostController(req: Request, res: Response) {
+  await adminRestorePost(req.params["postId"] as string);
+  res.status(204).end();
 }

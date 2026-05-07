@@ -467,6 +467,9 @@ model WorkoutPost {
   photoUrl         String?
   privacy          PostPrivacy @default(PUBLIC)
   likesCount       Int         @default(0)
+  removedAt        DateTime?
+  removedByAdminId String?
+  removalReason    String?
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
 
@@ -476,6 +479,7 @@ model WorkoutPost {
 
   @@index([userId, createdAt])
   @@index([privacy, createdAt])
+  @@index([removedAt])
   @@map("workout_posts")
 }
 

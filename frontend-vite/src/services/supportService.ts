@@ -189,6 +189,34 @@ export async function adminAutoClose(fetcher: AuthorizedFetch): Promise<{ closed
   return handle(res)
 }
 
+export type RemovedPost = {
+  id: string
+  caption: string | null
+  photoUrl: string | null
+  privacy: 'PUBLIC' | 'FOLLOWERS' | 'PRIVATE'
+  likesCount: number
+  createdAt: string
+  removedAt: string
+  removalReason: string | null
+  removedByAdminId: string | null
+}
+
+export async function adminListRemovedPosts(
+  fetcher: AuthorizedFetch,
+  userId: string
+): Promise<{ items: RemovedPost[] }> {
+  const res = await fetcher(`${API_URL}/admin/support/users/${userId}/removed-posts`)
+  return handle(res)
+}
+
+export async function adminRestorePost(fetcher: AuthorizedFetch, postId: string): Promise<void> {
+  const res = await fetcher(`${API_URL}/admin/support/posts/${postId}/restore`, { method: 'POST' })
+  if (!res.ok) {
+    const json = await res.json().catch(() => null)
+    throw new Error(json?.error?.message ?? 'Erro ao restaurar post')
+  }
+}
+
 export const TOPIC_LABELS: Record<TicketTopic, string> = {
   ACCOUNT: 'Conta',
   POST_REMOVED: 'Post removido',
