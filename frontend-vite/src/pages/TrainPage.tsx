@@ -182,7 +182,10 @@ function isEffectiveBodyweightExercise(exercise: Pick<ActiveExercise, 'isBodywei
 }
 
 export function TrainPage() {
-  const { authorizedFetch } = useAuth()
+  const { authorizedFetch, user } = useAuth()
+  const isProfilePrivate = user?.isPrivate ?? false
+  const allowedPrivacies: PostPrivacy[] = isProfilePrivate ? ['FRIENDS', 'PRIVATE'] : ['PUBLIC', 'FRIENDS', 'PRIVATE']
+  const defaultPrivacy: PostPrivacy = isProfilePrivate ? 'FRIENDS' : 'PUBLIC'
 
   const [screen, setScreen] = useState<TrainScreen>('DASHBOARD')
   const [plans, setPlans] = useState<WorkoutPlan[]>([])
@@ -218,7 +221,7 @@ export function TrainPage() {
   const [summaryNotes, setSummaryNotes] = useState('')
   const [summaryImageFile, setSummaryImageFile] = useState<File | null>(null)
   const [summaryImagePreview, setSummaryImagePreview] = useState<string | null>(null)
-  const [postPrivacy, setPostPrivacy] = useState<PostPrivacy>('PUBLIC')
+  const [postPrivacy, setPostPrivacy] = useState<PostPrivacy>(defaultPrivacy)
   const [postCaption, setPostCaption] = useState('')
   const [savedSessionId, setSavedSessionId] = useState<string | null>(null)
   const [posting, setPosting] = useState(false)
@@ -534,7 +537,7 @@ export function TrainPage() {
     setSummaryImagePreview(null)
     setSavedSessionId(null)
     setPostCaption('')
-    setPostPrivacy('PUBLIC')
+    setPostPrivacy(defaultPrivacy)
     setPosting(false)
     setPostDone(false)
     interactionOrderByExerciseRef.current = {}
@@ -1234,7 +1237,7 @@ export function TrainPage() {
                 <>
                   <p className="text-sm font-semibold text-[var(--text)]">Deseja postar este treino?</p>
                   <div className="flex gap-2 flex-wrap">
-                    {(['PUBLIC', 'FRIENDS', 'PRIVATE'] as PostPrivacy[]).map((p) => (
+                    {allowedPrivacies.map((p) => (
                       <button
                         key={p}
                         type="button"
@@ -1249,6 +1252,11 @@ export function TrainPage() {
                       </button>
                     ))}
                   </div>
+                  {isProfilePrivate ? (
+                    <p className="text-[11px] text-[var(--muted)]">
+                      Sua conta está privada — posts públicos ficam disponíveis apenas como "Amigos" ou "Privado".
+                    </p>
+                  ) : null}
                   <textarea
                     value={postCaption}
                     onChange={(e) => setPostCaption(e.target.value)}

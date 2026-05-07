@@ -124,13 +124,16 @@ export async function createPost(userId: string, data: CreatePostBody) {
     }
   }
 
+  const author = await prisma.user.findUnique({ where: { id: userId }, select: { isPrivate: true } });
+  const privacy = author?.isPrivate && data.privacy === "PUBLIC" ? "FRIENDS" : data.privacy;
+
   const post = await prisma.workoutPost.create({
     data: {
       userId,
       workoutSessionId: data.workoutSessionId,
       caption: data.caption,
       photoUrl: data.photoUrl,
-      privacy: data.privacy,
+      privacy,
     },
     select: POST_SELECT,
   });
@@ -275,7 +278,8 @@ export async function getFeed(userId: string, page: number, pageSize: number) {
     where: {
       removedAt: null,
       OR: [
-        { privacy: "PUBLIC" },
+        { privacy: "PUBLIC", user: { isPrivate: false } },
+        { privacy: "PUBLIC", userId: { in: followingIds } },
         { privacy: "FRIENDS", userId: { in: followingIds } },
         { userId },
       ],
