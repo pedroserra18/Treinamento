@@ -1,6 +1,11 @@
 import { prisma } from "../../config/prisma";
 
-export type NotificationType = "POST_REMOVED_BY_ADMIN";
+export type NotificationType =
+  | "POST_REMOVED_BY_ADMIN"
+  | "SUPPORT_TICKET_CREATED"
+  | "SUPPORT_TICKET_REPLIED"
+  | "SUPPORT_TICKET_RESOLVED"
+  | "SUPPORT_TICKET_AUTO_CLOSED";
 
 export type CreateNotificationInput = {
   userId: string;

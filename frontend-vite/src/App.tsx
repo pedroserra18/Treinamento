@@ -20,6 +20,11 @@ import { AIWorkoutPage } from './pages/AIWorkoutPage'
 import { FeedPage } from './pages/FeedPage'
 import { PublicProfilePage } from './pages/PublicProfilePage'
 import { SharedPlanPage } from './pages/SharedPlanPage'
+import { SupportPage } from './pages/SupportPage'
+import { SupportTicketPage } from './pages/SupportTicketPage'
+import { AdminSupportPage } from './pages/AdminSupportPage'
+import { AdminSupportTicketPage } from './pages/AdminSupportTicketPage'
+import { AdminSupportTemplatesPage } from './pages/AdminSupportTemplatesPage'
 
 function AnimatedRoutes() {
   const location = useLocation()
@@ -127,6 +132,46 @@ function AnimatedRoutes() {
             element={
               <AdminRoute>
                 <AdminUsersPage />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/support"
+            element={
+              <ProtectedRoute>
+                <SupportPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/support/:ticketId"
+            element={
+              <ProtectedRoute>
+                <SupportTicketPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/support"
+            element={
+              <AdminRoute>
+                <AdminSupportPage />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/admin/support/templates"
+            element={
+              <AdminRoute>
+                <AdminSupportTemplatesPage />
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/admin/support/:ticketId"
+            element={
+              <AdminRoute>
+                <AdminSupportTicketPage />
               </AdminRoute>
             }
           />

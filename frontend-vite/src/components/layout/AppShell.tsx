@@ -23,6 +23,7 @@ import {
   Users,
   User,
   LogIn,
+  LifeBuoy,
 } from 'lucide-react'
 
 type AppShellProps = {
@@ -116,6 +117,7 @@ export function AppShell({ children }: AppShellProps) {
     { to: '/history', label: 'Histórico', icon: <History size={15} />, authRequired: true },
     { to: '/progress', label: 'Progr.', icon: <TrendingUp size={15} />, authRequired: true },
     { to: '/admin/users', label: 'Usuários', icon: <Users size={15} />, authRequired: true, adminOnly: true },
+    { to: '/admin/support', label: 'Suporte', icon: <LifeBuoy size={15} />, authRequired: true, adminOnly: true },
   ]
 
   const profileItem: NavItem = isAuthenticated

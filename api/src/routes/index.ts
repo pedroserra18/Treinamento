@@ -1,5 +1,6 @@
 import authRoutes from "../modules/auth/auth.routes";
 import adminRoutes from "../modules/admin/admin.routes";
+import supportRoutes from "../modules/support/support.routes";
 import healthRoutes from "../modules/health/health.routes";
 import workoutRoutes from "../modules/workout/workout.routes";
 import exerciseRoutes from "../modules/exercise/exercise.routes";
@@ -17,6 +18,7 @@ const router = Router();
 router.use(healthRoutes);
 router.use(authRoutes);
 router.use(adminRoutes);
+router.use(supportRoutes);
 router.use(dashboardRoutes);
 router.use(exerciseRoutes);
 router.use(progressRoutes);
