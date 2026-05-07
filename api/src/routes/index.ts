@@ -9,6 +9,7 @@ import dashboardRoutes from "../modules/dashboard/dashboard.routes";
 import recommendationRoutes from "../modules/recommendation/recommendation.routes";
 import aiRoutes from "../modules/ai/ai.routes";
 import { socialRouter } from "../modules/social/social.routes";
+import { notificationRouter } from "../modules/notification/notification.routes";
 import { Router } from "express";
 
 const router = Router();
@@ -23,6 +24,7 @@ router.use(recommendationRoutes);
 router.use(workoutRoutes);
 router.use(aiRoutes);
 router.use("/social", socialRouter);
+router.use("/notifications", notificationRouter);
 router.use(securityRoutes);
 
 export default router;

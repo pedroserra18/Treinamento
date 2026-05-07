@@ -2,6 +2,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ImageViewer } from '../components/common/ImageViewer'
+import { useScrollLock } from '../hooks/useScrollLock'
 import {
   LineChart,
   Line,
@@ -666,14 +667,13 @@ function MeasurementDetailsModal({ measurement, onClose, onOpenPhoto }: {
   onClose: () => void
   onOpenPhoto: () => void
 }) {
+  useScrollLock(true)
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)
-    const prevOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
     return () => {
       window.removeEventListener('keydown', onKey)
-      document.body.style.overflow = prevOverflow
     }
   }, [onClose])
 

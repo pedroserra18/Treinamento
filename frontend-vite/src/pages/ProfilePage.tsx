@@ -3,6 +3,7 @@ import { useRef, useState, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { useScrollLock } from '../hooks/useScrollLock'
 import { CountUp } from '../components/common/CountUp'
 import { ImageViewer } from '../components/common/ImageViewer'
 import { updateAvatar, updatePrivacy, getFollowers, getFollowing, type UserSearchResult } from '../services/socialService'
@@ -15,14 +16,13 @@ function UserListModal({ title, users, onClose, onNavigate }: {
   onClose: () => void
   onNavigate: (id: string) => void
 }) {
+  useScrollLock(true)
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)
-    const prevOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
     return () => {
       window.removeEventListener('keydown', onKey)
-      document.body.style.overflow = prevOverflow
     }
   }, [onClose])
 
@@ -50,7 +50,7 @@ function UserListModal({ title, users, onClose, onNavigate }: {
             ✕
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto divide-y divide-[var(--line)] overscroll-contain">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden divide-y divide-[var(--line)] overscroll-contain">
           {users.length === 0 && (
             <p className="px-4 py-6 text-sm text-center text-[var(--muted)]">Nenhum usuário aqui ainda.</p>
           )}

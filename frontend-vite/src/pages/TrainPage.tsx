@@ -190,6 +190,7 @@ export function TrainPage() {
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [openRoutineMenuId, setOpenRoutineMenuId] = useState<string | null>(null)
+  const [routineMenuAnchor, setRoutineMenuAnchor] = useState<{ top: number; right: number } | null>(null)
   const [shareLinkModal, setShareLinkModal] = useState<{ link: string; planName: string } | null>(null)
 
   const [activePlanId, setActivePlanId] = useState<string>('')
@@ -440,12 +441,22 @@ export function TrainPage() {
       const target = event.target as HTMLElement | null
       if (!target?.closest('[data-routine-menu]')) {
         setOpenRoutineMenuId(null)
+        setRoutineMenuAnchor(null)
       }
     }
 
+    const handleDismiss = () => {
+      setOpenRoutineMenuId(null)
+      setRoutineMenuAnchor(null)
+    }
+
     document.addEventListener('click', handleDocumentClick)
+    window.addEventListener('resize', handleDismiss)
+    window.addEventListener('scroll', handleDismiss, true)
     return () => {
       document.removeEventListener('click', handleDocumentClick)
+      window.removeEventListener('resize', handleDismiss)
+      window.removeEventListener('scroll', handleDismiss, true)
     }
   }, [])
 
@@ -1990,58 +2001,84 @@ export function TrainPage() {
                   type="button"
                   aria-label={`Mais opcoes da rotina ${plan.name}`}
                   aria-expanded={openRoutineMenuId === plan.id}
-                  onClick={() => {
-                    setOpenRoutineMenuId((current) => (current === plan.id ? null : plan.id))
+                  onClick={(event) => {
+                    if (openRoutineMenuId === plan.id) {
+                      setOpenRoutineMenuId(null)
+                      setRoutineMenuAnchor(null)
+                      return
+                    }
+                    const rect = event.currentTarget.getBoundingClientRect()
+                    setRoutineMenuAnchor({
+                      top: rect.bottom + 4,
+                      right: window.innerWidth - rect.right,
+                    })
+                    setOpenRoutineMenuId(plan.id)
                   }}
                   className="rounded-lg border border-[var(--line)] px-2 py-1 text-xs font-bold text-[var(--muted)]"
                 >
                   ...
                 </button>
 
-                {openRoutineMenuId === plan.id ? (
-                  <div className="absolute right-0 top-8 z-20 min-w-48 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-1 shadow-lg">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setOpenRoutineMenuId(null)
-                        void handleDeleteRoutine(plan)
-                      }}
-                      className="block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-red-400 hover:bg-[var(--surface-hover)]"
-                    >
-                      Deletar rotina
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setOpenRoutineMenuId(null)
-                        void handleShareRoutine(plan)
-                      }}
-                      className="block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
-                    >
-                      Compartilhar rotina
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setOpenRoutineMenuId(null)
-                        void handleDuplicateRoutine(plan)
-                      }}
-                      className="block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
-                    >
-                      Duplicar rotina
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setOpenRoutineMenuId(null)
-                        handleExportPDF(plan)
-                      }}
-                      className="block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
-                    >
-                      Salvar como PDF
-                    </button>
-                  </div>
-                ) : null}
+                {openRoutineMenuId === plan.id && routineMenuAnchor
+                  ? createPortal(
+                      <div
+                        data-routine-menu
+                        style={{
+                          position: 'fixed',
+                          top: routineMenuAnchor.top,
+                          right: routineMenuAnchor.right,
+                          zIndex: 9999,
+                        }}
+                        className="min-w-48 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-1 shadow-2xl"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpenRoutineMenuId(null)
+                            setRoutineMenuAnchor(null)
+                            void handleDeleteRoutine(plan)
+                          }}
+                          className="block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-red-400 hover:bg-[var(--surface-hover)]"
+                        >
+                          Deletar rotina
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpenRoutineMenuId(null)
+                            setRoutineMenuAnchor(null)
+                            void handleShareRoutine(plan)
+                          }}
+                          className="block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
+                        >
+                          Compartilhar rotina
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpenRoutineMenuId(null)
+                            setRoutineMenuAnchor(null)
+                            void handleDuplicateRoutine(plan)
+                          }}
+                          className="block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
+                        >
+                          Duplicar rotina
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpenRoutineMenuId(null)
+                            setRoutineMenuAnchor(null)
+                            handleExportPDF(plan)
+                          }}
+                          className="block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
+                        >
+                          Salvar como PDF
+                        </button>
+                      </div>,
+                      document.body,
+                    )
+                  : null}
               </div>
 
               <h3 className="pr-10 text-lg font-bold text-[var(--text)]">{plan.name}</h3>

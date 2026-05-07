@@ -3,9 +3,10 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { useScrollLock } from '../hooks/useScrollLock'
 import {
   getPublicProfile, getUserPosts, followUser, unfollowUser, compareUsers, compareExercise,
-  getPublicFollowers, getPublicFollowing, getMutualFollowers,
+  getPublicFollowers, getPublicFollowing, getMutualFollowers, deletePost,
   type PublicProfile, type FeedPost, type CompareResult, type WorkoutExerciseSummary,
   type SimpleUser, type ExerciseCompareResult,
 } from '../services/socialService'
@@ -32,44 +33,142 @@ function timeAgo(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('pt-BR')
 }
 
-function AnimatedBar({ value, max, color }: { value: number; max: number; color: string }) {
-  const pct = max > 0 ? Math.round((value / max) * 100) : 0
+function formatNumberFull(n: number): string {
+  return Math.round(n).toLocaleString('pt-BR')
+}
+
+function PlayerBar({
+  name,
+  value,
+  unit,
+  color,
+  pct,
+  isWinner,
+  delay,
+}: {
+  name: string
+  value: number
+  unit?: string
+  color: string
+  pct: number
+  isWinner: boolean
+  delay: number
+}) {
   return (
-    <div className="h-2 w-full rounded-full bg-[var(--line)] overflow-hidden">
-      <motion.div
-        className="h-full rounded-full"
-        style={{ backgroundColor: color }}
-        initial={{ width: 0 }}
-        animate={{ width: `${pct}%` }}
-        transition={{ duration: 0.7, ease: 'easeOut' }}
-      />
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+          <span className="truncate text-xs font-bold text-[var(--text)]">{name}</span>
+          {isWinner ? (
+            <span
+              className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider"
+              style={{ backgroundColor: `${color}25`, color }}
+            >
+              Vencendo
+            </span>
+          ) : null}
+        </div>
+        <span className="shrink-0 text-base font-black tabular-nums" style={{ color }}>
+          {formatNumberFull(value)}
+          {unit ? <span className="ml-1 text-[10px] font-bold opacity-80">{unit}</span> : null}
+        </span>
+      </div>
+      <div className="h-2.5 w-full overflow-hidden rounded-full bg-[var(--line)]">
+        <motion.div
+          className="h-full rounded-full"
+          style={{ backgroundColor: color }}
+          initial={{ width: 0 }}
+          animate={{ width: `${pct}%` }}
+          transition={{ duration: 0.7, ease: 'easeOut', delay }}
+        />
+      </div>
     </div>
   )
 }
 
-function RadialStat({ value, max, label, color }: { value: number; max: number; label: string; color: string }) {
-  const r = 28
-  const circ = 2 * Math.PI * r
-  const pct = max > 0 ? value / max : 0
-  const dash = pct * circ
+function StatBattle({
+  label,
+  meName,
+  themName,
+  meValue,
+  themValue,
+  meColor,
+  themColor,
+  unit,
+  delay = 0,
+}: {
+  label: string
+  meName: string
+  themName: string
+  meValue: number
+  themValue: number
+  meColor: string
+  themColor: string
+  unit?: string
+  delay?: number
+}) {
+  const max = Math.max(meValue, themValue, 1)
+  const mePct = (meValue / max) * 100
+  const themPct = (themValue / max) * 100
+  const meWins = meValue > themValue
+  const themWins = themValue > meValue
+  const tied = !meWins && !themWins && (meValue > 0 || themValue > 0)
+  const empty = meValue === 0 && themValue === 0
+  const diff = Math.abs(meValue - themValue)
+
   return (
-    <div className="flex flex-col items-center gap-1">
-      <svg width="72" height="72" viewBox="0 0 72 72">
-        <circle cx="36" cy="36" r={r} fill="none" stroke="var(--line)" strokeWidth="6" />
-        <motion.circle
-          cx="36" cy="36" r={r} fill="none"
-          stroke={color} strokeWidth="6"
-          strokeLinecap="round"
-          strokeDasharray={circ}
-          initial={{ strokeDashoffset: circ }}
-          animate={{ strokeDashoffset: circ - dash }}
-          transition={{ duration: 0.8, ease: 'easeOut' }}
-          style={{ transformOrigin: '36px 36px', transform: 'rotate(-90deg)' }}
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: 'easeOut', delay }}
+      className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3"
+    >
+      <p className="mb-3 text-[11px] font-extrabold uppercase tracking-[0.15em] text-[var(--muted)]">
+        {label}
+      </p>
+
+      <div className="space-y-3">
+        <PlayerBar
+          name={meName}
+          value={meValue}
+          unit={unit}
+          color={meColor}
+          pct={mePct}
+          isWinner={meWins}
+          delay={delay + 0.1}
         />
-        <text x="36" y="40" textAnchor="middle" fontSize="14" fontWeight="bold" fill="var(--text)">{value}</text>
-      </svg>
-      <p className="text-[10px] uppercase tracking-wide text-[var(--muted)] text-center leading-tight">{label}</p>
-    </div>
+        <PlayerBar
+          name={themName}
+          value={themValue}
+          unit={unit}
+          color={themColor}
+          pct={themPct}
+          isWinner={themWins}
+          delay={delay + 0.15}
+        />
+      </div>
+
+      {!empty ? (
+        <p className="mt-3 border-t border-[var(--line)] pt-2 text-[11px] font-semibold text-[var(--muted)]">
+          {tied ? (
+            <span>Empate em {formatNumberFull(meValue)}{unit ? ` ${unit}` : ''}.</span>
+          ) : (
+            <span>
+              <span className="font-black" style={{ color: meWins ? meColor : themColor }}>
+                {meWins ? meName : themName}
+              </span>{' '}
+              está à frente por{' '}
+              <span className="font-black text-[var(--text)]">
+                {formatNumberFull(diff)}
+                {unit ? ` ${unit}` : ''}
+              </span>
+              .
+            </span>
+          )}
+        </p>
+      ) : null}
+    </motion.div>
   )
 }
 
@@ -112,84 +211,104 @@ function ComparePanel({ result, userId, authorizedFetch, onAvatarClick }: {
   const meColor = '#ef4444'
   const themColor = '#6b7280'
 
-  const stats7d = result.me.stats.workouts7d + result.them.stats.workouts7d
-  const stats30d = result.me.stats.workouts30d + result.them.stats.workouts30d
-  const statsVol = result.me.stats.volumeKg7d + result.them.stats.volumeKg7d
+  const meName = result.me.name ?? 'Você'
+  const themName = result.them.name ?? 'Rival'
+  const meFirst = meName.split(' ')[0]
+  const themFirst = themName.split(' ')[0]
+
+  const Avatar = ({ url, name, color }: { url: string | null; name: string; color: string }) => (
+    <button
+      type="button"
+      onClick={() => url && onAvatarClick(url, name)}
+      disabled={!url}
+      className="relative h-12 w-12 shrink-0 overflow-hidden rounded-full transition-opacity hover:opacity-90 disabled:cursor-default"
+      style={{ boxShadow: `0 0 0 2px ${color}, 0 0 0 4px var(--surface)` }}
+    >
+      {url ? (
+        <img src={url} alt="" className="h-full w-full object-cover" />
+      ) : (
+        <span className="flex h-full w-full items-center justify-center bg-[var(--surface-hover)] text-sm font-black text-[var(--text)]">
+          {name[0]?.toUpperCase()}
+        </span>
+      )}
+    </button>
+  )
 
   return (
-    <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)]">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 bg-[var(--surface-hover)] border-b border-[var(--line)] rounded-t-2xl">
-        <div className="flex items-center gap-2">
-          {result.me.avatarUrl ? (
-            <button
-              type="button"
-              onClick={() => onAvatarClick(result.me.avatarUrl!, result.me.name ?? 'Eu')}
-              className="h-7 w-7 rounded-full border border-[var(--line)] bg-[var(--surface)] overflow-hidden hover:opacity-80 transition-opacity"
-            >
-              <img src={result.me.avatarUrl} alt="" className="h-full w-full object-cover" />
-            </button>
-          ) : (
-            <div className="h-7 w-7 rounded-full border border-[var(--line)] bg-[var(--surface)] overflow-hidden">
-              <span className="flex h-full w-full items-center justify-center text-[10px] font-bold text-[var(--muted)]">{(result.me.name ?? '?')[0]?.toUpperCase()}</span>
-            </div>
-          )}
-          <span className="text-xs font-bold text-[var(--text)] truncate max-w-[80px]">{result.me.name ?? 'Eu'}</span>
+    <div className="overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)]">
+      {/* Header — VS */}
+      <div className="flex items-center justify-between gap-3 border-b border-[var(--line)] bg-[var(--surface-hover)] px-4 py-4">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <Avatar url={result.me.avatarUrl ?? null} name={meName} color={meColor} />
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: meColor }}>Você</p>
+            <p className="truncate text-sm font-black text-[var(--text)]">{meFirst}</p>
+          </div>
         </div>
-        <span className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">vs</span>
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-bold text-[var(--text)] truncate max-w-[80px] text-right">{result.them.name ?? 'Eles'}</span>
-          {result.them.avatarUrl ? (
-            <button
-              type="button"
-              onClick={() => onAvatarClick(result.them.avatarUrl!, result.them.name ?? 'Eles')}
-              className="h-7 w-7 rounded-full border border-[var(--line)] bg-[var(--surface)] overflow-hidden hover:opacity-80 transition-opacity"
-            >
-              <img src={result.them.avatarUrl} alt="" className="h-full w-full object-cover" />
-            </button>
-          ) : (
-            <div className="h-7 w-7 rounded-full border border-[var(--line)] bg-[var(--surface)] overflow-hidden">
-              <span className="flex h-full w-full items-center justify-center text-[10px] font-bold text-[var(--muted)]">{(result.them.name ?? '?')[0]?.toUpperCase()}</span>
-            </div>
-          )}
+
+        <span className="shrink-0 text-xs font-black uppercase tracking-[0.3em] text-[var(--muted)]">vs</span>
+
+        <div className="flex min-w-0 flex-1 items-center justify-end gap-3">
+          <div className="min-w-0 text-right">
+            <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: themColor }}>Rival</p>
+            <p className="truncate text-sm font-black text-[var(--text)]">{themFirst}</p>
+          </div>
+          <Avatar url={result.them.avatarUrl ?? null} name={themName} color={themColor} />
         </div>
       </div>
 
-      <div className="p-4 space-y-5">
-        {/* Radial circles */}
-        <div className="grid grid-cols-3 gap-2">
-          <div className="space-y-2">
-            <RadialStat value={result.me.stats.workouts7d} max={Math.max(stats7d, 1)} label={'Treinos\n7d'} color={meColor} />
-            <RadialStat value={result.me.stats.workouts30d} max={Math.max(stats30d, 1)} label={'Treinos\n30d'} color={meColor} />
-          </div>
-          <div className="flex flex-col items-center justify-center gap-1 text-center">
-            <p className="text-[9px] uppercase tracking-widest text-[var(--muted)]">Volume 7d</p>
-            <p className="text-xs font-black text-[var(--text)]">{result.me.stats.volumeKg7d.toFixed(0)}</p>
-            <AnimatedBar value={result.me.stats.volumeKg7d} max={Math.max(statsVol, 1)} color={meColor} />
-            <AnimatedBar value={result.them.stats.volumeKg7d} max={Math.max(statsVol, 1)} color={themColor} />
-            <p className="text-xs font-black text-[var(--text)]">{result.them.stats.volumeKg7d.toFixed(0)}</p>
-            <p className="text-[9px] text-[var(--muted)]">kg</p>
-          </div>
-          <div className="space-y-2">
-            <RadialStat value={result.them.stats.workouts7d} max={Math.max(stats7d, 1)} label={'Treinos\n7d'} color={themColor} />
-            <RadialStat value={result.them.stats.workouts30d} max={Math.max(stats30d, 1)} label={'Treinos\n30d'} color={themColor} />
-          </div>
-        </div>
-
-        {/* Legend */}
-        <div className="flex justify-center gap-6 text-[11px] text-[var(--muted)]">
-          <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: meColor }} />{result.me.name ?? 'Eu'}</span>
-          <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: themColor }} />{result.them.name ?? 'Eles'}</span>
-        </div>
+      <div className="space-y-3 p-4">
+        <StatBattle
+          label="Treinos nos últimos 7 dias"
+          meName={meFirst}
+          themName={themFirst}
+          meValue={result.me.stats.workouts7d}
+          themValue={result.them.stats.workouts7d}
+          meColor={meColor}
+          themColor={themColor}
+          delay={0}
+        />
+        <StatBattle
+          label="Treinos nos últimos 30 dias"
+          meName={meFirst}
+          themName={themFirst}
+          meValue={result.me.stats.workouts30d}
+          themValue={result.them.stats.workouts30d}
+          meColor={meColor}
+          themColor={themColor}
+          delay={0.05}
+        />
+        <StatBattle
+          label="Volume dos últimos 7 dias"
+          meName={meFirst}
+          themName={themFirst}
+          meValue={result.me.stats.volumeKg7d}
+          themValue={result.them.stats.volumeKg7d}
+          meColor={meColor}
+          themColor={themColor}
+          unit="kg"
+          delay={0.1}
+        />
 
         {/* Top exercises */}
         {result.them.stats.topExercises.length > 0 && (
-          <div className="rounded-xl border border-[var(--line)] p-3 space-y-1">
-            <p className="text-[10px] uppercase tracking-wide text-[var(--muted)] font-semibold">Top exercícios deles (30d)</p>
-            <div className="flex flex-wrap gap-1 mt-1">
+          <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3">
+            <div className="mb-2 flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: themColor }} />
+              <p className="text-[9px] font-extrabold uppercase tracking-[0.2em] text-[var(--muted)]">
+                Top exercícios — {themFirst} (30d)
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
               {result.them.stats.topExercises.map((e) => (
-                <span key={e.name} className="rounded-full border border-[var(--line)] px-2 py-0.5 text-[11px] text-[var(--muted)]">
-                  {e.name} · {e.count}×
+                <span
+                  key={e.name}
+                  className="rounded-full border border-[var(--line)] bg-[var(--surface)] px-2.5 py-1 text-[11px] font-medium text-[var(--text)]"
+                >
+                  {e.name}
+                  <span className="ml-1 text-[10px] font-black tabular-nums" style={{ color: themColor }}>
+                    {e.count}×
+                  </span>
                 </span>
               ))}
             </div>
@@ -198,7 +317,9 @@ function ComparePanel({ result, userId, authorizedFetch, onAvatarClick }: {
 
         {/* Exercise comparison */}
         <div className="rounded-xl border border-[var(--line)] p-3 space-y-3">
-          <p className="text-[10px] uppercase tracking-wide text-[var(--muted)] font-semibold">Comparar exercício específico</p>
+          <p className="text-[9px] font-extrabold uppercase tracking-[0.25em] text-[var(--muted)]">
+            Comparar exercício específico
+          </p>
           <input
             type="search"
             value={exQuery}
@@ -226,40 +347,86 @@ function ComparePanel({ result, userId, authorizedFetch, onAvatarClick }: {
 
           {exCompare && !loadingEx && (
             <div className="space-y-3">
-              <p className="text-sm font-bold text-[var(--text)]">{exCompare.exerciseName} — últimos 30d</p>
-              {[
-                { label: 'Carga máx (kg)', me: exCompare.me.stats.maxWeightKg, them: exCompare.them.stats.maxWeightKg },
-                { label: 'Volume total (kg)', me: exCompare.me.stats.totalVolumeKg, them: exCompare.them.stats.totalVolumeKg },
-                { label: 'Total de sets', me: exCompare.me.stats.totalSets, them: exCompare.them.stats.totalSets },
-                { label: 'Total de reps', me: exCompare.me.stats.totalReps, them: exCompare.them.stats.totalReps },
-              ].map((row) => {
-                const total = row.me + row.them || 1
-                return (
-                  <div key={row.label} className="space-y-1">
-                    <div className="flex justify-between text-[11px]">
-                      <span className="font-bold" style={{ color: meColor }}>{row.me}</span>
-                      <span className="text-[var(--muted)] text-center">{row.label}</span>
-                      <span className="font-bold" style={{ color: themColor }}>{row.them}</span>
-                    </div>
-                    <div className="flex h-1.5 rounded-full overflow-hidden gap-0.5">
-                      <AnimatedBar value={row.me} max={total} color={meColor} />
-                      <AnimatedBar value={row.them} max={total} color={themColor} />
-                    </div>
-                  </div>
-                )
-              })}
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="truncate text-sm font-black text-[var(--text)]">{exCompare.exerciseName}</p>
+                <p className="shrink-0 text-[9px] font-bold uppercase tracking-widest text-[var(--muted)]">últimos 30d</p>
+              </div>
+              <StatBattle
+                label="Carga máxima"
+                meName={meFirst}
+                themName={themFirst}
+                meValue={exCompare.me.stats.maxWeightKg}
+                themValue={exCompare.them.stats.maxWeightKg}
+                meColor={meColor}
+                themColor={themColor}
+                unit="kg"
+                delay={0}
+              />
+              <StatBattle
+                label="Maior volume em 1 série"
+                meName={meFirst}
+                themName={themFirst}
+                meValue={
+                  exCompare.me.stats.bestSet
+                    ? exCompare.me.stats.bestSet.reps * exCompare.me.stats.bestSet.weightKg
+                    : 0
+                }
+                themValue={
+                  exCompare.them.stats.bestSet
+                    ? exCompare.them.stats.bestSet.reps * exCompare.them.stats.bestSet.weightKg
+                    : 0
+                }
+                meColor={meColor}
+                themColor={themColor}
+                unit="kg"
+                delay={0.05}
+              />
+              <StatBattle
+                label="Total de séries"
+                meName={meFirst}
+                themName={themFirst}
+                meValue={exCompare.me.stats.totalSets}
+                themValue={exCompare.them.stats.totalSets}
+                meColor={meColor}
+                themColor={themColor}
+                delay={0.1}
+              />
+              <StatBattle
+                label="Total de repetições"
+                meName={meFirst}
+                themName={themFirst}
+                meValue={exCompare.me.stats.totalReps}
+                themValue={exCompare.them.stats.totalReps}
+                meColor={meColor}
+                themColor={themColor}
+                delay={0.15}
+              />
               {(exCompare.me.stats.bestSet || exCompare.them.stats.bestSet) && (
-                <div className="grid grid-cols-2 gap-2 mt-1">
-                  <div className="rounded-xl border border-[var(--line)] p-2 text-center">
-                    <p className="text-[9px] uppercase tracking-wide text-[var(--muted)]">Melhor set ({result.me.name ?? 'eu'})</p>
-                    <p className="text-sm font-black text-[var(--text)] mt-0.5">
-                      {exCompare.me.stats.bestSet ? `${exCompare.me.stats.bestSet.reps}× ${exCompare.me.stats.bestSet.weightKg}kg` : '—'}
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <div
+                    className="rounded-xl border p-2.5 text-center"
+                    style={{ borderColor: `${meColor}40`, backgroundColor: `${meColor}08` }}
+                  >
+                    <p className="text-[9px] font-bold uppercase tracking-widest" style={{ color: meColor }}>
+                      Melhor set · {meFirst}
+                    </p>
+                    <p className="mt-1 text-sm font-black tabular-nums text-[var(--text)]">
+                      {exCompare.me.stats.bestSet
+                        ? `${exCompare.me.stats.bestSet.reps}× ${exCompare.me.stats.bestSet.weightKg}kg`
+                        : '—'}
                     </p>
                   </div>
-                  <div className="rounded-xl border border-[var(--line)] p-2 text-center">
-                    <p className="text-[9px] uppercase tracking-wide text-[var(--muted)]">Melhor set ({result.them.name ?? 'eles'})</p>
-                    <p className="text-sm font-black text-[var(--text)] mt-0.5">
-                      {exCompare.them.stats.bestSet ? `${exCompare.them.stats.bestSet.reps}× ${exCompare.them.stats.bestSet.weightKg}kg` : '—'}
+                  <div
+                    className="rounded-xl border p-2.5 text-center"
+                    style={{ borderColor: `${themColor}50`, backgroundColor: `${themColor}10` }}
+                  >
+                    <p className="text-[9px] font-bold uppercase tracking-widest" style={{ color: themColor }}>
+                      Melhor set · {themFirst}
+                    </p>
+                    <p className="mt-1 text-sm font-black tabular-nums text-[var(--text)]">
+                      {exCompare.them.stats.bestSet
+                        ? `${exCompare.them.stats.bestSet.reps}× ${exCompare.them.stats.bestSet.weightKg}kg`
+                        : '—'}
                     </p>
                   </div>
                 </div>
@@ -281,14 +448,13 @@ function UserListModal({ title, users, loading, onClose, onNavigate }: {
   onClose: () => void
   onNavigate: (id: string) => void
 }) {
+  useScrollLock(true)
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)
-    const prevOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
     return () => {
       window.removeEventListener('keydown', onKey)
-      document.body.style.overflow = prevOverflow
     }
   }, [onClose])
 
@@ -307,7 +473,7 @@ function UserListModal({ title, users, loading, onClose, onNavigate }: {
           <h3 className="text-base font-extrabold text-[var(--text)]">{title}</h3>
           <button type="button" onClick={onClose} className="text-[var(--muted)] text-lg px-1">✕</button>
         </div>
-        <div className="flex-1 overflow-y-auto divide-y divide-[var(--line)] overscroll-contain">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden divide-y divide-[var(--line)] overscroll-contain">
           {loading && <p className="px-4 py-6 text-sm text-center text-[var(--muted)]">Carregando...</p>}
           {!loading && users.length === 0 && <p className="px-4 py-6 text-sm text-center text-[var(--muted)]">Nenhum usuário aqui ainda.</p>}
           {!loading && users.map((u) => (
@@ -362,14 +528,35 @@ function ExerciseStatsRow({ ex }: { ex: WorkoutExerciseSummary }) {
   )
 }
 
-function ProfilePostCard({ post }: { post: FeedPost }) {
+function ProfilePostCard({ post, canDelete, isAdminAction, onDelete }: {
+  post: FeedPost
+  canDelete: boolean
+  isAdminAction: boolean
+  onDelete: (id: string) => void
+}) {
   const [expanded, setExpanded] = useState(false)
   return (
     <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] overflow-hidden">
       {post.photoUrl && <WorkoutPostImage src={post.photoUrl} />}
       <div className="p-4 space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <p className="text-xs text-[var(--muted)]">{timeAgo(post.createdAt)}</p>
+          {canDelete && (
+            <button
+              type="button"
+              onClick={() => onDelete(post.id)}
+              className={`shrink-0 rounded-lg border px-2 py-1 text-xs ${
+                isAdminAction
+                  ? 'border-amber-500/50 text-amber-400'
+                  : 'border-red-500/40 text-red-400'
+              }`}
+              title={isAdminAction ? 'Remover como administrador' : 'Deletar'}
+            >
+              {isAdminAction ? 'Remover (admin)' : 'Deletar'}
+            </button>
+          )}
+        </div>
         {post.caption && <p className="text-sm text-[var(--text)]">{post.caption}</p>}
-        <p className="text-xs text-[var(--muted)]">{timeAgo(post.createdAt)}</p>
         {post.workoutSummary && (
           <div className="rounded-xl border border-[var(--line)] p-3 space-y-2">
             <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -526,6 +713,22 @@ export function PublicProfilePage() {
       setShowCompare(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao comparar')
+    }
+  }
+
+  const handleDeletePost = async (postId: string) => {
+    const post = posts.find((p) => p.id === postId)
+    const isOwn = post?.user.id === me?.id
+    const message = !isOwn && me?.role === 'ADMIN'
+      ? 'Remover este post como administrador?'
+      : 'Deletar este post?'
+    if (!window.confirm(message)) return
+    try {
+      await deletePost(authorizedFetch, postId)
+      setPosts((prev) => prev.filter((p) => p.id !== postId))
+      setProfile((prev) => prev && prev.postsCount != null ? { ...prev, postsCount: Math.max(0, prev.postsCount - 1) } : prev)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao remover post')
     }
   }
 
@@ -686,9 +889,19 @@ export function PublicProfilePage() {
             Nenhum post público ainda.
           </p>
         )}
-        {posts.map((post) => (
-          <ProfilePostCard key={post.id} post={post} />
-        ))}
+        {posts.map((post) => {
+          const isOwn = post.user.id === me?.id
+          const isAdmin = me?.role === 'ADMIN'
+          return (
+            <ProfilePostCard
+              key={post.id}
+              post={post}
+              canDelete={isOwn || isAdmin}
+              isAdminAction={!isOwn && isAdmin}
+              onDelete={handleDeletePost}
+            />
+          )
+        })}
       </div>
 
       <AnimatePresence>

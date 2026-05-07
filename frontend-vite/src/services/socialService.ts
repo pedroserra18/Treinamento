@@ -119,7 +119,11 @@ export async function createPost(
 }
 
 export async function deletePost(authorizedFetch: AuthorizedFetch, postId: string): Promise<void> {
-  await authorizedFetch(`${API_URL}/social/posts/${postId}`, { method: 'DELETE' })
+  const res = await authorizedFetch(`${API_URL}/social/posts/${postId}`, { method: 'DELETE' })
+  if (!res.ok) {
+    const json = await res.json().catch(() => null)
+    throw new Error(json?.error?.message ?? 'Erro ao remover post')
+  }
 }
 
 export async function toggleLike(authorizedFetch: AuthorizedFetch, postId: string): Promise<{ liked: boolean }> {
