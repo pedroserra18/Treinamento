@@ -1,5 +1,6 @@
 import { motion, AnimatePresence } from 'framer-motion'
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import {
@@ -10,6 +11,7 @@ import {
 } from '../services/socialService'
 import { searchExercisesForPlan } from '../services/workoutService'
 import { WorkoutPostImage } from '../components/common/WorkoutPostImage'
+import { ImageViewer } from '../components/common/ImageViewer'
 
 function formatDuration(sec: number | null): string {
   if (!sec) return '-'
@@ -71,10 +73,11 @@ function RadialStat({ value, max, label, color }: { value: number; max: number; 
   )
 }
 
-function ComparePanel({ result, userId, authorizedFetch }: {
+function ComparePanel({ result, userId, authorizedFetch, onAvatarClick }: {
   result: CompareResult
   userId: string
   authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+  onAvatarClick: (src: string, alt: string) => void
 }) {
   const [exQuery, setExQuery] = useState('')
   const [exResults, setExResults] = useState<Array<{ id: string; name: string }>>([])
@@ -118,17 +121,37 @@ function ComparePanel({ result, userId, authorizedFetch }: {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 bg-[var(--surface-hover)] border-b border-[var(--line)] rounded-t-2xl">
         <div className="flex items-center gap-2">
-          <div className="h-7 w-7 rounded-full border border-[var(--line)] bg-[var(--surface)] overflow-hidden">
-            {result.me.avatarUrl ? <img src={result.me.avatarUrl} alt="" className="h-full w-full object-cover" /> : <span className="flex h-full w-full items-center justify-center text-[10px] font-bold text-[var(--muted)]">{(result.me.name ?? '?')[0]?.toUpperCase()}</span>}
-          </div>
+          {result.me.avatarUrl ? (
+            <button
+              type="button"
+              onClick={() => onAvatarClick(result.me.avatarUrl!, result.me.name ?? 'Eu')}
+              className="h-7 w-7 rounded-full border border-[var(--line)] bg-[var(--surface)] overflow-hidden hover:opacity-80 transition-opacity"
+            >
+              <img src={result.me.avatarUrl} alt="" className="h-full w-full object-cover" />
+            </button>
+          ) : (
+            <div className="h-7 w-7 rounded-full border border-[var(--line)] bg-[var(--surface)] overflow-hidden">
+              <span className="flex h-full w-full items-center justify-center text-[10px] font-bold text-[var(--muted)]">{(result.me.name ?? '?')[0]?.toUpperCase()}</span>
+            </div>
+          )}
           <span className="text-xs font-bold text-[var(--text)] truncate max-w-[80px]">{result.me.name ?? 'Eu'}</span>
         </div>
         <span className="text-[10px] font-black uppercase tracking-widest text-[var(--muted)]">vs</span>
         <div className="flex items-center gap-2">
           <span className="text-xs font-bold text-[var(--text)] truncate max-w-[80px] text-right">{result.them.name ?? 'Eles'}</span>
-          <div className="h-7 w-7 rounded-full border border-[var(--line)] bg-[var(--surface)] overflow-hidden">
-            {result.them.avatarUrl ? <img src={result.them.avatarUrl} alt="" className="h-full w-full object-cover" /> : <span className="flex h-full w-full items-center justify-center text-[10px] font-bold text-[var(--muted)]">{(result.them.name ?? '?')[0]?.toUpperCase()}</span>}
-          </div>
+          {result.them.avatarUrl ? (
+            <button
+              type="button"
+              onClick={() => onAvatarClick(result.them.avatarUrl!, result.them.name ?? 'Eles')}
+              className="h-7 w-7 rounded-full border border-[var(--line)] bg-[var(--surface)] overflow-hidden hover:opacity-80 transition-opacity"
+            >
+              <img src={result.them.avatarUrl} alt="" className="h-full w-full object-cover" />
+            </button>
+          ) : (
+            <div className="h-7 w-7 rounded-full border border-[var(--line)] bg-[var(--surface)] overflow-hidden">
+              <span className="flex h-full w-full items-center justify-center text-[10px] font-bold text-[var(--muted)]">{(result.them.name ?? '?')[0]?.toUpperCase()}</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -258,21 +281,33 @@ function UserListModal({ title, users, loading, onClose, onNavigate }: {
   onClose: () => void
   onNavigate: (id: string) => void
 }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center p-4" onClick={onClose}>
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prevOverflow
+    }
+  }, [onClose])
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9998] flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center p-4" onClick={onClose}>
       <motion.div
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 24 }}
         transition={{ duration: 0.2 }}
-        className="w-full max-w-sm rounded-2xl border border-[var(--line)] bg-[var(--surface)] overflow-hidden"
+        className="flex w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] shadow-2xl"
+        style={{ maxHeight: 'min(80vh, 560px)' }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--line)]">
           <h3 className="text-base font-extrabold text-[var(--text)]">{title}</h3>
           <button type="button" onClick={onClose} className="text-[var(--muted)] text-lg px-1">✕</button>
         </div>
-        <div className="max-h-80 overflow-y-auto divide-y divide-[var(--line)]">
+        <div className="flex-1 overflow-y-auto divide-y divide-[var(--line)] overscroll-contain">
           {loading && <p className="px-4 py-6 text-sm text-center text-[var(--muted)]">Carregando...</p>}
           {!loading && users.length === 0 && <p className="px-4 py-6 text-sm text-center text-[var(--muted)]">Nenhum usuário aqui ainda.</p>}
           {!loading && users.map((u) => (
@@ -293,7 +328,8 @@ function UserListModal({ title, users, loading, onClose, onNavigate }: {
           ))}
         </div>
       </motion.div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -415,6 +451,7 @@ export function PublicProfilePage() {
   const [panelLoading, setPanelLoading] = useState(false)
   const [mutuals, setMutuals] = useState<SimpleUser[]>([])
   const [mutualsLoaded, setMutualsLoaded] = useState(false)
+  const [viewer, setViewer] = useState<{ src: string; alt: string } | null>(null)
 
   const isSelf = me?.id === userId
 
@@ -519,12 +556,20 @@ export function PublicProfilePage() {
               className="absolute -inset-[3px] rounded-full animate-[tech-spin_10s_linear_infinite]"
               style={{ background: 'var(--tech-gradient-conic)' }}
             />
-            <div className="relative h-full w-full overflow-hidden rounded-full bg-[var(--surface-hover)]">
-              {profile.avatarUrl
-                ? <img src={profile.avatarUrl} alt="" className="h-full w-full object-cover" />
-                : <span className="flex h-full w-full items-center justify-center text-xl font-black text-[var(--muted)]">{(profile.name ?? '?')[0]?.toUpperCase()}</span>
-              }
-            </div>
+            {profile.avatarUrl ? (
+              <button
+                type="button"
+                onClick={() => setViewer({ src: profile.avatarUrl!, alt: profile.name ?? 'Avatar' })}
+                className="relative h-full w-full overflow-hidden rounded-full bg-[var(--surface-hover)] hover:opacity-90 transition-opacity"
+                aria-label="Abrir foto em tamanho cheio"
+              >
+                <img src={profile.avatarUrl} alt="" className="h-full w-full object-cover" />
+              </button>
+            ) : (
+              <div className="relative h-full w-full overflow-hidden rounded-full bg-[var(--surface-hover)]">
+                <span className="flex h-full w-full items-center justify-center text-xl font-black text-[var(--muted)]">{(profile.name ?? '?')[0]?.toUpperCase()}</span>
+              </div>
+            )}
           </div>
           <div className="flex-1 min-w-0">
             <h1 className="text-xl font-black text-[var(--text)]">{profile.name ?? 'Usuário'}</h1>
@@ -615,7 +660,12 @@ export function PublicProfilePage() {
       {error && <p className="text-sm text-red-400">{error}</p>}
 
       {showCompare && compare && userId && (
-        <ComparePanel result={compare} userId={userId} authorizedFetch={authorizedFetch} />
+        <ComparePanel
+          result={compare}
+          userId={userId}
+          authorizedFetch={authorizedFetch}
+          onAvatarClick={(src, alt) => setViewer({ src, alt })}
+        />
       )}
 
       <AnimatePresence>
@@ -640,6 +690,17 @@ export function PublicProfilePage() {
           <ProfilePostCard key={post.id} post={post} />
         ))}
       </div>
+
+      <AnimatePresence>
+        {viewer && (
+          <ImageViewer
+            src={viewer.src}
+            alt={viewer.alt}
+            shape="circle"
+            onClose={() => setViewer(null)}
+          />
+        )}
+      </AnimatePresence>
     </section>
   )
 }
