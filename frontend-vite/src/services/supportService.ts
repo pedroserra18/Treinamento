@@ -196,9 +196,22 @@ export type RemovedPost = {
   privacy: 'PUBLIC' | 'FOLLOWERS' | 'PRIVATE'
   likesCount: number
   createdAt: string
+  updatedAt: string
   removedAt: string
   removalReason: string | null
   removedByAdminId: string | null
+  removedBy: { id: string; displayName: string | null } | null
+  workoutSession: {
+    id: string
+    scheduledAt: string
+    startedAt: string | null
+    endedAt: string | null
+    durationSec: number | null
+    caloriesBurned: number | null
+    notes: string | null
+    workoutPlan: { id: string; name: string } | null
+    _count: { history: number }
+  } | null
 }
 
 export async function adminListRemovedPosts(
