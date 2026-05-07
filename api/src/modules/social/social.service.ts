@@ -1,6 +1,7 @@
 import { prisma } from "../../config/prisma";
 import { AppError } from "../../shared/errors/app-error";
 import { CreatePostBody } from "./social.schema";
+import { createNotification } from "../notification/notification.service";
 
 const POST_SELECT = {
   id: true,
@@ -137,11 +138,27 @@ export async function createPost(userId: string, data: CreatePostBody) {
   return { ...post, workoutSummary: summariseSession(post.workoutSession) };
 }
 
-export async function deletePost(userId: string, postId: string) {
-  const post = await prisma.workoutPost.findUnique({ where: { id: postId }, select: { userId: true } });
+export async function deletePost(userId: string, postId: string, userRole?: string) {
+  const post = await prisma.workoutPost.findUnique({
+    where: { id: postId },
+    select: { userId: true, caption: true, photoUrl: true },
+  });
   if (!post) throw new AppError("Post não encontrado", { statusCode: 404, code: "POST_NOT_FOUND" });
-  if (post.userId !== userId) throw new AppError("Sem permissão", { statusCode: 403, code: "FORBIDDEN" });
+  const isOwner = post.userId === userId;
+  const isAdmin = userRole === "ADMIN";
+  if (!isOwner && !isAdmin) throw new AppError("Sem permissão", { statusCode: 403, code: "FORBIDDEN" });
+
   await prisma.workoutPost.delete({ where: { id: postId } });
+
+  if (!isOwner && isAdmin) {
+    await createNotification({
+      userId: post.userId,
+      type: "POST_REMOVED_BY_ADMIN",
+      title: "Seu post foi removido",
+      body: "Um administrador removeu seu post por conteúdo impróprio. Caso considere um engano, entre em contato com o suporte.",
+      metadata: { postId, hadPhoto: Boolean(post.photoUrl), hadCaption: Boolean(post.caption) },
+    }).catch(() => undefined);
+  }
 }
 
 export async function toggleLike(userId: string, postId: string) {

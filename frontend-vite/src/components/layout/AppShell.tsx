@@ -6,6 +6,7 @@ import { searchExercisesForPlan } from '../../services/workoutService'
 import type { ExerciseOption } from '../../types/workout'
 import { ThemeToggle } from '../common/ThemeToggle'
 import { BrandLogo } from '../common/BrandLogo'
+import { NotificationBell } from '../common/NotificationBell'
 import {
   getExerciseExplorerEventName,
   selectExerciseFromExplorer,
@@ -177,6 +178,7 @@ export function AppShell({ children }: AppShellProps) {
           <BrandLogo className="flex items-center gap-2" />
         </Link>
         <div className="flex items-center gap-2">
+          {isAuthenticated ? <NotificationBell /> : null}
           {isAuthenticated ? (
             <button
               onClick={() => void logout()}

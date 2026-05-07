@@ -59,15 +59,17 @@ function ExerciseStatsRow({ ex }: { ex: WorkoutExerciseSummary }) {
   )
 }
 
-function PostCard({ post, userId, isFriend, onLike, onDelete, onProfileClick }: {
+function PostCard({ post, userId, isAdmin, isFriend, onLike, onDelete, onProfileClick }: {
   post: FeedPost
   userId: string | undefined
+  isAdmin: boolean
   isFriend: boolean
   onLike: (id: string) => void
   onDelete: (id: string) => void
   onProfileClick: (id: string) => void
 }) {
   const isOwn = post.user.id === userId
+  const canDelete = isOwn || isAdmin
   const [expanded, setExpanded] = useState(false)
   const hasValidPhoto = Boolean(post.photoUrl) && !post.photoUrl!.startsWith('blob:')
   const hasPhoto = hasValidPhoto
@@ -113,13 +115,18 @@ function PostCard({ post, userId, isFriend, onLike, onDelete, onProfileClick }: 
                 <p className="text-xs text-[var(--muted)]">{timeAgo(post.createdAt)}</p>
               </div>
             </button>
-            {isOwn && (
+            {canDelete && (
               <button
                 type="button"
                 onClick={() => onDelete(post.id)}
-                className="rounded-lg border border-red-500/40 px-2 py-1 text-xs text-red-400"
+                className={`rounded-lg border px-2 py-1 text-xs ${
+                  !isOwn && isAdmin
+                    ? 'border-amber-500/50 text-amber-400'
+                    : 'border-red-500/40 text-red-400'
+                }`}
+                title={!isOwn && isAdmin ? 'Remover como administrador' : 'Deletar'}
               >
-                Deletar
+                {!isOwn && isAdmin ? 'Remover (admin)' : 'Deletar'}
               </button>
             )}
           </header>
@@ -327,7 +334,12 @@ export function FeedPage() {
   }
 
   const handleDelete = async (postId: string) => {
-    if (!window.confirm('Deletar este post?')) return
+    const post = posts.find((p) => p.id === postId)
+    const isOwn = post?.user.id === user?.id
+    const message = !isOwn && user?.role === 'ADMIN'
+      ? 'Remover este post como administrador?'
+      : 'Deletar este post?'
+    if (!window.confirm(message)) return
     try {
       await deletePost(authorizedFetch, postId)
       setPosts((prev) => prev.filter((p) => p.id !== postId))
@@ -456,6 +468,7 @@ export function FeedPage() {
             key={post.id}
             post={post}
             userId={user?.id}
+            isAdmin={user?.role === 'ADMIN'}
             isFriend={followingIds.has(post.user.id)}
             onLike={handleLike}
             onDelete={handleDelete}

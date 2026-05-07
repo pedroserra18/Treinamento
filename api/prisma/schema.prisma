@@ -166,6 +166,7 @@ model User {
   workoutPosts      WorkoutPost[]
   postLikes         PostLike[]
   sharedPlans       SharedPlan[]
+  notifications     Notification[]
 
   @@index([status, isDeleted])
   @@index([role])
@@ -482,4 +483,21 @@ model SharedPlan {
   @@index([planId])
   @@index([token])
   @@map("shared_plans")
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  type      String
+  title     String
+  body      String
+  metadata  Json?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+  @@map("notifications")
 }

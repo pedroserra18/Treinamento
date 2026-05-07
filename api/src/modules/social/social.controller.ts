@@ -16,7 +16,7 @@ export async function createPostController(req: Request, res: Response) {
 }
 
 export async function deletePostController(req: Request, res: Response) {
-  await deletePost(req.context.userId!, req.params["postId"] as string);
+  await deletePost(req.context.userId!, req.params["postId"] as string, req.context.userRole);
   res.status(204).end();
 }
 
