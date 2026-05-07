@@ -126,6 +126,19 @@ export async function deletePost(authorizedFetch: AuthorizedFetch, postId: strin
   }
 }
 
+export async function updatePostPrivacy(
+  authorizedFetch: AuthorizedFetch,
+  postId: string,
+  privacy: PostPrivacy
+): Promise<FeedPost> {
+  const res = await authorizedFetch(`${API_URL}/social/posts/${postId}/privacy`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ privacy }),
+  })
+  return handleResponse<FeedPost>(res)
+}
+
 export async function toggleLike(authorizedFetch: AuthorizedFetch, postId: string): Promise<{ liked: boolean }> {
   const res = await authorizedFetch(`${API_URL}/social/posts/${postId}/like`, { method: 'POST' })
   return handleResponse<{ liked: boolean }>(res)
@@ -221,7 +234,7 @@ export async function updateAvatar(
 export async function updatePrivacy(
   authorizedFetch: AuthorizedFetch,
   fields: { isPrivate?: boolean; showFollowLists?: boolean }
-): Promise<{ isPrivate: boolean; showFollowLists: boolean }> {
+): Promise<{ isPrivate: boolean; showFollowLists: boolean; downgradedPosts: number }> {
   const res = await authorizedFetch(`${API_URL}/auth/profile/privacy`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -231,7 +244,7 @@ export async function updatePrivacy(
   if (!res.ok) {
     throw new Error(json?.error?.message ?? 'Erro ao salvar privacidade')
   }
-  return json?.data as { isPrivate: boolean; showFollowLists: boolean }
+  return json?.data as { isPrivate: boolean; showFollowLists: boolean; downgradedPosts: number }
 }
 
 export async function getPublicFollowers(authorizedFetch: AuthorizedFetch, userId: string): Promise<SimpleUser[]> {

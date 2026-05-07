@@ -1,13 +1,13 @@
 import { Request, Response } from "express";
 import {
-  createPost, deletePost, toggleLike, getFeed, getUserPosts,
+  createPost, deletePost, updatePostPrivacy, toggleLike, getFeed, getUserPosts,
   followUser, unfollowUser, getFollowers, getFollowing,
   searchUsers, getPublicProfile, getPublicFollowers, getPublicFollowing, getMutualFollowers,
   sharePlan, getSharedPlan, saveSharedPlan, compareUsers, compareExercise,
   adminListRemovedPostsByUser, adminRestorePost,
 } from "./social.service";
 import {
-  CreatePostBody, FeedQuery, UserPostsQuery, SearchUsersQuery,
+  CreatePostBody, FeedQuery, UserPostsQuery, SearchUsersQuery, UpdatePostPrivacyBody,
 } from "./social.schema";
 
 export async function createPostController(req: Request, res: Response) {
@@ -19,6 +19,12 @@ export async function createPostController(req: Request, res: Response) {
 export async function deletePostController(req: Request, res: Response) {
   await deletePost(req.context.userId!, req.params["postId"] as string, req.context.userRole);
   res.status(204).end();
+}
+
+export async function updatePostPrivacyController(req: Request, res: Response) {
+  const { privacy } = req.body as UpdatePostPrivacyBody;
+  const post = await updatePostPrivacy(req.context.userId!, req.params["postId"] as string, privacy);
+  res.json({ data: post });
 }
 
 export async function toggleLikeController(req: Request, res: Response) {

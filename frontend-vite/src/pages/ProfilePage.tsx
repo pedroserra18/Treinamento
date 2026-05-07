@@ -93,6 +93,7 @@ export function ProfilePage() {
   const [isPrivate, setIsPrivate] = useState(user?.isPrivate ?? false)
   const [showFollowLists, setShowFollowLists] = useState(user?.showFollowLists ?? true)
   const [savingPrivacy, setSavingPrivacy] = useState(false)
+  const [privacyNotice, setPrivacyNotice] = useState<string | null>(null)
 
   const [followers, setFollowers] = useState<UserSearchResult[]>([])
   const [following, setFollowing] = useState<UserSearchResult[]>([])
@@ -170,9 +171,16 @@ export function ProfilePage() {
     setIsPrivate(next)
     setSavingPrivacy(true)
     setError(null)
+    setPrivacyNotice(null)
     try {
       const updated = await updatePrivacy(authorizedFetch, { isPrivate: next })
       applyUserPatch({ isPrivate: updated.isPrivate, showFollowLists: updated.showFollowLists })
+      if (updated.downgradedPosts > 0) {
+        setPrivacyNotice(
+          `${updated.downgradedPosts} post${updated.downgradedPosts > 1 ? 's' : ''} público${updated.downgradedPosts > 1 ? 's' : ''} ${updated.downgradedPosts > 1 ? 'foram alterados' : 'foi alterado'} para "Amigos". Você pode ajustar individualmente no Feed.`,
+        )
+        setTimeout(() => setPrivacyNotice(null), 8000)
+      }
     } catch (err) {
       setIsPrivate(!next)
       setError(err instanceof Error ? err.message : 'Erro ao salvar privacidade')
@@ -335,6 +343,12 @@ export function ProfilePage() {
       {/* Privacidade */}
       <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 space-y-4">
         <h2 className="text-base font-extrabold text-[var(--text)]">Privacidade</h2>
+
+        {privacyNotice ? (
+          <p className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+            {privacyNotice}
+          </p>
+        ) : null}
 
         <div className="flex items-center justify-between gap-3">
           <div>

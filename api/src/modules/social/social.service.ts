@@ -141,6 +141,30 @@ export async function createPost(userId: string, data: CreatePostBody) {
   return { ...post, workoutSummary: summariseSession(post.workoutSession) };
 }
 
+export async function updatePostPrivacy(userId: string, postId: string, privacy: "PUBLIC" | "FRIENDS" | "PRIVATE") {
+  const post = await prisma.workoutPost.findUnique({
+    where: { id: postId },
+    select: { userId: true, removedAt: true },
+  });
+  if (!post || post.removedAt) {
+    throw new AppError("Post não encontrado", { statusCode: 404, code: "POST_NOT_FOUND" });
+  }
+  if (post.userId !== userId) {
+    throw new AppError("Sem permissão", { statusCode: 403, code: "FORBIDDEN" });
+  }
+
+  const author = await prisma.user.findUnique({ where: { id: userId }, select: { isPrivate: true } });
+  const finalPrivacy = author?.isPrivate && privacy === "PUBLIC" ? "FRIENDS" : privacy;
+
+  const updated = await prisma.workoutPost.update({
+    where: { id: postId },
+    data: { privacy: finalPrivacy },
+    select: POST_SELECT,
+  });
+
+  return { ...updated, workoutSummary: summariseSession(updated.workoutSession) };
+}
+
 export async function deletePost(userId: string, postId: string, userRole?: string) {
   const post = await prisma.workoutPost.findUnique({
     where: { id: postId },

@@ -2,10 +2,10 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import { getFeed, toggleLike, deletePost, searchUsers, followUser, unfollowUser, getFollowing, type FeedPost, type UserSearchResult, type WorkoutExerciseSummary } from '../services/socialService'
+import { getFeed, toggleLike, deletePost, updatePostPrivacy, searchUsers, followUser, unfollowUser, getFollowing, type FeedPost, type PostPrivacy, type UserSearchResult, type WorkoutExerciseSummary } from '../services/socialService'
 import { SkeletonCard } from '../components/common/Skeleton'
 import { WorkoutPostImage } from '../components/common/WorkoutPostImage'
-import { Rss, Users, Heart } from 'lucide-react'
+import { Rss, Users, Heart, Globe2, Lock } from 'lucide-react'
 
 const PAGE_SIZE = 5
 
@@ -59,20 +59,104 @@ function ExerciseStatsRow({ ex }: { ex: WorkoutExerciseSummary }) {
   )
 }
 
-function PostCard({ post, userId, isAdmin, isFriend, onLike, onDelete, onProfileClick }: {
+const PRIVACY_OPTIONS: { value: PostPrivacy; label: string; icon: typeof Globe2 }[] = [
+  { value: 'PUBLIC', label: 'Público', icon: Globe2 },
+  { value: 'FRIENDS', label: 'Amigos', icon: Users },
+  { value: 'PRIVATE', label: 'Privado', icon: Lock },
+]
+
+function PrivacyMenu({
+  current,
+  ownerIsPrivate,
+  saving,
+  onChange,
+}: {
+  current: PostPrivacy
+  ownerIsPrivate: boolean
+  saving: boolean
+  onChange: (next: PostPrivacy) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const allowed = ownerIsPrivate ? PRIVACY_OPTIONS.filter((o) => o.value !== 'PUBLIC') : PRIVACY_OPTIONS
+  const currentOption = PRIVACY_OPTIONS.find((o) => o.value === current) ?? PRIVACY_OPTIONS[0]
+  const Icon = currentOption.icon
+
+  useEffect(() => {
+    if (!open) return
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [open])
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        disabled={saving}
+        className="inline-flex items-center gap-1 rounded-lg border border-[var(--line)] px-2 py-1 text-[11px] font-semibold text-[var(--muted)] hover:text-[var(--text)] disabled:opacity-50"
+        title="Alterar privacidade"
+      >
+        <Icon size={12} />
+        {currentOption.label}
+      </button>
+      {open ? (
+        <div className="absolute right-0 z-20 mt-1 w-40 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface)] shadow-lg">
+          {allowed.map((opt) => {
+            const OptIcon = opt.icon
+            const active = opt.value === current
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => {
+                  setOpen(false)
+                  if (!active) onChange(opt.value)
+                }}
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs ${
+                  active ? 'bg-[var(--surface-hover)] text-[var(--brand)]' : 'text-[var(--text)] hover:bg-[var(--surface-hover)]'
+                }`}
+              >
+                <OptIcon size={13} />
+                {opt.label}
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function PostCard({ post, userId, isAdmin, isFriend, ownerIsPrivate, onLike, onDelete, onPrivacyChange, onProfileClick }: {
   post: FeedPost
   userId: string | undefined
   isAdmin: boolean
   isFriend: boolean
+  ownerIsPrivate: boolean
   onLike: (id: string) => void
   onDelete: (id: string) => void
+  onPrivacyChange: (id: string, next: PostPrivacy) => Promise<void>
   onProfileClick: (id: string) => void
 }) {
   const isOwn = post.user.id === userId
   const canDelete = isOwn || isAdmin
   const [expanded, setExpanded] = useState(false)
+  const [savingPrivacy, setSavingPrivacy] = useState(false)
   const hasValidPhoto = Boolean(post.photoUrl) && !post.photoUrl!.startsWith('blob:')
   const hasPhoto = hasValidPhoto
+
+  const handlePrivacy = async (next: PostPrivacy) => {
+    setSavingPrivacy(true)
+    try {
+      await onPrivacyChange(post.id, next)
+    } finally {
+      setSavingPrivacy(false)
+    }
+  }
 
   return (
     <article className="overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)]">
@@ -115,20 +199,30 @@ function PostCard({ post, userId, isAdmin, isFriend, onLike, onDelete, onProfile
                 <p className="text-xs text-[var(--muted)]">{timeAgo(post.createdAt)}</p>
               </div>
             </button>
-            {canDelete && (
-              <button
-                type="button"
-                onClick={() => onDelete(post.id)}
-                className={`rounded-lg border px-2 py-1 text-xs ${
-                  !isOwn && isAdmin
-                    ? 'border-amber-500/50 text-amber-400'
-                    : 'border-red-500/40 text-red-400'
-                }`}
-                title={!isOwn && isAdmin ? 'Remover como administrador' : 'Deletar'}
-              >
-                {!isOwn && isAdmin ? 'Remover (admin)' : 'Deletar'}
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {isOwn && (
+                <PrivacyMenu
+                  current={post.privacy}
+                  ownerIsPrivate={ownerIsPrivate}
+                  saving={savingPrivacy}
+                  onChange={(next) => void handlePrivacy(next)}
+                />
+              )}
+              {canDelete && (
+                <button
+                  type="button"
+                  onClick={() => onDelete(post.id)}
+                  className={`rounded-lg border px-2 py-1 text-xs ${
+                    !isOwn && isAdmin
+                      ? 'border-amber-500/50 text-amber-400'
+                      : 'border-red-500/40 text-red-400'
+                  }`}
+                  title={!isOwn && isAdmin ? 'Remover como administrador' : 'Deletar'}
+                >
+                  {!isOwn && isAdmin ? 'Remover (admin)' : 'Deletar'}
+                </button>
+              )}
+            </div>
           </header>
 
           {post.caption && <p className="text-sm leading-relaxed text-[var(--text)]">{post.caption}</p>}
@@ -333,6 +427,15 @@ export function FeedPage() {
     } catch { /* silent */ }
   }
 
+  const handlePrivacyChange = async (postId: string, next: PostPrivacy) => {
+    try {
+      const updated = await updatePostPrivacy(authorizedFetch, postId, next)
+      setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, privacy: updated.privacy } : p)))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao alterar privacidade')
+    }
+  }
+
   const handleDelete = async (postId: string) => {
     const post = posts.find((p) => p.id === postId)
     const isOwn = post?.user.id === user?.id
@@ -470,8 +573,10 @@ export function FeedPage() {
             userId={user?.id}
             isAdmin={user?.role === 'ADMIN'}
             isFriend={followingIds.has(post.user.id)}
+            ownerIsPrivate={user?.isPrivate ?? false}
             onLike={handleLike}
             onDelete={handleDelete}
+            onPrivacyChange={handlePrivacyChange}
             onProfileClick={(id) => navigate(`/u/${id}`)}
           />
         ))}
