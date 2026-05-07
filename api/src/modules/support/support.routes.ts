@@ -20,6 +20,10 @@ import {
   userResolveController,
 } from "./support.controller";
 import {
+  adminListRemovedPostsController,
+  adminRestorePostController,
+} from "../social/social.controller";
+import {
   adminListQuerySchema,
   adminReplySchema,
   adminUpdateStatusSchema,
@@ -119,6 +123,20 @@ router.post(
   requireAuth,
   requireAdminRole,
   asyncHandler(autoCloseController)
+);
+
+// Removed posts review (used from support tickets)
+router.get(
+  "/admin/support/users/:userId/removed-posts",
+  requireAuth,
+  requireAdminRole,
+  asyncHandler(adminListRemovedPostsController)
+);
+router.post(
+  "/admin/support/posts/:postId/restore",
+  requireAuth,
+  requireAdminRole,
+  asyncHandler(adminRestorePostController)
 );
 
 export default router;

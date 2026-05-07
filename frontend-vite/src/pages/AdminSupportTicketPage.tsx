@@ -1,16 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowLeft, FileText, Send, ShieldCheck, StickyNote } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronUp, FileText, RotateCcw, Send, ShieldCheck, StickyNote, Trash2 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import {
   STATUS_COLORS,
   STATUS_LABELS,
   TOPIC_LABELS,
   adminGetTicket,
+  adminListRemovedPosts,
   adminPostReply,
+  adminRestorePost,
   adminUpdateStatus,
   listTemplates,
+  type RemovedPost,
   type SupportMessage,
   type SupportTemplate,
   type SupportTicketDetail,
@@ -98,6 +101,9 @@ export function AdminSupportTicketPage() {
   const [nextStatus, setNextStatus] = useState<TicketStatus | ''>('')
   const [sending, setSending] = useState(false)
   const [updatingStatus, setUpdatingStatus] = useState(false)
+  const [removedPosts, setRemovedPosts] = useState<RemovedPost[]>([])
+  const [removedPostsOpen, setRemovedPostsOpen] = useState(false)
+  const [restoringId, setRestoringId] = useState<string | null>(null)
   const scrollerRef = useRef<HTMLDivElement>(null)
 
   const refresh = async () => {
@@ -106,6 +112,11 @@ export function AdminSupportTicketPage() {
       const result = await adminGetTicket(authorizedFetch, ticketId)
       setData(result)
       setError(null)
+      const removed = await adminListRemovedPosts(authorizedFetch, result.ticket.user.id).catch(() => ({ items: [] }))
+      setRemovedPosts(removed.items)
+      if (result.ticket.topic === 'POST_REMOVED' && removed.items.length > 0) {
+        setRemovedPostsOpen(true)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar ticket')
     } finally {
@@ -120,6 +131,19 @@ export function AdminSupportTicketPage() {
       .then((d) => setTemplates(d.items))
       .catch(() => setTemplates([]))
   }, [ticketId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleRestorePost = async (postId: string) => {
+    if (!window.confirm('Restaurar este post? Ele voltará a ficar visível para o usuário e seguidores.')) return
+    setRestoringId(postId)
+    try {
+      await adminRestorePost(authorizedFetch, postId)
+      setRemovedPosts((prev) => prev.filter((p) => p.id !== postId))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao restaurar post')
+    } finally {
+      setRestoringId(null)
+    }
+  }
 
   useEffect(() => {
     scrollerRef.current?.scrollTo({ top: scrollerRef.current.scrollHeight, behavior: 'smooth' })
@@ -233,6 +257,72 @@ export function AdminSupportTicketPage() {
           <MessageBubble key={m.id} message={m} />
         ))}
       </div>
+
+      {/* Removed posts (admin review) */}
+      {removedPosts.length > 0 ? (
+        <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)]">
+          <button
+            type="button"
+            onClick={() => setRemovedPostsOpen((v) => !v)}
+            className="flex w-full items-center justify-between gap-2 p-3 text-left"
+          >
+            <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[var(--text)]">
+              <Trash2 size={13} className="text-rose-400" />
+              Posts removidos do usuário
+              <span className="rounded-full bg-rose-500/15 px-2 py-0.5 text-[10px] text-rose-300">
+                {removedPosts.length}
+              </span>
+            </span>
+            {removedPostsOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          </button>
+          {removedPostsOpen ? (
+            <div className="space-y-2 border-t border-[var(--line)] p-3">
+              {removedPosts.map((post) => (
+                <div
+                  key={post.id}
+                  className="flex gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-2"
+                >
+                  {post.photoUrl ? (
+                    <img
+                      src={post.photoUrl}
+                      alt="Post removido"
+                      className="h-20 w-20 flex-shrink-0 rounded-lg object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-20 w-20 flex-shrink-0 items-center justify-center rounded-lg border border-[var(--line)] bg-[var(--surface)] text-[10px] text-[var(--muted)]">
+                      sem foto
+                    </div>
+                  )}
+                  <div className="flex min-w-0 flex-1 flex-col gap-1">
+                    {post.caption ? (
+                      <p className="line-clamp-2 text-xs text-[var(--text)]">{post.caption}</p>
+                    ) : (
+                      <p className="text-xs italic text-[var(--muted)]">(sem legenda)</p>
+                    )}
+                    <p className="text-[10px] text-[var(--muted)]">
+                      Postado em {formatDateTime(post.createdAt)} · Removido em {formatDateTime(post.removedAt)}
+                    </p>
+                    {post.removalReason ? (
+                      <p className="text-[10px] text-rose-300">Motivo: {post.removalReason}</p>
+                    ) : null}
+                    <div className="mt-auto flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => handleRestorePost(post.id)}
+                        disabled={restoringId === post.id}
+                        className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[11px] font-bold text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
+                      >
+                        <RotateCcw size={12} />
+                        {restoringId === post.id ? 'Restaurando...' : 'Restaurar post'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Templates */}
       {templates.length > 0 ? (

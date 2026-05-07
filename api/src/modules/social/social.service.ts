@@ -141,14 +141,24 @@ export async function createPost(userId: string, data: CreatePostBody) {
 export async function deletePost(userId: string, postId: string, userRole?: string) {
   const post = await prisma.workoutPost.findUnique({
     where: { id: postId },
-    select: { userId: true, caption: true, photoUrl: true },
+    select: { userId: true, caption: true, photoUrl: true, removedAt: true },
   });
   if (!post) throw new AppError("Post não encontrado", { statusCode: 404, code: "POST_NOT_FOUND" });
   const isOwner = post.userId === userId;
   const isAdmin = userRole === "ADMIN";
   if (!isOwner && !isAdmin) throw new AppError("Sem permissão", { statusCode: 403, code: "FORBIDDEN" });
 
-  await prisma.workoutPost.delete({ where: { id: postId } });
+  if (isOwner) {
+    await prisma.workoutPost.delete({ where: { id: postId } });
+  } else {
+    if (post.removedAt) {
+      throw new AppError("Post já foi removido", { statusCode: 400, code: "POST_ALREADY_REMOVED" });
+    }
+    await prisma.workoutPost.update({
+      where: { id: postId },
+      data: { removedAt: new Date(), removedByAdminId: userId },
+    });
+  }
 
   if (!isOwner && isAdmin) {
     await createNotification({
@@ -161,9 +171,54 @@ export async function deletePost(userId: string, postId: string, userRole?: stri
   }
 }
 
+export async function adminListRemovedPostsByUser(targetUserId: string) {
+  const posts = await prisma.workoutPost.findMany({
+    where: { userId: targetUserId, removedAt: { not: null } },
+    orderBy: { removedAt: "desc" },
+    select: {
+      id: true,
+      caption: true,
+      photoUrl: true,
+      privacy: true,
+      likesCount: true,
+      createdAt: true,
+      removedAt: true,
+      removalReason: true,
+      removedByAdminId: true,
+    },
+  });
+  return posts;
+}
+
+export async function adminRestorePost(postId: string) {
+  const post = await prisma.workoutPost.findUnique({
+    where: { id: postId },
+    select: { id: true, userId: true, removedAt: true },
+  });
+  if (!post) {
+    throw new AppError("Post não encontrado", { statusCode: 404, code: "POST_NOT_FOUND" });
+  }
+  if (!post.removedAt) {
+    throw new AppError("Post não está removido", { statusCode: 400, code: "POST_NOT_REMOVED" });
+  }
+
+  await prisma.workoutPost.update({
+    where: { id: postId },
+    data: { removedAt: null, removedByAdminId: null, removalReason: null },
+  });
+
+  await createNotification({
+    userId: post.userId,
+    type: "POST_REMOVED_BY_ADMIN",
+    title: "Seu post foi restaurado",
+    body: "Após análise do suporte, seu post voltou a ficar visível.",
+    metadata: { postId, restored: true },
+  }).catch(() => undefined);
+}
+
 export async function toggleLike(userId: string, postId: string) {
-  const post = await prisma.workoutPost.findUnique({ where: { id: postId }, select: { id: true, userId: true, privacy: true } });
-  if (!post) throw new AppError("Post não encontrado", { statusCode: 404, code: "POST_NOT_FOUND" });
+  const post = await prisma.workoutPost.findUnique({ where: { id: postId }, select: { id: true, userId: true, privacy: true, removedAt: true } });
+  if (!post || post.removedAt) throw new AppError("Post não encontrado", { statusCode: 404, code: "POST_NOT_FOUND" });
 
   const existing = await prisma.postLike.findUnique({ where: { postId_userId: { postId, userId } } });
 
@@ -189,6 +244,7 @@ export async function getFeed(userId: string, page: number, pageSize: number) {
 
   const posts = await prisma.workoutPost.findMany({
     where: {
+      removedAt: null,
       OR: [
         { privacy: "PUBLIC" },
         { privacy: "FRIENDS", userId: { in: followingIds } },
@@ -237,7 +293,7 @@ export async function getUserPosts(viewerId: string | undefined, targetUserId: s
       : { privacy: "PUBLIC" as const };
 
   const posts = await prisma.workoutPost.findMany({
-    where: { userId: targetUserId, ...privacyFilter },
+    where: { userId: targetUserId, removedAt: null, ...privacyFilter },
     orderBy: { createdAt: "desc" },
     skip: (page - 1) * pageSize,
     take: pageSize,
