@@ -4,6 +4,7 @@ import { requireAuth, optionalAuth } from "../../middlewares/auth.middleware";
 import { validateRequest as validate } from "../../middlewares/validation.middleware";
 import {
   createPostSchema, feedQuerySchema, userPostsQuerySchema, searchUsersSchema, updatePostPrivacySchema,
+  createCommentSchema, commentsQuerySchema,
 } from "./social.schema";
 import {
   createPostController, deletePostController, updatePostPrivacyController, toggleLikeController,
@@ -13,6 +14,7 @@ import {
   getPublicFollowersController, getPublicFollowingController, getMutualFollowersController,
   sharePlanController, getSharedPlanController, saveSharedPlanController,
   compareUsersController, compareExerciseController,
+  listCommentsController, createCommentController, deleteCommentController,
 } from "./social.controller";
 
 const router = Router();
@@ -25,6 +27,11 @@ router.post("/posts", requireAuth, validate({ body: createPostSchema }), asyncHa
 router.delete("/posts/:postId", requireAuth, asyncHandler(deletePostController));
 router.patch("/posts/:postId/privacy", requireAuth, validate({ body: updatePostPrivacySchema }), asyncHandler(updatePostPrivacyController));
 router.post("/posts/:postId/like", requireAuth, asyncHandler(toggleLikeController));
+
+// Comments
+router.get("/posts/:postId/comments", requireAuth, validate({ query: commentsQuerySchema }), asyncHandler(listCommentsController));
+router.post("/posts/:postId/comments", requireAuth, validate({ body: createCommentSchema }), asyncHandler(createCommentController));
+router.delete("/posts/:postId/comments/:commentId", requireAuth, asyncHandler(deleteCommentController));
 
 // User posts (public profile posts)
 router.get("/users/:userId/posts", optionalAuth, validate({ query: userPostsQuerySchema }), asyncHandler(getUserPostsController));

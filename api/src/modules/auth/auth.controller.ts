@@ -23,6 +23,7 @@ import {
   refreshSession,
   registerWithEmail,
   updateAvatar,
+  updateHandle,
   updatePrivacy
 } from "./auth.service";
 import {
@@ -33,7 +34,8 @@ import {
   LoginBody,
   OnboardingCompleteBody,
   RefreshBody,
-  RegisterBody
+  RegisterBody,
+  UpdateHandleBody
 } from "./auth.schema";
 
 function maskEmail(email: string): string {
@@ -87,6 +89,7 @@ export async function registerVerifyCodeController(req: Request, res: Response):
 
   const result = await registerWithEmail({
     name: body.name,
+    handle: body.handle,
     email: body.email,
     password: body.password
   });
@@ -328,6 +331,13 @@ export async function updateAvatarController(req: Request, res: Response): Promi
   const userId = req.context.userId as string;
   const { avatarUrl } = req.body as { avatarUrl: string | null };
   const user = await updateAvatar(userId, avatarUrl ?? null);
+  res.json({ data: { user }, meta: { requestId: req.context.requestId } });
+}
+
+export async function updateHandleController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const { handle } = req.body as UpdateHandleBody;
+  const user = await updateHandle(userId, handle);
   res.json({ data: { user }, meta: { requestId: req.context.requestId } });
 }
 

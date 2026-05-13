@@ -16,7 +16,8 @@ import {
   refreshBodySchema,
   registerRequestCodeBodySchema,
   registerVerifyCodeBodySchema,
-  registerBodySchema
+  registerBodySchema,
+  updateHandleBodySchema
 } from "./auth.schema";
 import {
   forgotPasswordConfirmController,
@@ -31,6 +32,7 @@ import {
   onboardingStatusController,
   profileController,
   updateAvatarController,
+  updateHandleController,
   updatePrivacyController,
   registerRequestCodeController,
   registerVerifyCodeController,
@@ -109,6 +111,12 @@ router.post("/auth/logout", requireAuth, asyncHandler(async (req, res) => logout
 router.get("/auth/profile", requireAuth, asyncHandler(async (req, res) => profileController(req, res)))
 router.patch("/auth/profile/avatar", requireAuth, asyncHandler(async (req, res) => updateAvatarController(req, res)));
 router.patch("/auth/profile/privacy", requireAuth, asyncHandler(async (req, res) => updatePrivacyController(req, res)));
+router.patch(
+  "/auth/profile/handle",
+  requireAuth,
+  validateRequest({ body: updateHandleBodySchema }),
+  asyncHandler(async (req, res) => updateHandleController(req, res))
+);
 router.get(
   "/auth/onboarding/status",
   requireAuth,

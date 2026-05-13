@@ -4,12 +4,14 @@ import { prisma } from "../../config/prisma";
 import { OAuth2Client } from "google-auth-library";
 import { createHash, randomUUID } from "node:crypto";
 import { AppError } from "../../shared/errors/app-error";
+import { deriveHandleBase, generateUniqueHandle } from "../../shared/utils/handle";
 
 const googleClient = new OAuth2Client(env.googleClientId);
 
 type SafeUser = {
   id: string;
   name: string | null;
+  handle: string;
   email: string;
   role: "USER" | "COACH" | "ADMIN";
   sex: "MALE" | "FEMALE" | "OTHER";
@@ -34,6 +36,7 @@ type GoogleProfile = {
 function toSafeUser(user: {
   id: string;
   name: string | null;
+  handle: string;
   email: string;
   role: "USER" | "COACH" | "ADMIN";
   sex: "MALE" | "FEMALE" | "OTHER";
@@ -43,6 +46,7 @@ function toSafeUser(user: {
   return {
     id: user.id,
     name: user.name,
+    handle: user.handle,
     email: user.email,
     role: user.role,
     sex: user.sex,
@@ -232,6 +236,7 @@ export async function loginWithGoogleCode(code: string): Promise<{ tokens: AuthT
         select: {
           id: true,
           name: true,
+          handle: true,
           email: true,
           role: true,
           sex: true,
@@ -257,6 +262,7 @@ export async function loginWithGoogleCode(code: string): Promise<{ tokens: AuthT
     select: {
       id: true,
       name: true,
+      handle: true,
       email: true,
       role: true,
       sex: true,
@@ -284,9 +290,17 @@ export async function loginWithGoogleCode(code: string): Promise<{ tokens: AuthT
     });
   }
 
+  // Auto-generate a handle from the Google profile (display name first, then
+  // email local-part as fallback). Collisions get a numeric suffix so two users
+  // with the same first name can sign in without bumping into each other.
+  const handleSeed = google.name?.trim() || google.email;
+  const handleBase = deriveHandleBase(handleSeed.includes("@") ? handleSeed : `${handleSeed}@x`, google.sub);
+  const handle = await generateUniqueHandle(handleBase);
+
   const createdUser = await prisma.user.create({
     data: {
       name: google.name,
+      handle,
       avatarUrl: google.picture,
       email: google.email,
       normalizedEmail: google.email,
@@ -297,6 +311,7 @@ export async function loginWithGoogleCode(code: string): Promise<{ tokens: AuthT
     select: {
       id: true,
       name: true,
+      handle: true,
       email: true,
       role: true,
       sex: true,
@@ -340,6 +355,7 @@ export async function linkGoogleToAuthenticatedUser(
     select: {
       id: true,
       name: true,
+      handle: true,
       email: true,
       role: true,
       sex: true,

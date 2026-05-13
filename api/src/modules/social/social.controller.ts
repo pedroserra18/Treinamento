@@ -5,9 +5,11 @@ import {
   searchUsers, getPublicProfile, getPublicFollowers, getPublicFollowing, getMutualFollowers,
   sharePlan, getSharedPlan, saveSharedPlan, compareUsers, compareExercise,
   adminListRemovedPostsByUser, adminRestorePost,
+  listComments, createComment, deleteComment,
 } from "./social.service";
 import {
   CreatePostBody, FeedQuery, UserPostsQuery, SearchUsersQuery, UpdatePostPrivacyBody,
+  CreateCommentBody, CommentsQuery,
 } from "./social.schema";
 
 export async function createPostController(req: Request, res: Response) {
@@ -126,5 +128,27 @@ export async function adminListRemovedPostsController(req: Request, res: Respons
 
 export async function adminRestorePostController(req: Request, res: Response) {
   await adminRestorePost(req.params["postId"] as string);
+  res.status(204).end();
+}
+
+export async function listCommentsController(req: Request, res: Response) {
+  const { page, pageSize } = req.query as unknown as CommentsQuery;
+  const items = await listComments(req.context.userId!, req.params["postId"] as string, page, pageSize);
+  res.json({ data: items });
+}
+
+export async function createCommentController(req: Request, res: Response) {
+  const { content } = req.body as CreateCommentBody;
+  const comment = await createComment(req.context.userId!, req.params["postId"] as string, content);
+  res.status(201).json({ data: comment });
+}
+
+export async function deleteCommentController(req: Request, res: Response) {
+  await deleteComment(
+    req.context.userId!,
+    req.params["postId"] as string,
+    req.params["commentId"] as string,
+    req.context.userRole,
+  );
   res.status(204).end();
 }

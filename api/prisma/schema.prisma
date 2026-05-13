@@ -161,6 +161,9 @@ model User {
   id                  String          @id @default(cuid())
   email               String          @unique
   normalizedEmail     String          @unique
+  // Public identifier shown as @handle in the feed/profile. Lowercase
+  // alphanumeric + `._-`, 3–30 chars, enforced at the API layer.
+  handle              String          @unique
   name                String?
   avatarUrl           String?
   passwordHash        String?
@@ -194,6 +197,7 @@ model User {
   following         Follow[]         @relation("UserFollowers")
   workoutPosts      WorkoutPost[]
   postLikes         PostLike[]
+  postComments      PostComment[]
   sharedPlans       SharedPlan[]
   notifications     Notification[]
   supportTickets    SupportTicket[]
@@ -484,6 +488,7 @@ model WorkoutPost {
   user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   workoutSession WorkoutSession? @relation(fields: [workoutSessionId], references: [id], onDelete: SetNull)
   likes          PostLike[]
+  comments       PostComment[]
 
   @@index([userId, createdAt])
   @@index([privacy, createdAt])
@@ -504,6 +509,22 @@ model PostLike {
   @@index([postId])
   @@index([userId])
   @@map("post_likes")
+}
+
+model PostComment {
+  id        String   @id @default(cuid())
+  postId    String
+  userId    String
+  content   String   @db.VarChar(500)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  post WorkoutPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([postId, createdAt])
+  @@index([userId])
+  @@map("post_comments")
 }
 
 model SharedPlan {
