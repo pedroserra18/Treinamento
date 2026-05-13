@@ -251,6 +251,7 @@ export async function listUserWorkoutPlans(userId: string) {
               equipment: true,
               isBodyweight: true,
               allowsExtraLoad: true,
+              trackingType: true,
               thumbnailUrl: true,
               videoUrl: true
             }
@@ -362,7 +363,8 @@ export async function addExerciseToPlan(
             difficulty: true,
             equipment: true,
             isBodyweight: true,
-            allowsExtraLoad: true
+            allowsExtraLoad: true,
+            trackingType: true
           }
         }
       }
@@ -486,7 +488,8 @@ export async function updatePlanExercise(
           difficulty: true,
           equipment: true,
           isBodyweight: true,
-          allowsExtraLoad: true
+          allowsExtraLoad: true,
+          trackingType: true
         }
       }
     }
@@ -633,6 +636,7 @@ export async function searchExercisesForPlan(userId: string, query: SearchExerci
       equipment: true,
       isBodyweight: true,
       allowsExtraLoad: true,
+      trackingType: true,
       thumbnailUrl: true,
       videoUrl: true
     }
@@ -967,6 +971,8 @@ export async function listLatestExerciseHistory(userId: string, exerciseIds: str
       setNumber: true,
       reps: true,
       weightKg: true,
+      durationSec: true,
+      distanceMeters: true,
       perceivedExertion: true,
       notes: true
     }
@@ -999,6 +1005,8 @@ export async function listLatestExerciseHistory(userId: string, exerciseIds: str
           setNumber: entry.setNumber,
           reps: entry.reps,
           weightKg: entry.weightKg,
+          durationSec: entry.durationSec,
+          distanceMeters: entry.distanceMeters,
           perceivedExertion: entry.perceivedExertion,
           rir: extractRirFromNotes(entry.notes)
         }))

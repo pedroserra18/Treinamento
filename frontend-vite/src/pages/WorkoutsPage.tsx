@@ -552,7 +552,7 @@ export function WorkoutsPage({
         return
       }
 
-      void addToPlan(targetPlan, payload)
+      void addToPlan(targetPlan, { ...payload, trackingType: payload.trackingType ?? 'REPS' })
     }
 
     window.addEventListener(eventName, handler)

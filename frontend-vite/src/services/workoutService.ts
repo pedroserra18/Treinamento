@@ -14,6 +14,8 @@ type FallbackHistoryEntry = {
   setNumber: number
   reps: number | null
   weightKg: number | null
+  durationSec: number | null
+  distanceMeters: number | null
   notes: string | null
 }
 
@@ -58,6 +60,8 @@ async function getLatestExercisePerformanceFallback(
         setNumber: number
         reps: number | null
         weightKg: number | null
+        durationSec: number | null
+        distanceMeters: number | null
         perceivedExertion: number | null
         rir: number | null
       }>
@@ -80,6 +84,8 @@ async function getLatestExercisePerformanceFallback(
           setNumber: item.setNumber,
           reps: item.reps,
           weightKg: item.weightKg,
+          durationSec: item.durationSec ?? null,
+          distanceMeters: item.distanceMeters ?? null,
           perceivedExertion: null,
           rir: extractRirFromNotes(item.notes),
         }))
@@ -319,17 +325,25 @@ export async function searchExercisesForPlan(
     return trimmed.length > 0 ? trimmed : null
   }
 
-  const mapRawExerciseToOption = (value: Record<string, unknown>): ExerciseOption => ({
-    id: String(value.id ?? ''),
-    name: String(value.name ?? ''),
-    primaryMuscleGroup: String(value.primaryMuscleGroup ?? ''),
-    difficulty: String(value.difficulty ?? ''),
-    equipment: String(value.equipment ?? ''),
-    isBodyweight: Boolean(value.isBodyweight),
-    allowsExtraLoad: Boolean(value.allowsExtraLoad),
-    thumbnailUrl: normalizeMediaUrl(value.thumbnailUrl),
-    videoUrl: normalizeMediaUrl(value.videoUrl),
-  })
+  const mapRawExerciseToOption = (value: Record<string, unknown>): ExerciseOption => {
+    const rawTracking = String(value.trackingType ?? 'REPS')
+    const trackingType: ExerciseOption['trackingType'] =
+      rawTracking === 'TIME' || rawTracking === 'DISTANCE' || rawTracking === 'REPS_AND_TIME'
+        ? rawTracking
+        : 'REPS'
+    return {
+      id: String(value.id ?? ''),
+      name: String(value.name ?? ''),
+      primaryMuscleGroup: String(value.primaryMuscleGroup ?? ''),
+      difficulty: String(value.difficulty ?? ''),
+      equipment: String(value.equipment ?? ''),
+      isBodyweight: Boolean(value.isBodyweight),
+      allowsExtraLoad: Boolean(value.allowsExtraLoad),
+      trackingType,
+      thumbnailUrl: normalizeMediaUrl(value.thumbnailUrl),
+      videoUrl: normalizeMediaUrl(value.videoUrl),
+    }
+  }
 
   const normalizedQ = input.q?.trim() ?? ''
   const normalizedMuscleFilter = input.primaryMuscleGroup?.trim() ?? ''
@@ -574,6 +588,8 @@ export async function completeWorkoutSession(
       exerciseId: string
       setNumber: number
       reps?: number
+      durationSec?: number
+      distanceMeters?: number
       weightKg?: number
       perceivedExertion?: number
       notes?: string

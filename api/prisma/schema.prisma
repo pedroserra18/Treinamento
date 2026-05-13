@@ -56,6 +56,13 @@ enum ExerciseDifficulty {
   ADVANCED
 }
 
+enum ExerciseTrackingType {
+  REPS
+  TIME
+  DISTANCE
+  REPS_AND_TIME
+}
+
 enum GenderFocus {
   UNISEX
   FEMALE
@@ -233,6 +240,7 @@ model Exercise {
   genderFocus          GenderFocus        @default(UNISEX)
   equipment            String
   difficulty           ExerciseDifficulty @default(INTERMEDIATE)
+  trackingType         ExerciseTrackingType @default(REPS)
   thumbnailUrl         String?
   videoUrl             String?
   instructions         String?

@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
@@ -15,12 +16,15 @@ type SeedExerciseInput = {
   videoUrl: string;
   instructions: string;
   isCompound: boolean;
+  isBodyweight: boolean;
   isActive: boolean;
 };
 
+type GroupExerciseEntry = string | { name: string; secondary: string | null };
+
 type GroupSpec = {
   primaryMuscleGroup: string;
-  names: string[];
+  names: GroupExerciseEntry[];
   defaultSecondary: string | null;
 };
 
@@ -44,6 +48,9 @@ const GROUPS_20: GroupSpec[] = [
       "Flexao tradicional",
       "Flexao declinada",
       "Flexao com pegada fechada",
+      "Flexao inclinada",
+      "Flexao do arqueiro",
+      "Flexao com palmas",
       "Mergulho para peito",
       "Pullover com halter",
       "Supino com pausa",
@@ -74,7 +81,11 @@ const GROUPS_20: GroupSpec[] = [
       "Puxada com triangulo",
       "Remada alta para dorsal",
       "Levantamento terra convencional",
-      "Levantamento terra sumo"
+      "Levantamento terra sumo",
+      "Remada invertida",
+      "Remada invertida supinada",
+      "Barra fixa neutra",
+      { name: "Superman no chao", secondary: null }
     ]
   },
   {
@@ -126,7 +137,11 @@ const GROUPS_20: GroupSpec[] = [
       "Kettlebell swing",
       "Coice no smith",
       "Elevacao pelvica unilateral",
-      "Good morning com mini band"
+      "Good morning com mini band",
+      "Ponte de gluteo bilateral no chao",
+      "Coice em quatro apoios",
+      "Abducao em quatro apoios",
+      "Concha lateral"
     ]
   },
   {
@@ -152,12 +167,35 @@ const GROUPS_20: GroupSpec[] = [
       "Press com kettlebell",
       "Rotacao externa no cabo",
       "Rotacao interna no cabo",
-      "Pike push up"
+      "Pike push up",
+      "Flexao pike elevada",
+      "Caminhada na parede",
+      "Flexao parada de mao na parede"
     ]
   }
 ];
 
 const GROUPS_10: GroupSpec[] = [
+  {
+    primaryMuscleGroup: "QUADS",
+    defaultSecondary: "GLUTES",
+    names: [
+      "Agachamento livre sem peso",
+      "Agachamento pistola",
+      "Agachamento cossaco",
+      "Agachamento com salto pliometrico",
+      "Agachamento isometrico na parede"
+    ]
+  },
+  {
+    primaryMuscleGroup: "HAMSTRINGS",
+    defaultSecondary: "GLUTES",
+    names: [
+      "Flexao nordica assistida",
+      "Deslizamento de posterior no chao",
+      "Stiff unilateral sem peso"
+    ]
+  },
   {
     primaryMuscleGroup: "BICEPS",
     defaultSecondary: "FOREARM",
@@ -187,7 +225,8 @@ const GROUPS_10: GroupSpec[] = [
       "Triceps maquina",
       "Triceps banco",
       "Triceps coice com halter",
-      "Triceps unilateral no cabo"
+      "Triceps unilateral no cabo",
+      "Flexao diamante"
     ]
   },
   {
@@ -203,7 +242,9 @@ const GROUPS_10: GroupSpec[] = [
       "Panturrilha no step",
       "Panturrilha sentado com halter",
       "Panturrilha em pe com halteres",
-      "Panturrilha unilateral no step"
+      "Panturrilha unilateral no step",
+      "Panturrilha em pe sem peso",
+      "Panturrilha em pe com salto"
     ]
   },
   {
@@ -235,10 +276,74 @@ const GROUPS_10: GroupSpec[] = [
       "Dead bug",
       "Hollow hold",
       "Russian twist",
-      "Mountain climber"
+      "Mountain climber",
+      "Abdominal canivete",
+      "Abdominal bicicleta",
+      "Elevacao de pernas pendurado"
     ]
   }
 ];
+
+const BODYWEIGHT_NAMES = new Set<string>([
+  "Flexao tradicional",
+  "Flexao declinada",
+  "Flexao com pegada fechada",
+  "Flexao inclinada",
+  "Flexao do arqueiro",
+  "Flexao com palmas",
+  "Mergulho para peito",
+  "Barra fixa pronada",
+  "Barra fixa supinada",
+  "Barra fixa neutra",
+  "Remada invertida",
+  "Remada invertida supinada",
+  "Superman no chao",
+  "Agachamento livre sem peso",
+  "Pistol squat assistido",
+  "Agachamento pistola",
+  "Agachamento cossaco",
+  "Agachamento com salto pliometrico",
+  "Agachamento isometrico na parede",
+  "Flexao nordica assistida",
+  "Deslizamento de posterior no chao",
+  "Stiff unilateral sem peso",
+  "Glute bridge unilateral",
+  "Frog pump",
+  "Ponte de gluteo bilateral no chao",
+  "Coice em quatro apoios",
+  "Abducao em quatro apoios",
+  "Concha lateral",
+  "Pike push up",
+  "Flexao pike elevada",
+  "Caminhada na parede",
+  "Flexao parada de mao na parede",
+  "Mergulho nas paralelas",
+  "Triceps banco",
+  "Flexao diamante",
+  "Pegada isometrica na barra",
+  "Hang isometrico na barra fixa",
+  "Flexao de dedos com hand gripper",
+  "Panturrilha no step",
+  "Panturrilha unilateral no step",
+  "Panturrilha unilateral em pe",
+  "Panturrilha em pe sem peso",
+  "Panturrilha em pe com salto",
+  "Abdominal supra no solo",
+  "Abdominal infra elevacao de pernas",
+  "Prancha frontal",
+  "Prancha lateral",
+  "Dead bug",
+  "Hollow hold",
+  "Russian twist",
+  "Mountain climber",
+  "Abdominal canivete",
+  "Abdominal bicicleta",
+  "Elevacao de pernas pendurado"
+]);
+
+function inferIsBodyweight(name: string): boolean {
+  return BODYWEIGHT_NAMES.has(name);
+}
 
 const EQUIPMENT_BY_KEYWORD: Array<{ test: RegExp; equipment: string }> = [
   { test: /barra|smith|landmine|rack/i, equipment: "Barbell" },
@@ -260,6 +365,10 @@ function slugify(value: string): string {
 }
 
 function inferEquipment(name: string): string {
+  if (BODYWEIGHT_NAMES.has(name)) {
+    return "Bodyweight";
+  }
+
   for (const rule of EQUIPMENT_BY_KEYWORD) {
     if (rule.test.test(name)) {
       return rule.equipment;
@@ -270,11 +379,11 @@ function inferEquipment(name: string): string {
 }
 
 function inferDifficulty(name: string, index: number): "BEGINNER" | "INTERMEDIATE" | "ADVANCED" {
-  if (/isometrico|pistol|rack pull|snatch|landmine|sumo|paralelas/i.test(name)) {
+  if (/isometrico|pistol|pistola|rack pull|snatch|landmine|sumo|paralelas|arqueiro|handstand|parada de mao|wall walk|caminhada na parede|cossack|cossaco|nordic|nordica/i.test(name)) {
     return "ADVANCED";
   }
 
-  if (/livre|frontal|romeno|búlgaro|unilateral|andando|martelo|overhead/i.test(name)) {
+  if (/livre|frontal|romeno|búlgaro|unilateral|andando|martelo|overhead|jump|salto|pliometric|com palmas|elevad|diamante|canivete|bicicleta|deslizamento|pendurad/i.test(name)) {
     return "INTERMEDIATE";
   }
 
@@ -294,21 +403,26 @@ function inferGenderFocus(group: string, index: number): "UNISEX" | "FEMALE" | "
 }
 
 function buildGroupExercises(spec: GroupSpec): SeedExerciseInput[] {
-  return spec.names.map((name, index) => ({
-    slug: `${slugify(name)}-${slugify(spec.primaryMuscleGroup)}-${index + 1}`,
-    name,
-    scope: "GLOBAL",
-    primaryMuscleGroup: spec.primaryMuscleGroup,
-    secondaryMuscleGroup: spec.defaultSecondary,
-    genderFocus: inferGenderFocus(spec.primaryMuscleGroup, index),
-    equipment: inferEquipment(name),
-    difficulty: inferDifficulty(name, index),
-    thumbnailUrl: "",
-    videoUrl: "",
-    instructions: "",
-    isCompound: /supino|agachamento|remada|puxada|terra|press|afundo|passada|paralelas|kettlebell swing|thruster|clean/i.test(name),
-    isActive: true
-  }));
+  return spec.names.map((entry, index) => {
+    const name = typeof entry === "string" ? entry : entry.name;
+    const secondary = typeof entry === "string" ? spec.defaultSecondary : entry.secondary;
+    return {
+      slug: `${slugify(name)}-${slugify(spec.primaryMuscleGroup)}-${index + 1}`,
+      name,
+      scope: "GLOBAL" as const,
+      primaryMuscleGroup: spec.primaryMuscleGroup,
+      secondaryMuscleGroup: secondary,
+      genderFocus: inferGenderFocus(spec.primaryMuscleGroup, index),
+      equipment: inferEquipment(name),
+      difficulty: inferDifficulty(name, index),
+      thumbnailUrl: "",
+      videoUrl: "",
+      instructions: "",
+      isCompound: /supino|agachamento|remada|puxada|terra|press|afundo|passada|paralelas|kettlebell swing|thruster|clean/i.test(name),
+      isBodyweight: inferIsBodyweight(name),
+      isActive: true
+    };
+  });
 }
 
 function buildExercises(): SeedExerciseInput[] {
@@ -352,13 +466,12 @@ async function main() {
     });
   }
 
-  await prisma.exercise.deleteMany({
+  await prisma.exercise.updateMany({
     where: {
       scope: "GLOBAL",
-      slug: {
-        notIn: slugs
-      }
-    }
+      slug: { notIn: slugs }
+    },
+    data: { isActive: false }
   });
 }
 
