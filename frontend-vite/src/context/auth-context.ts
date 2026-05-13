@@ -12,10 +12,12 @@ export type AuthState = {
   }) => Promise<{ delivery: 'EMAIL' }>
   signUp: (input: {
     name: string
+    handle: string
     email: string
     password: string
     verificationCode: string
   }) => Promise<void>
+  updateHandle: (handle: string) => Promise<void>
   startGoogleSignIn: () => Promise<void>
   completeGoogleSignIn: (code: string, state: string) => Promise<void>
   completeOnboarding: (input: {

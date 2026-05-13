@@ -13,6 +13,7 @@ import {
   requestRegisterVerificationCode,
   secureLogout,
 } from '../services/authService'
+import { updateHandle as updateHandleRequest } from '../services/socialService'
 
 const storageKey = 'frontend-vite-auth'
 
@@ -212,6 +213,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [authorizedFetch])
 
+  const updateHandle: AuthState['updateHandle'] = useCallback(async (newHandle) => {
+    const { handle } = await updateHandleRequest(authorizedFetch, newHandle)
+    setUser((prev) => {
+      if (!prev) return prev
+      const next = { ...prev, handle }
+      const currentTokens = tokensRef.current
+      if (currentTokens) persistAuth(next, currentTokens)
+      return next
+    })
+  }, [authorizedFetch])
+
   const value: AuthState = useMemo(
     () => ({
       user,
@@ -221,6 +233,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signIn,
       requestSignUpVerificationCode,
       signUp,
+      updateHandle,
       startGoogleSignIn,
       completeGoogleSignIn,
       completeOnboarding,
@@ -236,6 +249,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signIn,
       requestSignUpVerificationCode,
       signUp,
+      updateHandle,
       startGoogleSignIn,
       completeGoogleSignIn,
       completeOnboarding,

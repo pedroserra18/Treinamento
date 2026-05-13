@@ -2,18 +2,38 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import { getFeed, toggleLike, deletePost, updatePostPrivacy, searchUsers, followUser, unfollowUser, getFollowing, type FeedPost, type PostPrivacy, type UserSearchResult, type WorkoutExerciseSummary } from '../services/socialService'
+import {
+  getFeed, toggleLike, deletePost, updatePostPrivacy,
+  searchUsers, followUser, unfollowUser, getFollowing,
+  listComments, createComment, deleteComment,
+  type FeedPost, type PostPrivacy, type UserSearchResult,
+  type WorkoutExerciseSummary, type PostComment,
+} from '../services/socialService'
 import { SkeletonCard } from '../components/common/Skeleton'
 import { WorkoutPostImage } from '../components/common/WorkoutPostImage'
-import { Rss, Users, Heart, Globe2, Lock } from 'lucide-react'
+import {
+  Rss, Users, Heart, Globe2, Lock,
+  Search, Trash2, MoreHorizontal, MessageCircle, Share2,
+  ArrowRight, ChevronUp, Send, X,
+} from 'lucide-react'
 
 const PAGE_SIZE = 5
 
+// ─── Formatters ────────────────────────────────────────────────────────────
+
 function formatDuration(sec: number | null): string {
-  if (!sec) return '-'
+  if (!sec) return '—'
   const m = Math.floor(sec / 60)
   if (m < 60) return `${m} min`
   return `${Math.floor(m / 60)}h ${m % 60}min`
+}
+
+// Volume in "tonnes" when ≥ 1000kg matches the design's "3.2 t" look,
+// kg under that, em dash for cardio/bodyweight sessions where it's 0/null.
+function formatVolume(kg: number | null | undefined): string {
+  if (kg == null || kg <= 0) return '—'
+  if (kg >= 1000) return `${(kg / 1000).toFixed(1)} t`
+  return `${Math.round(kg)} kg`
 }
 
 function timeAgo(dateStr: string): string {
@@ -24,15 +44,62 @@ function timeAgo(dateStr: string): string {
   const h = Math.floor(min / 60)
   if (h < 24) return `${h}h atrás`
   const d = Math.floor(h / 24)
-  if (d < 7) return `${d}d atrás`
+  if (d < 7) return d === 1 ? 'ontem' : `${d}d atrás`
   return new Date(dateStr).toLocaleDateString('pt-BR')
 }
+
+function formatHHMM(dateStr: string): string {
+  return new Date(dateStr).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+}
+
+// Stable avatar colour from the user id. Picking from a curated palette keeps
+// contrast against white text predictable; the hash ensures the same user
+// always lands on the same hue.
+const AVATAR_COLORS = [
+  '#E13A1A', '#5B7CFF', '#1F8A5B', '#A855F7', '#F59E0B',
+  '#06B6D4', '#EC4899', '#14B8A6', '#FF6B35', '#7A5AE0',
+]
+function avatarColorFromId(id: string): string {
+  let hash = 0
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
+}
+
+function avatarInitials(name: string | null, handle: string): string {
+  const source = name?.trim() || handle
+  return source.split(/\s+/).map(w => w[0] ?? '').slice(0, 2).join('').toUpperCase() || '?'
+}
+
+// Derives a label for the relationship chip in the post header.
+// `Você` = own post; `Amigo` = following the author; null = stranger (chip hidden).
+function getRelLabel(isOwn: boolean, isFriend: boolean): string | null {
+  if (isOwn) return 'Você'
+  if (isFriend) return 'Amigo'
+  return null
+}
+
+// Build a stable label for the workout type ("Push · Peito & Tríceps").
+// Falls back to the first muscle group seen when no caption.
+function getSplitLabel(post: FeedPost): string {
+  if (post.caption?.trim()) {
+    const firstLine = post.caption.split('\n')[0]?.trim()
+    if (firstLine && firstLine.length <= 60) return firstLine
+  }
+  const groups = post.workoutSummary?.exercises
+    .map(e => e.primaryMuscleGroup)
+    .filter(Boolean)
+  if (!groups || groups.length === 0) return 'Treino'
+  const unique = Array.from(new Set(groups)).slice(0, 3)
+  return unique.join(' · ')
+}
+
+// ─── Exercise detail row (expanded view) ───────────────────────────────────
 
 function ExerciseStatsRow({ ex }: { ex: WorkoutExerciseSummary }) {
   const totalReps = ex.sets.reduce((s, set) => s + (set.reps ?? 0), 0)
   return (
-    <article className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3 space-y-2">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
+    <article className="space-y-2 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm font-bold text-[var(--text)]">{ex.name}</p>
         <span className="rounded-full border border-[var(--line)] px-2 py-0.5 text-[11px] text-[var(--muted)]">
           {ex.primaryMuscleGroup}
@@ -59,6 +126,8 @@ function ExerciseStatsRow({ ex }: { ex: WorkoutExerciseSummary }) {
   )
 }
 
+// ─── Privacy menu (kept as-is from the previous design) ────────────────────
+
 const PRIVACY_OPTIONS: { value: PostPrivacy; label: string; icon: typeof Globe2 }[] = [
   { value: 'PUBLIC', label: 'Público', icon: Globe2 },
   { value: 'FRIENDS', label: 'Amigos', icon: Users },
@@ -66,10 +135,7 @@ const PRIVACY_OPTIONS: { value: PostPrivacy; label: string; icon: typeof Globe2 
 ]
 
 function PrivacyMenu({
-  current,
-  ownerIsPrivate,
-  saving,
-  onChange,
+  current, ownerIsPrivate, saving, onChange,
 }: {
   current: PostPrivacy
   ownerIsPrivate: boolean
@@ -97,13 +163,13 @@ function PrivacyMenu({
         type="button"
         onClick={() => setOpen((v) => !v)}
         disabled={saving}
-        className="inline-flex items-center gap-1 rounded-lg border border-[var(--line)] px-2 py-1 text-[11px] font-semibold text-[var(--muted)] hover:text-[var(--text)] disabled:opacity-50"
+        className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] px-2.5 py-1.5 text-xs font-semibold text-[var(--muted)] hover:text-[var(--text)] disabled:opacity-50"
         title="Alterar privacidade"
       >
         <Icon size={12} />
         {currentOption.label}
       </button>
-      {open ? (
+      {open && (
         <div className="absolute right-0 z-20 mt-1 w-40 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface)] shadow-lg">
           {allowed.map((opt) => {
             const OptIcon = opt.icon
@@ -112,10 +178,7 @@ function PrivacyMenu({
               <button
                 key={opt.value}
                 type="button"
-                onClick={() => {
-                  setOpen(false)
-                  if (!active) onChange(opt.value)
-                }}
+                onClick={() => { setOpen(false); if (!active) onChange(opt.value) }}
                 className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs ${
                   active ? 'bg-[var(--surface-hover)] text-[var(--brand)]' : 'text-[var(--text)] hover:bg-[var(--surface-hover)]'
                 }`}
@@ -126,12 +189,281 @@ function PrivacyMenu({
             )
           })}
         </div>
-      ) : null}
+      )}
     </div>
   )
 }
 
-function PostCard({ post, userId, isAdmin, isFriend, ownerIsPrivate, onLike, onDelete, onPrivacyChange, onProfileClick }: {
+// ─── Avatar with online dot ────────────────────────────────────────────────
+
+function Avatar({ userId, name, handle, avatarUrl, size = 44, onClick }: {
+  userId: string
+  name: string | null
+  handle: string
+  avatarUrl: string | null | undefined
+  size?: number
+  onClick?: () => void
+}) {
+  const color = avatarColorFromId(userId)
+  const initials = avatarInitials(name, handle)
+  const inner = avatarUrl
+    ? <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+    : <span className="text-sm font-bold text-white" style={{ fontSize: size * 0.32 }}>{initials}</span>
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!onClick}
+      className="relative shrink-0 overflow-visible rounded-full disabled:cursor-default"
+      style={{ width: size, height: size }}
+      aria-label={`Perfil de ${name ?? handle}`}
+    >
+      <span
+        className="grid h-full w-full place-items-center overflow-hidden rounded-full"
+        style={{
+          background: `linear-gradient(135deg, ${color} 0%, ${color}aa 100%)`,
+          boxShadow: `inset 0 1px 0 rgba(255,255,255,0.25), 0 4px 12px -6px ${color}80`,
+        }}
+      >
+        {inner}
+      </span>
+      {/* Decorative online indicator — no real presence backend yet. */}
+      <span
+        className="absolute bottom-0 right-0 rounded-full ring-2 ring-[var(--surface)]"
+        style={{ width: size * 0.27, height: size * 0.27, background: '#34C759' }}
+      />
+    </button>
+  )
+}
+
+// ─── Small chip button used in the post header actions row ─────────────────
+
+function ChipBtn({
+  icon: IconComp, label, tone = 'default', onClick, disabled, title,
+}: {
+  icon: typeof Users
+  label?: string
+  tone?: 'default' | 'warn' | 'brand'
+  onClick?: () => void
+  disabled?: boolean
+  title?: string
+}) {
+  const toneClass = tone === 'warn'
+    ? 'border-red-500/40 bg-red-500/10 text-red-400 hover:bg-red-500/15'
+    : tone === 'brand'
+      ? 'border-[var(--brand)]/40 bg-[var(--brand)]/10 text-[var(--brand)]'
+      : 'border-[var(--line)] bg-[var(--surface-hover)] text-[var(--muted)] hover:text-[var(--text)]'
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50 ${toneClass}`}
+    >
+      <IconComp size={13} />
+      {label && <span>{label}</span>}
+    </button>
+  )
+}
+
+// ─── 3-column stat card under the post header ──────────────────────────────
+
+function FeedStat({ label, value, highlight }: { label: string; value: string | number; highlight?: boolean }) {
+  return (
+    <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2.5">
+      <p className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+        {label}
+      </p>
+      <p
+        className={`mt-1 text-lg font-extrabold leading-none tracking-tight ${
+          highlight ? 'text-[var(--brand)]' : 'text-[var(--text)]'
+        }`}
+      >
+        {value}
+      </p>
+    </div>
+  )
+}
+
+// ─── Action button in the footer row (like/comment/share) ──────────────────
+
+function ActionBtn({
+  icon: IconComp, label, active, onClick, ariaLabel,
+}: {
+  icon: typeof Heart
+  label?: string | number
+  active?: boolean
+  onClick?: () => void
+  ariaLabel?: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={ariaLabel}
+      className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-xs font-semibold transition-colors ${
+        active
+          ? 'border-[var(--brand)]/40 bg-[var(--brand)]/10 text-[var(--brand)]'
+          : 'border-transparent text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]'
+      }`}
+    >
+      <IconComp size={14} strokeWidth={active ? 2.2 : 1.8} className={active && IconComp === Heart ? 'fill-[var(--brand)]' : ''} />
+      {label !== undefined && <span className="font-mono tabular-nums">{label}</span>}
+    </button>
+  )
+}
+
+// ─── Inline comments panel ─────────────────────────────────────────────────
+
+function CommentsPanel({
+  postId, viewerId, isAdmin, isPostOwner,
+  initialCount, onCountChange,
+}: {
+  postId: string
+  viewerId: string | undefined
+  isAdmin: boolean
+  isPostOwner: boolean
+  initialCount: number
+  onCountChange: (delta: number) => void
+}) {
+  const { authorizedFetch } = useAuth()
+  const [items, setItems] = useState<PostComment[] | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+  const [posting, setPosting] = useState(false)
+
+  // Lazy load when the panel first mounts. Subsequent expansions reuse state.
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    listComments(authorizedFetch, postId)
+      .then((data) => { if (!cancelled) setItems(data) })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Erro ao carregar comentários')
+      })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [authorizedFetch, postId])
+
+  const handleSubmit = async () => {
+    const text = draft.trim()
+    if (!text || posting) return
+    setPosting(true)
+    setError(null)
+    try {
+      const created = await createComment(authorizedFetch, postId, text)
+      setItems((prev) => (prev ? [...prev, created] : [created]))
+      setDraft('')
+      onCountChange(1)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao enviar comentário')
+    } finally {
+      setPosting(false)
+    }
+  }
+
+  const handleDelete = async (commentId: string) => {
+    if (!window.confirm('Apagar comentário?')) return
+    try {
+      await deleteComment(authorizedFetch, postId, commentId)
+      setItems((prev) => prev?.filter((c) => c.id !== commentId) ?? null)
+      onCountChange(-1)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao apagar comentário')
+    }
+  }
+
+  return (
+    <div className="mt-3 space-y-3 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)]/40 p-3">
+      {loading && (
+        <p className="text-xs text-[var(--muted)]">A carregar comentários…</p>
+      )}
+
+      {!loading && items && items.length === 0 && (
+        <p className="text-xs text-[var(--muted)]">
+          {initialCount > 0 ? 'Nenhum comentário visível.' : 'Seja o primeiro a comentar!'}
+        </p>
+      )}
+
+      {items && items.length > 0 && (
+        <ul className="space-y-2">
+          {items.map((c) => {
+            const canDelete = viewerId && (c.user.id === viewerId || isPostOwner || isAdmin)
+            return (
+              <li key={c.id} className="flex items-start gap-2.5">
+                <Avatar
+                  userId={c.user.id}
+                  name={c.user.name}
+                  handle={c.user.handle}
+                  avatarUrl={c.user.avatarUrl}
+                  size={28}
+                />
+                <div className="min-w-0 flex-1 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-2">
+                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                    <span className="text-xs font-bold text-[var(--text)]">
+                      {c.user.name ?? c.user.handle}
+                    </span>
+                    <span className="font-mono text-[10px] text-[var(--muted)]">@{c.user.handle}</span>
+                    <span className="font-mono text-[10px] text-[var(--muted)]">{timeAgo(c.createdAt)}</span>
+                  </div>
+                  <p className="mt-0.5 break-words text-xs leading-relaxed text-[var(--text)]">{c.content}</p>
+                </div>
+                {canDelete && (
+                  <button
+                    type="button"
+                    onClick={() => void handleDelete(c.id)}
+                    className="mt-1 rounded-md border border-transparent p-1 text-[var(--muted)] transition-colors hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-400"
+                    title="Apagar comentário"
+                  >
+                    <X size={11} />
+                  </button>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      )}
+
+      {error && (
+        <p className="text-xs text-red-400">{error}</p>
+      )}
+
+      {/* New-comment composer */}
+      {viewerId && (
+        <div className="flex items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-2">
+          <input
+            type="text"
+            value={draft}
+            placeholder="Escreve um comentário…"
+            maxLength={500}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void handleSubmit() } }}
+            className="flex-1 bg-transparent text-xs text-[var(--text)] placeholder:text-[var(--muted)] outline-none"
+          />
+          <button
+            type="button"
+            onClick={() => void handleSubmit()}
+            disabled={!draft.trim() || posting}
+            className="grid h-7 w-7 place-items-center rounded-lg bg-[var(--brand)] text-white transition-opacity disabled:opacity-40"
+            title="Enviar"
+          >
+            <Send size={12} />
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── PostCard ──────────────────────────────────────────────────────────────
+
+function PostCard({
+  post, userId, isAdmin, isFriend, ownerIsPrivate,
+  onLike, onDelete, onPrivacyChange, onProfileClick, onShare,
+}: {
   post: FeedPost
   userId: string | undefined
   isAdmin: boolean
@@ -141,219 +473,221 @@ function PostCard({ post, userId, isAdmin, isFriend, ownerIsPrivate, onLike, onD
   onDelete: (id: string) => void
   onPrivacyChange: (id: string, next: PostPrivacy) => Promise<void>
   onProfileClick: (id: string) => void
+  onShare: (id: string) => void
 }) {
   const isOwn = post.user.id === userId
   const canDelete = isOwn || isAdmin
   const [expanded, setExpanded] = useState(false)
+  const [commentsOpen, setCommentsOpen] = useState(false)
+  const [commentsCount, setCommentsCount] = useState(post.commentsCount)
   const [savingPrivacy, setSavingPrivacy] = useState(false)
   const hasValidPhoto = Boolean(post.photoUrl) && !post.photoUrl!.startsWith('blob:')
-  const hasPhoto = hasValidPhoto
 
   const handlePrivacy = async (next: PostPrivacy) => {
     setSavingPrivacy(true)
-    try {
-      await onPrivacyChange(post.id, next)
-    } finally {
-      setSavingPrivacy(false)
-    }
+    try { await onPrivacyChange(post.id, next) } finally { setSavingPrivacy(false) }
   }
+
+  const relLabel = getRelLabel(isOwn, isFriend)
+  const splitLabel = getSplitLabel(post)
+  const exerciseCount = post.workoutSummary?.exercises.length ?? 0
 
   return (
     <article className="overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)]">
-      <div className={`flex flex-col ${hasPhoto ? 'md:flex-row' : ''}`}>
-        {hasPhoto && (
-          <div className="relative shrink-0 md:w-[32%] md:max-w-[300px]">
-            <WorkoutPostImage src={post.photoUrl!} />
-          </div>
-        )}
+      {hasValidPhoto && (
+        <div className="relative">
+          <WorkoutPostImage src={post.photoUrl!} />
+        </div>
+      )}
 
-        <div className="flex min-w-0 flex-1 flex-col gap-3 p-4 sm:p-5">
-          <header className="flex items-center justify-between gap-3">
-            <button
-              type="button"
-              onClick={() => onProfileClick(post.user.id)}
-              className="flex items-center gap-2 text-left"
-            >
-              <div className="relative">
-                <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full border border-[var(--line)] bg-[var(--surface-hover)]">
-                  {post.user.avatarUrl
-                    ? <img src={post.user.avatarUrl} alt="" className="h-full w-full object-cover" />
-                    : <span className="flex h-full w-full items-center justify-center text-xs font-bold text-[var(--muted)]">{(post.user.name ?? '?')[0]?.toUpperCase()}</span>
-                  }
-                </div>
-                {isFriend && (
-                  <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-emerald-500 ring-2 ring-[var(--surface)]">
-                    <Users size={7} className="text-white" />
-                  </span>
-                )}
-              </div>
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <p className="text-sm font-bold text-[var(--text)]">{post.user.name ?? 'Usuário'}</p>
-                  {isFriend && (
-                    <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-500">
-                      Amigo
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-[var(--muted)]">{timeAgo(post.createdAt)}</p>
-              </div>
-            </button>
-            <div className="flex items-center gap-2">
-              {isOwn && (
+      <div className="space-y-4 p-5 sm:p-6">
+        {/* HEADER */}
+        <header className="flex flex-wrap items-center gap-3">
+          <Avatar
+            userId={post.user.id}
+            name={post.user.name}
+            handle={post.user.handle}
+            avatarUrl={post.user.avatarUrl}
+            onClick={() => onProfileClick(post.user.id)}
+          />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <button
+                type="button"
+                onClick={() => onProfileClick(post.user.id)}
+                className="truncate text-left text-sm font-bold text-[var(--text)] hover:text-[var(--brand)]"
+                style={{ maxWidth: 360 }}
+              >
+                {post.user.name ?? 'Usuário'}
+              </button>
+              <span className="font-mono text-[11px] text-[var(--muted)]">@{post.user.handle}</span>
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono text-[10.5px] tracking-wide text-[var(--muted)]">
+              <span>{timeAgo(post.createdAt)}</span>
+              <span className="opacity-50">·</span>
+              <span>{formatHHMM(post.createdAt)}</span>
+              <span className="opacity-50">·</span>
+              <span className="font-semibold text-[var(--text)]">{splitLabel}</span>
+            </div>
+          </div>
+
+          {/* Action chips */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {relLabel && (
+              <ChipBtn
+                icon={Users}
+                label={relLabel}
+                tone={isOwn ? 'brand' : 'default'}
+              />
+            )}
+            {isOwn ? (
+              <>
                 <PrivacyMenu
                   current={post.privacy}
                   ownerIsPrivate={ownerIsPrivate}
                   saving={savingPrivacy}
                   onChange={(next) => void handlePrivacy(next)}
                 />
-              )}
-              {canDelete && (
-                <button
-                  type="button"
-                  onClick={() => onDelete(post.id)}
-                  className={`rounded-lg border px-2 py-1 text-xs ${
-                    !isOwn && isAdmin
-                      ? 'border-amber-500/50 text-amber-400'
-                      : 'border-red-500/40 text-red-400'
-                  }`}
-                  title={!isOwn && isAdmin ? 'Remover como administrador' : 'Deletar'}
-                >
-                  {!isOwn && isAdmin ? 'Remover (admin)' : 'Deletar'}
-                </button>
-              )}
-            </div>
-          </header>
-
-          {post.caption && <p className="text-sm leading-relaxed text-[var(--text)]">{post.caption}</p>}
-
-          {post.workoutSummary && (
-            <div className="grid grid-cols-3 divide-x divide-[var(--line)] overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface-hover)]/40">
-              <div className="px-3 py-2.5 text-center">
-                <p className="text-[9px] font-semibold uppercase tracking-wider text-[var(--muted)]">Duração</p>
-                <p className="mt-0.5 text-sm font-extrabold text-[var(--text)]">{formatDuration(post.workoutSummary.durationSec)}</p>
-              </div>
-              <div className="px-3 py-2.5 text-center">
-                <p className="text-[9px] font-semibold uppercase tracking-wider text-[var(--muted)]">Volume</p>
-                <p className="mt-0.5 text-sm font-extrabold text-[var(--text)]">{post.workoutSummary.totalVolumeKg} kg</p>
-              </div>
-              <div className="px-3 py-2.5 text-center">
-                <p className="text-[9px] font-semibold uppercase tracking-wider text-[var(--muted)]">Exercícios</p>
-                <p className="mt-0.5 text-sm font-extrabold text-[var(--text)]">{post.workoutSummary.exercises.length}</p>
-              </div>
-            </div>
-          )}
-
-          {post.workoutSummary && (
-            <div className="space-y-2">
-              {!expanded && (
-                <div className="flex flex-wrap gap-1.5">
-                  {post.workoutSummary.exercises.slice(0, 4).map((ex) => (
-                    <span key={ex.name} className="rounded-full border border-[var(--line)] bg-[var(--surface-hover)]/50 px-2.5 py-1 text-[11px] text-[var(--muted)]">
-                      {ex.name} · {ex.sets.length}x
-                    </span>
-                  ))}
-                  {post.workoutSummary.exercises.length > 4 && (
-                    <span className="rounded-full border border-[var(--line)] bg-[var(--surface-hover)]/50 px-2.5 py-1 text-[11px] text-[var(--muted)]">
-                      +{post.workoutSummary.exercises.length - 4}
-                    </span>
-                  )}
-                </div>
-              )}
-
-              <AnimatePresence>
-                {expanded && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    exit={{ opacity: 0, height: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="space-y-2 overflow-hidden"
-                  >
-                    {post.workoutSummary.exercises.map((ex) => (
-                      <ExerciseStatsRow key={ex.name} ex={ex} />
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              <button
-                type="button"
-                onClick={() => setExpanded((v) => !v)}
-                className="w-full rounded-lg border border-[var(--line)] py-1.5 text-[11px] font-semibold text-[var(--muted)] transition-colors hover:text-[var(--text)]"
-              >
-                {expanded ? 'Ocultar detalhes' : 'Ver stats completos'}
-              </button>
-            </div>
-          )}
-
-          <div className="mt-auto flex items-center gap-3 pt-1">
-            <motion.button
-              type="button"
-              onClick={() => onLike(post.id)}
-              whileTap={{ scale: 0.85 }}
-              whileHover={{ scale: 1.05 }}
-              className={`group relative flex items-center gap-2 text-sm font-bold transition-colors ${
-                post.likedByMe ? 'text-[var(--brand)]' : 'text-[var(--muted)] hover:text-[var(--brand)]'
-              }`}
-              aria-label={post.likedByMe ? 'Descurtir' : 'Curtir'}
-            >
-              <span className="relative inline-flex h-8 w-8 items-center justify-center">
-                <AnimatePresence>
-                  {post.likedByMe && (
-                    <motion.span
-                      key="burst"
-                      initial={{ scale: 0, opacity: 0.7 }}
-                      animate={{ scale: 1.8, opacity: 0 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.55, ease: 'easeOut' }}
-                      aria-hidden
-                      className="pointer-events-none absolute inset-0 rounded-full bg-[var(--brand)]/35 blur-md"
-                    />
-                  )}
-                </AnimatePresence>
-                <motion.span
-                  key={post.likedByMe ? 'liked' : 'unliked'}
-                  initial={post.likedByMe ? { scale: 0.6 } : false}
-                  animate={post.likedByMe ? { scale: [0.6, 1.4, 1] } : { scale: 1 }}
-                  transition={{ duration: 0.45, ease: [0.34, 1.56, 0.64, 1] }}
-                  className="relative inline-flex"
-                >
-                  <Heart
-                    size={26}
-                    strokeWidth={2.2}
-                    className={`transition-transform duration-200 ${
-                      post.likedByMe
-                        ? 'fill-[var(--brand)] drop-shadow-[0_0_6px_rgba(255,77,77,0.45)]'
-                        : 'fill-transparent group-hover:fill-[var(--brand)]/15'
-                    }`}
+                {canDelete && (
+                  <ChipBtn
+                    icon={Trash2}
+                    label="Deletar"
+                    tone="warn"
+                    onClick={() => onDelete(post.id)}
+                    title="Deletar post"
                   />
-                </motion.span>
-              </span>
-              <motion.span
-                key={post.likesCount}
-                initial={{ y: -2, opacity: 0.4 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ duration: 0.25 }}
-                className="tabular-nums"
-              >
-                {post.likesCount}
-              </motion.span>
-            </motion.button>
+                )}
+              </>
+            ) : (
+              canDelete && (
+                <ChipBtn
+                  icon={Trash2}
+                  label="Remover"
+                  tone="warn"
+                  onClick={() => onDelete(post.id)}
+                  title="Remover como administrador"
+                />
+              )
+            )}
+            <ChipBtn icon={MoreHorizontal} title="Mais opções" />
           </div>
+        </header>
+
+        {/* STATS — 3 columns */}
+        {post.workoutSummary && (
+          <div className="grid grid-cols-3 gap-2">
+            <FeedStat label="DURAÇÃO" value={formatDuration(post.workoutSummary.durationSec)} />
+            <FeedStat label="VOLUME" value={formatVolume(post.workoutSummary.totalVolumeKg)} highlight />
+            <FeedStat label="EXERCÍCIOS" value={exerciseCount} />
+          </div>
+        )}
+
+        {/* EXERCISE CHIPS */}
+        {post.workoutSummary && exerciseCount > 0 && !expanded && (
+          <div className="flex flex-wrap gap-1.5">
+            {post.workoutSummary.exercises.slice(0, 6).map((ex) => (
+              <span
+                key={ex.name}
+                className="inline-flex items-center gap-1.5 rounded-full border border-[var(--line)] bg-[var(--surface-hover)] px-2.5 py-1 text-xs text-[var(--text)]"
+              >
+                <span className="font-medium">{ex.name}</span>
+                <span className="font-mono text-[10.5px] font-bold text-[var(--muted)]">{ex.sets.length}x</span>
+              </span>
+            ))}
+            {exerciseCount > 6 && (
+              <span className="inline-flex items-center rounded-full border border-[var(--line)] bg-[var(--surface-hover)] px-2.5 py-1 text-xs text-[var(--muted)]">
+                +{exerciseCount - 6}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* EXPANDED — full stats per exercise */}
+        <AnimatePresence>
+          {expanded && post.workoutSummary && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.2 }}
+              className="space-y-2 overflow-hidden"
+            >
+              {post.workoutSummary.exercises.map((ex) => (
+                <ExerciseStatsRow key={ex.name} ex={ex} />
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* FOOTER — actions row */}
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-dashed border-[var(--line)] pt-3">
+          <ActionBtn
+            icon={Heart}
+            label={post.likesCount}
+            active={post.likedByMe}
+            onClick={() => onLike(post.id)}
+            ariaLabel={post.likedByMe ? 'Descurtir' : 'Curtir'}
+          />
+          <ActionBtn
+            icon={MessageCircle}
+            label={commentsCount}
+            active={commentsOpen}
+            onClick={() => setCommentsOpen((v) => !v)}
+            ariaLabel="Comentários"
+          />
+          <ActionBtn
+            icon={Share2}
+            onClick={() => onShare(post.id)}
+            ariaLabel="Partilhar"
+          />
+          {post.workoutSummary && exerciseCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              className="ml-auto inline-flex items-center gap-2 rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 text-xs font-semibold text-[var(--text)] hover:border-[var(--brand)]/40"
+            >
+              {expanded ? 'Ocultar detalhes' : 'Ver stats completos'}
+              {expanded ? <ChevronUp size={13} /> : <ArrowRight size={13} />}
+            </button>
+          )}
         </div>
+
+        {/* COMMENTS PANEL */}
+        <AnimatePresence>
+          {commentsOpen && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden"
+            >
+              <CommentsPanel
+                postId={post.id}
+                viewerId={userId}
+                isAdmin={isAdmin}
+                isPostOwner={isOwn}
+                initialCount={commentsCount}
+                onCountChange={(delta) => setCommentsCount((c) => Math.max(0, c + delta))}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </article>
   )
 }
 
-type FeedFilter = 'amigos' | 'todos' | 'curtidos'
+// ─── Feed filters config ───────────────────────────────────────────────────
 
+type FeedFilter = 'amigos' | 'todos' | 'curtidos'
 const FILTER_LABELS: Record<FeedFilter, string> = {
   amigos: 'Amigos',
   todos: 'Todos',
   curtidos: 'Curtidos',
 }
+
+// ─── Main page ─────────────────────────────────────────────────────────────
 
 export function FeedPage() {
   const { authorizedFetch, user } = useAuth()
@@ -367,7 +701,24 @@ export function FeedPage() {
   const [filter, setFilter] = useState<FeedFilter>('amigos')
   const [followingIds, setFollowingIds] = useState<Set<string>>(new Set())
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const [toast, setToast] = useState<string | null>(null)
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+
+  // Cmd/Ctrl + K focuses the search input — design hints at the shortcut so
+  // we actually wire it up rather than leave it cosmetic.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey
+      if (mod && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        searchInputRef.current?.focus()
+        searchInputRef.current?.select()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
 
   const load = useCallback(async () => {
     try {
@@ -386,9 +737,14 @@ export function FeedPage() {
   }, [authorizedFetch])
 
   useEffect(() => { void load() }, [load])
-
-  // Resetar paginação ao trocar filtro
   useEffect(() => { setVisibleCount(PAGE_SIZE) }, [filter])
+
+  // Auto-dismiss toast after a couple of seconds so it stops nagging.
+  useEffect(() => {
+    if (!toast) return
+    const id = setTimeout(() => setToast(null), 2200)
+    return () => clearTimeout(id)
+  }, [toast])
 
   const handleLike = async (postId: string) => {
     try {
@@ -451,6 +807,19 @@ export function FeedPage() {
     }
   }
 
+  // Share copies a link to the post (origin/post/<id>) to clipboard. There's
+  // no public post page yet; the URL still uniquely identifies the post so
+  // people can paste it back into a future deep-link route.
+  const handleShare = async (postId: string) => {
+    const url = `${window.location.origin}/post/${postId}`
+    try {
+      await navigator.clipboard.writeText(url)
+      setToast('Link copiado!')
+    } catch {
+      setToast('Não foi possível copiar — tenta manualmente')
+    }
+  }
+
   const sortedPosts = useMemo(() => {
     const filtered = posts.filter((p) => {
       if (filter === 'curtidos') return p.likedByMe
@@ -467,77 +836,104 @@ export function FeedPage() {
 
   return (
     <section className="space-y-4">
-      <motion.header
+      {/* ─── Header card ───────────────────────────────────────── */}
+      <motion.section
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
+        className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5 sm:p-6"
       >
-        <h1 className="text-2xl font-black text-[var(--text)]">Feed</h1>
-        <p className="mt-1 text-sm text-[var(--muted)]">Treinos da comunidade e dos seus amigos.</p>
-        <div className="mt-3 flex gap-2">
-          {(['amigos', 'todos', 'curtidos'] as FeedFilter[]).map((f) => (
-            <button
-              key={f}
-              type="button"
-              onClick={() => setFilter(f)}
-              className={`rounded-full px-4 py-1.5 text-xs font-bold transition-all ${
-                filter === f ? 'bg-[var(--brand)] text-white' : 'border border-[var(--line)] text-[var(--muted)]'
-              }`}
-            >
-              {FILTER_LABELS[f]}
-            </button>
-          ))}
+        <div className="mb-4">
+          <div className="inline-flex items-center gap-2 font-mono text-[10.5px] font-semibold uppercase tracking-[0.16em] text-[var(--brand)]">
+            <span className="h-1 w-1 rounded-full bg-[var(--brand)]" />
+            COMUNIDADE
+          </div>
+          <h1 className="mt-1 text-3xl font-black leading-none tracking-tight text-[var(--text)] sm:text-4xl">
+            Feed
+          </h1>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            Treinos da comunidade e dos seus amigos.
+          </p>
         </div>
-      </motion.header>
 
-      {/* Search */}
-      <div className="relative">
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => handleSearch(e.target.value)}
-          placeholder="Pesquisar usuários..."
-          className="w-full rounded-2xl border border-[var(--line)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--text)] placeholder:text-[var(--muted)] outline-none focus:border-[var(--brand)]"
-        />
-        {query.trim() && (
-          <div className="absolute left-0 right-0 top-full z-20 mt-1 rounded-2xl border border-[var(--line)] bg-[var(--surface)] shadow-lg overflow-hidden">
-            {searching && <p className="px-4 py-3 text-sm text-[var(--muted)]">Pesquisando...</p>}
-            {!searching && searchResults.length === 0 && (
-              <p className="px-4 py-3 text-sm text-[var(--muted)]">Nenhum usuário encontrado.</p>
-            )}
-            {searchResults.map((u) => (
-              <div key={u.id} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-[var(--surface-hover)]">
+        {/* Filters + search */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex gap-1 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-1">
+            {(['amigos', 'todos', 'curtidos'] as FeedFilter[]).map((f) => {
+              const active = filter === f
+              return (
                 <button
+                  key={f}
                   type="button"
-                  onClick={() => { setQuery(''); setSearchResults([]); navigate(`/u/${u.id}`) }}
-                  className="flex items-center gap-2 text-left min-w-0"
-                >
-                  <div className="h-8 w-8 shrink-0 rounded-full border border-[var(--line)] bg-[var(--surface-hover)] overflow-hidden">
-                    {u.avatarUrl
-                      ? <img src={u.avatarUrl} alt="" className="h-full w-full object-cover" />
-                      : <span className="flex h-full w-full items-center justify-center text-xs font-bold text-[var(--muted)]">{(u.name ?? '?')[0]?.toUpperCase()}</span>
-                    }
-                  </div>
-                  <span className="text-sm font-semibold text-[var(--text)] truncate">{u.name ?? 'Usuário'}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleFollowToggle(u)}
-                  className={`shrink-0 rounded-xl px-3 py-1 text-xs font-bold border transition-colors ${
-                    u.isFollowing
-                      ? 'border-[var(--line)] text-[var(--muted)]'
-                      : 'border-[var(--brand)] text-[var(--brand)]'
+                  onClick={() => setFilter(f)}
+                  className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+                    active
+                      ? 'bg-[var(--brand)] text-white shadow-[inset_0_-1px_0_var(--brand-strong)]'
+                      : 'text-[var(--muted)] hover:text-[var(--text)]'
                   }`}
                 >
-                  {u.isFollowing ? 'Seguindo' : 'Seguir'}
+                  {FILTER_LABELS[f]}
                 </button>
-              </div>
-            ))}
+              )
+            })}
           </div>
-        )}
-      </div>
 
-      {error && <p className="text-sm text-red-400">{error}</p>}
+          <div className="relative flex min-w-[220px] flex-1 items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2.5 text-[var(--muted)]">
+            <Search size={14} />
+            <input
+              ref={searchInputRef}
+              type="search"
+              value={query}
+              onChange={(e) => handleSearch(e.target.value)}
+              placeholder="Pesquisar usuários, exercícios, divisões…"
+              className="flex-1 bg-transparent text-sm text-[var(--text)] placeholder:text-[var(--muted)] outline-none"
+            />
+            <kbd className="hidden rounded border border-[var(--line)] bg-[var(--surface)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--muted)] sm:inline">
+              ⌘ K
+            </kbd>
+
+            {/* Search dropdown — only for user search at the moment */}
+            {query.trim() && (
+              <div className="absolute left-0 right-0 top-full z-20 mt-1.5 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-lg">
+                {searching && <p className="px-4 py-3 text-sm text-[var(--muted)]">Pesquisando…</p>}
+                {!searching && searchResults.length === 0 && (
+                  <p className="px-4 py-3 text-sm text-[var(--muted)]">Nenhum usuário encontrado.</p>
+                )}
+                {searchResults.map((u) => (
+                  <div key={u.id} className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-[var(--surface-hover)]">
+                    <button
+                      type="button"
+                      onClick={() => { setQuery(''); setSearchResults([]); navigate(`/u/${u.id}`) }}
+                      className="flex min-w-0 items-center gap-2 text-left"
+                    >
+                      <Avatar
+                        userId={u.id}
+                        name={u.name}
+                        handle={u.name?.toLowerCase() ?? '?'}
+                        avatarUrl={u.avatarUrl}
+                        size={32}
+                      />
+                      <span className="truncate text-sm font-semibold text-[var(--text)]">{u.name ?? 'Usuário'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleFollowToggle(u)}
+                      className={`shrink-0 rounded-lg border px-3 py-1 text-xs font-bold transition-colors ${
+                        u.isFollowing
+                          ? 'border-[var(--line)] text-[var(--muted)]'
+                          : 'border-[var(--brand)] text-[var(--brand)]'
+                      }`}
+                    >
+                      {u.isFollowing ? 'Seguindo' : 'Seguir'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </motion.section>
+
+      {error && <p className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400">{error}</p>}
 
       {loading && (
         <div className="space-y-4">
@@ -578,6 +974,7 @@ export function FeedPage() {
             onDelete={handleDelete}
             onPrivacyChange={handlePrivacyChange}
             onProfileClick={(id) => navigate(`/u/${id}`)}
+            onShare={handleShare}
           />
         ))}
       </div>
@@ -595,6 +992,20 @@ export function FeedPage() {
       {!hasMore && sortedPosts.length > PAGE_SIZE && (
         <p className="py-2 text-center text-xs text-[var(--muted)]">Todos os posts foram carregados.</p>
       )}
+
+      {/* Toast for share & friends */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 12 }}
+            className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-[var(--line)] bg-[var(--surface)] px-4 py-2 text-xs font-semibold text-[var(--text)] shadow-lg"
+          >
+            {toast}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </section>
   )
 }

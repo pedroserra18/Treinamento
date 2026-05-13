@@ -41,6 +41,7 @@ function asAuthUser(value: Record<string, unknown>): AuthUser {
   return {
     id: String(value.id ?? ''),
     name: typeof value.name === 'string' ? value.name : null,
+    handle: typeof value.handle === 'string' ? value.handle : '',
     email: String(value.email ?? ''),
     role: (value.role ?? 'USER') as AuthUser['role'],
     sex: (value.sex ?? 'OTHER') as AuthUser['sex'],
@@ -55,6 +56,7 @@ function asAuthUser(value: Record<string, unknown>): AuthUser {
 
 export async function registerWithEmail(input: {
   name: string
+  handle: string
   email: string
   password: string
 }): Promise<AuthSession> {
@@ -111,6 +113,7 @@ export async function requestRegisterVerificationCode(input: {
 
 export async function registerWithVerificationCode(input: {
   name: string
+  handle: string
   email: string
   password: string
   verificationCode: string

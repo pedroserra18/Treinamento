@@ -4,9 +4,13 @@ import { useAuth } from '../hooks/useAuth'
 import { BrandLogo } from '../components/common/BrandLogo'
 import { Link, useNavigate } from 'react-router-dom'
 import { Input } from '../components/common/Input'
+import { sanitiseHandleInput, validateHandle } from '../lib/handle'
 
-function validateRegisterInput(input: { name: string; email: string; password: string }): string | null {
+function validateRegisterInput(input: { name: string; handle: string; email: string; password: string }): string | null {
   if (input.name.trim().length < 2) return 'Nome deve ter pelo menos 2 caracteres.'
+  if (!input.handle.trim()) return 'Escolhe um handle público.'
+  const handleError = validateHandle(input.handle)
+  if (handleError) return handleError
   if (!input.email.includes('@')) return 'Informe um e-mail válido.'
   if (input.password.length < 8) return 'Senha deve ter no mínimo 8 caracteres.'
   return null
@@ -15,6 +19,7 @@ function validateRegisterInput(input: { name: string; email: string; password: s
 export function RegisterPage() {
   const { signUp, requestSignUpVerificationCode } = useAuth()
   const [name, setName] = useState('')
+  const [handle, setHandle] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [verificationCode, setVerificationCode] = useState('')
@@ -25,8 +30,12 @@ export function RegisterPage() {
   const [success, setSuccess] = useState<string | null>(null)
   const navigate = useNavigate()
 
+  // Live validation feedback for the handle. Empty → no hint (avoids
+  // shouting at the user before they've typed anything).
+  const handleHint = handle.length === 0 ? null : validateHandle(handle)
+
   const handleRequestCode = async () => {
-    const validationError = validateRegisterInput({ name, email, password })
+    const validationError = validateRegisterInput({ name, handle, email, password })
     if (validationError) { setError(validationError); return }
     setError(null); setSuccess(null); setLoading(true)
     try {
@@ -43,13 +52,13 @@ export function RegisterPage() {
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
     setError(null); setSuccess(null)
-    const validationError = validateRegisterInput({ name, email, password })
+    const validationError = validateRegisterInput({ name, handle, email, password })
     if (validationError) { setError(validationError); return }
     if (!codeRequested) { setError('Solicite o código de verificação antes de concluir o cadastro.'); return }
     if (!/^\d{6}$/.test(verificationCode)) { setError('Código deve ter 6 dígitos numéricos.'); return }
     setLoading(true)
     try {
-      await signUp({ name, email, password, verificationCode })
+      await signUp({ name, handle, email, password, verificationCode })
       navigate('/dashboard', { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao validar código')
@@ -83,6 +92,33 @@ export function RegisterPage() {
           placeholder="Seu nome completo"
           onChange={(event) => setName(event.target.value)}
         />
+
+        <div className="flex flex-col gap-1">
+          <label className="text-[11px] font-semibold uppercase tracking-wider text-[var(--muted)]">
+            Handle público
+          </label>
+          <div className="relative">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-[var(--muted)]">@</span>
+            <input
+              required
+              type="text"
+              autoComplete="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              minLength={3}
+              maxLength={30}
+              value={handle}
+              placeholder="pedro_82"
+              onChange={(event) => setHandle(sanitiseHandleInput(event.target.value))}
+              className={`w-full rounded-xl border bg-transparent pl-7 pr-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--muted)]/60 ${
+                handleHint ? 'border-red-500/60' : 'border-[var(--line)]'
+              }`}
+            />
+          </div>
+          <p className={`text-[11px] ${handleHint ? 'text-red-400' : 'text-[var(--muted)]'}`}>
+            {handleHint ?? '3–30 caracteres · letras minúsculas, números, ".", "_" ou "-".'}
+          </p>
+        </div>
 
         <Input
           label="Email"

@@ -7,6 +7,8 @@ import { useScrollLock } from '../hooks/useScrollLock'
 import { CountUp } from '../components/common/CountUp'
 import { ImageViewer } from '../components/common/ImageViewer'
 import { updateAvatar, updatePrivacy, getFollowers, getFollowing, type UserSearchResult } from '../services/socialService'
+import { sanitiseHandleInput, validateHandle } from '../lib/handle'
+import { Check, Pencil, X } from 'lucide-react'
 
 type SocialPanel = 'followers' | 'following' | null
 
@@ -78,7 +80,7 @@ function UserListModal({ title, users, onClose, onNavigate }: {
 }
 
 export function ProfilePage() {
-  const { user, logout, authorizedFetch, refreshUser, applyUserPatch } = useAuth()
+  const { user, logout, authorizedFetch, refreshUser, applyUserPatch, updateHandle } = useAuth()
   const navigate = useNavigate()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [avatarPreview, setAvatarPreview] = useState<string | null>(user?.avatarUrl ?? null)
@@ -100,6 +102,49 @@ export function ProfilePage() {
   const [socialLoaded, setSocialLoaded] = useState(false)
   const [openPanel, setOpenPanel] = useState<SocialPanel>(null)
   const [viewerOpen, setViewerOpen] = useState(false)
+
+  // Handle editor — collapsed by default; opens to a controlled input with
+  // the same live-validation rules used at signup.
+  const [handleEditing, setHandleEditing] = useState(false)
+  const [handleDraft, setHandleDraft] = useState(user?.handle ?? '')
+  const [handleSaving, setHandleSaving] = useState(false)
+  const [handleError, setHandleError] = useState<string | null>(null)
+  const [handleSuccess, setHandleSuccess] = useState(false)
+  // Live format check (null = valid). Server may still reject for `409` —
+  // that error is surfaced separately via `handleError`.
+  const handleFormatError = validateHandle(handleDraft)
+  const handleChanged = handleDraft.trim().toLowerCase() !== (user?.handle ?? '')
+
+  const handleStartEditingHandle = () => {
+    setHandleDraft(user?.handle ?? '')
+    setHandleError(null)
+    setHandleSuccess(false)
+    setHandleEditing(true)
+  }
+
+  const handleCancelEditingHandle = () => {
+    setHandleEditing(false)
+    setHandleError(null)
+    setHandleDraft(user?.handle ?? '')
+  }
+
+  const handleSaveHandle = async () => {
+    const next = handleDraft.trim().toLowerCase()
+    if (!next || handleFormatError || !handleChanged) return
+    setHandleSaving(true)
+    setHandleError(null)
+    try {
+      await updateHandle(next)
+      setHandleEditing(false)
+      setHandleSuccess(true)
+      setTimeout(() => setHandleSuccess(false), 3000)
+    } catch (err) {
+      // Most common error: 409 HANDLE_ALREADY_IN_USE — show inline.
+      setHandleError(err instanceof Error ? err.message : 'Erro ao salvar handle')
+    } finally {
+      setHandleSaving(false)
+    }
+  }
 
   const loadSocial = useCallback(async () => {
     try {
@@ -338,6 +383,93 @@ export function ProfilePage() {
           <p><span className="font-semibold text-[var(--text)]">Email:</span> {user?.email ?? '-'}</p>
           <p><span className="font-semibold text-[var(--text)]">Tipo:</span> {user?.role ?? '-'}</p>
         </div>
+      </article>
+
+      {/* Handle público */}
+      <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-base font-extrabold text-[var(--text)]">Handle público</h2>
+            <p className="mt-0.5 text-xs text-[var(--muted)]">
+              É o seu identificador no feed e nos comentários. 3–30 caracteres.
+            </p>
+          </div>
+          {!handleEditing && (
+            <button
+              type="button"
+              onClick={handleStartEditingHandle}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--line)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
+            >
+              <Pencil size={12} /> Editar
+            </button>
+          )}
+        </div>
+
+        {!handleEditing ? (
+          <p className="font-mono text-base font-semibold text-[var(--text)]">
+            @{user?.handle ?? '—'}
+          </p>
+        ) : (
+          <div className="space-y-2">
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-[var(--muted)]">@</span>
+              <input
+                type="text"
+                value={handleDraft}
+                autoFocus
+                autoComplete="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                maxLength={30}
+                placeholder="pedro_82"
+                onChange={(e) => {
+                  setHandleDraft(sanitiseHandleInput(e.target.value))
+                  setHandleError(null)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') { e.preventDefault(); void handleSaveHandle() }
+                  if (e.key === 'Escape') { e.preventDefault(); handleCancelEditingHandle() }
+                }}
+                className={`w-full rounded-xl border bg-transparent pl-7 pr-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--muted)]/60 ${
+                  handleFormatError || handleError ? 'border-red-500/60' : 'border-[var(--line)]'
+                }`}
+              />
+            </div>
+
+            <p className={`text-[11px] ${handleFormatError || handleError ? 'text-red-400' : 'text-[var(--muted)]'}`}>
+              {handleError
+                ?? handleFormatError
+                ?? '3–30 caracteres · letras minúsculas, números, ".", "_" ou "-".'}
+            </p>
+
+            <div className="flex flex-wrap gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => void handleSaveHandle()}
+                disabled={handleSaving || !handleChanged || Boolean(handleFormatError) || !handleDraft.trim()}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+              >
+                <Check size={13} />
+                {handleSaving ? 'Salvando...' : 'Salvar'}
+              </button>
+              <button
+                type="button"
+                onClick={handleCancelEditingHandle}
+                disabled={handleSaving}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)] disabled:opacity-50"
+              >
+                <X size={13} />
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {handleSuccess && (
+          <p className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-400">
+            Handle atualizado para <span className="font-mono font-bold">@{user?.handle}</span>.
+          </p>
+        )}
       </article>
 
       {/* Privacidade */}
