@@ -1,6 +1,7 @@
 export type AuthUser = {
   id: string
   name: string | null
+  handle: string
   email: string
   role: 'USER' | 'COACH' | 'ADMIN'
   sex: 'MALE' | 'FEMALE' | 'OTHER'

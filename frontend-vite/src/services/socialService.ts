@@ -26,16 +26,31 @@ export type WorkoutSummary = {
   exercises: WorkoutExerciseSummary[]
 }
 
+export type FeedPostUser = {
+  id: string
+  name: string | null
+  avatarUrl: string | null
+  handle: string
+}
+
 export type FeedPost = {
   id: string
   caption: string | null
   photoUrl: string | null
   privacy: PostPrivacy
   likesCount: number
+  commentsCount: number
   createdAt: string
   likedByMe: boolean
-  user: { id: string; name: string | null; avatarUrl: string | null }
+  user: FeedPostUser
   workoutSummary: WorkoutSummary | null
+}
+
+export type PostComment = {
+  id: string
+  content: string
+  createdAt: string
+  user: FeedPostUser
 }
 
 export type PublicProfile = {
@@ -144,6 +159,44 @@ export async function toggleLike(authorizedFetch: AuthorizedFetch, postId: strin
   return handleResponse<{ liked: boolean }>(res)
 }
 
+// ─── Comments ───────────────────────────────────────────────────────────────
+
+export async function listComments(
+  authorizedFetch: AuthorizedFetch,
+  postId: string,
+  page = 1,
+): Promise<PostComment[]> {
+  const res = await authorizedFetch(`${API_URL}/social/posts/${postId}/comments?page=${page}&pageSize=20`)
+  return handleResponse<PostComment[]>(res)
+}
+
+export async function createComment(
+  authorizedFetch: AuthorizedFetch,
+  postId: string,
+  content: string,
+): Promise<PostComment> {
+  const res = await authorizedFetch(`${API_URL}/social/posts/${postId}/comments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  })
+  return handleResponse<PostComment>(res)
+}
+
+export async function deleteComment(
+  authorizedFetch: AuthorizedFetch,
+  postId: string,
+  commentId: string,
+): Promise<void> {
+  const res = await authorizedFetch(`${API_URL}/social/posts/${postId}/comments/${commentId}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) {
+    const json = await res.json().catch(() => null)
+    throw new Error(json?.error?.message ?? 'Erro ao apagar comentário')
+  }
+}
+
 export async function getUserPosts(authorizedFetch: AuthorizedFetch, userId: string, page = 1): Promise<FeedPost[]> {
   const res = await authorizedFetch(`${API_URL}/social/users/${userId}/posts?page=${page}&pageSize=20`)
   return handleResponse<FeedPost[]>(res)
@@ -245,6 +298,24 @@ export async function updatePrivacy(
     throw new Error(json?.error?.message ?? 'Erro ao salvar privacidade')
   }
   return json?.data as { isPrivate: boolean; showFollowLists: boolean; downgradedPosts: number }
+}
+
+// Changes the user's public @handle. Returns the new handle so the caller can
+// update the AuthUser cache. 409 from the server means the handle was taken
+// between client-side validation and submit — surface it directly.
+export async function updateHandle(
+  authorizedFetch: AuthorizedFetch,
+  handle: string,
+): Promise<{ handle: string }> {
+  const res = await authorizedFetch(`${API_URL}/auth/profile/handle`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ handle }),
+  })
+  const json = await res.json().catch(() => null)
+  if (!res.ok) throw new Error(json?.error?.message ?? 'Erro ao salvar handle')
+  const returned = json?.data?.user?.handle
+  return { handle: typeof returned === 'string' ? returned : handle }
 }
 
 export async function getPublicFollowers(authorizedFetch: AuthorizedFetch, userId: string): Promise<SimpleUser[]> {
