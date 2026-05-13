@@ -34,6 +34,7 @@ export type PlanExercise = {
     equipment: string
     isBodyweight: boolean
     allowsExtraLoad: boolean
+    trackingType: 'REPS' | 'TIME' | 'DISTANCE' | 'REPS_AND_TIME'
     thumbnailUrl: string | null
     videoUrl: string | null
   }
@@ -56,6 +57,7 @@ export type ExerciseOption = {
   equipment: string
   isBodyweight: boolean
   allowsExtraLoad: boolean
+  trackingType: 'REPS' | 'TIME' | 'DISTANCE' | 'REPS_AND_TIME'
   thumbnailUrl: string | null
   videoUrl: string | null
 }
@@ -119,6 +121,8 @@ export type LatestExerciseSetPerformance = {
   setNumber: number
   reps: number | null
   weightKg: number | null
+  durationSec: number | null
+  distanceMeters: number | null
   perceivedExertion: number | null
   rir: number | null
 }

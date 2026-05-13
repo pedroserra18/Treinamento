@@ -49,7 +49,7 @@ type SaveResult = {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const TOTAL_STEPS = 19
+const ALL_STEP_IDS = Array.from({ length: 19 }, (_, i) => i)
 
 const MUSCLES_LIST = [
   'Ombro', 'Peito', 'Costas', 'Bíceps', 'Tríceps',
@@ -109,6 +109,64 @@ const DEFAULT_ANSWERS: QuizAnswers = {
 }
 
 // ─── Helper functions ─────────────────────────────────────────────────────────
+
+// Conditional question visibility — questões irrelevantes para o contexto do utilizador são ocultadas.
+// Cada regra documenta a justificação para que possa ser revista no futuro.
+function isStepVisible(stepId: number, a: QuizAnswers): boolean {
+  const isBodyweight = a.location === 'Em casa sem equipamentos'
+  const isHomeWithEquip = a.location === 'Em casa com equipamentos'
+  const isBeginner = a.experience === 'Iniciante'
+  const isInjuryRecovery = a.goal === 'Recuperação de lesão'
+
+  // step 7 — preferência entre Pesos livres / Máquinas / Misto: a opção "Máquinas" só faz sentido em academia.
+  // Em casa (com ou sem equipamento) tipicamente só há pesos livres, então a pergunta é redundante.
+  if (stepId === 7 && (isBodyweight || isHomeWithEquip)) return false
+
+  // step 10 — faixa de reps: bodyweight = AMRAP até falha técnica próxima (descrito no guia calistenia do prompt).
+  // Para recuperação de lesão, reps são prescritas pela IA conforme o tipo de lesão; faixa fixa não se aplica.
+  if (stepId === 10 && (isBodyweight || isInjuryRecovery)) return false
+
+  // step 11 — descanso: para bodyweight a densidade é mais importante que a carga; o guia já prescreve 30-90s.
+  if (stepId === 11 && isBodyweight) return false
+
+  // step 12 — técnicas avançadas (Drop Set, Cluster Set, Rest-Pause, Bi-Set):
+  //   • Drop/Cluster exigem cargas reguláveis → impossível sem equipamento.
+  //   • Iniciantes não devem usar técnicas avançadas (volume e técnica básica primeiro).
+  //   • Em recuperação de lesão, técnicas avançadas são contraindicadas.
+  if (stepId === 12 && (isBodyweight || isBeginner || isInjuryRecovery)) return false
+
+  // step 13 — foco muscular: em recuperação de lesão, o "foco" é dado pela lesão (descrita em step 14).
+  if (stepId === 13 && isInjuryRecovery) return false
+
+  // step 17 — RIR alvo: bodyweight implica falha técnica próxima (RIR 0-2) por natureza, descrito no guia.
+  // Para iniciantes, o conceito é técnico demais e a recomendação padrão (RIR 2-3) já é aplicada implicitamente.
+  if (stepId === 17 && (isBodyweight || isBeginner)) return false
+
+  return true
+}
+
+function getVisibleSteps(a: QuizAnswers): number[] {
+  return ALL_STEP_IDS.filter(s => isStepVisible(s, a))
+}
+
+// Quando uma resposta torna outras irrelevantes, limpamos os campos dependentes para não levar lixo ao prompt.
+function clearStaleAnswers(next: QuizAnswers, key: keyof QuizAnswers, value: string): QuizAnswers {
+  if (key === 'location') {
+    if (value === 'Em casa sem equipamentos') {
+      return { ...next, equipment: '', repRange: '', restTime: '', techniques: [], rirTarget: '' }
+    }
+    if (value === 'Em casa com equipamentos') {
+      return { ...next, equipment: '' }
+    }
+  }
+  if (key === 'experience' && value === 'Iniciante') {
+    return { ...next, techniques: [], rirTarget: '' }
+  }
+  if (key === 'goal' && value === 'Recuperação de lesão') {
+    return { ...next, repRange: '', techniques: [], hasFocus: false, musclesFocus: [], hasInjury: true }
+  }
+  return next
+}
 
 function detectMuscleGroup(name: string): { label: string; color: string } | null {
   const n = name.toLowerCase()
@@ -257,6 +315,10 @@ function estimateDurationMin(exercises: { sets?: number; restSec?: number; repsM
 }
 
 function buildPrompt(a: QuizAnswers, dayLabel: string, dayIdx: number, total: number, split: string): string {
+  const isBodyweight = a.location === 'Em casa sem equipamentos'
+  const isBeginner = a.experience === 'Iniciante'
+  const isInjuryRecovery = a.goal === 'Recuperação de lesão'
+
   const injuryParts = [
     a.hasInjury && a.injuryDescription ? `Lesão: ${a.injuryDescription}` : '',
     a.avoidExercises ? `Evitar exercícios: ${a.avoidExercises}` : '',
@@ -278,23 +340,84 @@ function buildPrompt(a: QuizAnswers, dayLabel: string, dayIdx: number, total: nu
     a.weightKg ? `${a.weightKg}kg` : '',
   ].filter(Boolean).join(' · ')
 
+  // Cabeçalho específico de calistenia (sem equipamento) — guia o modelo a usar progressões corporais e reps até falha.
+  const bodyweightGuide = isBodyweight ? [
+    '',
+    'GUIA CALISTENIA (treino exclusivamente com peso corporal):',
+    '- NÃO incluir exercícios que exijam halteres, barras, máquinas, elásticos, anilhas ou qualquer carga externa.',
+    '- NÃO usar técnicas avançadas (drop set, cluster, rest-pause, bi-set) — não fazem sentido sem cargas reguláveis.',
+    '- Estratégia de reps: AMRAP — prescrever séries até falha técnica próxima (RIR 0–2). Faixas típicas:',
+    `  • Iniciante: 10–20 reps | Intermediário: 12–25 reps | Avançado: progressões mais difíceis com 6–15 reps (ex.: pistol squat, archer push-up, handstand push-up, muscle-up assistido).`,
+    '- Use progressões adequadas ao nível (ex.: incline → standard → decline → diamond push-ups; bodyweight squat → split squat → bulgarian → pistol).',
+    '- Para grupos sem progressão de carga (panturrilha, core), aumentar tempo sob tensão e densidade.',
+    '- Descanso: 30–90s tipicamente é suficiente — densidade > carga.',
+    '- Para variedade de costas/bíceps sem barra fixa, usar australian rows (door rows / table rows) e back extensions no chão.',
+    '',
+  ].join('\n') : ''
+
+  // Iniciante: aprendizado motor + segurança são prioridade; nada de técnicas avançadas.
+  const beginnerNote = isBeginner ? [
+    '',
+    'NOTA — INICIANTE (<1 ano de treino):',
+    '- Foco em movimentos compostos básicos com forma perfeita; cargas conservadoras (RIR 2-4).',
+    '- NÃO usar técnicas avançadas (drop set, cluster, rest-pause, bi-set).',
+    '- 2-3 séries efetivas por exercício após aquecimentos; volume moderado.',
+    '- Preferir exercícios estáveis (máquinas/guiados quando disponível) antes de pesos livres complexos (ex.: leg press antes de agachamento livre pesado).',
+    '',
+  ].join('\n') : ''
+
+  // Recuperação de lesão: prioridade absoluta na lesão descrita; reps/RIR escolhidos pela IA conforme protocolo.
+  const recoveryNote = isInjuryRecovery ? [
+    '',
+    'NOTA — RECUPERAÇÃO DE LESÃO:',
+    '- Adapta TODOS os exercícios para evitar agravar a lesão descrita; exclui movimentos contraindicados.',
+    '- Prefere exercícios isolados, com amplitude controlada e sem carga axial pesada.',
+    '- Reps moderadas a altas (12–20) com cargas leves a moderadas, RIR 3+ — sem ir à falha.',
+    '- NÃO usar técnicas avançadas; volume conservador, foco em qualidade do movimento.',
+    '- Inclui mobilidade/ativação para a região afetada quando apropriado.',
+    '',
+  ].join('\n') : ''
+
+  // Linha de reps adapta-se ao contexto: bodyweight → AMRAP; lesão → IA define; senão usa a faixa escolhida.
+  const repLine = isBodyweight
+    ? `- Reps: AMRAP até falha técnica próxima (sem repRange fixo — ver GUIA CALISTENIA acima)`
+    : isInjuryRecovery
+      ? `- Reps: 12-20 com cargas leves/moderadas, RIR 3+ (ver NOTA — RECUPERAÇÃO DE LESÃO)`
+      : a.repRange ? `- Faixa de reps: ${a.repRange}` : ''
+
+  // Técnicas só aparecem quando o utilizador realmente escolheu alguma — para iniciantes/bodyweight/lesão são proibidas via guia.
+  const realTechniques = a.techniques.filter(t => t !== 'Nenhuma')
+  const techniquesLine = realTechniques.length > 0 ? `- Técnicas: ${realTechniques.join(', ')}` : ''
+
+  // RIR explícito só quando faz sentido (não bodyweight, não iniciante, não lesão; e o utilizador escolheu valor concreto).
+  const rirLine = (!isBodyweight && !isBeginner && !isInjuryRecovery && a.rirTarget && a.rirTarget !== 'IA decide')
+    ? `- RIR alvo: ${a.rirTarget}` : ''
+
+  // Descanso só quando relevante (bodyweight tem prescrição própria via guia).
+  const restLine = !isBodyweight ? `- Descanso entre séries: ${a.restTime || 'IA decide'}` : ''
+
   return [
     `Cria APENAS o treino "${dayLabel}" (dia ${dayIdx + 1} de ${total} do plano ${split}).`,
     `Não incluas os outros dias. OBRIGATÓRIO: inclui sempre o bloco JSON no final.`,
     mandatoryLine ? `\n${mandatoryLine}\n` : '',
+    bodyweightGuide,
+    beginnerNote,
+    recoveryNote,
     `PERFIL:`,
     `- Frequência: ${a.daysPerWeek} dias/semana | Divisão: ${split}`,
     `- Nível: ${a.experience} | Faixa etária: ${a.age}`,
     a.gender ? `- Gênero: ${a.gender}` : '',
     physical ? `- Físico: ${physical}` : '',
     `- Fase: ${a.phase} | Objetivo: ${a.goal}`,
-    `- Local: ${a.location} | Equipamento: ${a.equipment}`,
+    isBodyweight
+      ? `- Local: ${a.location} (apenas peso corporal — calistenia)`
+      : `- Local: ${a.location}${a.equipment ? ` | Equipamento: ${a.equipment}` : ''}`,
     `- Duração: ${a.duration} min | Frequência muscular: ${a.muscleFrequency}`,
-    `- Faixa de reps: ${a.repRange}`,
-    `- Descanso entre séries: ${a.restTime || 'IA decide'}`,
-    `- Técnicas: ${a.techniques.filter(t => t !== 'Nenhuma').join(', ') || 'Nenhuma'}`,
+    repLine,
+    restLine,
+    techniquesLine,
     a.exerciseCount && a.exerciseCount !== 'IA decide' ? `- Tamanho do treino: ${a.exerciseCount}` : '',
-    a.rirTarget && a.rirTarget !== 'IA decide' ? `- RIR alvo: ${a.rirTarget}` : '',
+    rirLine,
     a.musclesFocus.length > 0 ? `- Foco muscular (volume EXTRA, não exclusivo): ${a.musclesFocus.join(', ')}` : '',
     injuryParts ? `- RESTRIÇÕES: ${injuryParts}` : '',
     a.extraInfo ? `- Pedido extra do utilizador: ${a.extraInfo}` : '',
@@ -422,35 +545,49 @@ export function AIWorkoutPage() {
   const advanceStep = useCallback(() => {
     setDirection(1)
     if (isEditMode) { setAppScreen('REVIEW'); return }
-    if (step < TOTAL_STEPS - 1) {
-      setStep(s => s + 1)
+    const visible = getVisibleSteps(answers)
+    const idx = visible.indexOf(step)
+    if (idx >= 0 && idx < visible.length - 1) {
+      setStep(visible[idx + 1])
     } else {
       setAppScreen('REVIEW')
     }
-  }, [step, isEditMode])
+  }, [step, isEditMode, answers])
 
   const goBack = useCallback(() => {
     setDirection(-1)
     if (isEditMode) { setAppScreen('REVIEW'); return }
-    if (step > 0) setStep(s => s - 1)
-    else setAppScreen('WELCOME')
-  }, [step, isEditMode])
+    const visible = getVisibleSteps(answers)
+    const idx = visible.indexOf(step)
+    if (idx > 0) {
+      setStep(visible[idx - 1])
+    } else {
+      setAppScreen('WELCOME')
+    }
+  }, [step, isEditMode, answers])
 
   const selectAndAdvance = useCallback((key: keyof QuizAnswers, value: string) => {
-    setAnswers(prev => ({ ...prev, [key]: value }))
+    // Espelha a transformação aplicada dentro de setAnswers para calcular visibilidade do próximo passo.
+    const nextAnswers = clearStaleAnswers({ ...answers, [key]: value }, key, value)
+
+    setAnswers(prev => clearStaleAnswers({ ...prev, [key]: value }, key, value))
     setDirection(1)
+
     if (isEditMode) {
       setTimeout(() => setAppScreen('REVIEW'), 160)
       return
     }
+
     setTimeout(() => {
-      setStep(s => {
-        if (s < TOTAL_STEPS - 1) return s + 1
+      const visible = getVisibleSteps(nextAnswers)
+      const idx = visible.indexOf(step)
+      if (idx >= 0 && idx < visible.length - 1) {
+        setStep(visible[idx + 1])
+      } else {
         setAppScreen('REVIEW')
-        return s
-      })
+      }
     }, 160)
-  }, [isEditMode])
+  }, [isEditMode, step, answers])
 
   const toggleTechnique = (t: string) => {
     setAnswers(prev => {
@@ -725,7 +862,7 @@ export function AIWorkoutPage() {
             Vamos montar seu treino personalizado
           </h1>
           <p className="mt-2 text-sm text-[var(--muted)]">
-            Responda {TOTAL_STEPS} perguntas rápidas e a IA cria um plano feito especialmente para você
+            Responda algumas perguntas rápidas e a IA cria um plano feito especialmente para você
           </p>
           <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--surface-hover)] px-4 py-2">
             <Clock size={13} className="text-[var(--muted)]" />
@@ -822,6 +959,11 @@ export function AIWorkoutPage() {
 
   if (appScreen === 'QUIZ') {
     const recommendedRange = GOAL_RECOMMENDED_RANGE[answers.goal] ?? null
+
+    const visibleSteps = getVisibleSteps(answers)
+    const totalVisible = visibleSteps.length
+    const visibleIdx = visibleSteps.indexOf(step)
+    const isLastVisibleStep = visibleIdx === totalVisible - 1
 
     // Steps that need explicit Next button (multi-select or text input)
     const needsNextButton = [12, 13, 14, 15].includes(step) || (step === 18 && answers.hasExtraInfo === true)
@@ -1292,7 +1434,7 @@ export function AIWorkoutPage() {
               Editando resposta
             </p>
           ) : (
-            <ProgressBar step={step + 1} total={TOTAL_STEPS} />
+            <ProgressBar step={Math.max(visibleIdx, 0) + 1} total={totalVisible} />
           )}
           <AnimatePresence mode="wait" custom={direction}>
             <motion.div
@@ -1340,7 +1482,7 @@ export function AIWorkoutPage() {
                     disabled={step === 13 && answers.hasFocus === null}
                     className="rounded-xl bg-[var(--brand)] px-5 py-2 text-sm font-bold text-white disabled:opacity-50"
                   >
-                    {step === TOTAL_STEPS - 1 ? 'Ver resumo' : 'Próximo'}
+                    {isLastVisibleStep ? 'Ver resumo' : 'Próximo'}
                   </button>
                 )}
                 {(step === 14 || step === 15) && (
@@ -1377,7 +1519,7 @@ export function AIWorkoutPage() {
       answers.weightKg && `${answers.weightKg}kg`,
     ].filter(Boolean).join(' · ') || 'Não informado'
 
-    const chips: Array<{ label: string; value: string; step: number }> = [
+    const allChips: Array<{ label: string; value: string; step: number }> = [
       { label: 'Dias', value: answers.daysPerWeek ? `${answers.daysPerWeek}x/semana` : '—', step: 0 },
       { label: 'Nível', value: answers.experience || '—', step: 1 },
       { label: 'Idade', value: answers.age || '—', step: 2 },
@@ -1398,6 +1540,8 @@ export function AIWorkoutPage() {
       { label: 'RIR', value: answers.rirTarget || 'IA decide', step: 17 },
       { label: 'Extra', value: answers.extraInfo || (answers.hasExtraInfo === false ? 'Não' : '—'), step: 18 },
     ]
+    const visibleStepIds = getVisibleSteps(answers)
+    const chips = allChips.filter(c => visibleStepIds.includes(c.step))
 
     return (
       <section className="space-y-4">

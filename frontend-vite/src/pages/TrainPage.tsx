@@ -45,6 +45,8 @@ type ExerciseSetInput = {
   checked: boolean
 }
 
+type TrackingType = 'REPS' | 'TIME' | 'DISTANCE' | 'REPS_AND_TIME'
+
 type ActiveExercise = {
   planExerciseId?: string
   exerciseId: string
@@ -54,6 +56,7 @@ type ActiveExercise = {
   videoUrl: string | null
   isBodyweight: boolean
   allowsExtraLoad: boolean
+  trackingType: TrackingType
   suggestedReps: string
   restDurationSec: number
   restRemainingSec: number
@@ -97,10 +100,15 @@ function toFiniteNumber(value: unknown): number | null {
 function mapPlanToActiveExercises(plan: WorkoutPlan): ActiveExercise[] {
   return plan.exercises.map((entry) => {
     const exerciseName = entry.customName ?? entry.exercise.name
+    const trackingType = (entry.exercise.trackingType ?? 'REPS') as TrackingType
     const repsText =
-      entry.repsMin && entry.repsMax
-        ? `${entry.repsMin}`
-        : String(entry.repsMax ?? entry.repsMin ?? 8)
+      trackingType === 'TIME'
+        ? String(entry.durationSec ?? 30)
+        : trackingType === 'DISTANCE'
+          ? '20'
+          : entry.repsMin && entry.repsMax
+            ? `${entry.repsMin}`
+            : String(entry.repsMax ?? entry.repsMin ?? 8)
 
     return {
       planExerciseId: entry.id,
@@ -115,6 +123,7 @@ function mapPlanToActiveExercises(plan: WorkoutPlan): ActiveExercise[] {
         entry.exercise.equipment,
       ),
       allowsExtraLoad: entry.exercise.allowsExtraLoad,
+      trackingType,
       suggestedReps: repsText,
       restDurationSec: entry.restSec ?? 0,
       restRemainingSec: entry.restSec ?? 0,
@@ -210,7 +219,19 @@ export function TrainPage() {
 
   const [exerciseSearch, setExerciseSearch] = useState('')
   const [lastPerformanceByExercise, setLastPerformanceByExercise] = useState<
-    Record<string, Record<number, { reps: number | null; weightKg: number | null; rir: number | null }>>
+    Record<
+      string,
+      Record<
+        number,
+        {
+          reps: number | null
+          weightKg: number | null
+          rir: number | null
+          durationSec: number | null
+          distanceMeters: number | null
+        }
+      >
+    >
   >({})
   const [editingRestExerciseIndex, setEditingRestExerciseIndex] = useState<number | null>(null)
   const [restDraftSec, setRestDraftSec] = useState('0')
@@ -326,7 +347,19 @@ export function TrainPage() {
           return
         }
 
-        const mapped: Record<string, Record<number, { reps: number | null; weightKg: number | null; rir: number | null }>> = {}
+        const mapped: Record<
+          string,
+          Record<
+            number,
+            {
+              reps: number | null
+              weightKg: number | null
+              rir: number | null
+              durationSec: number | null
+              distanceMeters: number | null
+            }
+          >
+        > = {}
         const latestSetCountByExercise: Record<string, number> = {}
 
         data.items.forEach((item) => {
@@ -339,11 +372,15 @@ export function TrainPage() {
             const reps = toFiniteNumber(setEntry.reps)
             const weightKg = toFiniteNumber(setEntry.weightKg)
             const rir = toFiniteNumber(setEntry.rir)
+            const durationSec = toFiniteNumber(setEntry.durationSec)
+            const distanceMeters = toFiniteNumber(setEntry.distanceMeters)
 
             mapped[item.exerciseId][setEntry.setNumber] = {
               reps,
               weightKg,
               rir,
+              durationSec,
+              distanceMeters,
             }
           })
         })
@@ -493,7 +530,13 @@ export function TrainPage() {
             videoUrl: payload.videoUrl,
             isBodyweight: resolveBodyweightFlag(payload.isBodyweight, payload.name, payload.equipment),
             allowsExtraLoad: payload.allowsExtraLoad,
-            suggestedReps: '10',
+            trackingType: (payload.trackingType ?? 'REPS') as TrackingType,
+            suggestedReps:
+              payload.trackingType === 'TIME'
+                ? '30'
+                : payload.trackingType === 'DISTANCE'
+                  ? '20'
+                  : '10',
             restDurationSec: 0,
             restRemainingSec: 0,
             restRunning: false,
@@ -634,14 +677,32 @@ export function TrainPage() {
           const wasChecked = exercise.sets[setIndex]?.checked ?? false
           const lastSet = lastPerformanceByExercise[exercise.exerciseId]?.[setIndex + 1]
 
+          const trackingDefault =
+            exercise.trackingType === 'TIME'
+              ? '30'
+              : exercise.trackingType === 'DISTANCE'
+                ? '20'
+                : exercise.suggestedReps
+          const lastValue =
+            exercise.trackingType === 'TIME'
+              ? lastSet?.durationSec
+              : exercise.trackingType === 'DISTANCE'
+                ? lastSet?.distanceMeters
+                : lastSet?.reps
           const newSets = exercise.sets.map((s, sIdx) => {
             if (sIdx !== setIndex) return s
             if (wasChecked) return { ...s, checked: false }
+            const repsFill =
+              s.reps.trim() !== ''
+                ? s.reps
+                : lastValue != null
+                  ? String(lastValue)
+                  : trackingDefault
             return {
               ...s,
               checked: true,
               weightKg: s.weightKg.trim() === '' && lastSet?.weightKg != null ? String(lastSet.weightKg) : s.weightKg,
-              reps: s.reps.trim() === '' && lastSet?.reps != null ? String(lastSet.reps) : s.reps,
+              reps: repsFill,
               rir: s.rir.trim() === '' && lastSet?.rir != null ? String(lastSet.rir) : s.rir,
             }
           })
@@ -879,7 +940,9 @@ export function TrainPage() {
         Array<{
           exerciseId: string
           setNumber: number
-          reps: number
+          reps?: number
+          durationSec?: number
+          distanceMeters?: number
           weightKg?: number
           notes?: string
         }>
@@ -946,12 +1009,24 @@ export function TrainPage() {
           return acc
         }
 
-        const repsFallback =
-          lastSet?.reps ??
-          (exercise.suggestedReps.trim().length > 0 ? Number(exercise.suggestedReps) : NaN)
-        const reps = repsRaw.length > 0 ? Number(repsRaw) : repsFallback
+        const trackingDefaultNum =
+          exercise.trackingType === 'TIME'
+            ? 30
+            : exercise.trackingType === 'DISTANCE'
+              ? 20
+              : exercise.suggestedReps.trim().length > 0
+                ? Number(exercise.suggestedReps)
+                : NaN
+        const lastValueNum =
+          exercise.trackingType === 'TIME'
+            ? lastSet?.durationSec
+            : exercise.trackingType === 'DISTANCE'
+              ? lastSet?.distanceMeters
+              : lastSet?.reps
+        const repsFallback = lastValueNum ?? trackingDefaultNum
+        const valueRaw = repsRaw.length > 0 ? Number(repsRaw.replace(',', '.')) : repsFallback
 
-        if (!Number.isFinite(reps) || reps <= 0) {
+        if (!Number.isFinite(valueRaw) || valueRaw <= 0) {
           return acc
         }
 
@@ -965,10 +1040,15 @@ export function TrainPage() {
               ? '[tipo:falhada] '
               : ''
 
+        const isTimeEx = exercise.trackingType === 'TIME'
+        const isDistanceEx = exercise.trackingType === 'DISTANCE'
+
         acc.push({
           exerciseId: exercise.exerciseId,
           setNumber,
-          reps,
+          reps: isTimeEx || isDistanceEx ? undefined : Math.floor(valueRaw),
+          durationSec: isTimeEx ? Math.max(5, Math.floor(valueRaw)) : undefined,
+          distanceMeters: isDistanceEx ? valueRaw : undefined,
           weightKg:
             !isEffectiveBodyweightExercise(exercise) && Number.isFinite(weightKg) && weightKg > 0
               ? weightKg
@@ -1696,10 +1776,19 @@ export function TrainPage() {
                       lastSet?.weightKg != null
                         ? `${lastSet.weightKg} kg`
                         : 'kg'
+                    const isTime = exercise.trackingType === 'TIME'
+                    const isDistance = exercise.trackingType === 'DISTANCE'
+                    const repsLabel = isTime ? 'Tempo (s)' : isDistance ? 'Distância (m)' : 'Repeticoes'
+                    const trackingDefault = isTime ? '30' : isDistance ? '20' : exercise.suggestedReps
+                    const lastValueForPlaceholder = isTime
+                      ? lastSet?.durationSec
+                      : isDistance
+                        ? lastSet?.distanceMeters
+                        : lastSet?.reps
                     const repsPlaceholder =
-                      lastSet?.reps != null
-                        ? String(lastSet.reps)
-                        : exercise.suggestedReps || 'reps'
+                      lastValueForPlaceholder != null
+                        ? String(lastValueForPlaceholder)
+                        : trackingDefault || 'reps'
                     const rirPlaceholder =
                       lastSet?.rir != null
                         ? String(lastSet.rir)
@@ -1734,6 +1823,9 @@ export function TrainPage() {
                       <SetTypeSelector
                         value={setInput.setType}
                         onChange={(val) => patchSet(exerciseIndex, setIndex, { setType: val })}
+                        allowedTypes={
+                          isTime || isDistance ? ['normal', 'warmup', 'failure'] : undefined
+                        }
                       />
                       <button
                         type="button"
@@ -1861,49 +1953,58 @@ export function TrainPage() {
                       </div>
                     ) : (
                       /* Normal / Warmup / Failure inputs */
-                      <div className={`grid gap-2 ${showLoadInput ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
-                        {showLoadInput ? (
-                          <label className="text-[11px] uppercase text-[var(--muted)]">
-                            Peso (kg)
-                            <input
-                              value={setInput.weightKg}
-                              placeholder={weightPlaceholder}
-                              onChange={(event) =>
-                                patchSet(exerciseIndex, setIndex, {
-                                  weightKg: event.target.value.replace(/[^\d.]/g, ''),
-                                })
-                              }
-                              className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
-                            />
-                          </label>
-                        ) : null}
-                        <label className="text-[11px] uppercase text-[var(--muted)]">
-                          Repeticoes
-                          <input
-                            value={setInput.reps}
-                            placeholder={repsPlaceholder}
-                            onChange={(event) =>
-                              patchSet(exerciseIndex, setIndex, {
-                                reps: event.target.value.replace(/[^\d]/g, ''),
-                              })
-                            }
-                            className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
-                          />
-                        </label>
-                        <label className="text-[11px] uppercase text-[var(--muted)]">
-                          RIR
-                          <input
-                            value={setInput.rir}
-                            placeholder={rirPlaceholder}
-                            onChange={(event) =>
-                              patchSet(exerciseIndex, setIndex, {
-                                rir: event.target.value.replace(/[^\d]/g, ''),
-                              })
-                            }
-                            className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
-                          />
-                        </label>
-                      </div>
+                      (() => {
+                        const hideRir = isTime || isDistance
+                        const cols = (showLoadInput ? 1 : 0) + 1 + (hideRir ? 0 : 1)
+                        const gridClass = cols === 3 ? 'sm:grid-cols-3' : cols === 2 ? 'sm:grid-cols-2' : 'sm:grid-cols-1'
+                        return (
+                          <div className={`grid gap-2 ${gridClass}`}>
+                            {showLoadInput ? (
+                              <label className="text-[11px] uppercase text-[var(--muted)]">
+                                Peso (kg)
+                                <input
+                                  value={setInput.weightKg}
+                                  placeholder={weightPlaceholder}
+                                  onChange={(event) =>
+                                    patchSet(exerciseIndex, setIndex, {
+                                      weightKg: event.target.value.replace(/[^\d.]/g, ''),
+                                    })
+                                  }
+                                  className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                                />
+                              </label>
+                            ) : null}
+                            <label className="text-[11px] uppercase text-[var(--muted)]">
+                              {repsLabel}
+                              <input
+                                value={setInput.reps}
+                                placeholder={repsPlaceholder}
+                                onChange={(event) =>
+                                  patchSet(exerciseIndex, setIndex, {
+                                    reps: event.target.value.replace(isDistance ? /[^\d.]/g : /[^\d]/g, ''),
+                                  })
+                                }
+                                className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                              />
+                            </label>
+                            {hideRir ? null : (
+                              <label className="text-[11px] uppercase text-[var(--muted)]">
+                                RIR
+                                <input
+                                  value={setInput.rir}
+                                  placeholder={rirPlaceholder}
+                                  onChange={(event) =>
+                                    patchSet(exerciseIndex, setIndex, {
+                                      rir: event.target.value.replace(/[^\d]/g, ''),
+                                    })
+                                  }
+                                  className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                                />
+                              </label>
+                            )}
+                          </div>
+                        )
+                      })()
                     )}
                   </div>
                     )

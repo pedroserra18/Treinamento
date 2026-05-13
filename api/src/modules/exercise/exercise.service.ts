@@ -63,9 +63,16 @@ export async function listExercises(query: ListExercisesQuery, user: RequestUser
       : {})
   };
 
-  return prisma.exercise.findMany({
+  const rows = await prisma.exercise.findMany({
     where: where as Prisma.ExerciseWhereInput,
     orderBy: [{ scope: "asc" }, { name: "asc" }]
+  });
+
+  return rows.sort((a, b) => {
+    if (a.scope !== b.scope) return a.scope.localeCompare(b.scope);
+    const g = a.primaryMuscleGroup.localeCompare(b.primaryMuscleGroup);
+    if (g !== 0) return g;
+    return a.name.localeCompare(b.name, "pt-BR");
   });
 }
 

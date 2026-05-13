@@ -12,6 +12,7 @@ export type ExerciseExplorerSelection = {
   equipment: string
   isBodyweight: boolean
   allowsExtraLoad: boolean
+  trackingType?: 'REPS' | 'TIME' | 'DISTANCE' | 'REPS_AND_TIME'
   thumbnailUrl: string | null
   videoUrl: string | null
 }
