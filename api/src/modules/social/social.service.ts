@@ -10,7 +10,8 @@ const POST_SELECT = {
   privacy: true,
   likesCount: true,
   createdAt: true,
-  user: { select: { id: true, name: true, avatarUrl: true } },
+  _count: { select: { comments: true } },
+  user: { select: { id: true, name: true, handle: true, avatarUrl: true } },
   workoutSession: {
     select: {
       id: true,
@@ -33,6 +34,17 @@ const POST_SELECT = {
     },
   },
 };
+
+type RawPostUser = { id: string; name: string | null; handle: string; avatarUrl: string | null };
+type RawPostCounts = { comments: number };
+
+// Reshapes a Prisma post into the public API shape: collapses `_count` into
+// a scalar `commentsCount`. The user object already has the shape we expose
+// (id, name, handle, avatarUrl) so we just pass it through.
+function transformPost<T extends { user: RawPostUser; _count: RawPostCounts }>(post: T) {
+  const { _count, ...rest } = post;
+  return { ...rest, commentsCount: _count.comments };
+}
 
 type HistoryRow = {
   exerciseId: string;
@@ -138,7 +150,8 @@ export async function createPost(userId: string, data: CreatePostBody) {
     select: POST_SELECT,
   });
 
-  return { ...post, workoutSummary: summariseSession(post.workoutSession) };
+  const shaped = transformPost(post);
+  return { ...shaped, workoutSummary: summariseSession(post.workoutSession) };
 }
 
 export async function updatePostPrivacy(userId: string, postId: string, privacy: "PUBLIC" | "FRIENDS" | "PRIVATE") {
@@ -162,7 +175,8 @@ export async function updatePostPrivacy(userId: string, postId: string, privacy:
     select: POST_SELECT,
   });
 
-  return { ...updated, workoutSummary: summariseSession(updated.workoutSession) };
+  const shaped = transformPost(updated);
+  return { ...shaped, workoutSummary: summariseSession(updated.workoutSession) };
 }
 
 export async function deletePost(userId: string, postId: string, userRole?: string) {
@@ -319,11 +333,14 @@ export async function getFeed(userId: string, page: number, pageSize: number) {
       .map((l) => l.postId)
   );
 
-  return posts.map((p) => ({
-    ...p,
-    likedByMe: likedPostIds.has(p.id),
-    workoutSummary: summariseSession(p.workoutSession),
-  }));
+  return posts.map((p) => {
+    const shaped = transformPost(p);
+    return {
+      ...shaped,
+      likedByMe: likedPostIds.has(p.id),
+      workoutSummary: summariseSession(p.workoutSession),
+    };
+  });
 }
 
 export async function getUserPosts(viewerId: string | undefined, targetUserId: string, page: number, pageSize: number) {
@@ -357,7 +374,10 @@ export async function getUserPosts(viewerId: string | undefined, targetUserId: s
     select: POST_SELECT,
   });
 
-  return posts.map((p) => ({ ...p, workoutSummary: summariseSession(p.workoutSession ?? null) }));
+  return posts.map((p) => {
+    const shaped = transformPost(p);
+    return { ...shaped, workoutSummary: summariseSession(p.workoutSession ?? null) };
+  });
 }
 
 export async function followUser(followerId: string, followingId: string) {
@@ -705,4 +725,91 @@ export async function compareUsers(viewerId: string, targetUserId: string) {
     me: { name: viewerProfile?.name, avatarUrl: viewerProfile?.avatarUrl, stats: viewer },
     them: { name: targetProfile.name, avatarUrl: targetProfile.avatarUrl, stats: target },
   };
+}
+
+// ─── Comments ─────────────────────────────────────────────────────────────────
+
+const COMMENT_SELECT = {
+  id: true,
+  content: true,
+  createdAt: true,
+  user: { select: { id: true, name: true, handle: true, avatarUrl: true } },
+};
+
+// Mirrors the feed's visibility rules so users can't read comments on a post
+// they wouldn't be able to see in the feed itself.
+async function ensureCanViewPost(viewerId: string, postId: string) {
+  const post = await prisma.workoutPost.findUnique({
+    where: { id: postId },
+    select: { id: true, userId: true, privacy: true, removedAt: true, user: { select: { isPrivate: true } } },
+  });
+  if (!post || post.removedAt) {
+    throw new AppError("Post não encontrado", { statusCode: 404, code: "POST_NOT_FOUND" });
+  }
+  if (post.userId === viewerId) return post;
+
+  const isFollowing = !!(await prisma.follow.findUnique({
+    where: { followerId_followingId: { followerId: viewerId, followingId: post.userId } },
+  }));
+
+  if (post.privacy === "PRIVATE") {
+    throw new AppError("Post privado", { statusCode: 403, code: "FORBIDDEN" });
+  }
+  if (post.privacy === "FRIENDS" && !isFollowing) {
+    throw new AppError("Post restrito a amigos", { statusCode: 403, code: "FORBIDDEN" });
+  }
+  if (post.privacy === "PUBLIC" && post.user.isPrivate && !isFollowing) {
+    throw new AppError("Conta privada", { statusCode: 403, code: "FORBIDDEN" });
+  }
+  return post;
+}
+
+export async function listComments(viewerId: string, postId: string, page: number, pageSize: number) {
+  await ensureCanViewPost(viewerId, postId);
+  return prisma.postComment.findMany({
+    where: { postId },
+    orderBy: { createdAt: "asc" },
+    skip: (page - 1) * pageSize,
+    take: pageSize,
+    select: COMMENT_SELECT,
+  });
+}
+
+export async function createComment(userId: string, postId: string, content: string) {
+  const post = await ensureCanViewPost(userId, postId);
+  const created = await prisma.postComment.create({
+    data: { postId, userId, content },
+    select: COMMENT_SELECT,
+  });
+
+  // Notify the post owner (skip self-comments to avoid noise).
+  if (post.userId !== userId) {
+    const author = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
+    await createNotification({
+      userId: post.userId,
+      type: "POST_COMMENT",
+      title: "Novo comentário",
+      body: `${author?.name ?? "Alguém"} comentou no seu post.`,
+      metadata: { postId, commentId: created.id },
+    }).catch(() => undefined);
+  }
+
+  return created;
+}
+
+export async function deleteComment(userId: string, postId: string, commentId: string, userRole?: string) {
+  const comment = await prisma.postComment.findUnique({
+    where: { id: commentId },
+    select: { id: true, userId: true, postId: true, post: { select: { userId: true } } },
+  });
+  if (!comment || comment.postId !== postId) {
+    throw new AppError("Comentário não encontrado", { statusCode: 404, code: "COMMENT_NOT_FOUND" });
+  }
+  const isAuthor = comment.userId === userId;
+  const isPostOwner = comment.post.userId === userId;
+  const isAdmin = userRole === "ADMIN";
+  if (!isAuthor && !isPostOwner && !isAdmin) {
+    throw new AppError("Sem permissão", { statusCode: 403, code: "FORBIDDEN" });
+  }
+  await prisma.postComment.delete({ where: { id: commentId } });
 }

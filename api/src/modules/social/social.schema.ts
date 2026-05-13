@@ -42,8 +42,21 @@ export const searchUsersSchema = z.object({
   pageSize: z.coerce.number().int().positive().max(50).default(20),
 });
 
+// Comments. Listing pages 20 at a time to match the feed's feel; content matches
+// the column limit (500) so we fail fast on the schema rather than at the DB.
+export const createCommentSchema = z.object({
+  content: z.string().trim().min(1, "Comentário vazio").max(500, "Máximo 500 caracteres"),
+});
+
+export const commentsQuerySchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().positive().max(50).default(20),
+});
+
 export type CreatePostBody = z.infer<typeof createPostSchema>;
 export type UpdatePostPrivacyBody = z.infer<typeof updatePostPrivacySchema>;
 export type FeedQuery = z.infer<typeof feedQuerySchema>;
 export type UserPostsQuery = z.infer<typeof userPostsQuerySchema>;
 export type SearchUsersQuery = z.infer<typeof searchUsersSchema>;
+export type CreateCommentBody = z.infer<typeof createCommentSchema>;
+export type CommentsQuery = z.infer<typeof commentsQuerySchema>;

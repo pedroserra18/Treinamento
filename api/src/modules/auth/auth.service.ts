@@ -6,6 +6,7 @@ import { redisClient } from "../../config/redis";
 import { createHash, randomUUID } from "node:crypto";
 import { AppError } from "../../shared/errors/app-error";
 import { LoginBody, OnboardingCompleteBody, RefreshBody, RegisterBody } from "./auth.schema";
+import { generateUniqueHandle } from "../../shared/utils/handle";
 
 type AccessTokenPayload = {
   sub: string;
@@ -23,6 +24,7 @@ type RefreshTokenPayload = {
 type SafeUser = {
   id: string;
   name: string | null;
+  handle: string;
   email: string;
   role: "USER" | "COACH" | "ADMIN";
   sex: "MALE" | "FEMALE" | "OTHER";
@@ -196,6 +198,7 @@ async function issueTokenPair(user: { id: string; role: "USER" | "COACH" | "ADMI
 function toSafeUser(user: {
   id: string;
   name: string | null;
+  handle: string;
   email: string;
   role: "USER" | "COACH" | "ADMIN";
   sex: "MALE" | "FEMALE" | "OTHER";
@@ -208,6 +211,7 @@ function toSafeUser(user: {
   return {
     id: user.id,
     name: user.name,
+    handle: user.handle,
     email: user.email,
     role: user.role,
     sex: user.sex,
@@ -232,11 +236,17 @@ export async function registerWithEmail(data: RegisterBody): Promise<AuthResult>
     });
   }
 
+  // Resolve the requested handle: if it's taken, append a numeric suffix
+  // rather than failing the signup — the client picked their preferred handle
+  // already and we don't want a 409 on a small collision.
+  const handle = await generateUniqueHandle(data.handle);
+
   const passwordHash = await bcrypt.hash(data.password, 12);
 
   const user = await prisma.user.create({
     data: {
       name: data.name,
+      handle,
       email: data.email,
       normalizedEmail: data.email,
       passwordHash,
@@ -245,6 +255,7 @@ export async function registerWithEmail(data: RegisterBody): Promise<AuthResult>
     select: {
       id: true,
       name: true,
+      handle: true,
       email: true,
       role: true,
       sex: true,
@@ -283,6 +294,7 @@ export async function loginWithEmail(data: LoginBody): Promise<AuthResult> {
     select: {
       id: true,
       name: true,
+      handle: true,
       email: true,
       role: true,
       sex: true,
@@ -443,6 +455,7 @@ export async function getAuthenticatedProfile(userId: string): Promise<SafeUser>
     select: {
       id: true,
       name: true,
+      handle: true,
       email: true,
       role: true,
       sex: true,
@@ -527,8 +540,34 @@ export async function updateAvatar(userId: string, avatarUrl: string | null): Pr
     where: { id: userId },
     data: { avatarUrl },
     select: {
-      id: true, name: true, email: true, role: true,
+      id: true, name: true, handle: true, email: true, role: true,
       sex: true, availableDaysPerWeek: true, onboardingCompletedAt: true, isPrivate: true, showFollowLists: true, avatarUrl: true
+    },
+  });
+  return toSafeUser(updated);
+}
+
+// Lets a logged-in user change their public @handle. Throws 409 on collision
+// instead of silently appending a suffix — the user picked it deliberately.
+export async function updateHandle(userId: string, newHandle: string): Promise<SafeUser> {
+  const taken = await prisma.user.findUnique({
+    where: { handle: newHandle },
+    select: { id: true },
+  });
+  if (taken && taken.id !== userId) {
+    throw new AppError("Handle already in use", {
+      statusCode: 409,
+      code: "HANDLE_ALREADY_IN_USE",
+    });
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: { handle: newHandle },
+    select: {
+      id: true, name: true, handle: true, email: true, role: true,
+      sex: true, availableDaysPerWeek: true, onboardingCompletedAt: true,
+      isPrivate: true, showFollowLists: true, avatarUrl: true,
     },
   });
   return toSafeUser(updated);
@@ -548,6 +587,7 @@ export async function completeOnboarding(
     select: {
       id: true,
       name: true,
+      handle: true,
       email: true,
       role: true,
       sex: true,

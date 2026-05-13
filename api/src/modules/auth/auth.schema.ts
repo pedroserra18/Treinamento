@@ -1,8 +1,22 @@
 import { z } from "zod";
+import { HANDLE_MAX_LENGTH, HANDLE_MIN_LENGTH, HANDLE_REGEX, isHandleReserved } from "../../shared/utils/handle";
+
+// Reusable zod field for `@handle`. Lowercased on input so users can type
+// `Pedro_82` and we store/serve `pedro_82`; format and reserved checks run
+// against the lowercased value.
+const handleField = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(HANDLE_MIN_LENGTH, `Mínimo ${HANDLE_MIN_LENGTH} caracteres`)
+  .max(HANDLE_MAX_LENGTH, `Máximo ${HANDLE_MAX_LENGTH} caracteres`)
+  .regex(HANDLE_REGEX, "Use apenas letras, números, '.', '_' ou '-' — sem começar ou terminar com separador")
+  .refine((v) => !isHandleReserved(v), "Handle reservado");
 
 export const registerBodySchema = z
   .object({
     name: z.string().trim().min(2).max(120),
+    handle: handleField,
     email: z.string().trim().toLowerCase().email(),
     password: z.string().min(8).max(128)
   })
@@ -17,10 +31,16 @@ export const registerRequestCodeBodySchema = z
 export const registerVerifyCodeBodySchema = z
   .object({
     name: z.string().trim().min(2).max(120),
+    handle: handleField,
     email: z.string().trim().toLowerCase().email(),
     password: z.string().min(8).max(128),
     verificationCode: z.string().trim().regex(/^\d{6}$/)
   })
+  .strict();
+
+// PATCH /auth/me/handle — change my handle later (e.g. from settings page).
+export const updateHandleBodySchema = z
+  .object({ handle: handleField })
   .strict();
 
 export const forgotPasswordRequestCodeBodySchema = z
@@ -74,6 +94,7 @@ export const onboardingCompleteBodySchema = z
 export type RegisterBody = z.infer<typeof registerBodySchema>;
 export type RegisterRequestCodeBody = z.infer<typeof registerRequestCodeBodySchema>;
 export type RegisterVerifyCodeBody = z.infer<typeof registerVerifyCodeBodySchema>;
+export type UpdateHandleBody = z.infer<typeof updateHandleBodySchema>;
 export type ForgotPasswordRequestCodeBody = z.infer<typeof forgotPasswordRequestCodeBodySchema>;
 export type ForgotPasswordConfirmBody = z.infer<typeof forgotPasswordConfirmBodySchema>;
 export type LoginBody = z.infer<typeof loginBodySchema>;
