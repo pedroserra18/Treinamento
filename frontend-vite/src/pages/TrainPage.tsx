@@ -38,6 +38,7 @@ type ExerciseSetInput = {
   reps: string
   weightKg: string
   rir: string
+  rpe: string
   setType: SetType
   dropSets: DropEntry[]
   clusterReps: string
@@ -64,8 +65,8 @@ type ActiveExercise = {
   sets: ExerciseSetInput[]
 }
 
-function createSet(reps = '', weightKg = '', rir = ''): ExerciseSetInput {
-  return { reps, weightKg, rir, setType: 'normal', dropSets: [{ weightKg: '', reps: '' }], clusterReps: '', clusterCount: '', checked: false }
+function createSet(reps = '', weightKg = '', rir = '', rpe = ''): ExerciseSetInput {
+  return { reps, weightKg, rir, rpe, setType: 'normal', dropSets: [{ weightKg: '', reps: '' }], clusterReps: '', clusterCount: '', checked: false }
 }
 
 function formatDateTime(value: Date | null): string {
@@ -227,6 +228,7 @@ export function TrainPage() {
           reps: number | null
           weightKg: number | null
           rir: number | null
+          rpe: number | null
           durationSec: number | null
           distanceMeters: number | null
         }
@@ -355,6 +357,7 @@ export function TrainPage() {
               reps: number | null
               weightKg: number | null
               rir: number | null
+              rpe: number | null
               durationSec: number | null
               distanceMeters: number | null
             }
@@ -372,6 +375,7 @@ export function TrainPage() {
             const reps = toFiniteNumber(setEntry.reps)
             const weightKg = toFiniteNumber(setEntry.weightKg)
             const rir = toFiniteNumber(setEntry.rir)
+            const rpe = toFiniteNumber(setEntry.perceivedExertion)
             const durationSec = toFiniteNumber(setEntry.durationSec)
             const distanceMeters = toFiniteNumber(setEntry.distanceMeters)
 
@@ -379,6 +383,7 @@ export function TrainPage() {
               reps,
               weightKg,
               rir,
+              rpe,
               durationSec,
               distanceMeters,
             }
@@ -704,6 +709,7 @@ export function TrainPage() {
               weightKg: s.weightKg.trim() === '' && lastSet?.weightKg != null ? String(lastSet.weightKg) : s.weightKg,
               reps: repsFill,
               rir: s.rir.trim() === '' && lastSet?.rir != null ? String(lastSet.rir) : s.rir,
+              rpe: s.rpe.trim() === '' && lastSet?.rpe != null ? String(lastSet.rpe) : s.rpe,
             }
           })
 
@@ -944,6 +950,7 @@ export function TrainPage() {
           durationSec?: number
           distanceMeters?: number
           weightKg?: number
+          perceivedExertion?: number
           notes?: string
         }>
       >((acc, setInput, index) => {
@@ -958,6 +965,10 @@ export function TrainPage() {
           })
           if (validDrops.length === 0) return acc
 
+          const rpeRaw = setInput.rpe.trim()
+          const rpe = rpeRaw.length > 0 ? Number(rpeRaw) : NaN
+          const sharedRpe = Number.isFinite(rpe) && rpe >= 1 && rpe <= 10 ? rpe : undefined
+
           validDrops.forEach((drop, dropIdx) => {
             const r = Number(drop.reps)
             const w = Number(drop.weightKg.replace(',', '.'))
@@ -969,6 +980,7 @@ export function TrainPage() {
                 !isEffectiveBodyweightExercise(exercise) && Number.isFinite(w) && w > 0
                   ? w
                   : undefined,
+              perceivedExertion: sharedRpe,
               notes: `[tipo:drop][drop:${dropIdx + 1}/${validDrops.length}]`,
             })
           })
@@ -985,6 +997,8 @@ export function TrainPage() {
           const weightKg = weightRaw.length > 0 ? Number(weightRaw) : NaN
           const rirRaw = setInput.rir.trim()
           const rir = rirRaw.length > 0 ? Number(rirRaw) : NaN
+          const rpeRaw = setInput.rpe.trim()
+          const rpe = rpeRaw.length > 0 ? Number(rpeRaw) : NaN
           const noteParts = [`[tipo:cluster][cr:${cr}][cc:${cc}]`]
           if (Number.isFinite(rir) && rir >= 0) noteParts.push(`RIR: ${Math.floor(rir)}`)
           acc.push({
@@ -995,6 +1009,7 @@ export function TrainPage() {
               !isEffectiveBodyweightExercise(exercise) && Number.isFinite(weightKg) && weightKg > 0
                 ? weightKg
                 : undefined,
+            perceivedExertion: Number.isFinite(rpe) && rpe >= 1 && rpe <= 10 ? rpe : undefined,
             notes: noteParts.join(' '),
           })
           return acc
@@ -1003,8 +1018,14 @@ export function TrainPage() {
         const repsRaw = setInput.reps.trim()
         const weightRaw = setInput.weightKg.trim().replace(',', '.')
         const rirRaw = setInput.rir.trim()
+        const rpeRaw = setInput.rpe.trim()
 
-        const hasAnyInput = setInput.checked || repsRaw.length > 0 || weightRaw.length > 0 || rirRaw.length > 0
+        const hasAnyInput =
+          setInput.checked ||
+          repsRaw.length > 0 ||
+          weightRaw.length > 0 ||
+          rirRaw.length > 0 ||
+          rpeRaw.length > 0
         if (!hasAnyInput) {
           return acc
         }
@@ -1032,6 +1053,7 @@ export function TrainPage() {
 
         const weightKg = weightRaw.length > 0 ? Number(weightRaw) : NaN
         const rir = rirRaw.length > 0 ? Number(rirRaw) : NaN
+        const rpe = rpeRaw.length > 0 ? Number(rpeRaw) : NaN
 
         const typeTag =
           setInput.setType === 'warmup'
@@ -1053,6 +1075,10 @@ export function TrainPage() {
             !isEffectiveBodyweightExercise(exercise) && Number.isFinite(weightKg) && weightKg > 0
               ? weightKg
               : undefined,
+          // RPE (0–10 effort) — stored in its own column; RIR stays in notes so
+          // the back-end keeps its current schema and the feed/history still
+          // surfaces it from `perceivedExertion`.
+          perceivedExertion: Number.isFinite(rpe) && rpe >= 1 && rpe <= 10 ? rpe : undefined,
           notes:
             typeTag || (Number.isFinite(rir) && rir >= 0)
               ? `${typeTag}${Number.isFinite(rir) && rir >= 0 ? `RIR: ${Math.floor(rir)}` : ''}`.trim() || undefined
@@ -1793,6 +1819,10 @@ export function TrainPage() {
                       lastSet?.rir != null
                         ? String(lastSet.rir)
                         : 'rir'
+                    const rpePlaceholder =
+                      lastSet?.rpe != null
+                        ? String(lastSet.rpe)
+                        : 'rpe'
 
                     return (
                   <div
@@ -1894,8 +1924,8 @@ export function TrainPage() {
                         </button>
                       </div>
                     ) : setInput.setType === 'cluster' ? (
-                      /* Cluster set inputs */
-                      <div className={`grid gap-2 ${showLoadInput ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
+                      /* Cluster set inputs — peso, reps/cluster, n.º clusters, RIR, RPE */
+                      <div className={`grid gap-2 ${showLoadInput ? 'sm:grid-cols-5' : 'sm:grid-cols-4'}`}>
                         {showLoadInput ? (
                           <label className="text-[11px] uppercase text-[var(--muted)]">
                             Peso (kg)
@@ -1950,13 +1980,37 @@ export function TrainPage() {
                             className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
                           />
                         </label>
+                        <label className="text-[11px] uppercase text-[var(--muted)]">
+                          RPE
+                          <input
+                            value={setInput.rpe}
+                            placeholder={rpePlaceholder}
+                            inputMode="numeric"
+                            maxLength={2}
+                            onChange={(event) =>
+                              patchSet(exerciseIndex, setIndex, {
+                                rpe: event.target.value.replace(/[^\d]/g, '').slice(0, 2),
+                              })
+                            }
+                            className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                          />
+                        </label>
                       </div>
                     ) : (
                       /* Normal / Warmup / Failure inputs */
                       (() => {
+                        // RIR is reps-specific; RPE works for any tracking type so
+                        // it stays visible even for time/distance exercises.
                         const hideRir = isTime || isDistance
-                        const cols = (showLoadInput ? 1 : 0) + 1 + (hideRir ? 0 : 1)
-                        const gridClass = cols === 3 ? 'sm:grid-cols-3' : cols === 2 ? 'sm:grid-cols-2' : 'sm:grid-cols-1'
+                        const cols = (showLoadInput ? 1 : 0) + 1 + (hideRir ? 0 : 1) + 1
+                        const gridClass =
+                          cols >= 4
+                            ? 'sm:grid-cols-4'
+                            : cols === 3
+                              ? 'sm:grid-cols-3'
+                              : cols === 2
+                                ? 'sm:grid-cols-2'
+                                : 'sm:grid-cols-1'
                         return (
                           <div className={`grid gap-2 ${gridClass}`}>
                             {showLoadInput ? (
@@ -2002,6 +2056,21 @@ export function TrainPage() {
                                 />
                               </label>
                             )}
+                            <label className="text-[11px] uppercase text-[var(--muted)]">
+                              RPE
+                              <input
+                                value={setInput.rpe}
+                                placeholder={rpePlaceholder}
+                                inputMode="numeric"
+                                maxLength={2}
+                                onChange={(event) =>
+                                  patchSet(exerciseIndex, setIndex, {
+                                    rpe: event.target.value.replace(/[^\d]/g, '').slice(0, 2),
+                                  })
+                                }
+                                className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                              />
+                            </label>
                           </div>
                         )
                       })()

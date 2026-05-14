@@ -7,6 +7,7 @@ import type { ExerciseOption } from '../../types/workout'
 import { ThemeToggle } from '../common/ThemeToggle'
 import { BrandLogo } from '../common/BrandLogo'
 import { NotificationBell } from '../common/NotificationBell'
+import { StatusBar } from '../common/StatusBar'
 import {
   getExerciseExplorerEventName,
   selectExerciseFromExplorer,
@@ -195,6 +196,9 @@ export function AppShell({ children }: AppShellProps) {
       </header>
 
       <main>{children}</main>
+
+      {/* Status bar — globally visible on authenticated pages (shrinks on mobile). */}
+      {isAuthenticated && <StatusBar />}
 
       {/* Bottom nav — visível apenas no mobile */}
       <nav className="fixed bottom-0 left-0 right-0 z-20 flex items-center justify-around border-t border-[var(--line)] bg-[var(--surface)]/95 px-2 pb-safe pt-2 backdrop-blur-md sm:hidden">

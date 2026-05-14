@@ -1474,10 +1474,25 @@ export function WorkoutsPage({
                                       className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
                                     />
                                   </label>
+                                  <label className="text-[11px] uppercase text-[var(--muted)]">
+                                    RPE
+                                    <input
+                                      value={series.rpe}
+                                      placeholder="1-10"
+                                      inputMode="numeric"
+                                      maxLength={2}
+                                      onChange={(event) =>
+                                        patchSeries(item.id, seriesIndex, {
+                                          rpe: event.target.value.replace(/[^\d]/g, '').slice(0, 2),
+                                        })
+                                      }
+                                      className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                                    />
+                                  </label>
                                 </div>
                               ) : (
-                                /* Normal / Warmup / Failure inputs */
-                                <div className={`grid gap-2 ${showLoad ? (draft.repsMode === 'fixed' ? 'sm:grid-cols-2' : 'sm:grid-cols-3') : (draft.repsMode === 'fixed' ? 'sm:grid-cols-1' : 'sm:grid-cols-2')}`}>
+                                /* Normal / Warmup / Failure inputs — peso, reps, RIR, RPE */
+                                <div className={`grid gap-2 ${showLoad ? (draft.repsMode === 'fixed' ? 'sm:grid-cols-3' : 'sm:grid-cols-4') : (draft.repsMode === 'fixed' ? 'sm:grid-cols-2' : 'sm:grid-cols-3')}`}>
                                   {showLoad ? (
                                     <label className="text-[11px] uppercase text-[var(--muted)]">
                                       Peso (kg)
@@ -1510,6 +1525,21 @@ export function WorkoutsPage({
                                       value={series.rir}
                                       onChange={(event) =>
                                         patchSeries(item.id, seriesIndex, { rir: event.target.value.replace(/[^\d]/g, '') })
+                                      }
+                                      className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                                    />
+                                  </label>
+                                  <label className="text-[11px] uppercase text-[var(--muted)]">
+                                    RPE
+                                    <input
+                                      value={series.rpe}
+                                      placeholder="1-10"
+                                      inputMode="numeric"
+                                      maxLength={2}
+                                      onChange={(event) =>
+                                        patchSeries(item.id, seriesIndex, {
+                                          rpe: event.target.value.replace(/[^\d]/g, '').slice(0, 2),
+                                        })
                                       }
                                       className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
                                     />

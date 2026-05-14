@@ -7,14 +7,14 @@ import {
   searchUsers, followUser, unfollowUser, getFollowing,
   listComments, createComment, deleteComment,
   type FeedPost, type PostPrivacy, type UserSearchResult,
-  type WorkoutExerciseSummary, type PostComment,
+  type WorkoutExerciseSummary, type WorkoutSet, type PostComment,
 } from '../services/socialService'
 import { SkeletonCard } from '../components/common/Skeleton'
 import { WorkoutPostImage } from '../components/common/WorkoutPostImage'
 import {
   Rss, Users, Heart, Globe2, Lock,
   Search, Trash2, MoreHorizontal, MessageCircle, Share2,
-  ArrowRight, ChevronUp, Send, X,
+  ArrowRight, ChevronUp, Send, X, Check, BarChart3,
 } from 'lucide-react'
 
 const PAGE_SIZE = 5
@@ -93,36 +93,235 @@ function getSplitLabel(post: FeedPost): string {
   return unique.join(' · ')
 }
 
-// ─── Exercise detail row (expanded view) ───────────────────────────────────
+// ─── Exercise detail card (expanded view) ──────────────────────────────────
 
-function ExerciseStatsRow({ ex }: { ex: WorkoutExerciseSummary }) {
-  const totalReps = ex.sets.reduce((s, set) => s + (set.reps ?? 0), 0)
+// Color tokens per muscle group — mirrors the mock's pill palette.
+// Any unmapped group falls back to a neutral chip.
+const MUSCLE_PILL: Record<string, { bg: string; fg: string }> = {
+  ABDOMEN:  { bg: '#fff1cc', fg: '#8a5a00' },
+  ABDOMINAL:{ bg: '#fff1cc', fg: '#8a5a00' },
+  CORE:     { bg: '#d6f3df', fg: '#1b6b3a' },
+  BACK:     { bg: '#dbe7ff', fg: '#1c3d8f' },
+  COSTAS:   { bg: '#dbe7ff', fg: '#1c3d8f' },
+  CHEST:    { bg: '#ffe1d6', fg: '#8a3a18' },
+  PEITO:    { bg: '#ffe1d6', fg: '#8a3a18' },
+  LEGS:     { bg: '#e8dcff', fg: '#3a1c8f' },
+  PERNAS:   { bg: '#e8dcff', fg: '#3a1c8f' },
+  GLUTES:   { bg: '#fde2f0', fg: '#7a1c52' },
+  SHOULDERS:{ bg: '#fff3d6', fg: '#7a5a00' },
+  OMBROS:   { bg: '#fff3d6', fg: '#7a5a00' },
+  BICEPS:   { bg: '#d6f3f0', fg: '#1b5a6b' },
+  TRICEPS:  { bg: '#d6e8f3', fg: '#1b4a6b' },
+  ARMS:     { bg: '#d6f3f0', fg: '#1b5a6b' },
+  BRACOS:   { bg: '#d6f3f0', fg: '#1b5a6b' },
+}
+
+function musclePillStyle(group: string): { bg: string; fg: string } {
+  const key = group.toUpperCase().replace(/[^A-Z]/g, '')
+  return MUSCLE_PILL[key] ?? { bg: 'var(--surface-hover)', fg: 'var(--muted)' }
+}
+
+// What is this set really tracking? We infer from the data the API gave us,
+// since the WorkoutExerciseSummary doesn't carry the original trackingType.
+type SetKind = 'duration' | 'distance' | 'reps'
+
+function detectSetKind(set: WorkoutSet): SetKind {
+  if (set.durationSec != null && set.durationSec > 0) return 'duration'
+  if (set.distanceMeters != null && set.distanceMeters > 0) return 'distance'
+  return 'reps'
+}
+
+// Returns a numeric "magnitude" for a set so all bars in an exercise can be
+// normalised against the same scale. For weighted reps we use volume,
+// for bodyweight reps we use raw reps, for time/distance we use that value.
+function setMagnitude(set: WorkoutSet, kind: SetKind): number {
+  if (kind === 'duration') return set.durationSec ?? 0
+  if (kind === 'distance') return set.distanceMeters ?? 0
+  const reps = set.reps ?? 0
+  const w = set.weightKg ?? 0
+  return w > 0 ? w * reps : reps
+}
+
+function formatMMSS(sec: number): string {
+  const m = Math.floor(sec / 60).toString().padStart(2, '0')
+  const s = Math.floor(sec % 60).toString().padStart(2, '0')
+  return `${m}:${s}`
+}
+
+// Renders one row in the sets table — handles all three tracking flavours.
+function SetRow({ set, kind, fillPct }: { set: WorkoutSet; kind: SetKind; fillPct: number }) {
+  const rpe = set.perceivedExertion
+  const rpeHigh = rpe != null && rpe >= 8
+
+  const valueNode = (() => {
+    if (kind === 'duration') {
+      return <>{formatMMSS(set.durationSec ?? 0)}<small>s</small></>
+    }
+    if (kind === 'distance') {
+      return <>{set.distanceMeters}<small>m</small></>
+    }
+    const reps = set.reps ?? 0
+    const w = set.weightKg
+    if (w != null && w > 0) {
+      return <>{w}<small>kg × {reps}</small></>
+    }
+    return <>{reps}<small>reps</small></>
+  })()
+
+  // Dashed bar texture for time-based sets so they read visually different
+  // from the solid bar used for reps/weight work.
+  const barBg = kind === 'duration'
+    ? 'repeating-linear-gradient(90deg, var(--surface-hover) 0 6px, transparent 6px 8px)'
+    : 'var(--surface-hover)'
+
   return (
-    <article className="space-y-2 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-bold text-[var(--text)]">{ex.name}</p>
-        <span className="rounded-full border border-[var(--line)] px-2 py-0.5 text-[11px] text-[var(--muted)]">
-          {ex.primaryMuscleGroup}
-        </span>
+    <div
+      className="grid items-center gap-2.5 px-1 py-1.5 transition-colors hover:bg-[var(--surface-hover)]/60 rounded-lg"
+      style={{ gridTemplateColumns: '36px 1fr 92px 50px' }}
+    >
+      <div className="flex items-center justify-center gap-1 font-mono text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+        S{set.setNumber}
       </div>
-      <div className="flex flex-wrap gap-1.5 text-[11px]">
-        <span className="rounded-full border border-[var(--line)] px-2 py-0.5 text-[var(--muted)]">{ex.sets.length} set(s)</span>
-        {totalReps > 0 && <span className="rounded-full border border-[var(--line)] px-2 py-0.5 text-[var(--muted)]">Reps: {totalReps}</span>}
-        {ex.totalVolumeKg > 0 && <span className="rounded-full border border-[var(--line)] px-2 py-0.5 text-[var(--muted)]">Volume: {ex.totalVolumeKg} kg</span>}
+      <div className="h-2 overflow-hidden rounded-full" style={{ background: barBg }}>
+        <div
+          className="h-full rounded-full transition-[width] duration-500"
+          style={{
+            width: `${Math.max(8, Math.min(100, fillPct))}%`,
+            background: 'linear-gradient(90deg, color-mix(in srgb, var(--brand) 55%, white), var(--brand))',
+            boxShadow: '0 0 6px -1px color-mix(in srgb, var(--brand) 50%, transparent)',
+          }}
+        />
       </div>
-      <div className="space-y-1 border-t border-[var(--line)] pt-2">
-        {ex.sets.map((set) => (
-          <div key={set.setNumber} className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-[var(--muted)]">
-            <span className="font-semibold text-[var(--text)]">Set {set.setNumber}</span>
-            {set.reps != null && <span>Reps: {set.reps}</span>}
-            {set.weightKg != null && <span>Carga: {set.weightKg} kg</span>}
-            {set.durationSec != null && <span>Duração: {set.durationSec}s</span>}
-            {set.distanceMeters != null && <span>Dist: {set.distanceMeters} m</span>}
-            {set.perceivedExertion != null && <span>RPE: {set.perceivedExertion}</span>}
+      <div className="text-right font-mono text-[13px] font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+        {valueNode}
+      </div>
+      <div
+        className={`rounded-md border px-1 py-[2px] text-center font-mono text-[10.5px] font-medium ${
+          rpe == null
+            ? 'border-[var(--line)] bg-[var(--surface-hover)] text-[var(--muted)]'
+            : rpeHigh
+              ? 'border-[var(--brand)]/40 bg-[var(--brand)]/10 text-[var(--brand)]'
+              : 'border-[var(--line)] bg-[var(--surface-hover)] text-[var(--muted)]'
+        }`}
+      >
+        {rpe ?? '—'}
+      </div>
+    </div>
+  )
+}
+
+function ExerciseDetailedCard({ ex }: { ex: WorkoutExerciseSummary }) {
+  // Detect tracking type from the first set with data and treat the whole
+  // exercise uniformly. Mixing kinds in one exercise is not supported by the
+  // workout flow, so this is safe.
+  const kind: SetKind = detectSetKind(ex.sets[0] ?? { setNumber: 1, reps: null, weightKg: null, durationSec: null, distanceMeters: null, perceivedExertion: null })
+
+  const totalReps = ex.sets.reduce((s, set) => s + (set.reps ?? 0), 0)
+  const totalDuration = ex.sets.reduce((s, set) => s + (set.durationSec ?? 0), 0)
+  const totalDistance = ex.sets.reduce((s, set) => s + (set.distanceMeters ?? 0), 0)
+
+  const summaryStat = kind === 'duration'
+    ? `${totalDuration}s totais`
+    : kind === 'distance'
+      ? `${totalDistance}m totais`
+      : `${totalReps} reps`
+
+  const maxMagnitude = Math.max(1, ...ex.sets.map((s) => setMagnitude(s, kind)))
+
+  const rpes = ex.sets.map((s) => s.perceivedExertion).filter((v): v is number => v != null)
+  const avgRpe = rpes.length > 0 ? rpes.reduce((a, b) => a + b, 0) / rpes.length : null
+  const rpeBars = avgRpe == null ? 0 : Math.max(0, Math.min(5, Math.round(avgRpe / 2)))
+
+  const pill = musclePillStyle(ex.primaryMuscleGroup)
+
+  // Labels at the top of the sets table — adapt to tracking kind.
+  const valueLabel = kind === 'duration' ? 'Tempo' : kind === 'distance' ? 'Distância' : 'Reps'
+  const barLabel = kind === 'duration' ? 'Sustentação' : kind === 'distance' ? 'Trajeto' : 'Intensidade'
+
+  return (
+    <li className="group relative overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] transition-colors hover:border-[var(--brand)]/40">
+      {/* Left edge accent — every set in feed posts is implicitly done */}
+      <span
+        aria-hidden
+        className="absolute left-0 top-0 bottom-0 w-[3px]"
+        style={{ background: 'linear-gradient(180deg, var(--accent-emerald), #4ac876)', opacity: 0.55 }}
+      />
+
+      {/* Header: number + title + muscle + meta */}
+      <div className="flex items-start gap-3 px-3.5 pt-3 pb-2.5 sm:px-4">
+        <div className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-emerald-500 text-white">
+          <Check size={14} strokeWidth={3} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[13.5px] font-bold leading-tight text-[var(--text)]">
+              {ex.name}
+            </span>
           </div>
-        ))}
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10.5px] text-[var(--muted)]">
+            <span
+              className="rounded-full px-1.5 py-[2px] text-[9.5px] font-semibold uppercase tracking-wider"
+              style={{ background: pill.bg, color: pill.fg }}
+            >
+              {ex.primaryMuscleGroup}
+            </span>
+            <span className="opacity-60">·</span>
+            <span>{ex.sets.length} séries</span>
+            <span className="opacity-60">·</span>
+            <span>{summaryStat}</span>
+            {ex.totalVolumeKg > 0 && (
+              <>
+                <span className="opacity-60">·</span>
+                <span>vol {ex.totalVolumeKg}kg</span>
+              </>
+            )}
+          </div>
+        </div>
       </div>
-    </article>
+
+      {/* Sets table */}
+      <div className="mx-3.5 border-t border-dashed border-[var(--line)] pt-2 pb-1 sm:mx-4">
+        <div
+          className="grid items-center gap-2.5 px-1 pb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]"
+          style={{ gridTemplateColumns: '36px 1fr 92px 50px' }}
+        >
+          <span>Série</span>
+          <span>{barLabel}</span>
+          <span className="text-right">{valueLabel}</span>
+          <span className="text-right">RPE</span>
+        </div>
+        {ex.sets.map((set) => {
+          const fillPct = (setMagnitude(set, kind) / maxMagnitude) * 100
+          return <SetRow key={set.setNumber} set={set} kind={kind} fillPct={fillPct} />
+        })}
+      </div>
+
+      {/* Footer strip: avg RPE gauge + compare placeholder */}
+      <div className="flex flex-wrap items-center gap-2 px-3.5 pb-3 pt-2 sm:px-4">
+        <div className="inline-flex items-center gap-1.5 rounded-md border border-[var(--line)] bg-[var(--surface-hover)] px-2 py-1 font-mono text-[10px] text-[var(--muted)]">
+          RPE médio <b className="font-semibold text-[var(--text)]">{avgRpe != null ? avgRpe.toFixed(1) : '—'}</b>
+          <span className="ml-0.5 inline-flex gap-[1.5px]">
+            {Array.from({ length: 5 }, (_, i) => (
+              <span
+                key={i}
+                className="block h-2 w-[3px] rounded-[1px]"
+                style={{ background: i < rpeBars ? 'var(--brand)' : 'var(--line)' }}
+              />
+            ))}
+          </span>
+        </div>
+        <div className="flex-1" />
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 font-mono text-[10.5px] tracking-wide text-[var(--muted)] transition-colors hover:text-[var(--text)]"
+          title="Em breve"
+        >
+          <BarChart3 size={11} />
+          comparar
+        </button>
+      </div>
+    </li>
   )
 }
 
@@ -610,11 +809,13 @@ function PostCard({
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
               transition={{ duration: 0.2 }}
-              className="space-y-2 overflow-hidden"
+              className="overflow-hidden"
             >
-              {post.workoutSummary.exercises.map((ex) => (
-                <ExerciseStatsRow key={ex.name} ex={ex} />
-              ))}
+              <ul className="flex list-none flex-col gap-2.5 p-0">
+                {post.workoutSummary.exercises.map((ex) => (
+                  <ExerciseDetailedCard key={ex.name} ex={ex} />
+                ))}
+              </ul>
             </motion.div>
           )}
         </AnimatePresence>
