@@ -1,7 +1,9 @@
 import { motion } from 'framer-motion'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../hooks/useAuth'
-import { Flame, Layers, Dumbbell, Plus, Play, Search, Pencil, Sparkles } from 'lucide-react'
+import {
+  Flame, Layers, Dumbbell, Plus, Play, Search, Pencil, Sparkles, MoreHorizontal,
+} from 'lucide-react'
 import { SkeletonCard } from '../components/common/Skeleton'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPost, sharePlan, type PostPrivacy } from '../services/socialService'
@@ -191,6 +193,35 @@ function isEffectiveBodyweightExercise(exercise: Pick<ActiveExercise, 'isBodywei
   return resolveBodyweightFlag(exercise.isBodyweight, exercise.exerciseName, exercise.equipment)
 }
 
+// Plans seeded from the recommendation flow get a "[Template: ...]" marker
+// injected into their description by workout.service.ts. We use it as the
+// signal for the "IA" chip — nothing to fabricate here.
+function isAiSourcedPlan(plan: WorkoutPlan): boolean {
+  return Boolean(plan.description && /\[Template:/i.test(plan.description))
+}
+
+// Rough duration estimate for a plan: each set is treated as ~35s of actual
+// work plus the configured rest. Conservative enough to read sensibly on the
+// card without requiring extra history fetches.
+function estimatePlanMinutes(plan: WorkoutPlan): number {
+  const totalSec = plan.exercises.reduce((acc, e) => {
+    const sets = e.sets ?? 3
+    const rest = e.restSec ?? 60
+    return acc + sets * (35 + rest)
+  }, 0)
+  return Math.max(5, Math.round(totalSec / 60))
+}
+
+function relativeDaysFromNow(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime()
+  const d = Math.floor(ms / (1000 * 60 * 60 * 24))
+  if (d <= 0) return 'hoje'
+  if (d === 1) return 'ontem'
+  if (d < 7) return `há ${d}d`
+  if (d < 30) return `há ${Math.floor(d / 7)}sem`
+  return `há ${Math.floor(d / 30)}m`
+}
+
 export function TrainPage() {
   const { authorizedFetch, user } = useAuth()
   const isProfilePrivate = user?.isPrivate ?? false
@@ -208,6 +239,8 @@ export function TrainPage() {
 
   const [activePlanId, setActivePlanId] = useState<string>('')
   const [activePlanName, setActivePlanName] = useState<string>('Treinamento vazio')
+  type RoutineFilter = 'ALL' | 'AI' | 'CUSTOM'
+  const [routineFilter, setRoutineFilter] = useState<RoutineFilter>('ALL')
   const [originMode, setOriginMode] = useState<TrainOriginMode>('EMPTY')
   const [activeExercises, setActiveExercises] = useState<ActiveExercise[]>([])
 
@@ -2096,68 +2129,124 @@ export function TrainPage() {
     )
   }
 
+  const filteredPlans = plans.filter((plan) => {
+    if (routineFilter === 'ALL') return true
+    const isAi = isAiSourcedPlan(plan)
+    return routineFilter === 'AI' ? isAi : !isAi
+  })
+
   return (
-    <section className="space-y-5">
+    <section className="space-y-6">
+      {/* ───── HEADER ─────────────────────────────────────────────── */}
       <motion.header
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
+        className="px-1"
       >
-        <h1 className="text-2xl font-black text-[var(--text)]">Treinos</h1>
-        <p className="mt-1 text-sm text-[var(--muted)]">Inicie rapido, escolha uma rotina ou monte seu treino na hora.</p>
-
-        <div className="mt-4 space-y-2">
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={beginEmptyTraining}
-              className="flex items-center justify-center gap-2 rounded-xl bg-[var(--brand)] px-4 py-2.5 text-sm font-bold text-white"
-            >
-              <Plus size={15} />
-              Iniciar Vazio
-            </button>
-            <button
-              type="button"
-              onClick={() => setScreen('RECOMMENDATIONS')}
-              className="flex items-center justify-center gap-2 rounded-xl border border-[var(--line)] px-4 py-2.5 text-sm font-semibold text-[var(--text)]"
-            >
-              <Sparkles size={15} />
-              Recomendações
-            </button>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => setScreen('NEW_ROUTINE')}
-              className="flex items-center justify-center gap-2 rounded-xl border border-[var(--line)] px-4 py-2.5 text-center text-sm font-semibold text-[var(--text)]"
-            >
-              <Plus size={15} />
-              Nova Rotina
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                openExerciseExplorer({ context: undefined })
-              }}
-              className="flex items-center justify-center gap-2 rounded-xl border border-[var(--line)] px-4 py-2.5 text-center text-sm font-semibold text-[var(--text)]"
-            >
-              <Search size={15} />
-              Explorar Exercicios
-            </button>
-          </div>
-        </div>
+        <h1 className="text-3xl font-semibold tracking-tight text-[var(--text)] sm:text-4xl">
+          Treinar <span className="font-serif-accent text-[var(--brand-strong)]">agora</span>
+        </h1>
+        <p className="mt-1.5 text-sm text-[var(--muted)]">
+          Inicie rápido, escolha uma rotina ou monte seu treino na hora.
+        </p>
       </motion.header>
+
+      {/* ───── QUICK ACTIONS ─────────────────────────────────────── */}
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.05 }}
+        className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr]"
+      >
+        <button
+          type="button"
+          onClick={beginEmptyTraining}
+          className="group relative flex min-h-[96px] flex-col items-start gap-2.5 overflow-hidden rounded-xl border border-[var(--brand-strong)] bg-gradient-to-br from-[#ff7a5a] to-[var(--brand)] p-4 text-left text-white shadow-[0_14px_26px_-16px_rgba(255,90,60,0.55)] transition-transform hover:translate-y-[-2px] sm:col-span-2 lg:col-span-1"
+        >
+          {/* Decorative radial highlight — same effect as the mock's ::after */}
+          <span
+            aria-hidden
+            className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full"
+            style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.18) 0%, transparent 70%)' }}
+          />
+          <span className="grid h-8 w-8 place-items-center rounded-lg border border-white/25 bg-white/15">
+            <Play size={16} fill="currentColor" />
+          </span>
+          <strong className="text-[15px] font-semibold tracking-tight">Iniciar Vazio</strong>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setScreen('RECOMMENDATIONS')}
+          className="group flex min-h-[96px] flex-col items-start gap-2.5 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 text-left transition-all hover:-translate-y-px hover:border-[var(--brand)]/30 hover:bg-[var(--surface-hover)]"
+        >
+          <span className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] text-[var(--text)]">
+            <Sparkles size={16} />
+          </span>
+          <strong className="text-[13.5px] font-semibold tracking-tight text-[var(--text)]">Recomendações</strong>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setScreen('NEW_ROUTINE')}
+          className="group flex min-h-[96px] flex-col items-start gap-2.5 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 text-left transition-all hover:-translate-y-px hover:border-[var(--brand)]/30 hover:bg-[var(--surface-hover)]"
+        >
+          <span className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] text-[var(--text)]">
+            <Plus size={16} />
+          </span>
+          <strong className="text-[13.5px] font-semibold tracking-tight text-[var(--text)]">Nova Rotina</strong>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => openExerciseExplorer({ context: undefined })}
+          className="group flex min-h-[96px] flex-col items-start gap-2.5 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 text-left transition-all hover:-translate-y-px hover:border-[var(--brand)]/30 hover:bg-[var(--surface-hover)]"
+        >
+          <span className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] text-[var(--text)]">
+            <Search size={16} />
+          </span>
+          <strong className="text-[13.5px] font-semibold tracking-tight text-[var(--text)]">Explorar Exercícios</strong>
+        </button>
+      </motion.div>
 
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
 
+      {/* ───── MINHAS ROTINAS ─────────────────────────────────────── */}
       <div>
-        <div className="mb-3 flex items-center justify-between px-1">
-          <h2 className="text-xl font-extrabold text-[var(--text)]">Minhas Rotinas</h2>
-          <span className="rounded-full border border-[var(--line)] bg-[var(--surface)] px-2.5 py-0.5 text-xs font-bold text-[var(--muted)]">{plans.length}</span>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 px-1">
+          <h2 className="flex items-center gap-2 font-mono text-[13px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+            Minhas Rotinas
+            <span className="rounded-full border border-[var(--line)] bg-[var(--surface)] px-2 py-0.5 font-mono text-[11px] font-semibold text-[var(--muted)]">
+              {plans.length}
+            </span>
+          </h2>
+          <div className="flex gap-1">
+            {([
+              { id: 'ALL', label: 'TODAS' },
+              { id: 'AI', label: 'IA' },
+              { id: 'CUSTOM', label: 'MINHAS' },
+            ] as Array<{ id: RoutineFilter; label: string }>).map((f) => {
+              const active = routineFilter === f.id
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setRoutineFilter(f.id)}
+                  className={`rounded-md border px-2.5 py-1 font-mono text-[11px] font-medium tracking-wider transition-colors ${
+                    active
+                      ? 'border-[var(--line)] bg-[var(--surface)] text-[var(--text)]'
+                      : 'border-transparent text-[var(--muted)] hover:text-[var(--text)]'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              )
+            })}
+          </div>
         </div>
 
         {loadingPlans ? (
-          <div className="space-y-3">
+          <div className="grid gap-2.5 sm:grid-cols-2">
             <SkeletonCard />
             <SkeletonCard />
           </div>
@@ -2171,121 +2260,164 @@ export function TrainPage() {
           </div>
         ) : null}
 
-        <div className="space-y-3">
-          {plans.map((plan) => (
-            <div key={plan.id} className="relative rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
-              <div data-routine-menu className="absolute right-3 top-3">
-                <button
-                  type="button"
-                  aria-label={`Mais opcoes da rotina ${plan.name}`}
-                  aria-expanded={openRoutineMenuId === plan.id}
-                  onClick={(event) => {
-                    if (openRoutineMenuId === plan.id) {
-                      setOpenRoutineMenuId(null)
-                      setRoutineMenuAnchor(null)
-                      return
-                    }
-                    const rect = event.currentTarget.getBoundingClientRect()
-                    setRoutineMenuAnchor({
-                      top: rect.bottom + 4,
-                      right: window.innerWidth - rect.right,
-                    })
-                    setOpenRoutineMenuId(plan.id)
-                  }}
-                  className="rounded-lg border border-[var(--line)] px-2 py-1 text-xs font-bold text-[var(--muted)]"
-                >
-                  ...
-                </button>
+        {!loadingPlans && plans.length > 0 && filteredPlans.length === 0 ? (
+          <p className="px-1 py-4 text-center text-xs text-[var(--muted)]">
+            Nenhuma rotina neste filtro.
+          </p>
+        ) : null}
 
-                {openRoutineMenuId === plan.id && routineMenuAnchor
-                  ? createPortal(
-                      <div
-                        data-routine-menu
-                        style={{
-                          position: 'fixed',
-                          top: routineMenuAnchor.top,
-                          right: routineMenuAnchor.right,
-                          zIndex: 9999,
-                        }}
-                        className="min-w-48 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-1 shadow-2xl"
-                      >
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setOpenRoutineMenuId(null)
-                            setRoutineMenuAnchor(null)
-                            void handleDeleteRoutine(plan)
-                          }}
-                          className="block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-red-400 hover:bg-[var(--surface-hover)]"
-                        >
-                          Deletar rotina
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setOpenRoutineMenuId(null)
-                            setRoutineMenuAnchor(null)
-                            void handleShareRoutine(plan)
-                          }}
-                          className="block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
-                        >
-                          Compartilhar rotina
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setOpenRoutineMenuId(null)
-                            setRoutineMenuAnchor(null)
-                            void handleDuplicateRoutine(plan)
-                          }}
-                          className="block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
-                        >
-                          Duplicar rotina
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setOpenRoutineMenuId(null)
-                            setRoutineMenuAnchor(null)
-                            handleExportPDF(plan)
-                          }}
-                          className="block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
-                        >
-                          Salvar como PDF
-                        </button>
-                      </div>,
-                      document.body,
-                    )
-                  : null}
-              </div>
+        <div className="grid gap-2.5 sm:grid-cols-2">
+          {filteredPlans.map((plan) => {
+            const exerciseCount = plan.exercises.length
+            const estMin = estimatePlanMinutes(plan)
+            const isAi = isAiSourcedPlan(plan)
+            return (
+              <article
+                key={plan.id}
+                className="group relative cursor-default overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 transition-all hover:border-[var(--brand)]/40 hover:shadow-[0_14px_26px_-22px_rgba(255,90,60,0.35)]"
+              >
+                {/* Left edge accent — only paints on hover */}
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute inset-y-0 left-0 w-[3px] opacity-0 transition-opacity group-hover:opacity-100"
+                  style={{ background: 'linear-gradient(180deg, var(--brand), #ff8c6b)' }}
+                />
 
-              <h3 className="pr-10 text-lg font-bold text-[var(--text)]">{plan.name}</h3>
-              <p className="mt-1 text-sm text-[var(--muted)] line-clamp-2">
-                {plan.description || 'Rotina personalizada para seus objetivos.'}
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => beginRoutineTraining(plan)}
-                  className="flex items-center gap-1.5 rounded-xl border border-emerald-500/60 px-4 py-2 text-sm font-bold text-emerald-500"
-                >
-                  <Play size={13} />
-                  Iniciar Rotina
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActivePlanId(plan.id)
-                    setScreen('EDIT')
-                  }}
-                  className="flex items-center gap-1.5 rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)]"
-                >
-                  <Pencil size={13} />
-                  Editar Rotina
-                </button>
-              </div>
-            </div>
-          ))}
+                {/* Title row: name + IA chip + overflow menu */}
+                <div className="mb-2.5 flex items-start justify-between gap-2">
+                  <h3 className="flex flex-wrap items-center gap-2 pr-7 text-[15px] font-semibold tracking-tight text-[var(--text)]">
+                    {plan.name}
+                    {isAi && (
+                      <span className="rounded-full border border-[var(--line)] px-1.5 py-[1px] font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-[var(--muted)]">
+                        IA
+                      </span>
+                    )}
+                  </h3>
+
+                  <div data-routine-menu className="absolute right-2.5 top-2.5">
+                    <button
+                      type="button"
+                      aria-label={`Mais opções da rotina ${plan.name}`}
+                      aria-expanded={openRoutineMenuId === plan.id}
+                      onClick={(event) => {
+                        if (openRoutineMenuId === plan.id) {
+                          setOpenRoutineMenuId(null)
+                          setRoutineMenuAnchor(null)
+                          return
+                        }
+                        const rect = event.currentTarget.getBoundingClientRect()
+                        setRoutineMenuAnchor({
+                          top: rect.bottom + 4,
+                          right: window.innerWidth - rect.right,
+                        })
+                        setOpenRoutineMenuId(plan.id)
+                      }}
+                      className="grid h-7 w-7 place-items-center rounded-md text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                    >
+                      <MoreHorizontal size={14} />
+                    </button>
+
+                    {openRoutineMenuId === plan.id && routineMenuAnchor
+                      ? createPortal(
+                          <div
+                            data-routine-menu
+                            style={{
+                              position: 'fixed',
+                              top: routineMenuAnchor.top,
+                              right: routineMenuAnchor.right,
+                              zIndex: 9999,
+                            }}
+                            className="min-w-48 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-1 shadow-2xl"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOpenRoutineMenuId(null)
+                                setRoutineMenuAnchor(null)
+                                void handleDeleteRoutine(plan)
+                              }}
+                              className="block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-red-400 hover:bg-[var(--surface-hover)]"
+                            >
+                              Deletar rotina
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOpenRoutineMenuId(null)
+                                setRoutineMenuAnchor(null)
+                                void handleShareRoutine(plan)
+                              }}
+                              className="block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
+                            >
+                              Compartilhar rotina
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOpenRoutineMenuId(null)
+                                setRoutineMenuAnchor(null)
+                                void handleDuplicateRoutine(plan)
+                              }}
+                              className="block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
+                            >
+                              Duplicar rotina
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setOpenRoutineMenuId(null)
+                                setRoutineMenuAnchor(null)
+                                handleExportPDF(plan)
+                              }}
+                              className="block w-full rounded-lg px-3 py-2 text-left text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
+                            >
+                              Salvar como PDF
+                            </button>
+                          </div>,
+                          document.body,
+                        )
+                      : null}
+                  </div>
+                </div>
+
+                {/* Stats line — exercises count, est. minutes, created-relative date */}
+                <div className="mb-3.5 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-[var(--muted)]">
+                  <span>
+                    <b className="font-semibold text-[var(--text)]">{exerciseCount}</b> ex
+                  </span>
+                  <span>
+                    <b className="font-semibold text-[var(--text)]">{estMin}</b> min
+                  </span>
+                  <span>
+                    criada <b className="font-semibold text-[var(--text)]">{relativeDaysFromNow(plan.createdAt)}</b>
+                  </span>
+                </div>
+
+                {/* Actions: Iniciar (primary, flex-1) + Editar */}
+                <div className="flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => beginRoutineTraining(plan)}
+                    className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg border border-[var(--brand)] bg-[var(--brand)] px-3 text-[12.5px] font-semibold text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)]"
+                  >
+                    <Play size={12} fill="currentColor" />
+                    Iniciar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActivePlanId(plan.id)
+                      setScreen('EDIT')
+                    }}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 text-[12.5px] font-medium text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
+                  >
+                    <Pencil size={12} />
+                    Editar
+                  </button>
+                </div>
+              </article>
+            )
+          })}
         </div>
       </div>
 

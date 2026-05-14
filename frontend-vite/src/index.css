@@ -34,6 +34,14 @@
   --accent-violet: #c084fc;
 }
 
+/* Accent serif face for italic word marks ("agora", "today", etc).
+   Loaded from Google Fonts in index.html. */
+.font-serif-accent {
+  font-family: "Instrument Serif", "Georgia", "Times New Roman", serif;
+  font-style: italic;
+  font-weight: 400;
+}
+
 /* ─── Tech gradient utilities ──────────────────────────── */
 .tech-text {
   background: var(--tech-gradient);
