@@ -6,7 +6,7 @@ import { CountUp } from '../components/common/CountUp'
 import { listWorkoutHistory } from '../services/workoutService'
 import type { WorkoutSessionHistory } from '../types/workout'
 import {
-  Activity, Calendar, Clock, Dumbbell, Flame, Play, TrendingUp,
+  Activity, Bot, Calendar, Clock, Dumbbell, Flame, Play, TrendingUp,
   Zap, ArrowRight,
 } from 'lucide-react'
 
@@ -756,25 +756,25 @@ export function HomePage() {
         </Link>
 
         <Link
-          to={isAuthenticated ? '/history' : '/login'}
+          to={isAuthenticated ? '/ai-workout' : '/login'}
           className="group relative overflow-hidden rounded-2xl border border-[var(--line)] p-5 transition-all hover:-translate-y-0.5 hover:shadow-[0_18px_30px_-22px_rgba(40,15,5,0.28)]"
-          style={{ background: 'linear-gradient(135deg, var(--surface) 40%, color-mix(in srgb, var(--accent-emerald) 18%, var(--surface)) 140%)' }}
+          style={{ background: 'linear-gradient(135deg, var(--surface) 40%, color-mix(in srgb, var(--accent-violet) 18%, var(--surface)) 140%)' }}
         >
           <span
             aria-hidden
             className="pointer-events-none absolute -right-7 -top-7 h-32 w-32 rounded-full"
-            style={{ background: 'radial-gradient(closest-side, color-mix(in srgb, var(--accent-emerald) 16%, transparent), transparent 70%)' }}
+            style={{ background: 'radial-gradient(closest-side, color-mix(in srgb, var(--accent-violet) 16%, transparent), transparent 70%)' }}
           />
           <span className="inline-flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">
-            <Clock size={11} />
+            <Bot size={11} />
             Atalho 02
           </span>
-          <h4 className="mt-1.5 text-[18px] font-semibold tracking-tight text-[var(--text)]">Histórico</h4>
+          <h4 className="mt-1.5 text-[18px] font-semibold tracking-tight text-[var(--text)]">IA</h4>
           <p className="mt-1 max-w-[320px] text-[13px] text-[var(--muted)]">
-            Acompanhe sua consistência e cargas recentes.
+            Gere um treino inteligente baseado nos seus objetivos.
           </p>
-          <span className="mt-3 inline-flex items-center gap-1.5 font-mono text-[11px] font-semibold tracking-wide text-emerald-600 dark:text-emerald-400">
-            Ver progresso <ArrowRight size={12} className="transition-transform group-hover:translate-x-0.5" />
+          <span className="mt-3 inline-flex items-center gap-1.5 font-mono text-[11px] font-semibold tracking-wide text-violet-600 dark:text-violet-400">
+            Gerar treino <ArrowRight size={12} className="transition-transform group-hover:translate-x-0.5" />
           </span>
         </Link>
       </motion.div>
