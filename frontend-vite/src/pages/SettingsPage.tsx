@@ -79,7 +79,7 @@ export function SettingsPage() {
           Voltar ao perfil
         </Link>
         <h1 className="text-3xl font-semibold tracking-tight text-[var(--text)] sm:text-4xl">
-          Defin<span className="font-serif-accent text-[var(--brand-strong)]">ições</span>
+          Config<span className="font-serif-accent text-[var(--brand-strong)]">urações</span>
         </h1>
         <p className="mt-1.5 text-sm text-[var(--muted)]">
           Gerencie sua conta, privacidade e preferências.

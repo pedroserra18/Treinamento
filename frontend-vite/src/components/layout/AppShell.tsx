@@ -130,7 +130,7 @@ export function AppShell({ children }: AppShellProps) {
   // Settings only makes sense once the user is logged in; the page itself
   // requires auth via the ProtectedRoute, so we just hide the chip otherwise.
   const settingsItem: NavItem | null = isAuthenticated
-    ? { to: '/settings', label: 'Definições', icon: <SettingsIcon size={15} /> }
+    ? { to: '/settings', label: 'Configurações', icon: <SettingsIcon size={15} /> }
     : null
 
   const visibleItems = [
