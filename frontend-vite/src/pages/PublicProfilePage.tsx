@@ -1,445 +1,87 @@
 import { motion, AnimatePresence } from 'framer-motion'
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useScrollLock } from '../hooks/useScrollLock'
 import {
-  getPublicProfile, getUserPosts, followUser, unfollowUser, compareUsers, compareExercise,
+  getPublicProfile, getUserPosts, followUser, unfollowUser, compareUsers,
   getPublicFollowers, getPublicFollowing, getMutualFollowers, deletePost,
-  type PublicProfile, type FeedPost, type CompareResult, type WorkoutExerciseSummary,
-  type SimpleUser, type ExerciseCompareResult,
+  toggleLike, updatePostPrivacy,
+  type PublicProfile, type FeedPost, type CompareResult, type PostPrivacy,
+  type SimpleUser,
 } from '../services/socialService'
-import { searchExercisesForPlan } from '../services/workoutService'
-import { WorkoutPostImage } from '../components/common/WorkoutPostImage'
 import { ImageViewer } from '../components/common/ImageViewer'
+import { UserComparePanel } from '../components/common/UserComparePanel'
+import { FeedPostCard } from '../components/common/FeedPostCard'
+import { ArrowLeft } from 'lucide-react'
 
-function formatDuration(sec: number | null): string {
-  if (!sec) return '-'
-  const m = Math.floor(sec / 60)
-  if (m < 60) return `${m} min`
-  return `${Math.floor(m / 60)}h ${m % 60}min`
-}
-
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime()
-  const min = Math.floor(diff / 60000)
-  if (min < 1) return 'agora'
-  if (min < 60) return `${min}m atrás`
-  const h = Math.floor(min / 60)
-  if (h < 24) return `${h}h atrás`
-  const d = Math.floor(h / 24)
-  if (d < 7) return `${d}d atrás`
-  return new Date(dateStr).toLocaleDateString('pt-BR')
-}
-
-function formatNumberFull(n: number): string {
-  return Math.round(n).toLocaleString('pt-BR')
-}
-
-function PlayerBar({
-  name,
-  value,
-  unit,
-  color,
-  pct,
-  isWinner,
-  delay,
-}: {
-  name: string
-  value: number
-  unit?: string
-  color: string
-  pct: number
-  isWinner: boolean
-  delay: number
-}) {
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />
-          <span className="truncate text-xs font-bold text-[var(--text)]">{name}</span>
-          {isWinner ? (
-            <span
-              className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider"
-              style={{ backgroundColor: `${color}25`, color }}
-            >
-              Vencendo
-            </span>
-          ) : null}
-        </div>
-        <span className="shrink-0 text-base font-black tabular-nums" style={{ color }}>
-          {formatNumberFull(value)}
-          {unit ? <span className="ml-1 text-[10px] font-bold opacity-80">{unit}</span> : null}
-        </span>
-      </div>
-      <div className="h-2.5 w-full overflow-hidden rounded-full bg-[var(--line)]">
-        <motion.div
-          className="h-full rounded-full"
-          style={{ backgroundColor: color }}
-          initial={{ width: 0 }}
-          animate={{ width: `${pct}%` }}
-          transition={{ duration: 0.7, ease: 'easeOut', delay }}
-        />
-      </div>
-    </div>
-  )
-}
-
-function StatBattle({
-  label,
-  meName,
-  themName,
-  meValue,
-  themValue,
-  meColor,
-  themColor,
-  unit,
-  delay = 0,
-}: {
-  label: string
-  meName: string
-  themName: string
-  meValue: number
-  themValue: number
-  meColor: string
-  themColor: string
-  unit?: string
-  delay?: number
-}) {
-  const max = Math.max(meValue, themValue, 1)
-  const mePct = (meValue / max) * 100
-  const themPct = (themValue / max) * 100
-  const meWins = meValue > themValue
-  const themWins = themValue > meValue
-  const tied = !meWins && !themWins && (meValue > 0 || themValue > 0)
-  const empty = meValue === 0 && themValue === 0
-  const diff = Math.abs(meValue - themValue)
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, ease: 'easeOut', delay }}
-      className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3"
-    >
-      <p className="mb-3 text-[11px] font-extrabold uppercase tracking-[0.15em] text-[var(--muted)]">
-        {label}
-      </p>
-
-      <div className="space-y-3">
-        <PlayerBar
-          name={meName}
-          value={meValue}
-          unit={unit}
-          color={meColor}
-          pct={mePct}
-          isWinner={meWins}
-          delay={delay + 0.1}
-        />
-        <PlayerBar
-          name={themName}
-          value={themValue}
-          unit={unit}
-          color={themColor}
-          pct={themPct}
-          isWinner={themWins}
-          delay={delay + 0.15}
-        />
-      </div>
-
-      {!empty ? (
-        <p className="mt-3 border-t border-[var(--line)] pt-2 text-[11px] font-semibold text-[var(--muted)]">
-          {tied ? (
-            <span>Empate em {formatNumberFull(meValue)}{unit ? ` ${unit}` : ''}.</span>
-          ) : (
-            <span>
-              <span className="font-black" style={{ color: meWins ? meColor : themColor }}>
-                {meWins ? meName : themName}
-              </span>{' '}
-              está à frente por{' '}
-              <span className="font-black text-[var(--text)]">
-                {formatNumberFull(diff)}
-                {unit ? ` ${unit}` : ''}
-              </span>
-              .
-            </span>
-          )}
-        </p>
-      ) : null}
-    </motion.div>
-  )
-}
-
-function ComparePanel({ result, userId, authorizedFetch, onAvatarClick }: {
-  result: CompareResult
-  userId: string
-  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
-  onAvatarClick: (src: string, alt: string) => void
-}) {
-  const [exQuery, setExQuery] = useState('')
-  const [exResults, setExResults] = useState<Array<{ id: string; name: string }>>([])
-  const [exCompare, setExCompare] = useState<ExerciseCompareResult | null>(null)
-  const [loadingEx, setLoadingEx] = useState(false)
-  const exTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const searchEx = (q: string) => {
-    setExQuery(q)
-    if (exTimer.current) clearTimeout(exTimer.current)
-    if (!q.trim()) { setExResults([]); return }
-    exTimer.current = setTimeout(async () => {
-      try {
-        const data = await searchExercisesForPlan(authorizedFetch, { q: q.trim(), limit: 6 })
-        setExResults(data.map((e) => ({ id: e.id, name: e.name })))
-      } catch { /* silent */ }
-    }, 350)
-  }
-
-  const pickExercise = async (id: string, name: string) => {
-    setExQuery(name)
-    setExResults([])
-    setLoadingEx(true)
-    try {
-      const data = await compareExercise(authorizedFetch, userId, id)
-      setExCompare(data)
-    } catch { /* silent */ } finally {
-      setLoadingEx(false)
-    }
-  }
-
-  const meColor = '#ef4444'
-  const themColor = '#6b7280'
-
-  const meName = result.me.name ?? 'Você'
-  const themName = result.them.name ?? 'Rival'
-  const meFirst = meName.split(' ')[0]
-  const themFirst = themName.split(' ')[0]
-
-  const Avatar = ({ url, name, color }: { url: string | null; name: string; color: string }) => (
-    <button
-      type="button"
-      onClick={() => url && onAvatarClick(url, name)}
-      disabled={!url}
-      className="relative h-12 w-12 shrink-0 overflow-hidden rounded-full transition-opacity hover:opacity-90 disabled:cursor-default"
-      style={{ boxShadow: `0 0 0 2px ${color}, 0 0 0 4px var(--surface)` }}
-    >
-      {url ? (
-        <img src={url} alt="" className="h-full w-full object-cover" />
-      ) : (
-        <span className="flex h-full w-full items-center justify-center bg-[var(--surface-hover)] text-sm font-black text-[var(--text)]">
-          {name[0]?.toUpperCase()}
-        </span>
-      )}
-    </button>
-  )
-
-  return (
-    <div className="overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)]">
-      {/* Header — VS */}
-      <div className="flex items-center justify-between gap-3 border-b border-[var(--line)] bg-[var(--surface-hover)] px-4 py-4">
-        <div className="flex min-w-0 flex-1 items-center gap-3">
-          <Avatar url={result.me.avatarUrl ?? null} name={meName} color={meColor} />
-          <div className="min-w-0">
-            <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: meColor }}>Você</p>
-            <p className="truncate text-sm font-black text-[var(--text)]">{meFirst}</p>
-          </div>
-        </div>
-
-        <span className="shrink-0 text-xs font-black uppercase tracking-[0.3em] text-[var(--muted)]">vs</span>
-
-        <div className="flex min-w-0 flex-1 items-center justify-end gap-3">
-          <div className="min-w-0 text-right">
-            <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: themColor }}>Rival</p>
-            <p className="truncate text-sm font-black text-[var(--text)]">{themFirst}</p>
-          </div>
-          <Avatar url={result.them.avatarUrl ?? null} name={themName} color={themColor} />
-        </div>
-      </div>
-
-      <div className="space-y-3 p-4">
-        <StatBattle
-          label="Treinos nos últimos 7 dias"
-          meName={meFirst}
-          themName={themFirst}
-          meValue={result.me.stats.workouts7d}
-          themValue={result.them.stats.workouts7d}
-          meColor={meColor}
-          themColor={themColor}
-          delay={0}
-        />
-        <StatBattle
-          label="Treinos nos últimos 30 dias"
-          meName={meFirst}
-          themName={themFirst}
-          meValue={result.me.stats.workouts30d}
-          themValue={result.them.stats.workouts30d}
-          meColor={meColor}
-          themColor={themColor}
-          delay={0.05}
-        />
-        <StatBattle
-          label="Volume dos últimos 7 dias"
-          meName={meFirst}
-          themName={themFirst}
-          meValue={result.me.stats.volumeKg7d}
-          themValue={result.them.stats.volumeKg7d}
-          meColor={meColor}
-          themColor={themColor}
-          unit="kg"
-          delay={0.1}
-        />
-
-        {/* Top exercises */}
-        {result.them.stats.topExercises.length > 0 && (
-          <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3">
-            <div className="mb-2 flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: themColor }} />
-              <p className="text-[9px] font-extrabold uppercase tracking-[0.2em] text-[var(--muted)]">
-                Top exercícios — {themFirst} (30d)
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {result.them.stats.topExercises.map((e) => (
-                <span
-                  key={e.name}
-                  className="rounded-full border border-[var(--line)] bg-[var(--surface)] px-2.5 py-1 text-[11px] font-medium text-[var(--text)]"
-                >
-                  {e.name}
-                  <span className="ml-1 text-[10px] font-black tabular-nums" style={{ color: themColor }}>
-                    {e.count}×
-                  </span>
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Exercise comparison */}
-        <div className="rounded-xl border border-[var(--line)] p-3 space-y-3">
-          <p className="text-[9px] font-extrabold uppercase tracking-[0.25em] text-[var(--muted)]">
-            Comparar exercício específico
-          </p>
-          <input
-            type="search"
-            value={exQuery}
-            onChange={(e) => searchEx(e.target.value)}
-            placeholder="Pesquisar exercício..."
-            className="w-full rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--muted)] outline-none focus:border-[var(--brand)]"
-          />
-
-          {exResults.length > 0 && (
-            <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] divide-y divide-[var(--line)] overflow-hidden">
-              {exResults.map((ex) => (
-                <button
-                  key={ex.id}
-                  type="button"
-                  onClick={() => void pickExercise(ex.id, ex.name)}
-                  className="flex w-full px-3 py-2.5 text-sm text-left text-[var(--text)] hover:bg-[var(--surface)]"
-                >
-                  {ex.name}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {loadingEx && <p className="text-xs text-[var(--muted)]">Carregando...</p>}
-
-          {exCompare && !loadingEx && (
-            <div className="space-y-3">
-              <div className="flex items-baseline justify-between gap-2">
-                <p className="truncate text-sm font-black text-[var(--text)]">{exCompare.exerciseName}</p>
-                <p className="shrink-0 text-[9px] font-bold uppercase tracking-widest text-[var(--muted)]">últimos 30d</p>
-              </div>
-              <StatBattle
-                label="Carga máxima"
-                meName={meFirst}
-                themName={themFirst}
-                meValue={exCompare.me.stats.maxWeightKg}
-                themValue={exCompare.them.stats.maxWeightKg}
-                meColor={meColor}
-                themColor={themColor}
-                unit="kg"
-                delay={0}
-              />
-              <StatBattle
-                label="Maior volume em 1 série"
-                meName={meFirst}
-                themName={themFirst}
-                meValue={
-                  exCompare.me.stats.bestSet
-                    ? exCompare.me.stats.bestSet.reps * exCompare.me.stats.bestSet.weightKg
-                    : 0
-                }
-                themValue={
-                  exCompare.them.stats.bestSet
-                    ? exCompare.them.stats.bestSet.reps * exCompare.them.stats.bestSet.weightKg
-                    : 0
-                }
-                meColor={meColor}
-                themColor={themColor}
-                unit="kg"
-                delay={0.05}
-              />
-              <StatBattle
-                label="Total de séries"
-                meName={meFirst}
-                themName={themFirst}
-                meValue={exCompare.me.stats.totalSets}
-                themValue={exCompare.them.stats.totalSets}
-                meColor={meColor}
-                themColor={themColor}
-                delay={0.1}
-              />
-              <StatBattle
-                label="Total de repetições"
-                meName={meFirst}
-                themName={themFirst}
-                meValue={exCompare.me.stats.totalReps}
-                themValue={exCompare.them.stats.totalReps}
-                meColor={meColor}
-                themColor={themColor}
-                delay={0.15}
-              />
-              {(exCompare.me.stats.bestSet || exCompare.them.stats.bestSet) && (
-                <div className="grid grid-cols-2 gap-2 pt-1">
-                  <div
-                    className="rounded-xl border p-2.5 text-center"
-                    style={{ borderColor: `${meColor}40`, backgroundColor: `${meColor}08` }}
-                  >
-                    <p className="text-[9px] font-bold uppercase tracking-widest" style={{ color: meColor }}>
-                      Melhor set · {meFirst}
-                    </p>
-                    <p className="mt-1 text-sm font-black tabular-nums text-[var(--text)]">
-                      {exCompare.me.stats.bestSet
-                        ? `${exCompare.me.stats.bestSet.reps}× ${exCompare.me.stats.bestSet.weightKg}kg`
-                        : '—'}
-                    </p>
-                  </div>
-                  <div
-                    className="rounded-xl border p-2.5 text-center"
-                    style={{ borderColor: `${themColor}50`, backgroundColor: `${themColor}10` }}
-                  >
-                    <p className="text-[9px] font-bold uppercase tracking-widest" style={{ color: themColor }}>
-                      Melhor set · {themFirst}
-                    </p>
-                    <p className="mt-1 text-sm font-black tabular-nums text-[var(--text)]">
-                      {exCompare.them.stats.bestSet
-                        ? `${exCompare.them.stats.bestSet.reps}× ${exCompare.them.stats.bestSet.weightKg}kg`
-                        : '—'}
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
 
 type ListPanel = 'followers' | 'following' | 'mutual' | null
+
+// Full-screen "page push" wrapper used to make the compare panel feel like
+// a separate route without actually changing the URL. Slides in from the
+// right (iOS-native-ish), locks the body scroll, traps ESC to close, and
+// renders a sticky header with a "Voltar" button.
+function CompareOverlay({
+  onClose, themName, children,
+}: {
+  onClose: () => void
+  themName: string
+  children: React.ReactNode
+}) {
+  useScrollLock(true)
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return createPortal(
+    <motion.div
+      key="compare-overlay"
+      initial={{ x: '100%', opacity: 0.6 }}
+      animate={{ x: 0, opacity: 1 }}
+      exit={{ x: '100%', opacity: 0.5 }}
+      transition={{ type: 'spring', stiffness: 320, damping: 36, mass: 0.8 }}
+      // z-[9990] keeps us under the avatar ImageViewer (z-[9998]) but above
+      // anything else on the underlying profile page.
+      className="fixed inset-0 z-[9990] flex flex-col overflow-hidden bg-[var(--bg)]"
+    >
+      {/* Sticky header — small backdrop blur so the page underneath doesn't
+          bleed into the title once the user starts scrolling. */}
+      <div className="sticky top-0 z-10 border-b border-[var(--line)] bg-[var(--surface)]/90 backdrop-blur-md">
+        <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-3 sm:px-6">
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 text-[12.5px] font-medium text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
+            aria-label="Voltar ao perfil"
+          >
+            <ArrowLeft size={13} />
+            Voltar
+          </button>
+          <div className="min-w-0">
+            <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--brand)]">
+              Comparação
+            </p>
+            <h2 className="truncate text-[15px] font-semibold tracking-tight text-[var(--text)]">
+              Você vs {themName}
+            </h2>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto overscroll-contain">
+        <div className="mx-auto max-w-3xl px-4 py-5 sm:px-6 sm:py-6">
+          {children}
+        </div>
+      </div>
+    </motion.div>,
+    document.body,
+  )
+}
 
 function UserListModal({ title, users, loading, onClose, onNavigate }: {
   title: string
@@ -499,127 +141,6 @@ function UserListModal({ title, users, loading, onClose, onNavigate }: {
   )
 }
 
-function ExerciseStatsRow({ ex }: { ex: WorkoutExerciseSummary }) {
-  const totalReps = ex.sets.reduce((s, set) => s + (set.reps ?? 0), 0)
-  return (
-    <article className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3 space-y-2">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <p className="text-sm font-bold text-[var(--text)]">{ex.name}</p>
-        <span className="rounded-full border border-[var(--line)] px-2 py-0.5 text-[11px] text-[var(--muted)]">{ex.primaryMuscleGroup}</span>
-      </div>
-      <div className="flex flex-wrap gap-1.5 text-[11px]">
-        <span className="rounded-full border border-[var(--line)] px-2 py-0.5 text-[var(--muted)]">{ex.sets.length} set(s)</span>
-        {totalReps > 0 && <span className="rounded-full border border-[var(--line)] px-2 py-0.5 text-[var(--muted)]">Reps: {totalReps}</span>}
-        {ex.totalVolumeKg > 0 && <span className="rounded-full border border-[var(--line)] px-2 py-0.5 text-[var(--muted)]">Volume: {ex.totalVolumeKg} kg</span>}
-      </div>
-      <div className="space-y-1 border-t border-[var(--line)] pt-2">
-        {ex.sets.map((set) => (
-          <div key={set.setNumber} className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-[var(--muted)]">
-            <span className="font-semibold text-[var(--text)]">Set {set.setNumber}</span>
-            {set.reps != null && <span>Reps: {set.reps}</span>}
-            {set.weightKg != null && <span>Carga: {set.weightKg} kg</span>}
-            {set.durationSec != null && <span>Duração: {set.durationSec}s</span>}
-            {set.distanceMeters != null && <span>Dist: {set.distanceMeters} m</span>}
-            {set.perceivedExertion != null && <span>RPE: {set.perceivedExertion}</span>}
-          </div>
-        ))}
-      </div>
-    </article>
-  )
-}
-
-function ProfilePostCard({ post, canDelete, isAdminAction, onDelete }: {
-  post: FeedPost
-  canDelete: boolean
-  isAdminAction: boolean
-  onDelete: (id: string) => void
-}) {
-  const [expanded, setExpanded] = useState(false)
-  return (
-    <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] overflow-hidden">
-      {post.photoUrl && <WorkoutPostImage src={post.photoUrl} />}
-      <div className="p-4 space-y-3">
-        <div className="flex items-start justify-between gap-3">
-          <p className="text-xs text-[var(--muted)]">{timeAgo(post.createdAt)}</p>
-          {canDelete && (
-            <button
-              type="button"
-              onClick={() => onDelete(post.id)}
-              className={`shrink-0 rounded-lg border px-2 py-1 text-xs ${
-                isAdminAction
-                  ? 'border-amber-500/50 text-amber-400'
-                  : 'border-red-500/40 text-red-400'
-              }`}
-              title={isAdminAction ? 'Remover como administrador' : 'Deletar'}
-            >
-              {isAdminAction ? 'Remover (admin)' : 'Deletar'}
-            </button>
-          )}
-        </div>
-        {post.caption && <p className="text-sm text-[var(--text)]">{post.caption}</p>}
-        {post.workoutSummary && (
-          <div className="rounded-xl border border-[var(--line)] p-3 space-y-2">
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <div className="flex gap-4">
-                <div>
-                  <p className="text-[10px] uppercase tracking-wide text-[var(--muted)]">Duração</p>
-                  <p className="text-sm font-bold text-[var(--text)]">{formatDuration(post.workoutSummary.durationSec)}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] uppercase tracking-wide text-[var(--muted)]">Volume</p>
-                  <p className="text-sm font-bold text-[var(--text)]">{post.workoutSummary.totalVolumeKg} kg</p>
-                </div>
-                <div>
-                  <p className="text-[10px] uppercase tracking-wide text-[var(--muted)]">Exercícios</p>
-                  <p className="text-sm font-bold text-[var(--text)]">{post.workoutSummary.exercises.length}</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setExpanded((v) => !v)}
-                className="rounded-lg border border-[var(--line)] px-2.5 py-1 text-[11px] font-semibold text-[var(--muted)] shrink-0"
-              >
-                {expanded ? 'Ocultar' : 'Ver stats'}
-              </button>
-            </div>
-            {!expanded && (
-              <div className="flex flex-wrap gap-1">
-                {post.workoutSummary.exercises.slice(0, 5).map((ex) => (
-                  <span key={ex.name} className="rounded-full border border-[var(--line)] px-2 py-0.5 text-[11px] text-[var(--muted)]">
-                    {ex.name} · {ex.sets.length}x
-                  </span>
-                ))}
-                {post.workoutSummary.exercises.length > 5 && (
-                  <span className="rounded-full border border-[var(--line)] px-2 py-0.5 text-[11px] text-[var(--muted)]">
-                    +{post.workoutSummary.exercises.length - 5}
-                  </span>
-                )}
-              </div>
-            )}
-            <AnimatePresence>
-              {expanded && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  transition={{ duration: 0.2 }}
-                  className="overflow-hidden space-y-2"
-                >
-                  {post.workoutSummary.exercises.map((ex) => (
-                    <ExerciseStatsRow key={ex.name} ex={ex} />
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        )}
-        <div className="flex items-center gap-1.5 text-sm text-[var(--muted)]">
-          <span>♥</span><span>{post.likesCount}</span>
-        </div>
-      </div>
-    </article>
-  )
-}
 
 export function PublicProfilePage() {
   const { userId } = useParams<{ userId: string }>()
@@ -730,6 +251,35 @@ export function PublicProfilePage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao remover post')
     }
+  }
+
+  // FeedPostCard precisa desses 3 handlers — antes não eram expostos porque o
+  // ProfilePostCard antigo só tinha delete. Os endpoints já existem.
+  const handleLike = async (postId: string) => {
+    try {
+      const result = await toggleLike(authorizedFetch, postId)
+      setPosts((prev) => prev.map((p) =>
+        p.id === postId
+          ? { ...p, likedByMe: result.liked, likesCount: p.likesCount + (result.liked ? 1 : -1) }
+          : p
+      ))
+    } catch { /* silent — like falhar não vale interromper a tela */ }
+  }
+
+  const handlePrivacyChange = async (postId: string, next: PostPrivacy) => {
+    try {
+      const updated = await updatePostPrivacy(authorizedFetch, postId, next)
+      setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, privacy: updated.privacy } : p)))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao alterar privacidade')
+    }
+  }
+
+  const handleShare = async (postId: string) => {
+    const url = `${window.location.origin}/post/${postId}`
+    try {
+      await navigator.clipboard.writeText(url)
+    } catch { /* silent — clipboard pode falhar fora de https/usuário */ }
   }
 
   if (loadingProfile) {
@@ -862,14 +412,25 @@ export function PublicProfilePage() {
 
       {error && <p className="text-sm text-red-400">{error}</p>}
 
-      {showCompare && compare && userId && (
-        <ComparePanel
-          result={compare}
-          userId={userId}
-          authorizedFetch={authorizedFetch}
-          onAvatarClick={(src, alt) => setViewer({ src, alt })}
-        />
-      )}
+      {/* Compare panel — opens like a pushed iOS page: full-screen overlay
+          sliding in from the right, with its own header + back button. The
+          URL stays the same; only the visual stacking changes. ESC fecha. */}
+      <AnimatePresence>
+        {showCompare && compare && userId && (
+          <CompareOverlay
+            onClose={() => setShowCompare(false)}
+            themName={profile?.name ?? 'Rival'}
+          >
+            <UserComparePanel
+              result={compare}
+              userId={userId}
+              authorizedFetch={authorizedFetch}
+              onAvatarClick={(src, alt) => setViewer({ src, alt })}
+              themHandle={null}
+            />
+          </CompareOverlay>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {openPanel && (
@@ -889,19 +450,28 @@ export function PublicProfilePage() {
             Nenhum post público ainda.
           </p>
         )}
-        {posts.map((post) => {
-          const isOwn = post.user.id === me?.id
-          const isAdmin = me?.role === 'ADMIN'
-          return (
-            <ProfilePostCard
-              key={post.id}
-              post={post}
-              canDelete={isOwn || isAdmin}
-              isAdminAction={!isOwn && isAdmin}
-              onDelete={handleDeletePost}
-            />
-          )
-        })}
+        {posts.map((post) => (
+          <FeedPostCard
+            key={post.id}
+            post={post}
+            userId={me?.id}
+            isAdmin={me?.role === 'ADMIN'}
+            // Em /u/:id estamos sempre vendo posts dessa pessoa específica;
+            // o "amigo" do post == "estou seguindo essa pessoa".
+            isFriend={profile?.isFollowing ?? false}
+            ownerIsPrivate={me?.isPrivate ?? false}
+            // Cabeçalho do perfil já mostra avatar/nome — não repetir no card.
+            hideAuthor
+            onLike={handleLike}
+            onDelete={handleDeletePost}
+            onPrivacyChange={handlePrivacyChange}
+            // Click no avatar do próprio post leva pra /profile;
+            // outros usuários levam pra /u/:id (ainda que aqui só haja
+            // posts da mesma pessoa, mantemos a lógica consistente).
+            onProfileClick={(id) => navigate(id === me?.id ? '/profile' : `/u/${id}`)}
+            onShare={handleShare}
+          />
+        ))}
       </div>
 
       <AnimatePresence>
