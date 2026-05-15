@@ -1,10 +1,11 @@
 import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
 import { TrainPage } from './pages/TrainPage'
-import { HistoryPage } from './pages/HistoryPage'
 import { ProgressPage } from './pages/ProgressPage'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ProfilePage } from './pages/ProfilePage'
+import { SettingsPage } from './pages/SettingsPage'
+import { WorkoutDetailPage } from './pages/WorkoutDetailPage'
 import { RegisterPage } from './pages/RegisterPage'
 import { AuthProvider } from './context/AuthContext'
 import { AppShell } from './components/layout/AppShell'
@@ -102,10 +103,22 @@ function AnimatedRoutes() {
             }
           />
           <Route
-            path="/history"
+            path="/settings"
             element={
               <ProtectedRoute>
-                <HistoryPage />
+                <SettingsPage />
+              </ProtectedRoute>
+            }
+          />
+          {/* The previous /history list view is now embedded in /profile (with
+              infinite scroll). The route stays alive as a permanent redirect
+              for old bookmarks/share links so nothing 404s. */}
+          <Route path="/history" element={<Navigate to="/profile" replace />} />
+          <Route
+            path="/workouts/:sessionId"
+            element={
+              <ProtectedRoute>
+                <WorkoutDetailPage />
               </ProtectedRoute>
             }
           />

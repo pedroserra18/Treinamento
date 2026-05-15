@@ -10,6 +10,7 @@ import {
   exploreWorkouts,
   fetchWorkoutRecommendations,
   getRecommendationTemplates,
+  getWorkoutSessionById,
   listWorkoutHistory,
   listLatestExerciseHistory,
   listUserWorkoutPlans,
@@ -247,6 +248,17 @@ export async function listWorkoutHistoryController(req: Request, res: Response):
     meta: {
       requestId: req.context.requestId
     }
+  });
+}
+
+export async function getWorkoutSessionController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as HistorySessionParams;
+  const session = await getWorkoutSessionById(userId, params.sessionId);
+
+  res.status(200).json({
+    data: session,
+    meta: { requestId: req.context.requestId }
   });
 }
 

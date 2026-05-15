@@ -43,6 +43,14 @@ export const updateHandleBodySchema = z
   .object({ handle: handleField })
   .strict();
 
+// DELETE /auth/profile — the body carries the user's current @handle typed
+// back as a confirmation token, mirroring the GitHub "delete repository" UX.
+// The server also validates it against the row in the DB so a malicious
+// client can't skip the check.
+export const deleteProfileBodySchema = z
+  .object({ confirmHandle: handleField })
+  .strict();
+
 export const forgotPasswordRequestCodeBodySchema = z
   .object({
     email: z.string().trim().toLowerCase().email()
@@ -95,6 +103,7 @@ export type RegisterBody = z.infer<typeof registerBodySchema>;
 export type RegisterRequestCodeBody = z.infer<typeof registerRequestCodeBodySchema>;
 export type RegisterVerifyCodeBody = z.infer<typeof registerVerifyCodeBodySchema>;
 export type UpdateHandleBody = z.infer<typeof updateHandleBodySchema>;
+export type DeleteProfileBody = z.infer<typeof deleteProfileBodySchema>;
 export type ForgotPasswordRequestCodeBody = z.infer<typeof forgotPasswordRequestCodeBodySchema>;
 export type ForgotPasswordConfirmBody = z.infer<typeof forgotPasswordConfirmBodySchema>;
 export type LoginBody = z.infer<typeof loginBodySchema>;

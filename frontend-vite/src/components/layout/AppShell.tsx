@@ -19,12 +19,12 @@ import {
   Dumbbell,
   Rss,
   Bot,
-  History,
   TrendingUp,
   Users,
   User,
   LogIn,
   LifeBuoy,
+  Settings as SettingsIcon,
 } from 'lucide-react'
 
 type AppShellProps = {
@@ -110,12 +110,14 @@ export function AppShell({ children }: AppShellProps) {
     return () => window.clearTimeout(timeoutId)
   }, [explorerMuscle, explorerQuery, fetchExplorerResults, isExplorerOpen])
 
+  // Histórico foi consolidado dentro do /profile (lista com infinite scroll).
+  // Mantenho o redirect /history → /profile em App.tsx pra deep-links antigos
+  // não quebrarem, mas o item de nav saiu do menu pra reduzir a poluição.
   const navItems: NavItem[] = [
     { to: '/', label: 'Home', icon: <Home size={15} /> },
     { to: '/train', label: 'Treinar', icon: <Dumbbell size={15} />, authRequired: true },
     { to: '/feed', label: 'Feed', icon: <Rss size={15} />, authRequired: true },
     { to: '/ai-workout', label: 'IA', icon: <Bot size={15} />, authRequired: true },
-    { to: '/history', label: 'Histórico', icon: <History size={15} />, authRequired: true },
     { to: '/progress', label: 'Progr.', icon: <TrendingUp size={15} />, authRequired: true },
     { to: '/admin/users', label: 'Usuários', icon: <Users size={15} />, authRequired: true, adminOnly: true },
     { to: '/admin/support', label: 'Suporte', icon: <LifeBuoy size={15} />, authRequired: true, adminOnly: true },
@@ -125,6 +127,12 @@ export function AppShell({ children }: AppShellProps) {
     ? { to: '/profile', label: user?.name ? `Perfil (${user.name.split(' ')[0]})` : 'Perfil', icon: <User size={15} /> }
     : { to: '/login', label: 'Login', icon: <LogIn size={15} /> }
 
+  // Settings only makes sense once the user is logged in; the page itself
+  // requires auth via the ProtectedRoute, so we just hide the chip otherwise.
+  const settingsItem: NavItem | null = isAuthenticated
+    ? { to: '/settings', label: 'Definições', icon: <SettingsIcon size={15} /> }
+    : null
+
   const visibleItems = [
     ...navItems.filter((item) => {
       if (item.adminOnly) return isAuthenticated && user?.role === 'ADMIN'
@@ -132,14 +140,17 @@ export function AppShell({ children }: AppShellProps) {
       return true
     }),
     profileItem,
+    ...(settingsItem ? [settingsItem] : []),
   ]
 
-  // Bottom nav — 5 itens principais para mobile
+  // Bottom nav — 5 itens principais para mobile. "Histórico" foi removido
+  // junto com o item no top nav; o slot foi para "IA" (recomendações),
+  // que é mais usado no dia-a-dia que progresso.
   const bottomNavItems = [
     visibleItems.find((i) => i.to === '/'),
     visibleItems.find((i) => i.to === '/train'),
     visibleItems.find((i) => i.to === '/feed'),
-    visibleItems.find((i) => i.to === '/history'),
+    visibleItems.find((i) => i.to === '/ai-workout'),
     profileItem,
   ].filter(Boolean) as NavItem[]
 

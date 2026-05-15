@@ -936,6 +936,45 @@ export async function listWorkoutHistory(userId: string, query: ListWorkoutHisto
   };
 }
 
+// GET /workouts/history/:sessionId — returns a single completed session
+// in the same shape that listWorkoutHistory produces (so the frontend can
+// reuse all the existing rendering). Returns 404 if the session belongs to
+// another user, since we never want to leak existence of a session id.
+export async function getWorkoutSessionById(userId: string, sessionId: string) {
+  const session = await prisma.workoutSession.findFirst({
+    where: { id: sessionId, userId, status: "COMPLETED" },
+    include: {
+      workoutPlan: {
+        select: {
+          id: true,
+          name: true,
+          exercises: {
+            orderBy: [{ orderIndex: "asc" }],
+            select: { exerciseId: true, orderIndex: true }
+          }
+        }
+      },
+      history: {
+        orderBy: [{ executionOrder: "asc" }, { id: "asc" }],
+        include: {
+          exercise: {
+            select: { id: true, name: true, primaryMuscleGroup: true }
+          }
+        }
+      }
+    }
+  });
+
+  if (!session) {
+    throw new AppError("Workout session not found", {
+      statusCode: 404,
+      code: "WORKOUT_SESSION_NOT_FOUND"
+    });
+  }
+
+  return { ...session, historyEntriesCount: session.history.length };
+}
+
 function extractRirFromNotes(notes: string | null): number | null {
   if (!notes) {
     return null;

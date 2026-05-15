@@ -7,6 +7,7 @@ import {
   authCodeVerifyLimiter
 } from "../../middlewares/security.middleware";
 import {
+  deleteProfileBodySchema,
   forgotPasswordConfirmBodySchema,
   forgotPasswordRequestCodeBodySchema,
   googleCallbackQuerySchema,
@@ -20,6 +21,7 @@ import {
   updateHandleBodySchema
 } from "./auth.schema";
 import {
+  deleteAccountController,
   forgotPasswordConfirmController,
   forgotPasswordRequestCodeController,
   googleCallbackController,
@@ -116,6 +118,12 @@ router.patch(
   requireAuth,
   validateRequest({ body: updateHandleBodySchema }),
   asyncHandler(async (req, res) => updateHandleController(req, res))
+);
+router.delete(
+  "/auth/profile",
+  requireAuth,
+  validateRequest({ body: deleteProfileBodySchema }),
+  asyncHandler(async (req, res) => deleteAccountController(req, res))
 );
 router.get(
   "/auth/onboarding/status",

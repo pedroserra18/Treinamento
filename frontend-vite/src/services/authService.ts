@@ -273,6 +273,26 @@ export async function secureLogout(accessToken: string): Promise<void> {
   })
 }
 
+// DELETE /auth/profile — wipes the account on the server. The handle is
+// echoed back as the confirmation token; server re-validates against the DB.
+// Returns void on 204. Specific server-side errors (404 USER_NOT_FOUND,
+// 400 HANDLE_CONFIRMATION_MISMATCH) bubble up as Error messages.
+export async function deleteAccount(
+  authorizedFetch: (input: string, init?: RequestInit) => Promise<Response>,
+  confirmHandle: string,
+): Promise<void> {
+  const response = await authorizedFetch(`${API_URL}/auth/profile`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ confirmHandle }),
+  })
+
+  if (response.status === 204) return
+
+  const payload = (await response.json().catch(() => null)) as { error?: ApiErrorPayload } | null
+  throw new Error(extractApiErrorMessage(payload) ?? 'Erro ao excluir conta')
+}
+
 export async function getGoogleAuthorizationUrl(): Promise<string> {
   const response = await fetch(`${API_URL}/auth/google/start`)
   const payload = (await response.json()) as {

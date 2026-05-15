@@ -4,6 +4,7 @@ import type { AuthTokens, AuthUser } from '../types/auth'
 import { AuthContext, type AuthState } from './auth-context'
 import {
   completeOnboardingProfile,
+  deleteAccount as deleteAccountRequest,
   getGoogleAuthorizationUrl,
   getProfile,
   loginWithEmail,
@@ -224,6 +225,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })
   }, [authorizedFetch])
 
+  const deleteAccount: AuthState['deleteAccount'] = useCallback(async (confirmHandle) => {
+    // We let server errors propagate so the Settings page can surface the
+    // specific failure ("handle confirmation does not match", network, …)
+    // and keep the local session intact. Only wipe local state after the
+    // server confirms the deletion succeeded.
+    await deleteAccountRequest(authorizedFetch as never, confirmHandle)
+    setUser(null)
+    setTokens(null)
+    clearStoredAuth()
+    setSentryUser(null)
+  }, [authorizedFetch])
+
   const value: AuthState = useMemo(
     () => ({
       user,
@@ -240,6 +253,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       refreshUser,
       applyUserPatch,
       logout,
+      deleteAccount,
       authorizedFetch,
     }),
     [
@@ -255,6 +269,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       completeOnboarding,
       refreshUser,
       applyUserPatch,
+      deleteAccount,
       logout,
       authorizedFetch,
     ],

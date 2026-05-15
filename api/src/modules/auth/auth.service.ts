@@ -573,6 +573,36 @@ export async function updateHandle(userId: string, newHandle: string): Promise<S
   return toSafeUser(updated);
 }
 
+// Hard-deletes the authenticated user and all data that has a Cascade FK
+// to the `User` table (workout sessions, posts, comments, follows, tokens…).
+// Caller must echo back the user's current `@handle` to confirm intent —
+// the same value the UI demanded the user type in. We re-validate here so
+// the check can't be bypassed by hitting the API directly.
+//
+// Rows that reference the user with `SetNull` (audit logs, exercise.ownerUser)
+// stay intact with a null user reference, which is the desired behaviour:
+// audit history survives and shared exercises don't disappear from other
+// users' catalogues.
+export async function deleteAccount(userId: string, confirmHandle: string): Promise<void> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { handle: true },
+  });
+
+  if (!user) {
+    throw new AppError("User not found", { statusCode: 404, code: "USER_NOT_FOUND" });
+  }
+
+  if (user.handle.toLowerCase() !== confirmHandle.toLowerCase()) {
+    throw new AppError("Handle confirmation does not match", {
+      statusCode: 400,
+      code: "HANDLE_CONFIRMATION_MISMATCH",
+    });
+  }
+
+  await prisma.user.delete({ where: { id: userId } });
+}
+
 export async function completeOnboarding(
   userId: string,
   data: OnboardingCompleteBody

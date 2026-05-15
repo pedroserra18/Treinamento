@@ -5,6 +5,7 @@ import type {
   WorkoutHistoryResponse,
   WorkoutPlan,
   WorkoutSession,
+  WorkoutSessionHistory,
 } from '../types/workout'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1'
@@ -613,12 +614,32 @@ export async function completeWorkoutSession(
 
 export async function listWorkoutHistory(
   authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  page: number = 1,
+  pageSize: number = 20,
 ): Promise<WorkoutHistoryResponse> {
-  const response = await authorizedFetch(`${API_URL}/workouts/history?page=1&pageSize=20`)
+  const response = await authorizedFetch(
+    `${API_URL}/workouts/history?page=${page}&pageSize=${pageSize}`,
+  )
   const payload = await parsePayload<WorkoutHistoryResponse>(response)
 
   if (!response.ok || !payload.data) {
     throw new Error(payload.errorMessage ?? 'Falha ao carregar historico de treinos')
+  }
+
+  return payload.data
+}
+
+// Fetch a single completed session by id — used by the workout detail page
+// (/workouts/:id). 404 propagates as Error so the page can render a not-found.
+export async function getWorkoutSessionById(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  sessionId: string,
+): Promise<WorkoutSessionHistory> {
+  const response = await authorizedFetch(`${API_URL}/workouts/history/${sessionId}`)
+  const payload = await parsePayload<WorkoutSessionHistory>(response)
+
+  if (!response.ok || !payload.data) {
+    throw new Error(payload.errorMessage ?? 'Sessão não encontrada')
   }
 
   return payload.data

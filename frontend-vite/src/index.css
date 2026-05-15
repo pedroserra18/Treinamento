@@ -42,6 +42,29 @@
   font-weight: 400;
 }
 
+/* Streak flame emoji — tremulates softly when the streak is alive, and
+   gets desaturated + hue-rotated to look frozen when the streak is broken. */
+@keyframes flame-flicker {
+  0%, 100% { transform: scale(1)    rotate(-2deg); }
+  25%      { transform: scale(1.06) rotate( 2deg); }
+  50%      { transform: scale(0.97) rotate(-1deg); }
+  75%      { transform: scale(1.03) rotate( 1deg); }
+}
+.flame-alive {
+  animation: flame-flicker 1.8s ease-in-out infinite;
+  filter: drop-shadow(0 2px 6px rgba(255, 90, 60, 0.45));
+}
+.flame-frozen {
+  /* Orange → icy cyan; the contrast bump keeps the silhouette crisp. */
+  filter:
+    grayscale(0.35)
+    hue-rotate(175deg)
+    brightness(0.95)
+    contrast(1.1)
+    drop-shadow(0 2px 6px rgba(56, 189, 248, 0.35));
+  opacity: 0.92;
+}
+
 /* ─── Tech gradient utilities ──────────────────────────── */
 .tech-text {
   background: var(--tech-gradient);

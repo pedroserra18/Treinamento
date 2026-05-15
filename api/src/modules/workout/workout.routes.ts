@@ -33,6 +33,7 @@ import {
   deleteWorkoutPlanController,
   exploreWorkoutsController,
   getWorkoutRecommendationsController,
+  getWorkoutSessionController,
   listWorkoutHistoryController,
   latestExerciseHistoryController,
   listWorkoutPlansController,
@@ -156,6 +157,14 @@ router.get(
   requireCompletedOnboarding,
   validateRequest({ query: listWorkoutHistoryQuerySchema }),
   asyncHandler(async (req, res) => listWorkoutHistoryController(req, res))
+);
+
+router.get(
+  "/workouts/history/:sessionId",
+  requireAuth,
+  requireCompletedOnboarding,
+  validateRequest({ params: historySessionParamsSchema }),
+  asyncHandler(async (req, res) => getWorkoutSessionController(req, res))
 );
 
 router.post(

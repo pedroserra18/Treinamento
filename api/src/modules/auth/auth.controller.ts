@@ -16,6 +16,7 @@ import {
 } from "./google-oauth.service";
 import {
   completeOnboarding,
+  deleteAccount,
   getAuthenticatedProfile,
   getOnboardingStatus,
   loginWithEmail,
@@ -27,6 +28,7 @@ import {
   updatePrivacy
 } from "./auth.service";
 import {
+  DeleteProfileBody,
   ForgotPasswordConfirmBody,
   ForgotPasswordRequestCodeBody,
   GoogleCallbackQuery,
@@ -339,6 +341,15 @@ export async function updateHandleController(req: Request, res: Response): Promi
   const { handle } = req.body as UpdateHandleBody;
   const user = await updateHandle(userId, handle);
   res.json({ data: { user }, meta: { requestId: req.context.requestId } });
+}
+
+export async function deleteAccountController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const { confirmHandle } = req.body as DeleteProfileBody;
+  await deleteAccount(userId, confirmHandle);
+  // 204 No Content — there's no resource to return, and the client should
+  // immediately wipe local auth state and bounce to the login screen.
+  res.status(204).end();
 }
 
 export async function onboardingCompleteController(req: Request, res: Response): Promise<void> {

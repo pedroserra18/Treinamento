@@ -27,6 +27,10 @@ export type AuthState = {
   refreshUser: () => Promise<void>
   applyUserPatch: (patch: Partial<AuthUser>) => void
   logout: () => Promise<void>
+  // Hard-deletes the current account on the server, then wipes local auth
+  // state. `confirmHandle` must equal the user's current @handle — the
+  // server re-validates so the UI confirmation can't be bypassed.
+  deleteAccount: (confirmHandle: string) => Promise<void>
   authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 }
 
