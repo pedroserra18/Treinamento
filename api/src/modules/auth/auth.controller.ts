@@ -16,7 +16,9 @@ import {
 } from "./google-oauth.service";
 import {
   completeOnboarding,
+  confirmEmailChange,
   deleteAccount,
+  exportUserData,
   getAuthenticatedProfile,
   getOnboardingStatus,
   loginWithEmail,
@@ -25,9 +27,12 @@ import {
   registerWithEmail,
   updateAvatar,
   updateHandle,
+  updateName,
   updatePrivacy
 } from "./auth.service";
+import { requestEmailChangeCode } from "./registration-verification.service";
 import {
+  ConfirmEmailChangeBody,
   DeleteProfileBody,
   ForgotPasswordConfirmBody,
   ForgotPasswordRequestCodeBody,
@@ -37,7 +42,9 @@ import {
   OnboardingCompleteBody,
   RefreshBody,
   RegisterBody,
-  UpdateHandleBody
+  RequestEmailChangeBody,
+  UpdateHandleBody,
+  UpdateNameBody
 } from "./auth.schema";
 
 function maskEmail(email: string): string {
@@ -343,6 +350,27 @@ export async function updateHandleController(req: Request, res: Response): Promi
   res.json({ data: { user }, meta: { requestId: req.context.requestId } });
 }
 
+export async function updateNameController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const { name } = req.body as UpdateNameBody;
+  const user = await updateName(userId, name);
+  res.json({ data: { user }, meta: { requestId: req.context.requestId } });
+}
+
+export async function requestEmailChangeController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const { email } = req.body as RequestEmailChangeBody;
+  const result = await requestEmailChangeCode(userId, email);
+  res.json({ data: result, meta: { requestId: req.context.requestId } });
+}
+
+export async function confirmEmailChangeController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const { email, verificationCode } = req.body as ConfirmEmailChangeBody;
+  const user = await confirmEmailChange(userId, email, verificationCode);
+  res.json({ data: { user }, meta: { requestId: req.context.requestId } });
+}
+
 export async function deleteAccountController(req: Request, res: Response): Promise<void> {
   const userId = req.context.userId as string;
   const { confirmHandle } = req.body as DeleteProfileBody;
@@ -350,6 +378,17 @@ export async function deleteAccountController(req: Request, res: Response): Prom
   // 204 No Content — there's no resource to return, and the client should
   // immediately wipe local auth state and bounce to the login screen.
   res.status(204).end();
+}
+
+export async function exportUserDataController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const payload = await exportUserData(userId);
+  // Triggers a "save as" dialog in the browser instead of rendering as JSON
+  // in the tab. The filename uses ISO date so multiple exports don't collide.
+  const datestamp = new Date().toISOString().slice(0, 10);
+  res.setHeader("Content-Type", "application/json");
+  res.setHeader("Content-Disposition", `attachment; filename="serraathlo-export-${datestamp}.json"`);
+  res.status(200).send(JSON.stringify(payload, null, 2));
 }
 
 export async function onboardingCompleteController(req: Request, res: Response): Promise<void> {

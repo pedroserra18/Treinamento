@@ -5,6 +5,12 @@ import { useAuth } from '../hooks/useAuth'
 import { useTheme } from '../hooks/useTheme'
 import { ImageViewer } from '../components/common/ImageViewer'
 import { updateAvatar, updatePrivacy } from '../services/socialService'
+import {
+  confirmForgotPasswordWithCode,
+  exportUserData,
+  requestEmailChangeCode,
+  requestForgotPasswordCode,
+} from '../services/authService'
 import { sanitiseHandleInput, validateHandle } from '../lib/handle'
 import {
   AtSign, Check, Download, Lock, LogOut, Moon, ShieldAlert, Sun,
@@ -47,7 +53,10 @@ const SECTIONS: SectionDef[] = [
 // ─── Page ─────────────────────────────────────────────────────────────────
 
 export function SettingsPage() {
-  const { user, logout, deleteAccount, authorizedFetch, applyUserPatch, refreshUser, updateHandle } = useAuth()
+  const {
+    user, logout, deleteAccount, authorizedFetch, applyUserPatch, refreshUser,
+    updateHandle, updateName, updateEmail,
+  } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
@@ -137,12 +146,17 @@ export function SettingsPage() {
                   authorizedFetch={authorizedFetch}
                   applyUserPatch={applyUserPatch}
                   refreshUser={refreshUser}
+                  updateName={updateName}
                   avatarUrl={user?.avatarUrl ?? null}
                   name={user?.name ?? ''}
                 />
               )}
               {section === 'account' && (
-                <AccountPanel email={user?.email ?? ''} />
+                <AccountPanel
+                  authorizedFetch={authorizedFetch}
+                  email={user?.email ?? ''}
+                  updateEmail={updateEmail}
+                />
               )}
               {section === 'handle' && (
                 <HandlePanel
@@ -161,7 +175,7 @@ export function SettingsPage() {
               {section === 'theme' && (
                 <ThemePanel theme={theme} toggleTheme={toggleTheme} />
               )}
-              {section === 'export' && <ExportPanel />}
+              {section === 'export' && <ExportPanel authorizedFetch={authorizedFetch} />}
               {section === 'support' && <SupportPanel onOpen={() => navigate('/support')} />}
               {section === 'logout' && <LogoutPanel logout={logout} />}
               {section === 'delete' && (
@@ -204,25 +218,39 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 // ─── Profile (avatar + name) ──────────────────────────────────────────────
 
 function ProfilePanel({
-  authorizedFetch, applyUserPatch, refreshUser, avatarUrl, name,
+  authorizedFetch, applyUserPatch, refreshUser, updateName, avatarUrl, name,
 }: {
   authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   applyUserPatch: (patch: Partial<{ avatarUrl: string | null; name: string | null }>) => void
   refreshUser: () => Promise<void>
+  updateName: (name: string) => Promise<void>
   avatarUrl: string | null
   name: string
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [preview, setPreview] = useState<string | null>(avatarUrl)
-  const [dirty, setDirty] = useState(false)
+  const [avatarDirty, setAvatarDirty] = useState(false)
+  const [nameDraft, setNameDraft] = useState(name)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   const [viewerOpen, setViewerOpen] = useState(false)
 
   useEffect(() => {
-    if (!dirty) setPreview(avatarUrl)
-  }, [avatarUrl, dirty])
+    if (!avatarDirty) setPreview(avatarUrl)
+  }, [avatarUrl, avatarDirty])
+
+  // Re-sync the local name draft if the cached user changes (e.g. another
+  // tab updated it, or after a successful save).
+  useEffect(() => {
+    setNameDraft(name)
+  }, [name])
+
+  const trimmedName = nameDraft.trim()
+  const nameDirty = trimmedName !== name && trimmedName.length >= 2
+  const nameTooShort = trimmedName.length > 0 && trimmedName.length < 2
+  const nameTooLong = trimmedName.length > 120
+  const dirty = avatarDirty || nameDirty
 
   // Same compression pipeline used by the previous Profile page — 256px max,
   // JPEG q=0.85 — so the avatar fits in our DB row without bloating it.
@@ -243,37 +271,45 @@ function ProfilePanel({
         const ctx = canvas.getContext('2d')
         if (!ctx) {
           setPreview(original)
-          setDirty(true)
+          setAvatarDirty(true)
           return
         }
         ctx.drawImage(img, 0, 0, w, h)
         setPreview(canvas.toDataURL('image/jpeg', 0.85))
-        setDirty(true)
+        setAvatarDirty(true)
       }
       img.onerror = () => {
         setPreview(original)
-        setDirty(true)
+        setAvatarDirty(true)
       }
       img.src = original
     }
     reader.readAsDataURL(file)
   }
 
+  // Single save handler that commits whichever fields actually changed,
+  // surfacing the first error that comes up. We do avatar first because it's
+  // the more common change; name fails fast if validation rejected it.
   const save = async () => {
-    if (!preview || preview === avatarUrl) return
+    if (!dirty) return
     setSaving(true)
     setError(null)
     try {
-      const result = await updateAvatar(authorizedFetch as never, preview)
-      const persistedUrl = result.avatarUrl ?? preview
-      applyUserPatch({ avatarUrl: persistedUrl })
-      setPreview(persistedUrl)
-      setDirty(false)
+      if (avatarDirty && preview && preview !== avatarUrl) {
+        const result = await updateAvatar(authorizedFetch as never, preview)
+        const persistedUrl = result.avatarUrl ?? preview
+        applyUserPatch({ avatarUrl: persistedUrl })
+        setPreview(persistedUrl)
+        setAvatarDirty(false)
+      }
+      if (nameDirty) {
+        await updateName(trimmedName)
+      }
       try { await refreshUser() } catch { /* server may lag, local patch already applied */ }
       setSuccess(true)
       setTimeout(() => setSuccess(false), 2500)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao salvar avatar')
+      setError(err instanceof Error ? err.message : 'Erro ao salvar alterações')
     } finally {
       setSaving(false)
     }
@@ -286,7 +322,7 @@ function ProfilePanel({
       await updateAvatar(authorizedFetch as never, null)
       applyUserPatch({ avatarUrl: null })
       setPreview(null)
-      setDirty(false)
+      setAvatarDirty(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao remover avatar')
     } finally {
@@ -345,24 +381,38 @@ function ProfilePanel({
         <FieldLabel>Nome</FieldLabel>
         <input
           type="text"
-          value={name}
-          readOnly
-          className="w-full max-w-md rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 text-sm text-[var(--text)]"
-          title="A alteração de nome ainda não está disponível"
+          value={nameDraft}
+          onChange={(e) => setNameDraft(e.target.value)}
+          maxLength={120}
+          placeholder="Como você quer ser chamado"
+          className="w-full max-w-md rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--brand)]"
         />
-        <p className="mt-1.5 text-[11px] text-[var(--muted)]">
-          A alteração de nome ainda não está disponível.
-        </p>
+        {nameTooShort && (
+          <p className="mt-1.5 text-[11px] text-amber-500">Mínimo 2 caracteres.</p>
+        )}
+        {nameTooLong && (
+          <p className="mt-1.5 text-[11px] text-amber-500">Máximo 120 caracteres.</p>
+        )}
+        {!nameTooShort && !nameTooLong && (
+          <p className="mt-1.5 text-[11px] text-[var(--muted)]">
+            Aparece no feed, no perfil público e em comentários.
+          </p>
+        )}
       </div>
 
       {error && <p className="mt-4 text-sm text-red-500">{error}</p>}
-      {success && <p className="mt-4 text-sm text-emerald-500">Avatar salvo.</p>}
+      {success && <p className="mt-4 text-sm text-emerald-500">Alterações salvas.</p>}
 
       {dirty && (
         <div className="mt-5 flex justify-end gap-2">
           <button
             type="button"
-            onClick={() => { setPreview(avatarUrl); setDirty(false); setError(null) }}
+            onClick={() => {
+              setPreview(avatarUrl)
+              setAvatarDirty(false)
+              setNameDraft(name)
+              setError(null)
+            }}
             className="inline-flex h-9 items-center rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 text-[12.5px] font-medium text-[var(--text)] hover:bg-[var(--surface-hover)]"
           >
             Cancelar
@@ -370,7 +420,7 @@ function ProfilePanel({
           <button
             type="button"
             onClick={() => void save()}
-            disabled={saving}
+            disabled={saving || nameTooLong || (nameDirty && nameTooShort)}
             className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[var(--brand)] bg-[var(--brand)] px-3 text-[12.5px] font-medium text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)] disabled:opacity-50"
           >
             {saving ? 'Salvando…' : <>Guardar alterações <Check size={12} /></>}
@@ -385,30 +435,302 @@ function ProfilePanel({
   )
 }
 
-// ─── Account (email only, password change not wired yet) ──────────────────
+// ─── Account (email + password, both via 6-digit code verification) ──────
 
-function AccountPanel({ email }: { email: string }) {
+function AccountPanel({
+  authorizedFetch, email, updateEmail,
+}: {
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+  email: string
+  updateEmail: (newEmail: string, code: string) => Promise<void>
+}) {
+  // Email change: two-phase. Phase 1 = type new email + receive code; Phase 2 =
+  // type code + confirm. The local `emailStep` drives which UI shows.
+  type EmailStep = 'idle' | 'awaitingCode'
+  const [emailStep, setEmailStep] = useState<EmailStep>('idle')
+  const [emailDraft, setEmailDraft] = useState('')
+  const [emailCode, setEmailCode] = useState('')
+  const [emailSending, setEmailSending] = useState(false)
+  const [emailConfirming, setEmailConfirming] = useState(false)
+  const [emailError, setEmailError] = useState<string | null>(null)
+  const [emailSuccess, setEmailSuccess] = useState(false)
+
+  // Same email pattern the registration zod schema accepts after .toLowerCase().
+  const emailLooksValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailDraft.trim())
+  const emailMatchesCurrent = emailDraft.trim().toLowerCase() === email.toLowerCase()
+  const canRequestCode = emailLooksValid && !emailMatchesCurrent && !emailSending
+
+  const requestCode = async () => {
+    if (!canRequestCode) return
+    setEmailSending(true)
+    setEmailError(null)
+    try {
+      await requestEmailChangeCode(authorizedFetch as never, emailDraft.trim().toLowerCase())
+      setEmailStep('awaitingCode')
+      setEmailCode('')
+    } catch (err) {
+      setEmailError(err instanceof Error ? err.message : 'Erro ao enviar código')
+    } finally {
+      setEmailSending(false)
+    }
+  }
+
+  const confirmCode = async () => {
+    if (emailCode.trim().length !== 6 || emailConfirming) return
+    setEmailConfirming(true)
+    setEmailError(null)
+    try {
+      await updateEmail(emailDraft.trim().toLowerCase(), emailCode.trim())
+      setEmailStep('idle')
+      setEmailDraft('')
+      setEmailCode('')
+      setEmailSuccess(true)
+      setTimeout(() => setEmailSuccess(false), 3500)
+    } catch (err) {
+      setEmailError(err instanceof Error ? err.message : 'Erro ao confirmar troca de email')
+    } finally {
+      setEmailConfirming(false)
+    }
+  }
+
+  const cancelEmailFlow = () => {
+    setEmailStep('idle')
+    setEmailDraft('')
+    setEmailCode('')
+    setEmailError(null)
+  }
+
+  // Password change: piggy-backs on the existing forgot-password endpoints.
+  // Phase 1 = send code to the user's CURRENT email; Phase 2 = type code +
+  // new password. No new backend route needed.
+  type PwStep = 'idle' | 'awaitingCode'
+  const [pwStep, setPwStep] = useState<PwStep>('idle')
+  const [pwCode, setPwCode] = useState('')
+  const [pwNew, setPwNew] = useState('')
+  const [pwSending, setPwSending] = useState(false)
+  const [pwConfirming, setPwConfirming] = useState(false)
+  const [pwError, setPwError] = useState<string | null>(null)
+  const [pwSuccess, setPwSuccess] = useState(false)
+
+  const requestPwCode = async () => {
+    if (pwSending || !email) return
+    setPwSending(true)
+    setPwError(null)
+    try {
+      await requestForgotPasswordCode({ email })
+      setPwStep('awaitingCode')
+      setPwCode('')
+      setPwNew('')
+    } catch (err) {
+      setPwError(err instanceof Error ? err.message : 'Erro ao enviar código')
+    } finally {
+      setPwSending(false)
+    }
+  }
+
+  const confirmPw = async () => {
+    if (pwCode.trim().length !== 6 || pwNew.length < 8 || pwConfirming) return
+    setPwConfirming(true)
+    setPwError(null)
+    try {
+      await confirmForgotPasswordWithCode({
+        email,
+        verificationCode: pwCode.trim(),
+        newPassword: pwNew,
+      })
+      setPwStep('idle')
+      setPwCode('')
+      setPwNew('')
+      setPwSuccess(true)
+      setTimeout(() => setPwSuccess(false), 3500)
+    } catch (err) {
+      setPwError(err instanceof Error ? err.message : 'Erro ao alterar senha')
+    } finally {
+      setPwConfirming(false)
+    }
+  }
+
+  const cancelPwFlow = () => {
+    setPwStep('idle')
+    setPwCode('')
+    setPwNew('')
+    setPwError(null)
+  }
+
   return (
     <div>
       <PanelTitle title="Conta" subtitle="Email e credenciais usadas para entrar." />
 
-      <FieldLabel>Email</FieldLabel>
+      {/* ── EMAIL ────────────────────────────────────────────────────── */}
+      <FieldLabel>Email atual</FieldLabel>
       <input
         type="email"
         value={email}
         readOnly
         className="w-full max-w-md rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 text-sm text-[var(--text)]"
       />
-      <p className="mt-1.5 text-[11px] text-[var(--muted)]">
-        A alteração de email ainda não está disponível.
-      </p>
 
+      <div className="mt-4 max-w-md rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3.5">
+        {emailStep === 'idle' && (
+          <>
+            <FieldLabel>Novo email</FieldLabel>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="email"
+                value={emailDraft}
+                onChange={(e) => setEmailDraft(e.target.value)}
+                placeholder="voce@dominio.com"
+                autoComplete="email"
+                className="flex-1 min-w-[200px] rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--brand)]"
+              />
+              <button
+                type="button"
+                onClick={() => void requestCode()}
+                disabled={!canRequestCode}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[var(--brand)] bg-[var(--brand)] px-3 text-[12.5px] font-medium text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)] disabled:opacity-40"
+              >
+                {emailSending ? 'Enviando…' : 'Enviar código'}
+              </button>
+            </div>
+            {emailDraft && emailMatchesCurrent && (
+              <p className="mt-2 text-[11px] text-amber-500">Digite um email diferente do atual.</p>
+            )}
+            {emailDraft && !emailLooksValid && !emailMatchesCurrent && (
+              <p className="mt-2 text-[11px] text-amber-500">Formato de email inválido.</p>
+            )}
+            <p className="mt-2 text-[11px] text-[var(--muted)]">
+              Enviamos um código de 6 dígitos para o <b>novo</b> email pra confirmar que ele é seu.
+            </p>
+          </>
+        )}
+
+        {emailStep === 'awaitingCode' && (
+          <>
+            <FieldLabel>Código enviado para {emailDraft}</FieldLabel>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                value={emailCode}
+                onChange={(e) => setEmailCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                inputMode="numeric"
+                maxLength={6}
+                placeholder="000000"
+                autoFocus
+                className="w-28 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-center font-mono text-base tracking-[0.3em] text-[var(--text)] outline-none focus:border-[var(--brand)]"
+              />
+              <button
+                type="button"
+                onClick={() => void confirmCode()}
+                disabled={emailCode.length !== 6 || emailConfirming}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[var(--brand)] bg-[var(--brand)] px-3 text-[12.5px] font-medium text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)] disabled:opacity-40"
+              >
+                {emailConfirming ? 'Confirmando…' : 'Confirmar troca'}
+              </button>
+              <button
+                type="button"
+                onClick={cancelEmailFlow}
+                className="inline-flex h-9 items-center rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 text-[12.5px] font-medium text-[var(--muted)] hover:text-[var(--text)]"
+              >
+                Cancelar
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => void requestCode()}
+              disabled={emailSending}
+              className="mt-2 font-mono text-[11px] text-[var(--muted)] underline hover:text-[var(--text)] disabled:opacity-50"
+            >
+              {emailSending ? 'Reenviando…' : 'Reenviar código'}
+            </button>
+          </>
+        )}
+
+        {emailError && <p className="mt-2 text-[12px] text-red-500">{emailError}</p>}
+        {emailSuccess && <p className="mt-2 text-[12px] text-emerald-500">Email atualizado.</p>}
+      </div>
+
+      {/* ── PASSWORD ─────────────────────────────────────────────────── */}
       <div className="mt-6">
         <FieldLabel>Senha</FieldLabel>
-        <p className="text-[13px] text-[var(--muted)]">
-          Para alterar a senha, use o fluxo de "esqueci minha senha" na tela de login —
-          ele envia um código para o seu email.
-        </p>
+        <div className="max-w-md rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3.5">
+          {pwStep === 'idle' && (
+            <>
+              <p className="mb-2 text-[13px] text-[var(--text)]">
+                Para alterar a senha, enviamos um código de 6 dígitos para o seu email atual.
+              </p>
+              <button
+                type="button"
+                onClick={() => void requestPwCode()}
+                disabled={pwSending || !email}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[var(--brand)] bg-[var(--brand)] px-3 text-[12.5px] font-medium text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)] disabled:opacity-40"
+              >
+                {pwSending ? 'Enviando…' : 'Alterar senha'}
+              </button>
+            </>
+          )}
+
+          {pwStep === 'awaitingCode' && (
+            <div className="space-y-3">
+              <div>
+                <FieldLabel>Código enviado para {email}</FieldLabel>
+                <input
+                  type="text"
+                  value={pwCode}
+                  onChange={(e) => setPwCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  inputMode="numeric"
+                  maxLength={6}
+                  placeholder="000000"
+                  autoFocus
+                  className="w-28 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-center font-mono text-base tracking-[0.3em] text-[var(--text)] outline-none focus:border-[var(--brand)]"
+                />
+              </div>
+              <div>
+                <FieldLabel>Nova senha</FieldLabel>
+                <input
+                  type="password"
+                  value={pwNew}
+                  onChange={(e) => setPwNew(e.target.value)}
+                  minLength={8}
+                  maxLength={128}
+                  autoComplete="new-password"
+                  placeholder="Mínimo 8 caracteres"
+                  className="w-full rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--brand)]"
+                />
+                {pwNew.length > 0 && pwNew.length < 8 && (
+                  <p className="mt-1.5 text-[11px] text-amber-500">Mínimo 8 caracteres.</p>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void confirmPw()}
+                  disabled={pwCode.length !== 6 || pwNew.length < 8 || pwConfirming}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[var(--brand)] bg-[var(--brand)] px-3 text-[12.5px] font-medium text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)] disabled:opacity-40"
+                >
+                  {pwConfirming ? 'Salvando…' : 'Salvar nova senha'}
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelPwFlow}
+                  className="inline-flex h-9 items-center rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 text-[12.5px] font-medium text-[var(--muted)] hover:text-[var(--text)]"
+                >
+                  Cancelar
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => void requestPwCode()}
+                disabled={pwSending}
+                className="font-mono text-[11px] text-[var(--muted)] underline hover:text-[var(--text)] disabled:opacity-50"
+              >
+                {pwSending ? 'Reenviando…' : 'Reenviar código'}
+              </button>
+            </div>
+          )}
+
+          {pwError && <p className="mt-2 text-[12px] text-red-500">{pwError}</p>}
+          {pwSuccess && <p className="mt-2 text-[12px] text-emerald-500">Senha alterada.</p>}
+        </div>
       </div>
     </div>
   )
@@ -579,21 +901,26 @@ function ToggleRow({
         <p className="text-[14px] font-semibold text-[var(--text)]">{label}</p>
         <p className="mt-0.5 text-[12px] text-[var(--muted)]">{description}</p>
       </div>
+      {/* iOS-style toggle. We use inline-flex + items-center so the knob is
+          vertically centered without depending on `absolute top-[2px]`, which
+          was rendering inconsistently inside the panel (knob sized 0 in some
+          builds, making the toggle look like a solid bar). */}
       <button
         type="button"
         onClick={onToggle}
         disabled={disabled}
         role="switch"
         aria-checked={checked}
-        className={`relative mt-1 h-6 w-11 shrink-0 rounded-full border transition-colors disabled:opacity-50 ${
+        className={`relative mt-1 inline-flex h-6 w-11 shrink-0 items-center rounded-full border px-[2px] transition-colors disabled:opacity-50 ${
           checked
             ? 'border-[var(--brand)] bg-[var(--brand)]'
-            : 'border-[var(--line)] bg-[var(--surface)]'
+            : 'border-[var(--line)] bg-[var(--surface-hover)]'
         }`}
       >
         <span
-          className={`absolute top-[2px] h-[18px] w-[18px] rounded-full bg-white shadow transition-transform ${
-            checked ? 'translate-x-[22px]' : 'translate-x-[2px]'
+          aria-hidden
+          className={`block h-[18px] w-[18px] rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.25)] transition-transform duration-200 ease-out ${
+            checked ? 'translate-x-[20px]' : 'translate-x-0'
           }`}
         />
       </button>
@@ -642,17 +969,70 @@ function ThemePanel({ theme, toggleTheme }: { theme: 'light' | 'dark'; toggleThe
 
 // ─── Export data ──────────────────────────────────────────────────────────
 
-function ExportPanel() {
+function ExportPanel({
+  authorizedFetch,
+}: {
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+}) {
+  const [downloading, setDownloading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [lastDownloadAt, setLastDownloadAt] = useState<Date | null>(null)
+
+  const download = async () => {
+    setDownloading(true)
+    setError(null)
+    try {
+      const blob = await exportUserData(authorizedFetch as never)
+      // Browser-side download via a temporary <a download>. The server already
+      // suggested a filename via Content-Disposition, but we set one too so
+      // some browsers (Safari iOS, in particular) honor it reliably.
+      const url = URL.createObjectURL(blob)
+      const datestamp = new Date().toISOString().slice(0, 10)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `serraathlo-export-${datestamp}.json`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      setLastDownloadAt(new Date())
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao exportar dados')
+    } finally {
+      setDownloading(false)
+    }
+  }
+
   return (
     <div>
-      <PanelTitle title="Exportar dados" subtitle="Baixe um arquivo com todos os seus treinos e configurações." />
-      <div className="rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] p-4">
+      <PanelTitle title="Exportar dados" subtitle="Baixe um arquivo JSON com todos os seus treinos, planos, medidas corporais e posts." />
+
+      <div className="max-w-md rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-4">
         <p className="text-[13px] text-[var(--text)]">
-          Em breve você poderá exportar todo o seu histórico em formato JSON ou CSV.
+          O arquivo inclui perfil, plans, sessões de treino, histórico de séries,
+          medidas corporais (incluindo fotos), posts e comentários seus, e as
+          listas de quem você segue / te segue.
         </p>
-        <p className="mt-1 text-[12px] text-[var(--muted)]">
-          Esta funcionalidade ainda está em desenvolvimento.
+        <p className="mt-2 text-[12px] text-[var(--muted)]">
+          Não inclui senha, refresh tokens ou credenciais OAuth.
         </p>
+
+        <button
+          type="button"
+          onClick={() => void download()}
+          disabled={downloading}
+          className="mt-3 inline-flex h-10 items-center gap-1.5 rounded-lg border border-[var(--brand)] bg-[var(--brand)] px-4 text-[13px] font-medium text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)] disabled:opacity-50"
+        >
+          <Download size={14} />
+          {downloading ? 'Preparando arquivo…' : 'Baixar export'}
+        </button>
+
+        {error && <p className="mt-2 text-[12px] text-red-500">{error}</p>}
+        {lastDownloadAt && !error && (
+          <p className="mt-2 text-[12px] text-emerald-500">
+            Arquivo baixado às {lastDownloadAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}.
+          </p>
+        )}
       </div>
     </div>
   )

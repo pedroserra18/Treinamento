@@ -77,6 +77,75 @@ async function deleteVerificationRecord(email: string): Promise<void> {
   localVerificationMap.delete(key);
 }
 
+// Same delivery + storage as registration, but skips the "email already in
+// use" check for the user themselves — that's the only difference between
+// signing up with an email and changing your own account to it. Throws 409
+// if the target email belongs to another user, or 400 if it's the user's
+// own current email (we surface that as "MUST_BE_DIFFERENT" so the client
+// can show a friendlier message than the generic invalid-code error).
+export async function requestEmailChangeCode(
+  currentUserId: string,
+  newEmail: string
+): Promise<RequestRegisterEmailCodeResult> {
+  const me = await prisma.user.findUnique({
+    where: { id: currentUserId },
+    select: { id: true, email: true }
+  });
+
+  if (!me) {
+    throw new AppError("User not found", { statusCode: 404, code: "USER_NOT_FOUND" });
+  }
+
+  if (me.email.toLowerCase() === newEmail.toLowerCase()) {
+    throw new AppError("New email must differ from the current one", {
+      statusCode: 400,
+      code: "EMAIL_MUST_BE_DIFFERENT"
+    });
+  }
+
+  const existing = await prisma.user.findUnique({
+    where: { email: newEmail },
+    select: { id: true }
+  });
+
+  if (existing && existing.id !== currentUserId) {
+    throw new AppError("Email already in use", {
+      statusCode: 409,
+      code: "EMAIL_ALREADY_IN_USE"
+    });
+  }
+
+  const code = generateCode();
+  const expiresAt = Date.now() + env.emailVerificationTtlMin * 60 * 1000;
+
+  await setVerificationRecord(newEmail, {
+    codeHash: hashCode(code),
+    expiresAt,
+    attempts: 0
+  });
+
+  try {
+    await sendEmail({
+      to: newEmail,
+      subject: "Confirme seu novo email",
+      text: `Seu codigo para confirmar a troca de email e ${code}. Valido por ${env.emailVerificationTtlMin} minutos.`,
+      html: `<p>Seu codigo para confirmar a troca de email e <strong>${code}</strong>.</p><p>Valido por ${env.emailVerificationTtlMin} minutos.</p><p>Se voce nao solicitou esta troca, ignore este email.</p>`
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Failed to deliver verification email. Check Resend API key and sender.";
+
+    throw new AppError(message, {
+      statusCode: 502,
+      code: "EMAIL_DELIVERY_FAILED"
+    });
+  }
+
+  return { delivery: "EMAIL" };
+}
+
 export async function requestRegisterEmailCode(email: string): Promise<RequestRegisterEmailCodeResult> {
   const existing = await prisma.user.findUnique({
     where: { email },

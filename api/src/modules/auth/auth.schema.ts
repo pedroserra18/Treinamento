@@ -51,6 +51,27 @@ export const deleteProfileBodySchema = z
   .object({ confirmHandle: handleField })
   .strict();
 
+// PATCH /auth/profile/name — display name, min 2 / max 120 (same shape as
+// registration). No verification; the field is purely cosmetic.
+export const updateNameBodySchema = z
+  .object({ name: z.string().trim().min(2).max(120) })
+  .strict();
+
+// POST /auth/profile/email/request-code — kicks off email change. Code goes
+// to the NEW email so we prove ownership before swapping.
+export const requestEmailChangeBodySchema = z
+  .object({ email: z.string().trim().toLowerCase().email() })
+  .strict();
+
+// POST /auth/profile/email/confirm — verifies the code emitted above and
+// commits the new email to the user row.
+export const confirmEmailChangeBodySchema = z
+  .object({
+    email: z.string().trim().toLowerCase().email(),
+    verificationCode: z.string().trim().regex(/^\d{6}$/)
+  })
+  .strict();
+
 export const forgotPasswordRequestCodeBodySchema = z
   .object({
     email: z.string().trim().toLowerCase().email()
@@ -104,6 +125,9 @@ export type RegisterRequestCodeBody = z.infer<typeof registerRequestCodeBodySche
 export type RegisterVerifyCodeBody = z.infer<typeof registerVerifyCodeBodySchema>;
 export type UpdateHandleBody = z.infer<typeof updateHandleBodySchema>;
 export type DeleteProfileBody = z.infer<typeof deleteProfileBodySchema>;
+export type UpdateNameBody = z.infer<typeof updateNameBodySchema>;
+export type RequestEmailChangeBody = z.infer<typeof requestEmailChangeBodySchema>;
+export type ConfirmEmailChangeBody = z.infer<typeof confirmEmailChangeBodySchema>;
 export type ForgotPasswordRequestCodeBody = z.infer<typeof forgotPasswordRequestCodeBodySchema>;
 export type ForgotPasswordConfirmBody = z.infer<typeof forgotPasswordConfirmBodySchema>;
 export type LoginBody = z.infer<typeof loginBodySchema>;

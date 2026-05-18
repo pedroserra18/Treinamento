@@ -18,6 +18,11 @@ export type AuthState = {
     verificationCode: string
   }) => Promise<void>
   updateHandle: (handle: string) => Promise<void>
+  // Profile updates that also refresh the cached AuthUser. These exist on
+  // the context (instead of being called from the page directly) so name
+  // and email stay in sync everywhere — feed posts, comments, etc.
+  updateName: (name: string) => Promise<void>
+  updateEmail: (newEmail: string, verificationCode: string) => Promise<void>
   startGoogleSignIn: () => Promise<void>
   completeGoogleSignIn: (code: string, state: string) => Promise<void>
   completeOnboarding: (input: {

@@ -293,6 +293,86 @@ export async function deleteAccount(
   throw new Error(extractApiErrorMessage(payload) ?? 'Erro ao excluir conta')
 }
 
+// PATCH /auth/profile/name — returns the refreshed AuthUser so the caller
+// can update its local cache without a full refetch.
+export async function updateUserName(
+  authorizedFetch: (input: string, init?: RequestInit) => Promise<Response>,
+  newName: string,
+): Promise<AuthUser> {
+  const response = await authorizedFetch(`${API_URL}/auth/profile/name`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: newName }),
+  })
+
+  const payload = (await response.json().catch(() => null)) as
+    | { data?: { user?: Record<string, unknown> }; error?: ApiErrorPayload }
+    | null
+
+  if (!response.ok || !payload?.data?.user) {
+    throw new Error(extractApiErrorMessage(payload) ?? 'Erro ao salvar nome')
+  }
+
+  return asAuthUser(payload.data.user)
+}
+
+// POST /auth/profile/email/request-code — sends a 6-digit code to the NEW
+// email so the user proves they own it before we swap.
+export async function requestEmailChangeCode(
+  authorizedFetch: (input: string, init?: RequestInit) => Promise<Response>,
+  newEmail: string,
+): Promise<void> {
+  const response = await authorizedFetch(`${API_URL}/auth/profile/email/request-code`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: newEmail }),
+  })
+
+  if (response.ok) return
+
+  const payload = (await response.json().catch(() => null)) as { error?: ApiErrorPayload } | null
+  throw new Error(extractApiErrorMessage(payload) ?? 'Erro ao enviar código de verificação')
+}
+
+// POST /auth/profile/email/confirm — verifies the code emitted above and
+// returns the AuthUser with the new email applied.
+export async function confirmEmailChange(
+  authorizedFetch: (input: string, init?: RequestInit) => Promise<Response>,
+  newEmail: string,
+  verificationCode: string,
+): Promise<AuthUser> {
+  const response = await authorizedFetch(`${API_URL}/auth/profile/email/confirm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: newEmail, verificationCode }),
+  })
+
+  const payload = (await response.json().catch(() => null)) as
+    | { data?: { user?: Record<string, unknown> }; error?: ApiErrorPayload }
+    | null
+
+  if (!response.ok || !payload?.data?.user) {
+    throw new Error(extractApiErrorMessage(payload) ?? 'Erro ao confirmar troca de email')
+  }
+
+  return asAuthUser(payload.data.user)
+}
+
+// GET /auth/profile/export — returns the data archive as a Blob so the UI
+// can drive a browser-side download without re-parsing the JSON.
+export async function exportUserData(
+  authorizedFetch: (input: string, init?: RequestInit) => Promise<Response>,
+): Promise<Blob> {
+  const response = await authorizedFetch(`${API_URL}/auth/profile/export`)
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { error?: ApiErrorPayload } | null
+    throw new Error(extractApiErrorMessage(payload) ?? 'Erro ao exportar dados')
+  }
+
+  return response.blob()
+}
+
 export async function getGoogleAuthorizationUrl(): Promise<string> {
   const response = await fetch(`${API_URL}/auth/google/start`)
   const payload = (await response.json()) as {

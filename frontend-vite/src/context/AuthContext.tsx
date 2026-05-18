@@ -4,6 +4,7 @@ import type { AuthTokens, AuthUser } from '../types/auth'
 import { AuthContext, type AuthState } from './auth-context'
 import {
   completeOnboardingProfile,
+  confirmEmailChange,
   deleteAccount as deleteAccountRequest,
   getGoogleAuthorizationUrl,
   getProfile,
@@ -13,6 +14,7 @@ import {
   registerWithVerificationCode,
   requestRegisterVerificationCode,
   secureLogout,
+  updateUserName,
 } from '../services/authService'
 import { updateHandle as updateHandleRequest } from '../services/socialService'
 
@@ -225,6 +227,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })
   }, [authorizedFetch])
 
+  const updateName: AuthState['updateName'] = useCallback(async (newName) => {
+    const updated = await updateUserName(authorizedFetch as never, newName)
+    setUser((prev) => {
+      if (!prev) return prev
+      // The server already returned the full AuthUser — merge the new name
+      // (and anything else it might have refreshed) into the cached row.
+      const next = { ...prev, ...updated }
+      const currentTokens = tokensRef.current
+      if (currentTokens) persistAuth(next, currentTokens)
+      return next
+    })
+  }, [authorizedFetch])
+
+  const updateEmail: AuthState['updateEmail'] = useCallback(async (newEmail, verificationCode) => {
+    // 2-step flow: this is the confirmation. requestEmailChangeCode is called
+    // from the Settings page directly because it doesn't mutate user state.
+    const updated = await confirmEmailChange(authorizedFetch as never, newEmail, verificationCode)
+    setUser((prev) => {
+      if (!prev) return prev
+      const next = { ...prev, ...updated }
+      const currentTokens = tokensRef.current
+      if (currentTokens) persistAuth(next, currentTokens)
+      return next
+    })
+  }, [authorizedFetch])
+
   const deleteAccount: AuthState['deleteAccount'] = useCallback(async (confirmHandle) => {
     // We let server errors propagate so the Settings page can surface the
     // specific failure ("handle confirmation does not match", network, …)
@@ -247,6 +275,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       requestSignUpVerificationCode,
       signUp,
       updateHandle,
+      updateName,
+      updateEmail,
       startGoogleSignIn,
       completeGoogleSignIn,
       completeOnboarding,
@@ -264,6 +294,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       requestSignUpVerificationCode,
       signUp,
       updateHandle,
+      updateName,
+      updateEmail,
       startGoogleSignIn,
       completeGoogleSignIn,
       completeOnboarding,

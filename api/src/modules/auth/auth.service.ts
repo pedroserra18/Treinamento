@@ -7,6 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { AppError } from "../../shared/errors/app-error";
 import { LoginBody, OnboardingCompleteBody, RefreshBody, RegisterBody } from "./auth.schema";
 import { generateUniqueHandle } from "../../shared/utils/handle";
+import { verifyRegisterEmailCode } from "./registration-verification.service";
 
 type AccessTokenPayload = {
   sub: string;
@@ -571,6 +572,134 @@ export async function updateHandle(userId: string, newHandle: string): Promise<S
     },
   });
   return toSafeUser(updated);
+}
+
+// PATCH /auth/profile/name — display name only. No uniqueness check (handle
+// is the unique identifier), just length validation done by the zod schema.
+export async function updateName(userId: string, newName: string): Promise<SafeUser> {
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: { name: newName },
+    select: {
+      id: true, name: true, handle: true, email: true, role: true,
+      sex: true, availableDaysPerWeek: true, onboardingCompletedAt: true,
+      isPrivate: true, showFollowLists: true, avatarUrl: true,
+    },
+  });
+  return toSafeUser(updated);
+}
+
+// POST /auth/profile/email/confirm — runs the same verification primitive
+// used at signup (verifyRegisterEmailCode), then atomically swaps the user's
+// email. The code was emitted by requestEmailChangeCode, which already
+// validated that the new email is free and different from the current one.
+export async function confirmEmailChange(
+  userId: string,
+  newEmail: string,
+  verificationCode: string
+): Promise<SafeUser> {
+  await verifyRegisterEmailCode(newEmail, verificationCode);
+
+  // Re-check uniqueness right before committing — another user could have
+  // signed up with the same email between the code request and confirmation.
+  const taken = await prisma.user.findUnique({
+    where: { email: newEmail },
+    select: { id: true },
+  });
+  if (taken && taken.id !== userId) {
+    throw new AppError("Email already in use", {
+      statusCode: 409,
+      code: "EMAIL_ALREADY_IN_USE",
+    });
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: { email: newEmail },
+    select: {
+      id: true, name: true, handle: true, email: true, role: true,
+      sex: true, availableDaysPerWeek: true, onboardingCompletedAt: true,
+      isPrivate: true, showFollowLists: true, avatarUrl: true,
+    },
+  });
+  return toSafeUser(updated);
+}
+
+// GET /auth/profile/export — gathers everything we have on this user and
+// returns a single JSON blob the client can download. We deliberately leave
+// out password hashes, refresh tokens and OAuth secrets — anything that
+// would let someone replay the account if the file leaks.
+export async function exportUserData(userId: string) {
+  const [
+    user, onboardingProfile, pinnedExercises, bodyMeasurements, workoutPlans,
+    workoutSessions, workoutHistory, posts, comments, follows, followers,
+  ] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true, name: true, handle: true, email: true, role: true,
+        sex: true, availableDaysPerWeek: true, isPrivate: true, showFollowLists: true,
+        avatarUrl: true, onboardingCompletedAt: true, createdAt: true, updatedAt: true,
+      },
+    }),
+    prisma.onboardingProfile.findUnique({ where: { userId } }).catch(() => null),
+    prisma.pinnedExercise.findMany({
+      where: { userId },
+      include: { exercise: { select: { id: true, name: true, primaryMuscleGroup: true } } },
+    }),
+    prisma.bodyMeasurement.findMany({ where: { userId }, orderBy: { date: "asc" } }),
+    prisma.workoutPlan.findMany({
+      where: { userId },
+      include: {
+        exercises: { include: { exercise: { select: { id: true, name: true, primaryMuscleGroup: true } } } },
+      },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.workoutSession.findMany({
+      where: { userId },
+      orderBy: { scheduledAt: "asc" },
+      include: { workoutPlan: { select: { id: true, name: true } } },
+    }),
+    prisma.workoutHistory.findMany({
+      where: { userId },
+      orderBy: { completedAt: "asc" },
+      include: { exercise: { select: { id: true, name: true, primaryMuscleGroup: true } } },
+    }),
+    prisma.workoutPost.findMany({
+      where: { userId },
+      orderBy: { createdAt: "asc" },
+      include: { workoutSession: { select: { id: true } } },
+    }),
+    prisma.postComment.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
+    prisma.follow.findMany({
+      where: { followerId: userId },
+      include: { following: { select: { id: true, name: true, handle: true } } },
+    }),
+    prisma.follow.findMany({
+      where: { followingId: userId },
+      include: { follower: { select: { id: true, name: true, handle: true } } },
+    }),
+  ]);
+
+  if (!user) {
+    throw new AppError("User not found", { statusCode: 404, code: "USER_NOT_FOUND" });
+  }
+
+  return {
+    exportedAt: new Date().toISOString(),
+    format: "serraathlo-export-v1",
+    user,
+    onboardingProfile,
+    pinnedExercises,
+    bodyMeasurements,
+    workoutPlans,
+    workoutSessions,
+    workoutHistory,
+    posts,
+    comments,
+    following: follows,
+    followers,
+  };
 }
 
 // Hard-deletes the authenticated user and all data that has a Cascade FK

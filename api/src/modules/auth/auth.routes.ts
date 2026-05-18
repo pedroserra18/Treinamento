@@ -7,6 +7,7 @@ import {
   authCodeVerifyLimiter
 } from "../../middlewares/security.middleware";
 import {
+  confirmEmailChangeBodySchema,
   deleteProfileBodySchema,
   forgotPasswordConfirmBodySchema,
   forgotPasswordRequestCodeBodySchema,
@@ -18,10 +19,14 @@ import {
   registerRequestCodeBodySchema,
   registerVerifyCodeBodySchema,
   registerBodySchema,
-  updateHandleBodySchema
+  requestEmailChangeBodySchema,
+  updateHandleBodySchema,
+  updateNameBodySchema
 } from "./auth.schema";
 import {
+  confirmEmailChangeController,
   deleteAccountController,
+  exportUserDataController,
   forgotPasswordConfirmController,
   forgotPasswordRequestCodeController,
   googleCallbackController,
@@ -33,8 +38,10 @@ import {
   onboardingCompleteController,
   onboardingStatusController,
   profileController,
+  requestEmailChangeController,
   updateAvatarController,
   updateHandleController,
+  updateNameController,
   updatePrivacyController,
   registerRequestCodeController,
   registerVerifyCodeController,
@@ -119,11 +126,36 @@ router.patch(
   validateRequest({ body: updateHandleBodySchema }),
   asyncHandler(async (req, res) => updateHandleController(req, res))
 );
+router.patch(
+  "/auth/profile/name",
+  requireAuth,
+  validateRequest({ body: updateNameBodySchema }),
+  asyncHandler(async (req, res) => updateNameController(req, res))
+);
+router.post(
+  "/auth/profile/email/request-code",
+  requireAuth,
+  authCodeRequestLimiter,
+  validateRequest({ body: requestEmailChangeBodySchema }),
+  asyncHandler(async (req, res) => requestEmailChangeController(req, res))
+);
+router.post(
+  "/auth/profile/email/confirm",
+  requireAuth,
+  authCodeVerifyLimiter,
+  validateRequest({ body: confirmEmailChangeBodySchema }),
+  asyncHandler(async (req, res) => confirmEmailChangeController(req, res))
+);
 router.delete(
   "/auth/profile",
   requireAuth,
   validateRequest({ body: deleteProfileBodySchema }),
   asyncHandler(async (req, res) => deleteAccountController(req, res))
+);
+router.get(
+  "/auth/profile/export",
+  requireAuth,
+  asyncHandler(async (req, res) => exportUserDataController(req, res))
 );
 router.get(
   "/auth/onboarding/status",
