@@ -25,6 +25,10 @@ export type AuthState = {
   updateEmail: (newEmail: string, verificationCode: string) => Promise<void>
   startGoogleSignIn: () => Promise<void>
   completeGoogleSignIn: (code: string, state: string) => Promise<void>
+  // Linkagem do Google numa conta JÁ autenticada (settings → conta).
+  // Diferente do signIn: não cria conta, anexa o provider na atual.
+  startGoogleLink: () => Promise<void>
+  completeGoogleLink: (code: string, state: string) => Promise<void>
   completeOnboarding: (input: {
     sex: 'MALE' | 'FEMALE' | 'OTHER'
     availableDaysPerWeek: number

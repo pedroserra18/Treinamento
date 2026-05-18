@@ -387,6 +387,63 @@ export async function getGoogleAuthorizationUrl(): Promise<string> {
   return payload.data.authorizationUrl
 }
 
+// GET /auth/google/link/start — needs auth. Returns the same Google
+// authorization URL flow as login, but tagged with mode="link" + userId so
+// the callback knows to attach the Google identity to the *current* user
+// instead of trying to create a new one.
+export async function getGoogleLinkAuthorizationUrl(
+  authorizedFetch: (input: string, init?: RequestInit) => Promise<Response>,
+): Promise<string> {
+  const response = await authorizedFetch(`${API_URL}/auth/google/link/start`)
+  const payload = (await response.json().catch(() => null)) as
+    | { data?: { authorizationUrl?: string }; error?: ApiErrorPayload }
+    | null
+
+  if (!response.ok || !payload?.data?.authorizationUrl) {
+    throw new Error(extractApiErrorMessage(payload) ?? 'Falha ao iniciar vinculação com Google')
+  }
+
+  return payload.data.authorizationUrl
+}
+
+// POST /auth/google/link — second leg of the link flow. Sends the code we
+// just received from Google back to our API along with the state token, and
+// returns the user (now with the Google provider attached).
+export async function linkGoogleAccount(
+  authorizedFetch: (input: string, init?: RequestInit) => Promise<Response>,
+  code: string,
+  state: string,
+): Promise<AuthSession> {
+  const response = await authorizedFetch(`${API_URL}/auth/google/link`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, state }),
+  })
+
+  const payload = (await response.json().catch(() => null)) as
+    | {
+        data?: {
+          accessToken?: string
+          refreshToken?: string
+          user?: Record<string, unknown>
+        }
+        error?: ApiErrorPayload
+      }
+    | null
+
+  if (!response.ok || !payload?.data?.accessToken || !payload.data?.refreshToken || !payload.data?.user) {
+    throw new Error(extractApiErrorMessage(payload) ?? 'Falha ao vincular conta Google')
+  }
+
+  return {
+    user: asAuthUser(payload.data.user),
+    tokens: {
+      accessToken: payload.data.accessToken,
+      refreshToken: payload.data.refreshToken,
+    },
+  }
+}
+
 export async function loginWithGoogleCode(code: string, state: string): Promise<AuthSession> {
   const params = new URLSearchParams({ code, state })
   const response = await fetch(`${API_URL}/auth/google/callback?${params.toString()}`)

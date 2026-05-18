@@ -7,7 +7,9 @@ import {
   confirmEmailChange,
   deleteAccount as deleteAccountRequest,
   getGoogleAuthorizationUrl,
+  getGoogleLinkAuthorizationUrl,
   getProfile,
+  linkGoogleAccount,
   loginWithEmail,
   loginWithGoogleCode,
   refreshAuthToken,
@@ -206,6 +208,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })
   }, [])
 
+  const startGoogleLink: AuthState['startGoogleLink'] = useCallback(async () => {
+    // /auth/google/link/start requires auth, so we use authorizedFetch (with
+    // the current access token). We tag sessionStorage so the callback page
+    // can tell this is a link flow, not a fresh login.
+    const authorizationUrl = await getGoogleLinkAuthorizationUrl(authorizedFetch as never)
+    sessionStorage.setItem('googleOAuthFlow', 'link')
+    window.location.href = authorizationUrl
+  }, [authorizedFetch])
+
+  const completeGoogleLink: AuthState['completeGoogleLink'] = useCallback(async (code, state) => {
+    // Backend issues a brand-new token pair on link (rotating the refresh
+    // token), so swap both tokens + user atomically and persist immediately.
+    const session = await linkGoogleAccount(authorizedFetch as never, code, state)
+    setUser(session.user)
+    setTokens(session.tokens)
+    persistAuth(session.user, session.tokens)
+  }, [authorizedFetch])
+
   const completeOnboarding: AuthState['completeOnboarding'] = useCallback(async (input) => {
     const profile = await completeOnboardingProfile(authorizedFetch, input)
     const currentTokens = tokensRef.current
@@ -279,6 +299,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       updateEmail,
       startGoogleSignIn,
       completeGoogleSignIn,
+      startGoogleLink,
+      completeGoogleLink,
       completeOnboarding,
       refreshUser,
       applyUserPatch,
@@ -298,6 +320,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       updateEmail,
       startGoogleSignIn,
       completeGoogleSignIn,
+      startGoogleLink,
+      completeGoogleLink,
       completeOnboarding,
       refreshUser,
       applyUserPatch,
