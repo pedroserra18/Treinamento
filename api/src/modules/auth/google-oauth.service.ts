@@ -5,6 +5,8 @@ import { OAuth2Client } from "google-auth-library";
 import { createHash, randomUUID } from "node:crypto";
 import { AppError } from "../../shared/errors/app-error";
 import { deriveHandleBase, generateUniqueHandle } from "../../shared/utils/handle";
+import { trackEvent } from "../../shared/services/event-log.service";
+import { EventContext } from "../../shared/utils/event-context";
 
 const googleClient = new OAuth2Client(env.googleClientId);
 
@@ -213,7 +215,10 @@ export async function buildGoogleAuthorizationUrl(state: string): Promise<string
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
 
-export async function loginWithGoogleCode(code: string): Promise<{ tokens: AuthTokens; user: SafeUser }> {
+export async function loginWithGoogleCode(
+  code: string,
+  context: EventContext = {}
+): Promise<{ tokens: AuthTokens; user: SafeUser }> {
   const { idToken } = await exchangeCodeForTokens(code);
   const google = await verifyGoogleIdentity(idToken);
 
@@ -251,6 +256,16 @@ export async function loginWithGoogleCode(code: string): Promise<{ tokens: AuthT
 
   if (provider?.user && !provider.user.isDeleted && provider.user.status === "ACTIVE") {
     const tokens = await issueTokenPair(provider.user);
+
+    await trackEvent({
+      userId: provider.user.id,
+      category: "AUTH",
+      action: "login_success_google",
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent
+    });
+
     return {
       tokens,
       user: toSafeUser(provider.user)
@@ -280,6 +295,17 @@ export async function loginWithGoogleCode(code: string): Promise<{ tokens: AuthT
         code: "ACCOUNT_NOT_ACTIVE"
       });
     }
+
+    await trackEvent({
+      userId: existingUser.id,
+      category: "SECURITY",
+      severity: "INFO",
+      action: "google_login_email_conflict",
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      metadata: { email: existingUser.email }
+    });
 
     throw new AppError("Email already used by another login method. Link your Google account first.", {
       statusCode: 409,
@@ -330,6 +356,19 @@ export async function loginWithGoogleCode(code: string): Promise<{ tokens: AuthT
   });
 
   const tokens = await issueTokenPair(createdUser);
+
+  await trackEvent({
+    userId: createdUser.id,
+    category: "AUTH",
+    action: "user_registered_google",
+    resourceType: "user",
+    resourceId: createdUser.id,
+    requestId: context.requestId,
+    ipAddress: context.ipAddress,
+    userAgent: context.userAgent,
+    metadata: { handle: createdUser.handle }
+  });
+
   return {
     tokens,
     user: toSafeUser(createdUser)
@@ -338,7 +377,8 @@ export async function loginWithGoogleCode(code: string): Promise<{ tokens: AuthT
 
 export async function linkGoogleToAuthenticatedUser(
   userId: string,
-  code: string
+  code: string,
+  context: EventContext = {}
 ): Promise<{ tokens: AuthTokens; user: SafeUser }> {
   const { idToken } = await exchangeCodeForTokens(code);
   const google = await verifyGoogleIdentity(idToken);
@@ -420,6 +460,17 @@ export async function linkGoogleToAuthenticatedUser(
   });
 
   const tokens = await issueTokenPair(user);
+
+  await trackEvent({
+    userId: user.id,
+    category: "AUTH",
+    action: "google_account_linked",
+    resourceType: "auth_provider",
+    requestId: context.requestId,
+    ipAddress: context.ipAddress,
+    userAgent: context.userAgent
+  });
+
   return {
     tokens,
     user: toSafeUser(user)

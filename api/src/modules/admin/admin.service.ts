@@ -2,6 +2,8 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/prisma";
 import { ListUsersQuery } from "./admin.schema";
 import { AppError } from "../../shared/errors/app-error";
+import { trackEvent } from "../../shared/services/event-log.service";
+import { EventContext } from "../../shared/utils/event-context";
 
 const TEST_EMAIL_SUFFIXES = ["@example.com", "@local.dev"];
 const AUTOMATED_TEST_LOCAL_PART = /^[a-z0-9-]+-\d{10,}(?:-[a-z0-9]{3,8})?$/i;
@@ -103,7 +105,11 @@ export async function listRegisteredUsers(query: ListUsersQuery) {
   };
 }
 
-export async function deactivateUserAccount(targetUserId: string, actorUserId: string) {
+export async function deactivateUserAccount(
+  targetUserId: string,
+  actorUserId: string,
+  context: EventContext = {}
+) {
   if (targetUserId === actorUserId) {
     throw new AppError("Admin cannot deactivate own account", {
       statusCode: 400,
@@ -162,10 +168,27 @@ export async function deactivateUserAccount(targetUserId: string, actorUserId: s
     return user;
   });
 
+  await trackEvent({
+    userId: actorUserId,
+    category: "SECURITY",
+    severity: "WARNING",
+    action: "admin_user_deactivated",
+    resourceType: "user",
+    resourceId: targetUserId,
+    requestId: context.requestId,
+    ipAddress: context.ipAddress,
+    userAgent: context.userAgent,
+    metadata: { targetEmail: existing.email }
+  });
+
   return result;
 }
 
-export async function deleteUserAccount(targetUserId: string, actorUserId: string) {
+export async function deleteUserAccount(
+  targetUserId: string,
+  actorUserId: string,
+  context: EventContext = {}
+) {
   if (targetUserId === actorUserId) {
     throw new AppError("Admin cannot delete own account", {
       statusCode: 400,
@@ -217,6 +240,19 @@ export async function deleteUserAccount(targetUserId: string, actorUserId: strin
     });
 
     return user;
+  });
+
+  await trackEvent({
+    userId: actorUserId,
+    category: "SECURITY",
+    severity: "WARNING",
+    action: "admin_user_deleted",
+    resourceType: "user",
+    resourceId: targetUserId,
+    requestId: context.requestId,
+    ipAddress: context.ipAddress,
+    userAgent: context.userAgent,
+    metadata: { targetEmail: existing.email }
   });
 
   return result;

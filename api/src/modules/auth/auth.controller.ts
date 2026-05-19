@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { logger } from "../../config/logger";
 import { AppError } from "../../shared/errors/app-error";
 import { trackLoginFailure } from "../../middlewares/security.middleware";
+import { eventContextFromRequest } from "../../shared/utils/event-context";
 import { consumeOAuthState, createOAuthState } from "./oauth-state.service";
 import { RegisterRequestCodeBody, RegisterVerifyCodeBody } from "./auth.schema";
 import { requestRegisterEmailCode, verifyRegisterEmailCode } from "./registration-verification.service";
@@ -59,7 +60,7 @@ function maskEmail(email: string): string {
 
 export async function registerController(req: Request, res: Response): Promise<void> {
   const body = req.body as RegisterBody;
-  const result = await registerWithEmail(body);
+  const result = await registerWithEmail(body, eventContextFromRequest(req));
 
   res.status(201).json({
     data: {
@@ -101,7 +102,7 @@ export async function registerVerifyCodeController(req: Request, res: Response):
     handle: body.handle,
     email: body.email,
     password: body.password
-  });
+  }, eventContextFromRequest(req));
 
   res.status(201).json({
     data: {
@@ -119,7 +120,7 @@ export async function registerVerifyCodeController(req: Request, res: Response):
 export async function forgotPasswordRequestCodeController(req: Request, res: Response): Promise<void> {
   const body = req.body as ForgotPasswordRequestCodeBody;
 
-  await requestForgotPasswordCode(body.email);
+  await requestForgotPasswordCode(body.email, eventContextFromRequest(req));
 
   res.status(200).json({
     data: {
@@ -135,7 +136,7 @@ export async function forgotPasswordRequestCodeController(req: Request, res: Res
 export async function forgotPasswordConfirmController(req: Request, res: Response): Promise<void> {
   const body = req.body as ForgotPasswordConfirmBody;
 
-  await confirmForgotPasswordWithCode(body.email, body.verificationCode, body.newPassword);
+  await confirmForgotPasswordWithCode(body.email, body.verificationCode, body.newPassword, eventContextFromRequest(req));
 
   res.status(200).json({
     data: {
@@ -152,7 +153,7 @@ export async function loginController(req: Request, res: Response): Promise<void
   const body = req.body as LoginBody;
 
   try {
-    const result = await loginWithEmail(body);
+    const result = await loginWithEmail(body, eventContextFromRequest(req));
 
     logger.info("auth_login_success", {
       requestId: req.context.requestId,
@@ -201,7 +202,7 @@ export async function refreshController(req: Request, res: Response): Promise<vo
 }
 
 export async function logoutController(req: Request, res: Response): Promise<void> {
-  await logoutSession(req.context.userId as string);
+  await logoutSession(req.context.userId as string, eventContextFromRequest(req));
 
   res.status(200).json({
     data: {
@@ -239,7 +240,7 @@ export async function googleCallbackController(req: Request, res: Response): Pro
     });
   }
 
-  const result = await loginWithGoogleCode(query.code);
+  const result = await loginWithGoogleCode(query.code, eventContextFromRequest(req));
 
   logger.info("auth_login_success", {
     requestId: req.context.requestId,
@@ -291,7 +292,7 @@ export async function googleLinkController(req: Request, res: Response): Promise
     });
   }
 
-  const result = await linkGoogleToAuthenticatedUser(userId, body.code);
+  const result = await linkGoogleToAuthenticatedUser(userId, body.code, eventContextFromRequest(req));
   res.status(200).json({
     data: {
       token: result.tokens.token,
@@ -367,14 +368,14 @@ export async function requestEmailChangeController(req: Request, res: Response):
 export async function confirmEmailChangeController(req: Request, res: Response): Promise<void> {
   const userId = req.context.userId as string;
   const { email, verificationCode } = req.body as ConfirmEmailChangeBody;
-  const user = await confirmEmailChange(userId, email, verificationCode);
+  const user = await confirmEmailChange(userId, email, verificationCode, eventContextFromRequest(req));
   res.json({ data: { user }, meta: { requestId: req.context.requestId } });
 }
 
 export async function deleteAccountController(req: Request, res: Response): Promise<void> {
   const userId = req.context.userId as string;
   const { confirmHandle } = req.body as DeleteProfileBody;
-  await deleteAccount(userId, confirmHandle);
+  await deleteAccount(userId, confirmHandle, eventContextFromRequest(req));
   // 204 No Content — there's no resource to return, and the client should
   // immediately wipe local auth state and bounce to the login screen.
   res.status(204).end();

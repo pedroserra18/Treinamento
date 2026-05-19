@@ -6,6 +6,8 @@ import { redisClient } from "../../config/redis";
 import { createHash, randomInt } from "node:crypto";
 import { AppError } from "../../shared/errors/app-error";
 import { sendEmail } from "../../shared/services/email.service";
+import { trackEvent } from "../../shared/services/event-log.service";
+import { EventContext } from "../../shared/utils/event-context";
 
 type RecoveryRecord = {
   codeHash: string;
@@ -75,7 +77,7 @@ async function deleteRecoveryRecord(email: string): Promise<void> {
   localRecoveryMap.delete(key);
 }
 
-export async function requestForgotPasswordCode(email: string): Promise<void> {
+export async function requestForgotPasswordCode(email: string, context: EventContext = {}): Promise<void> {
   const user = await prisma.user.findUnique({
     where: { email },
     select: { id: true, email: true, status: true, isDeleted: true, passwordHash: true }
@@ -83,8 +85,26 @@ export async function requestForgotPasswordCode(email: string): Promise<void> {
 
   // Keep the response identical to avoid account enumeration.
   if (!user || user.isDeleted || user.status !== "ACTIVE" || !user.passwordHash) {
+    await trackEvent({
+      category: "SECURITY",
+      severity: "INFO",
+      action: "password_recovery_requested_unknown_email",
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      metadata: { email }
+    });
     return;
   }
+
+  await trackEvent({
+    userId: user.id,
+    category: "AUTH",
+    action: "password_recovery_requested",
+    requestId: context.requestId,
+    ipAddress: context.ipAddress,
+    userAgent: context.userAgent
+  });
 
   const code = generateCode();
   const expiresAt = Date.now() + env.emailVerificationTtlMin * 60 * 1000;
@@ -118,7 +138,8 @@ export async function requestForgotPasswordCode(email: string): Promise<void> {
 export async function confirmForgotPasswordWithCode(
   email: string,
   code: string,
-  newPassword: string
+  newPassword: string,
+  context: EventContext = {}
 ): Promise<void> {
   const record = await getRecoveryRecord(email);
 
@@ -176,6 +197,18 @@ export async function confirmForgotPasswordWithCode(
     }
   });
 
-  await logoutSession(user.id);
+  await logoutSession(user.id, context);
   await deleteRecoveryRecord(email);
+
+  await trackEvent({
+    userId: user.id,
+    category: "AUTH",
+    severity: "WARNING",
+    action: "password_recovery_confirmed",
+    resourceType: "user",
+    resourceId: user.id,
+    requestId: context.requestId,
+    ipAddress: context.ipAddress,
+    userAgent: context.userAgent
+  });
 }

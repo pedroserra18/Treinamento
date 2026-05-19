@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { DeactivateUserParams, DeleteUserParams, ListUsersQuery } from "./admin.schema";
 import { deactivateUserAccount, deleteUserAccount, listRegisteredUsers } from "./admin.service";
+import { eventContextFromRequest } from "../../shared/utils/event-context";
 
 export async function listUsersController(req: Request, res: Response): Promise<void> {
   const query = req.query as unknown as ListUsersQuery;
@@ -18,7 +19,7 @@ export async function deactivateUserController(req: Request, res: Response): Pro
   const params = req.params as unknown as DeactivateUserParams;
   const actorUserId = req.context.userId as string;
 
-  const user = await deactivateUserAccount(params.userId, actorUserId);
+  const user = await deactivateUserAccount(params.userId, actorUserId, eventContextFromRequest(req));
 
   res.status(200).json({
     data: {
@@ -34,7 +35,7 @@ export async function deleteUserController(req: Request, res: Response): Promise
   const params = req.params as unknown as DeleteUserParams;
   const actorUserId = req.context.userId as string;
 
-  const user = await deleteUserAccount(params.userId, actorUserId);
+  const user = await deleteUserAccount(params.userId, actorUserId, eventContextFromRequest(req));
 
   res.status(200).json({
     data: {

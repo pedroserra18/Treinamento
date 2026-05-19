@@ -44,17 +44,7 @@ import {
   WorkoutPlanParams
 } from "./workout.schema";
 
-function eventContextFromRequest(req: Request): {
-  requestId: string;
-  ipAddress: string;
-  userAgent?: string;
-} {
-  return {
-    requestId: req.context.requestId,
-    ipAddress: req.ip ?? "unknown",
-    userAgent: req.header("user-agent") ?? undefined
-  };
-}
+import { eventContextFromRequest } from "../../shared/utils/event-context";
 
 export async function getWorkoutRecommendationsController(
   req: Request,

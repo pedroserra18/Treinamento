@@ -8,6 +8,8 @@ import { AppError } from "../../shared/errors/app-error";
 import { LoginBody, OnboardingCompleteBody, RefreshBody, RegisterBody } from "./auth.schema";
 import { generateUniqueHandle } from "../../shared/utils/handle";
 import { verifyRegisterEmailCode } from "./registration-verification.service";
+import { trackEvent } from "../../shared/services/event-log.service";
+import { EventContext } from "../../shared/utils/event-context";
 
 type AccessTokenPayload = {
   sub: string;
@@ -224,7 +226,7 @@ function toSafeUser(user: {
   };
 }
 
-export async function registerWithEmail(data: RegisterBody): Promise<AuthResult> {
+export async function registerWithEmail(data: RegisterBody, context: EventContext = {}): Promise<AuthResult> {
   const existing = await prisma.user.findUnique({
     where: { email: data.email },
     select: { id: true }
@@ -272,15 +274,36 @@ export async function registerWithEmail(data: RegisterBody): Promise<AuthResult>
     email: user.email
   });
 
+  await trackEvent({
+    userId: user.id,
+    category: "AUTH",
+    action: "user_registered",
+    resourceType: "user",
+    resourceId: user.id,
+    requestId: context.requestId,
+    ipAddress: context.ipAddress,
+    userAgent: context.userAgent,
+    metadata: { handle: user.handle }
+  });
+
   return {
     tokens,
     user: toSafeUser(user)
   };
 }
 
-export async function loginWithEmail(data: LoginBody): Promise<AuthResult> {
+export async function loginWithEmail(data: LoginBody, context: EventContext = {}): Promise<AuthResult> {
   const currentLock = await getLock(data.email);
   if (currentLock && currentLock > Date.now()) {
+    await trackEvent({
+      category: "SECURITY",
+      severity: "WARNING",
+      action: "login_blocked_locked",
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      metadata: { email: data.email, retryAfterMs: currentLock - Date.now() }
+    });
     throw new AppError("Account temporarily locked due to repeated failed attempts", {
       statusCode: 423,
       code: "ACCOUNT_LOCKED",
@@ -332,6 +355,17 @@ export async function loginWithEmail(data: LoginBody): Promise<AuthResult> {
       await setLock(data.email, lockMinutes);
     }
 
+    await trackEvent({
+      userId: user.id,
+      category: "SECURITY",
+      severity: lockMinutes > 0 ? "WARNING" : "INFO",
+      action: "login_failed",
+      requestId: context.requestId,
+      ipAddress: context.ipAddress,
+      userAgent: context.userAgent,
+      metadata: { email: data.email, failedAttempts, lockMinutes }
+    });
+
     throw new AppError("Invalid credentials", {
       statusCode: 401,
       code: "INVALID_CREDENTIALS"
@@ -346,6 +380,15 @@ export async function loginWithEmail(data: LoginBody): Promise<AuthResult> {
     }
   });
   await clearLock(data.email);
+
+  await trackEvent({
+    userId: user.id,
+    category: "AUTH",
+    action: "login_success",
+    requestId: context.requestId,
+    ipAddress: context.ipAddress,
+    userAgent: context.userAgent
+  });
 
   const tokens = await issueTokenPair({
     id: user.id,
@@ -433,8 +476,8 @@ export async function refreshSession(data: RefreshBody): Promise<AuthTokens> {
   return tokens;
 }
 
-export async function logoutSession(userId: string): Promise<void> {
-  await prisma.authProvider.updateMany({
+export async function logoutSession(userId: string, context: EventContext = {}): Promise<void> {
+  const result = await prisma.authProvider.updateMany({
     where: {
       userId,
       provider: "EMAIL_PASSWORD",
@@ -447,6 +490,16 @@ export async function logoutSession(userId: string): Promise<void> {
       tokenExpiresAt: null,
       lastUsedAt: new Date()
     }
+  });
+
+  await trackEvent({
+    userId,
+    category: "AUTH",
+    action: "logout",
+    requestId: context.requestId,
+    ipAddress: context.ipAddress,
+    userAgent: context.userAgent,
+    metadata: { revokedSessions: result.count }
   });
 }
 
@@ -596,7 +649,8 @@ export async function updateName(userId: string, newName: string): Promise<SafeU
 export async function confirmEmailChange(
   userId: string,
   newEmail: string,
-  verificationCode: string
+  verificationCode: string,
+  context: EventContext = {}
 ): Promise<SafeUser> {
   await verifyRegisterEmailCode(newEmail, verificationCode);
 
@@ -622,6 +676,25 @@ export async function confirmEmailChange(
       isPrivate: true, showFollowLists: true, avatarUrl: true,
     },
   });
+
+  // Mudança de email é evento sensível — revoga refresh tokens existentes
+  // para que sessões antigas não consigam emitir novos access tokens em nome
+  // do usuário com o email novo. O cliente atual precisa logar novamente.
+  await logoutSession(userId, context);
+
+  await trackEvent({
+    userId,
+    category: "AUTH",
+    severity: "WARNING",
+    action: "email_changed",
+    resourceType: "user",
+    resourceId: userId,
+    requestId: context.requestId,
+    ipAddress: context.ipAddress,
+    userAgent: context.userAgent,
+    metadata: { newEmail }
+  });
+
   return toSafeUser(updated);
 }
 
@@ -712,7 +785,11 @@ export async function exportUserData(userId: string) {
 // stay intact with a null user reference, which is the desired behaviour:
 // audit history survives and shared exercises don't disappear from other
 // users' catalogues.
-export async function deleteAccount(userId: string, confirmHandle: string): Promise<void> {
+export async function deleteAccount(
+  userId: string,
+  confirmHandle: string,
+  context: EventContext = {}
+): Promise<void> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { handle: true },
@@ -728,6 +805,22 @@ export async function deleteAccount(userId: string, confirmHandle: string): Prom
       code: "HANDLE_CONFIRMATION_MISMATCH",
     });
   }
+
+  // Loga ANTES de deletar — depois do delete, o userId desaparece, mas a entry
+  // do EventLog continua (FK é SetNull, não Cascade). Isto preserva o trail
+  // forense de quem apagou a conta.
+  await trackEvent({
+    userId,
+    category: "AUTH",
+    severity: "WARNING",
+    action: "account_deleted_self",
+    resourceType: "user",
+    resourceId: userId,
+    requestId: context.requestId,
+    ipAddress: context.ipAddress,
+    userAgent: context.userAgent,
+    metadata: { handle: user.handle }
+  });
 
   await prisma.user.delete({ where: { id: userId } });
 }

@@ -35,11 +35,7 @@ const DIVISION_BY_DAYS: Record<number, string[]> = {
   7: ["Push Pull Legs 2x", "Bro Split"]
 };
 
-type EventContext = {
-  requestId?: string;
-  ipAddress?: string;
-  userAgent?: string;
-};
+import { EventContext } from "../../shared/utils/event-context";
 
 type TemplateOption = {
   key: string;
