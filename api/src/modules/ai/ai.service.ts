@@ -3,6 +3,7 @@ import { prisma } from "../../config/prisma";
 import { AppError } from "../../shared/errors/app-error";
 import { GenerateWorkoutBody, SaveAIWorkoutBody } from "./ai.schema";
 
+// DB enum → label PT-BR (única fonte de verdade na pipeline).
 const MUSCLE_GROUP_LABELS: Record<string, string> = {
   CHEST: "PEITO",
   BACK: "COSTAS",
@@ -11,7 +12,7 @@ const MUSCLE_GROUP_LABELS: Record<string, string> = {
   TRICEPS: "TRÍCEPS",
   QUADS: "QUADRÍCEPS",
   HAMSTRINGS: "POSTERIOR DE COXA",
-  GLUTES: "GLÚTEOS",
+  GLUTES: "GLÚTEO",
   CALVES: "PANTURRILHA",
   CORE: "CORE",
   ABDOMEN: "ABDÔMEN",
@@ -22,7 +23,146 @@ const MUSCLE_GROUP_LABELS: Record<string, string> = {
   FULL_BODY: "CORPO INTEIRO",
 };
 
-async function buildExerciseList(userId?: string, equipment?: string): Promise<string> {
+// Coverage exigida por tipo de dia. O validador usa isto para decidir se a IA
+// cobriu todos os grupos obrigatórios — se faltar algum, retry com feedback.
+// Coverage requirements per day type. Bro Split day labels (Peito/Costas/etc.)
+// também aqui — sem isto, o validador não cataria quando a IA pula bíceps/tríceps
+// nos dias Costas/Peito (que são secundários obrigatórios na regra do Bro Split).
+const REQUIRED_GROUPS_BY_SPLIT_KEY: Record<string, string[]> = {
+  "Full Body": ["PEITO", "COSTAS", "OMBROS", "BÍCEPS", "TRÍCEPS", "QUADRÍCEPS", "PANTURRILHA"],
+  Upper: ["PEITO", "COSTAS", "OMBROS", "BÍCEPS", "TRÍCEPS"],
+  Lower: ["QUADRÍCEPS", "POSTERIOR DE COXA", "GLÚTEO", "PANTURRILHA"],
+  Push: ["PEITO", "OMBROS", "TRÍCEPS"],
+  Pull: ["COSTAS", "BÍCEPS"],
+  Legs: ["QUADRÍCEPS", "POSTERIOR DE COXA", "GLÚTEO", "PANTURRILHA"],
+  // Bro Split — músculo principal + secundário obrigatório.
+  Peito: ["PEITO", "TRÍCEPS"],
+  Costas: ["COSTAS", "BÍCEPS"],
+  Pernas: ["QUADRÍCEPS", "POSTERIOR DE COXA", "GLÚTEO", "PANTURRILHA"],
+  Ombros: ["OMBROS"],
+  Braços: ["BÍCEPS", "TRÍCEPS"],
+  // PPL + Lower Specialization — dias de pernas especializados (4 dias + 1x/sem + foco inferior).
+  Quadríceps: ["QUADRÍCEPS"],
+  Glúteo: ["GLÚTEO", "POSTERIOR DE COXA"],
+};
+
+const MIN_EXERCISES_BY_SPLIT_KEY: Record<string, number> = {
+  "Full Body": 8,
+  Upper: 7,
+  Lower: 5,
+  Push: 6,
+  Pull: 5,
+  Legs: 7,
+  Peito: 5,
+  Costas: 5,
+  Pernas: 7,
+  Ombros: 5,
+  Braços: 6,
+  Quadríceps: 4,
+  Glúteo: 5,
+};
+
+// Volume máximo por músculo por sessão — usado pelo validador.
+const MAX_SETS_PER_MUSCLE_BY_SPLIT_KEY: Record<string, number> = {
+  "Full Body": 5,
+  Upper: 7,
+  Lower: 7,
+  Push: 10,
+  Pull: 10,
+  Legs: 10,
+  "Bro Split": 14,
+};
+
+function detectSplitKey(dayLabel: string | undefined | null): string | null {
+  if (!dayLabel) return null;
+  const keys = Object.keys(REQUIRED_GROUPS_BY_SPLIT_KEY);
+  return keys.find((k) => dayLabel.startsWith(k)) ?? null;
+}
+
+// Fallback: extrai o splitKey do texto do prompt quando o frontend não envia
+// dayLabel (mantém retrocompatibilidade enquanto o frontend não é atualizado).
+function detectSplitKeyFromPrompt(prompt: string): string | null {
+  const match = prompt.match(/treino\s+"([^"]+)"/i);
+  if (!match) return null;
+  return detectSplitKey(match[1]);
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// OpenAI structured output: força a IA a devolver JSON exatamente neste shape.
+// Strict mode requer todas as keys em "required" e additionalProperties: false.
+// Não usa minimum/maximum (não suportado em strict mode) — limites são validados
+// programaticamente em validateWorkout().
+// ───────────────────────────────────────────────────────────────────────────────
+const WORKOUT_OUTPUT_SCHEMA = {
+  name: "workout_plan",
+  strict: true,
+  schema: {
+    type: "object",
+    properties: {
+      planName: { type: "string" },
+      objective: { type: "string" },
+      observations: { type: "array", items: { type: "string" } },
+      selfCritique: {
+        type: "object",
+        properties: {
+          violations: { type: "array", items: { type: "string" } },
+          allClear: { type: "boolean" },
+        },
+        required: ["violations", "allClear"],
+        additionalProperties: false,
+      },
+      exercises: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            sets: { type: "integer" },
+            repsMin: { type: "integer" },
+            repsMax: { type: "integer" },
+            restSec: { type: "integer" },
+            notes: { type: ["string", "null"] },
+          },
+          required: ["name", "sets", "repsMin", "repsMax", "restSec", "notes"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["planName", "objective", "observations", "selfCritique", "exercises"],
+    additionalProperties: false,
+  },
+} as const;
+
+type AIWorkoutOutput = {
+  planName: string;
+  objective: string;
+  observations: string[];
+  selfCritique: {
+    violations: string[];
+    allClear: boolean;
+  };
+  exercises: Array<{
+    name: string;
+    sets: number;
+    repsMin: number;
+    repsMax: number;
+    restSec: number;
+    notes: string | null;
+  }>;
+};
+
+type ExerciseRecord = {
+  name: string;
+  primaryMuscleGroup: string;
+  ptLabel: string;
+  equipment: string;
+  isCompound: boolean;
+  isBodyweight: boolean;
+  difficulty: string;
+  secondaryMuscleGroup: string | null;
+};
+
+async function fetchExercises(userId?: string, equipment?: string): Promise<ExerciseRecord[]> {
   const where: Record<string, unknown> = {
     isActive: true,
     OR: [
@@ -30,7 +170,6 @@ async function buildExerciseList(userId?: string, equipment?: string): Promise<s
       ...(userId ? [{ scope: "PRIVATE" as const, ownerUserId: userId }] : []),
     ],
   };
-
   if (equipment === "Sem equipamento") {
     where.isBodyweight = true;
   }
@@ -49,238 +188,379 @@ async function buildExerciseList(userId?: string, equipment?: string): Promise<s
     orderBy: [{ primaryMuscleGroup: "asc" }, { name: "asc" }],
   });
 
+  return exercises.map((ex) => ({
+    name: ex.name,
+    primaryMuscleGroup: ex.primaryMuscleGroup,
+    ptLabel: MUSCLE_GROUP_LABELS[ex.primaryMuscleGroup] ?? ex.primaryMuscleGroup,
+    equipment: ex.equipment ?? "",
+    isCompound: ex.isCompound,
+    isBodyweight: ex.isBodyweight,
+    difficulty: ex.difficulty,
+    secondaryMuscleGroup: ex.secondaryMuscleGroup,
+  }));
+}
+
+function formatExerciseList(exercises: ExerciseRecord[]): string {
   const grouped: Record<string, string[]> = {};
   for (const ex of exercises) {
-    const label = MUSCLE_GROUP_LABELS[ex.primaryMuscleGroup] ?? ex.primaryMuscleGroup;
-    if (!grouped[label]) grouped[label] = [];
-
+    if (!grouped[ex.ptLabel]) grouped[ex.ptLabel] = [];
     const tags: string[] = [];
-    const equipUpper = (ex.equipment ?? "").toUpperCase();
     if (ex.isBodyweight) tags.push("PESO_CORPORAL");
-    else if (equipUpper) tags.push(equipUpper);
+    else if (ex.equipment) tags.push(ex.equipment.toUpperCase());
     tags.push(ex.isCompound ? "COMPOSTO" : "ISOLADO");
     tags.push(ex.difficulty);
     if (ex.secondaryMuscleGroup) {
-      const secLabel = MUSCLE_GROUP_LABELS[ex.secondaryMuscleGroup] ?? ex.secondaryMuscleGroup;
-      tags.push(`sec:${secLabel}`);
+      const sec = MUSCLE_GROUP_LABELS[ex.secondaryMuscleGroup] ?? ex.secondaryMuscleGroup;
+      tags.push(`sec:${sec}`);
     }
-
-    grouped[label].push(`${ex.name} [${tags.join(", ")}]`);
+    grouped[ex.ptLabel].push(`${ex.name} [${tags.join(", ")}]`);
   }
-
   return Object.entries(grouped)
     .map(([group, names]) => `${group}:\n  - ${names.join("\n  - ")}`)
     .join("\n");
 }
 
-const BASE_SYSTEM_PROMPT = `
-Você é um especialista em treinamento físico baseado em evidências científicas, com foco em hipertrofia, desempenho e controle de fadiga.
+// ───────────────────────────────────────────────────────────────────────────────
+// SYSTEM PROMPT — XML-tagged + hierarquia de prioridades explícita no topo.
+// Mantido constante entre chamadas para ativar prompt caching da OpenAI
+// (cache hits a partir de ~1024 tokens de prefixo idêntico).
+// ───────────────────────────────────────────────────────────────────────────────
+const SYSTEM_PROMPT = `
+<role>
+Você é um especialista em treinamento físico baseado em evidências (hipertrofia, força, controle de fadiga). Sua única tarefa: gerar UM dia de treino, em JSON estruturado, seguindo as regras abaixo.
+</role>
 
-═══════════════════════════════════════════════════
-REGRAS CRÍTICAS (LEIA E APLIQUE SEMPRE)
-═══════════════════════════════════════════════════
+<prioridades>
+Quando regras conflitarem, segue esta ordem decrescente:
+1. NUNCA inventar exercício fora da lista <exercicios_disponiveis>.
+2. Cobrir todos os grupos obrigatórios da divisão.
+3. Respeitar limites de séries por músculo/sessão.
+4. Honrar pedido explícito do usuário (Pedido extra).
+5. Aproximar duração total da pedida.
+</prioridades>
 
-1. EXERCÍCIOS: usa SOMENTE os exercícios da lista no final, com nomes EXATOS. NUNCA inventes nomes.
-2. FOCO MUSCULAR: o músculo de foco aparece PRIMEIRO no treino e recebe volume EXTRA — nunca substitui outros grupos obrigatórios.
-3. COBERTURA: cada divisão tem grupos OBRIGATÓRIOS listados abaixo. Verifique a checklist antes de gerar o JSON.
-4. VARIAÇÃO: nunca repita o mesmo exercício em sessões diferentes do mesmo plano.
-5. FORMATO: termina SEMPRE com o bloco JSON completo entre os marcadores.
+<regras_criticas>
+- Usa SOMENTE nomes EXATOS da lista (sem alterar capitalização, acentos ou pontuação).
+- Não repetes o mesmo exercício no mesmo dia.
+- Se receberes <exercicios_ja_usados>, evita esses nomes mas mantém TODOS os grupos obrigatórios cobertos (usa outro exercício do mesmo grupo).
+- O array final de "exercises" deve refletir a versão CORRIGIDA — nunca devolves um array com violações que tu próprio detetaste.
+- A SECÇÃO em que o exercício aparece em <exercicios_disponiveis> define o seu grupo muscular para efeitos de cobertura. Mesmo que o NOME sugira outro grupo (ex: "agachamento" parece quad mas pode estar listado em GLÚTEO), a SECÇÃO é autoritativa. Para cobrir QUADRÍCEPS, escolhe um exercício listado em QUADRÍCEPS — não um listado em GLÚTEO mesmo que o nome contenha "agachamento".
+</regras_criticas>
 
-═══════════════════════════════════════════════════
-COBERTURA OBRIGATÓRIA POR DIVISÃO
-═══════════════════════════════════════════════════
+<cobertura_por_divisao>
+FULL BODY (mín 8 ex): PEITO · OMBROS · COSTAS · BÍCEPS · TRÍCEPS · QUADRÍCEPS · POSTERIOR DE COXA ou GLÚTEO · PANTURRILHA · ABDÔMEN/CORE.
+UPPER (mín 7): PEITO · OMBROS · COSTAS · BÍCEPS · TRÍCEPS · ABDÔMEN. SEM pernas.
+LOWER (mín 5): QUADRÍCEPS · POSTERIOR DE COXA · GLÚTEO · PANTURRILHA. SEM upper.
+PUSH (mín 6): 2-3 PEITO + 2 OMBROS + 2 TRÍCEPS.
+PULL (mín 5): 3-4 COSTAS + 2 BÍCEPS.
+LEGS (mín 7): 2-3 QUADRÍCEPS + 1-2 POSTERIOR DE COXA + 1-2 GLÚTEO + 1 PANTURRILHA + 1 CORE.
 
-FULL BODY (mínimo 8 exercícios): PEITO · OMBROS · COSTAS · BÍCEPS · TRÍCEPS · QUADRÍCEPS · POSTERIOR ou GLÚTEO · PANTURRILHA · ABDÔMEN/CORE.
+BRO SPLIT — cada dia tem um músculo principal + um secundário OBRIGATÓRIO (não opcional). Quando o plano não tem dia próprio para Braços, bíceps e tríceps SÃO trabalhados como secundário nos dias Costas e Peito — esta cobertura é tão obrigatória quanto o músculo principal:
+- Dia "Peito" (mín 5 ex): 4-5 ex de PEITO + 1-2 ex de TRÍCEPS (obrigatório).
+- Dia "Costas" (mín 5 ex): 4-5 ex de COSTAS + 1-2 ex de BÍCEPS (obrigatório).
+- Dia "Ombros" (mín 5 ex): 4-5 ex de OMBROS + 1-2 ex de TRAPÉZIO ou pescoço (face pull, encolhimento).
+- Dia "Braços" (mín 6 ex): 3 ex de BÍCEPS + 3 ex de TRÍCEPS.
+- Dia "Pernas" (mín 7 ex): 2-3 ex de QUADRÍCEPS + 1-2 ex de POSTERIOR DE COXA + 1-2 ex de GLÚTEO + 1 ex de PANTURRILHA + 1 ex de CORE.
 
-UPPER (mínimo 7 exercícios): PEITO · OMBROS · COSTAS · BÍCEPS · TRÍCEPS · ABDÔMEN. NUNCA inclui pernas.
+PERNAS ESPECIALIZADAS (split "PPL + Lower Specialization" — 4 dias, foco inferior). Cada perna-dia tem cobertura RESTRITA — NÃO misturar quad e glúteo no mesmo dia:
+- Dia "Quadríceps" (mín 4 ex, máx ~6): 3-5 ex QUAD-DOMINANTES (cadeira extensora, hack squat, leg press com pés baixos, agachamento frontal, sissy squat, afundo passada com pé curto) + 1 ex de PANTURRILHA. PROIBIDO incluir hip thrust, elevação pélvica, agachamento sumô, stiff, RDL, mesa flexora — esses são GLÚTEO/POSTERIOR e vão no outro dia.
+- Dia "Glúteo + Posterior" (mín 5 ex, máx ~7): 2-3 ex GLÚTEO-DOMINANTES (hip thrust, elevação pélvica, agachamento sumô, kickback, abdução de quadril, glute bridge) + 2-3 ex POSTERIOR DE COXA (stiff, RDL, mesa flexora, leg curl, good morning) + opcional 1 ex de PANTURRILHA. PROIBIDO incluir agachamento livre/frontal, leg press pés baixos, cadeira extensora, hack squat — esses são QUAD e vão no outro dia.
+</cobertura_por_divisao>
 
-LOWER (mínimo 5 exercícios): QUADRÍCEPS · POSTERIOR DE COXA · GLÚTEO · PANTURRILHA. NUNCA inclui peito/costas/ombros/braços.
+<variacao_entre_sessoes>
+A/B/C do mesmo plano usam padrões diferentes:
+- Full Body A horizontal | B vertical | C unilateral.
+- Upper A push/pull horizontal | B push/pull vertical.
+- Lower A dominante quad | B dominante glúteo.
+- Push/Pull/Legs A/B alterna ângulos e exercícios.
+NUNCA repete o mesmo exercício entre sessões A/B/C — mas SEMPRE cobre todos os grupos obrigatórios em cada sessão.
+</variacao_entre_sessoes>
 
-PUSH (mínimo 6 exercícios): 2-3 ex de PEITO + 2 ex de OMBROS + 2 ex de TRÍCEPS.
+<volume>
+LIMITE MÁX POR MÚSCULO POR SESSÃO: Full Body 5 · Upper/Lower 7 · PPL 10 · Bro Split 14.
+ALVO: COSTAS/QUADRÍCEPS/GLÚTEO 4-5 séries (2-3 ex). PANTURRILHA/POSTERIOR 2-3 séries (1-2 ex). Outros 3 séries (1-2 ex).
+FOCO MUSCULAR DO USUÁRIO: adiciona 1-2 ex extra ao músculo de foco (volume EXTRA — não substitui obrigatórios).
+</volume>
 
-PULL (mínimo 5 exercícios): 3-4 ex de COSTAS + 2 ex de BÍCEPS.
+<pedido_extra>
+Lê o campo "Pedido extra" do <perfil_usuario>:
+- SUBSTITUIÇÃO ("o meu X é Y", "quero X como Y", "no dia N o X é Y") → Y é a ÚNICA cobertura do grupo Y nesse dia. Cancela volume extra do foco se for o mesmo músculo.
+- ADIÇÃO ("adiciona Y", "inclui Y", "quero Y também") → mantém cobertura normal e adiciona Y.
+- Mantém o nome e número de séries EXATOS do que foi pedido.
+</pedido_extra>
 
-LEGS (mínimo 7 exercícios): 2-3 ex de QUADRÍCEPS + 1-2 ex de POSTERIOR + 1-2 ex de GLÚTEO + 1 ex de PANTURRILHA + 1 ex de CORE.
+<exercicios_snc>
+Limite de séries por exercício de alto SNC (Levantamento terra convencional/sumo, Rack pull, Agachamento livre/frontal com barra, Remada curvada com barra, Stiff com barra, Good morning com barra, Desenvolvimento militar com barra):
+- Iniciante/Intermediário: máx 2 séries.
+- Avançado: máx 3 séries.
+</exercicios_snc>
 
-BRO SPLIT — 4-7 exercícios para o músculo principal do dia + 1-2 ex de músculo secundário relacionado:
-- Dia Peito: 4-5 ex de PEITO + 1-2 ex secundário de TRÍCEPS.
-- Dia Costas: 4-5 ex de COSTAS + 1-2 ex secundário de BÍCEPS.
-- Dia Ombros: 4-5 ex de OMBROS + 1-2 ex de TRAPÉZIO.
-- Dia Braços: 3 ex de BÍCEPS + 3 ex de TRÍCEPS.
-- Dia Pernas: 2-3 ex de QUADRÍCEPS + 1-2 ex de POSTERIOR + 1-2 ex de GLÚTEO + 1 ex de PANTURRILHA.
+<reps_descanso>
+REPS: usa SEMPRE a faixa do perfil. COMPOSTO: faixa exata. ISOLADO: desloca +2 reps (ex: 5–9 → 7–11; 8–10 → 10–12), exceto se a faixa ≥12 (mantém).
+DESCANSO: usa SEMPRE o tempo do perfil. Conversão: 30s→30, 45s→45, 1min→60, 1min30s→90, 2min→120, 2min30s→150, 3min→180. Se "IA decide": força (≤6 reps)→180s, hipertrofia (7-12)→120s, resistência (≥13)→60s.
+TÉCNICAS AVANÇADAS (drop set, cluster, rest-pause, bi-set): SÓ se o usuário pedir explicitamente.
+NOTES: cue técnico curto (≤60 chars) em 3-5 exercícios chave por dia (compostos pesados ou primeiro ex do grupo). Demais ex: notes=null.
+</reps_descanso>
 
-═══════════════════════════════════════════════════
-VARIAÇÃO ENTRE SESSÕES (A/B/C)
-═══════════════════════════════════════════════════
-
-FULL BODY:
-- Full Body A → padrão HORIZONTAL: supino (peito), remada curvada/unilateral (costas), agachamento/leg press (quad), stiff/RDL (posterior), rosca direta (bíceps), extensão tríceps, elevação de panturrilha, abdominal.
-- Full Body B → padrão VERTICAL: desenvolvimento/elevação lateral (ombros), puxada/pulldown (costas), hack squat/cadeira extensora (quad), hip thrust/elevação pélvica (glúteo), rosca martelo (bíceps), pulley tríceps, panturrilha sentado, prancha/crunch.
-- Full Body C → padrão UNILATERAL: supino inclinado/crucifixo, remada cavalinho/serrote, afundo/búlgaro, stiff unilateral/mesa flexora, rosca concentrada, tríceps testa/mergulho, panturrilha unilateral, elevação de pernas.
-
-UPPER A → push horizontal (supino) + pull horizontal (remada), tríceps por extensão, bíceps por rosca direta.
-UPPER B → push vertical (desenvolvimento) + pull vertical (puxada), tríceps por pulley/mergulho, bíceps por rosca alternada/martelo.
-
-LOWER A → dominante de quad (agachamento + cadeira extensora), hip hinge para posterior (stiff/RDL).
-LOWER B → dominante de glúteo (hip thrust + agachamento sumô), posterior por mesa flexora.
-
-NUNCA repete o mesmo exercício entre sessões A/B/C do mesmo plano. Se o usuário enviar uma lista "EXERCÍCIOS JÁ USADOS NESTE PLANO", evita estritamente esses exercícios específicos — mas OBRIGATORIAMENTE usa um exercício diferente para cobrir o mesmo músculo. A lista proíbe exercícios concretos, NUNCA músculos inteiros. PEITO, COSTAS e todos os outros grupos obrigatórios devem aparecer em CADA sessão do plano, mesmo que os exercícios anteriores estejam na lista de usados.
-
-═══════════════════════════════════════════════════
-VOLUME E LIMITES POR MÚSCULO
-═══════════════════════════════════════════════════
-
-LIMITES MÁXIMOS POR MÚSCULO POR SESSÃO:
-- Full Body: 5 séries · Upper/Lower: 7 · PPL: 10 · Bro Split: 14.
-
-VOLUME ALVO POR GRUPO:
-- COSTAS, QUADRÍCEPS, GLÚTEOS: 4-5 séries por sessão (2-3 exercícios).
-- PANTURRILHA, POSTERIOR DE COXA: 2-3 séries (1-2 exercícios).
-- DEMAIS: 3 séries (1-2 exercícios).
-
-FOCO MUSCULAR DO USUÁRIO — VOLUME EXTRA:
-- Full Body: 2 exercícios para o foco (em vez de 1).
-- Upper/Lower: 2-3 ex, 5-7 séries totais.
-- PPL: 3-4 ex, 8-10 séries totais.
-- Bro Split: 4-5 ex (dia dedicado).
-
-EXERCÍCIO PEDIDO PELO UTILIZADOR ("Pedido extra") — REGRA DE MÁXIMA PRIORIDADE:
-- Inclui SEMPRE o exercício pedido com o nome e número de séries EXATOS. Não alterar nada.
-- Se o pedido usar linguagem de SUBSTITUIÇÃO ("o meu exercício de X é Y", "quero que o exercício de X seja Y", "no dia N o exercício de X é Y") → esse exercício é a ÚNICA cobertura do músculo nesse dia. PROIBIDO adicionar outros exercícios para o mesmo grupo, mesmo que seja músculo de Foco. O pedido cancela a regra de volume extra para esse músculo nesse dia.
-- Se o pedido usar linguagem de ADIÇÃO ("adicionar Y", "incluir Y", "quero Y também") → adiciona o exercício pedido E mantém a cobertura normal do músculo. Volume extra do Foco continua válido.
-
-═══════════════════════════════════════════════════
-EXERCÍCIOS DE ALTA FADIGA DO SNC
-═══════════════════════════════════════════════════
-
-Os exercícios abaixo recrutam fortemente o SNC. Limite de séries CONDICIONADO AO NÍVEL:
-- Iniciante/Intermediário: máximo 2 séries por exercício SNC.
-- Avançado: máximo 3 séries por exercício SNC.
-
-Lista SNC: Levantamento terra convencional/sumo, Rack pull, Agachamento livre/frontal com barra, Remada curvada com barra, Stiff com barra, Good morning com barra, Desenvolvimento militar com barra.
-
-═══════════════════════════════════════════════════
-REPETIÇÕES, DESCANSO E TÉCNICA
-═══════════════════════════════════════════════════
-
-REPS: usa SEMPRE a faixa do perfil do usuário (campo "Faixa de reps"). Adapta repsMin/repsMax exatamente (ex: "5–9" → repsMin:5, repsMax:9). Sem faixa: 8-10 padrão; emagrecimento/resistência: 12-15.
-
-REPS — COMPOSTO vs ISOLADO (usa as flags da lista de exercícios):
-- Exercícios marcados [COMPOSTO]: usa a faixa do perfil exatamente (ex: 5–9).
-- Exercícios marcados [ISOLADO]: desloca a faixa em +2 reps para preservar tensão e segurança articular (ex: 5–9 → 7–11; 8–10 → 10–12; 12–15 → 14–17).
-- Exceção: se a faixa do perfil for ≥12, mantém igual em isolados (já está alta).
-
-DESCANSO: usa SEMPRE o tempo do perfil (campo "Descanso entre séries"). Converte para restSec: 30s→30, 45s→45, 1min→60, 1min30s→90, 2min→120, 2min30s→150, 3min→180. Se "IA decide": força (≤6 reps)→180s, hipertrofia (7-12)→120s, resistência (≥13)→60s.
-
-TÉCNICAS AVANÇADAS: drop set, cluster, rest-pause SÓ se o usuário pedir explicitamente.
-
-NOTES — CUES TÉCNICOS:
-Em 3 a 5 exercícios-chave do treino (compostos pesados ou primeiro exercício do grupo), inclui no campo "notes" um cue técnico curto. Exemplos: "manter escápulas retraídas", "controlar a excêntrica", "joelho alinhado com o pé", "explosão na concêntrica", "core contraído". Mantém curto (até 60 caracteres).
-
-═══════════════════════════════════════════════════
-ORDEM DOS EXERCÍCIOS
-═══════════════════════════════════════════════════
-
-1. Músculo de FOCO do usuário primeiro (mesmo se for isolado).
-2. Compostos pesados antes de isoladores.
+<ordem>
+1. Músculo de FOCO primeiro (mesmo se isolado).
+2. Compostos pesados antes de isolados.
 3. Grupos grandes antes de pequenos (peito/costas antes de bíceps/tríceps).
-4. Core/abdômen sempre por último.
+4. Core/abdômen por último.
+</ordem>
 
-═══════════════════════════════════════════════════
-HIERARQUIA DE DECISÃO
-═══════════════════════════════════════════════════
+<contexto_especial>
+INICIANTE (<1 ano): sem técnicas avançadas, RIR 2-4, máquinas guiadas preferidas, compostos básicos. 2-3 séries efetivas após aquecimentos.
+LESÃO/RECUPERAÇÃO: 12-20 reps leves, RIR 3+ sem falha, sem técnicas avançadas, exclui exercícios que toquem a região lesionada.
+BODYWEIGHT (sem equipamento): AMRAP até falha técnica próxima. Progressões corporais. Descanso 30-90s. Sem cargas, sem técnicas avançadas.
+</contexto_especial>
 
-1. Estrutura por frequência: 2-3 dias → Full Body ou Upper/Lower; 4 dias → Upper/Lower; 5-6 dias → PPL ou Bro Split.
-2. Foco muscular adiciona volume — nunca substitui obrigatórios.
-3. Sem foco definido: homens → ênfase superior (peito/costas/ombros); mulheres → ênfase inferior (glúteo/posterior/quad).
-4. Lesões: não inclui exercícios que causem dor ou agravem.
-5. Bro Split só se o usuário pedir explicitamente.
+<aquecimento>
+Inclui sempre nas "observations" 1 dica sobre 2 séries de aproximação no primeiro composto pesado do dia (50% e 75% da carga de trabalho).
+</aquecimento>
 
-═══════════════════════════════════════════════════
-AQUECIMENTO (NAS OBSERVAÇÕES)
-═══════════════════════════════════════════════════
+<auto_critica>
+ANTES de finalizar o array de "exercises", verificas mentalmente as regras e preenches "selfCritique":
+- "violations": lista QUALQUER violação que detetes (ex: "Faltou PEITO", "Repeti Agachamento livre", "8 séries de peito > limite 5 para Full Body").
+- "allClear": true se violations está vazio; false caso contrário.
 
-AQUECIMENTO: sempre incluir 1 dica nas observações sobre 2 séries de aproximação no primeiro composto pesado (50% e 75% da carga de trabalho).
+Se "allClear" for false, CORRIGES o array de "exercises" para resolver TODAS as violações ANTES de finalizar. O array final NÃO contém violações — o campo "violations" reporta o que foi detetado e corrigido (ou fica vazio se nada foi detetado).
+</auto_critica>
 
-═══════════════════════════════════════════════════
-PROGRESSÃO E LESÕES
-═══════════════════════════════════════════════════
+<exemplo_full_body>
+{
+  "planName": "Full Body A",
+  "objective": "Hipertrofia geral, ênfase horizontal.",
+  "observations": [
+    "Aquecimento: 2 séries de aproximação no supino (50% e 75%).",
+    "Progressão: aumenta 2.5kg quando atingires o topo da faixa em todas as séries."
+  ],
+  "selfCritique": { "violations": [], "allClear": true },
+  "exercises": [
+    {"name":"Supino reto com barra","sets":3,"repsMin":8,"repsMax":10,"restSec":120,"notes":"escápulas retraídas"},
+    {"name":"Remada curvada com barra","sets":3,"repsMin":8,"repsMax":10,"restSec":120,"notes":"controla a excêntrica"},
+    {"name":"Desenvolvimento com halteres","sets":3,"repsMin":8,"repsMax":10,"restSec":90,"notes":null},
+    {"name":"Agachamento livre","sets":3,"repsMin":6,"repsMax":8,"restSec":150,"notes":"joelho alinhado ao pé"},
+    {"name":"Stiff com halteres","sets":3,"repsMin":10,"repsMax":12,"restSec":90,"notes":null},
+    {"name":"Rosca direta com barra","sets":3,"repsMin":10,"repsMax":12,"restSec":60,"notes":null},
+    {"name":"Tríceps pulley corda","sets":3,"repsMin":10,"repsMax":12,"restSec":60,"notes":null},
+    {"name":"Panturrilha em pé","sets":3,"repsMin":12,"repsMax":15,"restSec":45,"notes":null},
+    {"name":"Prancha frontal","sets":3,"repsMin":30,"repsMax":45,"restSec":45,"notes":"core contraído"}
+  ]
+}
+</exemplo_full_body>
 
-PROGRESSÃO: orientar aumento de peso, repetições ou execução. Compostos pesados: RIR 1-2. Isolados: pode aproximar da falha.
+<exemplo_push>
+{
+  "planName": "Push A",
+  "objective": "Push horizontal — ênfase peito médio + tríceps.",
+  "observations": ["Aquecimento: 2 séries de aproximação no supino (50% e 75%)."],
+  "selfCritique": { "violations": [], "allClear": true },
+  "exercises": [
+    {"name":"Supino reto com barra","sets":4,"repsMin":6,"repsMax":8,"restSec":150,"notes":"escápulas retraídas"},
+    {"name":"Supino inclinado com halteres","sets":3,"repsMin":8,"repsMax":10,"restSec":120,"notes":null},
+    {"name":"Crucifixo na máquina","sets":3,"repsMin":10,"repsMax":12,"restSec":75,"notes":null},
+    {"name":"Desenvolvimento com halteres","sets":3,"repsMin":8,"repsMax":10,"restSec":90,"notes":null},
+    {"name":"Elevação lateral com halteres","sets":3,"repsMin":12,"repsMax":15,"restSec":60,"notes":null},
+    {"name":"Tríceps testa com halteres","sets":3,"repsMin":10,"repsMax":12,"restSec":75,"notes":null},
+    {"name":"Tríceps pulley corda","sets":3,"repsMin":10,"repsMax":12,"restSec":60,"notes":null}
+  ]
+}
+</exemplo_push>
 
-LESÕES: não inclui exercícios que causem dor ou agravem lesões relatadas.
+<exemplo_lower>
+{
+  "planName": "Lower A",
+  "objective": "Lower dominante quadríceps.",
+  "observations": ["Aquecimento: 2 séries de aproximação no agachamento (50% e 75%)."],
+  "selfCritique": { "violations": [], "allClear": true },
+  "exercises": [
+    {"name":"Agachamento livre","sets":4,"repsMin":6,"repsMax":8,"restSec":180,"notes":"joelho alinhado ao pé"},
+    {"name":"Leg press 45°","sets":3,"repsMin":8,"repsMax":10,"restSec":120,"notes":null},
+    {"name":"Cadeira extensora","sets":3,"repsMin":10,"repsMax":12,"restSec":75,"notes":null},
+    {"name":"Stiff com barra","sets":3,"repsMin":8,"repsMax":10,"restSec":120,"notes":"controla a excêntrica"},
+    {"name":"Hip thrust com barra","sets":3,"repsMin":10,"repsMax":12,"restSec":90,"notes":null},
+    {"name":"Mesa flexora","sets":3,"repsMin":10,"repsMax":12,"restSec":75,"notes":null},
+    {"name":"Panturrilha em pé","sets":4,"repsMin":12,"repsMax":15,"restSec":45,"notes":null}
+  ]
+}
+</exemplo_lower>
 
-═══════════════════════════════════════════════════
-JSON — REGRAS RÍGIDAS
-═══════════════════════════════════════════════════
-
-- Cada elemento de "exercises" deve ter um "name" ÚNICO no array. PROIBIDO repetir o mesmo nome dentro do mesmo dia.
-- "name" deve corresponder a uma entrada EXATA da lista de exercícios disponíveis (sem alterações de capitalização, acentos ou pontuação).
-- "sets" entre 1 e 8. "repsMin" ≤ "repsMax". "restSec" entre 30 e 300.
-- "notes" curto (≤ 60 caracteres). Em 3+ exercícios-chave por dia.
-
-═══════════════════════════════════════════════════
-VERIFICAÇÃO FINAL OBRIGATÓRIA — IMPRIMIR ANTES DO JSON
-═══════════════════════════════════════════════════
-
-Antes do bloco JSON, escreve uma seção "**Verificação:**" com bullets curtos confirmando cada item. Sem essa seção a resposta é inválida.
-
-Exemplo do formato exato a imprimir:
-
-**Verificação:**
-- Cobertura: PEITO ✓ (Supino reto), COSTAS ✓ (Remada curvada), OMBROS ✓ (Desenvolvimento), QUAD ✓ (Agachamento), POSTERIOR ✓ (Stiff), BÍCEPS ✓, TRÍCEPS ✓, PANTURRILHA ✓, ABDÔMEN ✓
-- Total exercícios: 9
-- Foco "Peito" primeiro com volume extra: ✓ (2 exercícios)
-- Exercícios da lista "JÁ USADOS" evitados: ✓
-- Sem duplicatas no mesmo dia: ✓
-- Reps/descanso batem com perfil: ✓ (8–10 reps, 90s)
-- Aquecimento mencionado em Observações: ✓
-
-Se algum item não bater, CORRIGE o treino antes de gerar o JSON.
-
-═══════════════════════════════════════════════════
-EXEMPLO DE RESPOSTA COMPLETA (FEW-SHOT)
-═══════════════════════════════════════════════════
-
-## Full Body A
-**Objetivo:** Hipertrofia geral com ênfase horizontal.
-
-**Observações:**
-- Aquecimento: 2 séries de aproximação no supino (50% e 75%).
-- Progressão: aumenta 2,5kg quando atingires o topo da faixa em todas as séries.
-- Foco na execução: controla a fase excêntrica em 2 segundos.
-
-**Verificação:**
-- Cobertura: PEITO ✓, COSTAS ✓, OMBROS ✓, QUAD ✓, POSTERIOR ✓, BÍCEPS ✓, TRÍCEPS ✓, PANTURRILHA ✓, ABDÔMEN ✓
-- Total: 9 exercícios
-- Sem duplicatas, sem repetir lista "JÁ USADOS": ✓
-- Reps/descanso batem (8–10, 90s): ✓
-
----WORKOUT_DATA_START---
-{"planName":"Full Body A","exercises":[{"name":"Supino reto com barra","sets":3,"repsMin":8,"repsMax":10,"restSec":120,"notes":"escápulas retraídas"},{"name":"Remada curvada com barra","sets":3,"repsMin":8,"repsMax":10,"restSec":120,"notes":"controla a excêntrica"},{"name":"Desenvolvimento com halteres","sets":3,"repsMin":8,"repsMax":10,"restSec":90},{"name":"Agachamento livre","sets":3,"repsMin":6,"repsMax":8,"restSec":150,"notes":"joelho alinhado ao pé"},{"name":"Stiff com halteres","sets":3,"repsMin":10,"repsMax":12,"restSec":90},{"name":"Rosca direta com barra","sets":3,"repsMin":10,"repsMax":12,"restSec":60},{"name":"Tríceps pulley corda","sets":3,"repsMin":10,"repsMax":12,"restSec":60},{"name":"Panturrilha em pé","sets":3,"repsMin":12,"repsMax":15,"restSec":45},{"name":"Prancha frontal","sets":3,"repsMin":30,"repsMax":45,"restSec":45,"notes":"core contraído"}]}
----WORKOUT_DATA_END---
-
-═══════════════════════════════════════════════════
-FORMATO OBRIGATÓRIO DA RESPOSTA
-═══════════════════════════════════════════════════
-
-## [Nome do Treino]
-**Objetivo:** [descrição do objetivo]
-
-**Observações:**
-- [aquecimento específico]
-- [dica de progressão se aplicável]
-- [dica técnica geral]
-
-**Verificação:**
-- [bullets confirmando cada item da checklist]
-
----WORKOUT_DATA_START---
-{"planName":"Nome do Treino","exercises":[{"name":"Nome Exato","sets":3,"repsMin":5,"repsMax":9,"restSec":150,"notes":"cue técnico curto"}]}
----WORKOUT_DATA_END---
-
-JSON minificado em uma linha. Inclui TODOS os exercícios. Nomes EXATOS da lista. Sem duplicatas.
+Usa o exemplo correspondente à divisão pedida como referência de estrutura — adapta os exercícios à lista <exercicios_disponiveis> e ao <perfil_usuario>.
 `.trim();
+
+// ───────────────────────────────────────────────────────────────────────────────
+// User message — lista de exercícios + perfil + tarefa.
+// Posta DEPOIS do system prompt para maximizar cache hits no prefixo.
+// ───────────────────────────────────────────────────────────────────────────────
+function buildUserMessage(payload: GenerateWorkoutBody, exerciseListFormatted: string): string {
+  const params: string[] = [];
+  if (payload.weekDays) params.push(`Frequência: ${payload.weekDays} dias/semana`);
+  if (payload.split) params.push(`Divisão: ${payload.split}`);
+  if (payload.muscleGroup) params.push(`Foco muscular: ${payload.muscleGroup}`);
+  if (payload.level) params.push(`Nível: ${payload.level}`);
+  if (payload.gender) params.push(`Gênero: ${payload.gender}`);
+  if (payload.heightCm) params.push(`Altura: ${payload.heightCm}cm`);
+  if (payload.weightKg) params.push(`Peso: ${payload.weightKg}kg`);
+  if (payload.goal) params.push(`Objetivo: ${payload.goal}`);
+  if (payload.durationMin) params.push(`Duração disponível: ${payload.durationMin}min`);
+  if (payload.equipment) params.push(`Equipamento: ${payload.equipment}`);
+  if (payload.exerciseCount && payload.exerciseCount !== "IA decide") {
+    const hint =
+      payload.exerciseCount === "Curto"
+        ? "4-5 exercícios"
+        : payload.exerciseCount === "Médio"
+          ? "6-7 exercícios"
+          : "8-10 exercícios";
+    params.push(`Tamanho desejado: ${payload.exerciseCount} (${hint}) — respeita cobertura obrigatória mesmo assim`);
+  }
+  if (payload.rirTarget && payload.rirTarget !== "IA decide") {
+    const hint =
+      payload.rirTarget === "Falha"
+        ? "próximo da falha em isolados; RIR 1 em compostos pesados"
+        : payload.rirTarget === "RIR 1-2"
+          ? "1-2 reps na reserva"
+          : "3+ reps na reserva, foco em técnica";
+    params.push(`RIR alvo: ${payload.rirTarget} (${hint})`);
+  }
+  if (payload.advancedTechniques) params.push("Técnicas avançadas: incluir Drop Set/Cluster Set quando adequado");
+  if (payload.injuries) params.push(`Lesões/restrições: ${payload.injuries}`);
+
+  let msg = `<exercicios_disponiveis>\nUsa APENAS estes (nomes EXATOS):\n${exerciseListFormatted}\n</exercicios_disponiveis>\n\n`;
+
+  if (params.length > 0) {
+    msg += `<perfil_usuario>\n${params.map((p) => "- " + p).join("\n")}\n</perfil_usuario>\n\n`;
+  }
+
+  if (payload.usedExercises && payload.usedExercises.length > 0) {
+    msg += `<exercicios_ja_usados>\nNão repetes nenhum destes (são de outros dias do plano):\n${payload.usedExercises
+      .map((e) => "- " + e)
+      .join("\n")}\n</exercicios_ja_usados>\n\n`;
+  }
+
+  msg += `<tarefa>\n${payload.prompt}\n</tarefa>`;
+
+  return msg;
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// Validador programático — autoritativo. Se a IA violar, retry com feedback.
+// ───────────────────────────────────────────────────────────────────────────────
+function validateWorkout(
+  workout: AIWorkoutOutput,
+  splitKey: string | null,
+  exerciseNameToMuscle: Map<string, string>,
+  allowedNamesLower: Map<string, string>, // lower → canonical
+  maxSetsPerMuscle: number
+): string[] {
+  const violations: string[] = [];
+
+  // 1. Nomes pertencem à lista.
+  for (const ex of workout.exercises) {
+    if (!allowedNamesLower.has(ex.name.toLowerCase())) {
+      violations.push(`Exercício "${ex.name}" não existe na lista permitida.`);
+    }
+  }
+
+  // 2. Sem duplicatas.
+  const seen = new Set<string>();
+  for (const ex of workout.exercises) {
+    const key = ex.name.toLowerCase();
+    if (seen.has(key)) {
+      violations.push(`Exercício "${ex.name}" duplicado no mesmo dia.`);
+    }
+    seen.add(key);
+  }
+
+  // 3. Cobertura + min count (só se conhecemos o splitKey).
+  if (splitKey && REQUIRED_GROUPS_BY_SPLIT_KEY[splitKey]) {
+    const required = REQUIRED_GROUPS_BY_SPLIT_KEY[splitKey];
+    const covered = new Set<string>();
+    for (const ex of workout.exercises) {
+      const m = exerciseNameToMuscle.get(ex.name.toLowerCase());
+      if (m) covered.add(m);
+    }
+    for (const grp of required) {
+      if (!covered.has(grp)) {
+        violations.push(`Grupo obrigatório "${grp}" não coberto na divisão ${splitKey}.`);
+      }
+    }
+
+    const minCount = MIN_EXERCISES_BY_SPLIT_KEY[splitKey] ?? 5;
+    if (workout.exercises.length < minCount) {
+      violations.push(`Mínimo de ${minCount} exercícios para ${splitKey} — recebeu ${workout.exercises.length}.`);
+    }
+  }
+
+  // 4. Volume máximo por músculo.
+  const setsByMuscle = new Map<string, number>();
+  for (const ex of workout.exercises) {
+    const m = exerciseNameToMuscle.get(ex.name.toLowerCase());
+    if (m) setsByMuscle.set(m, (setsByMuscle.get(m) ?? 0) + ex.sets);
+  }
+  for (const [muscle, sets] of setsByMuscle.entries()) {
+    if (sets > maxSetsPerMuscle) {
+      violations.push(`Volume excessivo em ${muscle}: ${sets} séries > limite ${maxSetsPerMuscle}.`);
+    }
+  }
+
+  return violations;
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// Serializa o JSON estruturado de volta no formato "texto + markers" que o
+// frontend atual sabe parsear. Mantém retrocompatibilidade total — Phase 2 vai
+// migrar o frontend para consumir o JSON diretamente.
+// ───────────────────────────────────────────────────────────────────────────────
+// Enriquece cada exercício com `muscleGroup` da DB ao serializar para o frontend.
+// Isto evita que o frontend faça regex no nome do exercício para descobrir
+// o grupo muscular (detectMuscleGroup) — passa a ler ex.muscleGroup direto.
+// Forçamos a IA a NÃO classificar (evita erros) e usamos o valor autoritativo
+// da DB pelo lookup pós-geração.
+function formatWorkoutAsLegacyText(
+  workout: AIWorkoutOutput,
+  exerciseNameToMuscle: Map<string, string>
+): string {
+  const lines: string[] = [];
+  lines.push(`## ${workout.planName}`);
+  if (workout.objective) {
+    lines.push(`**Objetivo:** ${workout.objective}\n`);
+  }
+  if (workout.observations.length > 0) {
+    lines.push(`**Observações:**`);
+    for (const obs of workout.observations) lines.push(`- ${obs}`);
+    lines.push("");
+  }
+  if (workout.selfCritique.allClear) {
+    lines.push(`**Auto-crítica:** Nenhuma violação detetada.\n`);
+  } else if (workout.selfCritique.violations.length > 0) {
+    lines.push(`**Auto-crítica:**`);
+    for (const v of workout.selfCritique.violations) lines.push(`- ${v}`);
+    lines.push("");
+  }
+
+  const payload = {
+    planName: workout.planName,
+    exercises: workout.exercises.map((ex) => {
+      const muscleGroup = exerciseNameToMuscle.get(ex.name.toLowerCase());
+      return {
+        name: ex.name,
+        sets: ex.sets,
+        repsMin: ex.repsMin,
+        repsMax: ex.repsMax,
+        restSec: ex.restSec,
+        ...(ex.notes !== null && ex.notes !== "" ? { notes: ex.notes } : {}),
+        ...(muscleGroup ? { muscleGroup } : {}),
+      };
+    }),
+  };
+
+  lines.push("---WORKOUT_DATA_START---");
+  lines.push(JSON.stringify(payload));
+  lines.push("---WORKOUT_DATA_END---");
+
+  return lines.join("\n");
+}
 
 function getOpenAIClient(): OpenAI {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -293,63 +573,31 @@ function getOpenAIClient(): OpenAI {
   return new OpenAI({ apiKey });
 }
 
-export async function generateWorkout(payload: GenerateWorkoutBody, userId?: string): Promise<string> {
-  const client = getOpenAIClient();
-
-  const exerciseList = await buildExerciseList(userId, payload.equipment);
-  const systemPrompt = `${BASE_SYSTEM_PROMPT}\n\nEXERCÍCIOS DISPONÍVEIS NO BANCO DE DADOS (usa APENAS estes):\n${exerciseList}`;
-
-  const params: string[] = [];
-  if (payload.weekDays) params.push(`Frequência semanal: ${payload.weekDays} dias/semana`);
-  if (payload.split) params.push(`Divisão de treino: ${payload.split}`);
-  if (payload.muscleGroup) params.push(`Foco muscular: ${payload.muscleGroup}`);
-  if (payload.level) params.push(`Nível: ${payload.level}`);
-  if (payload.gender) params.push(`Gênero: ${payload.gender}`);
-  if (payload.heightCm) params.push(`Altura: ${payload.heightCm} cm`);
-  if (payload.weightKg) params.push(`Peso: ${payload.weightKg} kg`);
-  if (payload.goal) params.push(`Objetivo: ${payload.goal}`);
-  if (payload.durationMin) params.push(`Duração disponível: ${payload.durationMin} minutos`);
-  if (payload.equipment) params.push(`Equipamento disponível: ${payload.equipment}`);
-  if (payload.exerciseCount && payload.exerciseCount !== "IA decide") {
-    const countHint =
-      payload.exerciseCount === "Curto"
-        ? "4-5 exercícios por sessão"
-        : payload.exerciseCount === "Médio"
-          ? "6-7 exercícios por sessão"
-          : "8-10 exercícios por sessão";
-    params.push(`Tamanho do treino: ${payload.exerciseCount} (${countHint}). Respeita a cobertura obrigatória mesmo assim.`);
-  }
-  if (payload.rirTarget && payload.rirTarget !== "IA decide") {
-    const rirHint =
-      payload.rirTarget === "Falha"
-        ? "Treina próximo da falha em isolados; mantém RIR 1 em compostos pesados"
-        : payload.rirTarget === "RIR 1-2"
-          ? "Mantém 1-2 reps na reserva (RIR 1-2) na maioria das séries"
-          : "Mantém 3+ reps na reserva (RIR 3+) — foco em técnica e recuperação";
-    params.push(`RIR alvo: ${payload.rirTarget}. ${rirHint}.`);
-  }
-  if (payload.advancedTechniques) params.push(`Técnicas avançadas: incluir Drop Set e/ou Cluster Set quando adequado`);
-  if (payload.injuries) params.push(`Lesões/restrições: ${payload.injuries}`);
-
-  let userMessage =
-    params.length > 0
-      ? `${payload.prompt}\n\nParâmetros:\n${params.map((p) => `- ${p}`).join("\n")}`
-      : payload.prompt;
-
-  if (payload.usedExercises && payload.usedExercises.length > 0) {
-    userMessage += `\n\nEXERCÍCIOS JÁ USADOS NESTE PLANO (NÃO repita nenhum destes):\n${payload.usedExercises.map((e) => `- ${e}`).join("\n")}`;
-  }
-
-  const model = process.env.OPENAI_MODEL ?? "gpt-4o";
+async function callOpenAI(
+  client: OpenAI,
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>
+): Promise<AIWorkoutOutput> {
+  // gpt-4o-2024-11-20+ tem melhor aderência a regras e suporta json_schema strict.
+  // Pode ser sobrescrito por OPENAI_MODEL para A/B test com o3-mini etc.
+  const model = process.env.OPENAI_MODEL ?? "gpt-4o-2024-11-20";
 
   const response = await client.chat.completions.create({
     model,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userMessage },
-    ],
-    max_tokens: 8000,
-    temperature: 0.4,
+    messages,
+    response_format: {
+      type: "json_schema",
+      json_schema: WORKOUT_OUTPUT_SCHEMA,
+    },
+    // Tarefa regrada e determinística — temperatura baixa reduz variação espúria
+    // sem prejudicar criatividade necessária.
+    temperature: 0.15,
+    top_p: 0.9,
+    // Best-effort determinismo: mesmas inputs tendem a gerar mesma saída.
+    seed: 42,
+    // Output real fica ~1500-2500 tokens; 4000 dá folga sem desperdiçar budget.
+    max_tokens: 4000,
+    frequency_penalty: 0,
+    presence_penalty: 0,
   });
 
   const content = response.choices[0]?.message?.content;
@@ -360,7 +608,83 @@ export async function generateWorkout(payload: GenerateWorkoutBody, userId?: str
     });
   }
 
-  return content;
+  try {
+    return JSON.parse(content) as AIWorkoutOutput;
+  } catch {
+    // Com response_format json_schema isto é praticamente impossível, mas
+    // proteção defensiva.
+    throw new AppError("A IA devolveu JSON inválido. Tenta novamente.", {
+      statusCode: 502,
+      code: "AI_INVALID_JSON",
+    });
+  }
+}
+
+export async function generateWorkout(payload: GenerateWorkoutBody, userId?: string): Promise<string> {
+  const client = getOpenAIClient();
+
+  const exercises = await fetchExercises(userId, payload.equipment);
+  const exerciseListFormatted = formatExerciseList(exercises);
+
+  // Lookups case-insensitive para validação tolerante (a IA pode capitalizar
+  // diferente ocasionalmente — não tratamos isso como violação se o match é claro).
+  const exerciseNameToMuscle = new Map<string, string>();
+  const allowedNamesLower = new Map<string, string>();
+  for (const ex of exercises) {
+    exerciseNameToMuscle.set(ex.name.toLowerCase(), ex.ptLabel);
+    allowedNamesLower.set(ex.name.toLowerCase(), ex.name);
+  }
+
+  const splitKey = detectSplitKey(payload.dayLabel) ?? detectSplitKeyFromPrompt(payload.prompt);
+  const maxSetsPerMuscle =
+    payload.split === "Bro Split"
+      ? MAX_SETS_PER_MUSCLE_BY_SPLIT_KEY["Bro Split"]
+      : splitKey
+        ? MAX_SETS_PER_MUSCLE_BY_SPLIT_KEY[splitKey] ?? 10
+        : 10;
+
+  const userMsg = buildUserMessage(payload, exerciseListFormatted);
+
+  let workout = await callOpenAI(client, [
+    { role: "system", content: SYSTEM_PROMPT },
+    { role: "user", content: userMsg },
+  ]);
+
+  let violations = validateWorkout(workout, splitKey, exerciseNameToMuscle, allowedNamesLower, maxSetsPerMuscle);
+
+  // Auto-retry uma vez se o validador encontrou problemas. Manda o output
+  // anterior + lista de violações para a IA se auto-corrigir.
+  if (violations.length > 0) {
+    const retryMsg = `A geração anterior teve as seguintes violações (validação programática):
+${violations.map((v) => "- " + v).join("\n")}
+
+Gera de novo respeitando TODAS as regras. Lista vazia em selfCritique.violations se conseguires corrigir tudo.`;
+
+    workout = await callOpenAI(client, [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: userMsg },
+      { role: "assistant", content: JSON.stringify(workout) },
+      { role: "user", content: retryMsg },
+    ]);
+
+    violations = validateWorkout(workout, splitKey, exerciseNameToMuscle, allowedNamesLower, maxSetsPerMuscle);
+  }
+
+  // Mesmo após retry pode sobrar alguma violação — preserva a lista autoritativa
+  // do nosso validador em vez da auto-avaliação da IA. Frontend mostra ao user.
+  if (violations.length > 0) {
+    workout.selfCritique = { violations, allClear: false };
+  }
+
+  // Normaliza capitalização: se a IA escreveu "supino reto" e o canónico é
+  // "Supino reto com barra", o save vai bater igual. Faz isto APÓS validação
+  // para não mascarar erros reais.
+  workout.exercises = workout.exercises.map((ex) => {
+    const canonical = allowedNamesLower.get(ex.name.toLowerCase());
+    return canonical ? { ...ex, name: canonical } : ex;
+  });
+
+  return formatWorkoutAsLegacyText(workout, exerciseNameToMuscle);
 }
 
 type SavedExercise = {

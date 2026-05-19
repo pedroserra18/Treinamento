@@ -17,6 +17,10 @@ export type GenerateWorkoutInput = {
   weightKg?: number
   exerciseCount?: string
   rirTarget?: string
+  // Rótulo estruturado do dia ("Push A", "Lower B"…). O backend usa para
+  // identificar o tipo de divisão sem ter que extrair do texto do prompt
+  // (validador + limites por músculo dependem disto).
+  dayLabel?: string
 }
 
 export type AIExercise = {
@@ -26,6 +30,10 @@ export type AIExercise = {
   repsMax?: number
   restSec?: number
   notes?: string
+  // Grupo muscular autoritativo (vindo da DB no backend, não regex).
+  // Disponível desde Fase 1 do refactor IA — Fase 2 fará o frontend
+  // preferir este campo em vez de detectMuscleGroup() no nome.
+  muscleGroup?: string
 }
 
 export type AIWorkoutData = {

@@ -9,9 +9,10 @@ export const generateWorkoutBodySchema = z.object({
   durationMin: z.enum(["30", "45", "60", "90", "120", ""]).optional(),
   goal: z.enum(["Hipertrofia", "Força", "Resistência", "Emagrecimento", ""]).optional(),
   weekDays: z.enum(["2", "3", "4", "5", "6", ""]).optional(),
-  split: z
-    .enum(["Full Body", "Upper/Lower", "Push/Pull/Legs", "Torso/Limbs", "Bro Split", ""])
-    .optional(),
+  // Free string para permitir splits customizados (ex: "PPL + Lower Specialization"
+  // adicionado para o caso de foco inferior + 1x/sem). O valor só alimenta o prompt
+  // — a lógica de validação per-day usa o campo `dayLabel`.
+  split: z.string().trim().max(80).optional(),
   equipment: z
     .enum(["Academia (completa)", "Casa com equipamentos", "Sem equipamento", ""])
     .optional(),
@@ -23,6 +24,11 @@ export const generateWorkoutBodySchema = z.object({
   weightKg: z.number().min(30).max(300).optional(),
   exerciseCount: z.enum(["Curto", "Médio", "Longo", "IA decide", ""]).optional(),
   rirTarget: z.enum(["Falha", "RIR 1-2", "RIR 3+", "IA decide", ""]).optional(),
+  // Rótulo estruturado do dia ("Push A", "Lower B"…). Permite ao backend
+  // detetar o splitKey sem regex no prompt — usado por validador, max de
+  // séries por músculo e seleção de few-shot. Opcional: se ausente, o
+  // backend faz fallback parseando o texto do prompt.
+  dayLabel: z.string().trim().max(50).optional(),
 });
 
 export const saveAIWorkoutBodySchema = z.object({

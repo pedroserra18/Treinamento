@@ -168,6 +168,57 @@ function clearStaleAnswers(next: QuizAnswers, key: keyof QuizAnswers, value: str
   return next
 }
 
+// Backend devolve labels em UPPERCASE (PEITO, GLÚTEO…). Mapeamos para o
+// labelling title-case usado pelo frontend (Peito, Glúteo…).
+const MUSCLE_BACKEND_TO_FRONTEND: Record<string, string> = {
+  'PEITO': 'Peito',
+  'COSTAS': 'Costas',
+  'OMBROS': 'Ombros',
+  'BÍCEPS': 'Bíceps',
+  'TRÍCEPS': 'Tríceps',
+  'QUADRÍCEPS': 'Quadríceps',
+  'POSTERIOR DE COXA': 'Posterior de Coxa',
+  'GLÚTEO': 'Glúteo',
+  'PANTURRILHA': 'Panturrilha',
+  'ABDÔMEN': 'Abdômen',
+  'CORE': 'Abdômen',
+  'ADUTORES': 'Adutores',
+  'ANTEBRAÇO': 'Antebraço',
+}
+
+// Classes Tailwind por rótulo frontend — fonte única de cores p/ as duas
+// vias (metadata do backend + regex fallback).
+const MUSCLE_COLOR_CLASSES: Record<string, string> = {
+  'Peito': 'bg-red-500/15 text-red-400 border-red-500/30',
+  'Costas': 'bg-blue-500/15 text-blue-400 border-blue-500/30',
+  'Ombros': 'bg-purple-500/15 text-purple-400 border-purple-500/30',
+  'Bíceps': 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+  'Tríceps': 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30',
+  'Quadríceps': 'bg-green-500/15 text-green-400 border-green-500/30',
+  'Posterior de Coxa': 'bg-orange-500/15 text-orange-400 border-orange-500/30',
+  'Glúteo': 'bg-pink-500/15 text-pink-400 border-pink-500/30',
+  'Panturrilha': 'bg-teal-500/15 text-teal-400 border-teal-500/30',
+  'Abdômen': 'bg-slate-500/15 text-slate-400 border-slate-500/30',
+  'Adutores': 'bg-violet-500/15 text-violet-400 border-violet-500/30',
+  'Abdutores': 'bg-fuchsia-500/15 text-fuchsia-400 border-fuchsia-500/30',
+  'Antebraço': 'bg-stone-500/15 text-stone-400 border-stone-500/30',
+}
+
+// Resolve o grupo muscular preferindo o metadata autoritativo do backend
+// (ex.muscleGroup vindo da DB), com fallback para regex no nome quando o
+// campo não está presente (ex: workouts antigos / exercício customizado).
+// Isto corrige casos onde o nome semanticamente sugere outro grupo:
+//   "Abdução de quadril" → DB: GLÚTEO (regex não cataria)
+//   "Levantamento terra romeno para glúteo" → DB: GLÚTEO (regex diria POSTERIOR)
+function resolveMuscleGroup(ex: { name: string; muscleGroup?: string }): { label: string; color: string } | null {
+  if (ex.muscleGroup) {
+    const label = MUSCLE_BACKEND_TO_FRONTEND[ex.muscleGroup] ?? ex.muscleGroup
+    const color = MUSCLE_COLOR_CLASSES[label] ?? 'bg-slate-500/15 text-slate-400 border-slate-500/30'
+    return { label, color }
+  }
+  return detectMuscleGroup(ex.name)
+}
+
 function detectMuscleGroup(name: string): { label: string; color: string } | null {
   const n = name.toLowerCase()
   // Abdômen PRIMEIRO — evita que "elevação de pernas" (abdominal) seja capturado como pernas
@@ -205,7 +256,22 @@ function detectMuscleGroup(name: string): { label: string; color: string } | nul
   return null
 }
 
-function getEffectiveSplit(days: number, muscleFrequency: string): string {
+// Foco "inferior" = quadríceps e/ou glúteo e/ou posterior de coxa. Com 4 dias + 1x/sem,
+// faz mais sentido especializar 2 dias de pernas (quad-isolado / glúteo+posterior)
+// do que dar um único dia comprimido — cada músculo continua a ser treinado 1x.
+function hasLowerBodyFocus(musclesFocus: string[]): boolean {
+  return musclesFocus.some((m) => m === 'Quadríceps' || m === 'Glúteo' || m === 'Posterior de Coxa')
+}
+
+function getEffectiveSplit(days: number, muscleFrequency: string, musclesFocus: string[] = []): string {
+  if (muscleFrequency === '1x por semana') {
+    // Cada músculo treinado exatamente 1x por semana — split dedicado por grupo.
+    // Upper/Lower com 4 dias seria A/B = músculo 2x → INVÁLIDO para esta frequência.
+    if (days === 4 && hasLowerBodyFocus(musclesFocus)) return 'PPL + Lower Specialization'
+    if (days <= 2) return 'Upper/Lower'      // Upper + Lower (2 dias) = cada músculo 1x
+    if (days === 3) return 'Push/Pull/Legs'  // PPL (3 dias) = cada músculo 1x
+    return 'Bro Split'                       // 4+ dias = dia dedicado por grupo
+  }
   if (muscleFrequency === '2x por semana') {
     if (days <= 2) return 'Full Body'
     if (days <= 4) return 'Upper/Lower'
@@ -233,6 +299,12 @@ function getWorkoutLabels(split: string, days: number): string[] {
     if (days === 5) return ['Push A', 'Pull A', 'Legs', 'Push B', 'Pull B']
     return ['Push A', 'Pull A', 'Legs A', 'Push B', 'Pull B', 'Legs B']
   }
+  if (split === 'PPL + Lower Specialization') {
+    // 4 dias com foco inferior — upper compactado em 2 dias eficientes, pernas
+    // separadas em quad-isolado (cadeira ext., hack squat, leg press) e
+    // glúteo/posterior (hip thrust, stiff, kickback). Cada músculo continua 1x/sem.
+    return ['Push', 'Pull', 'Quadríceps', 'Glúteo + Posterior']
+  }
   if (split === 'Bro Split') {
     return ['Peito', 'Costas', 'Pernas', 'Ombros', 'Braços'].slice(0, Math.min(days, 5))
   }
@@ -255,12 +327,12 @@ function getRequiredGroups(dayLabel: string): string[] {
   return key ? REQUIRED_BY_SPLIT_KEY[key] : []
 }
 
-function getMissingGroups(exercises: { name: string }[], dayLabel: string): string[] {
+function getMissingGroups(exercises: { name: string; muscleGroup?: string }[], dayLabel: string): string[] {
   const required = getRequiredGroups(dayLabel)
   if (required.length === 0) return []
   const covered = new Set<string>()
   for (const ex of exercises) {
-    const m = detectMuscleGroup(ex.name)
+    const m = resolveMuscleGroup(ex)
     if (m) covered.add(m.label)
   }
   return required.filter(g => !covered.has(g))
@@ -288,7 +360,7 @@ function getWeeklyVolume(sections: WorkoutSection[]): VolumeEntry[] {
   for (const sec of sections) {
     if (!sec.workoutData) continue
     for (const ex of sec.workoutData.exercises) {
-      const m = detectMuscleGroup(ex.name)
+      const m = resolveMuscleGroup(ex)
       if (!m) continue
       const sets = ex.sets ?? 3
       const cur = map.get(m.label) ?? { sets: 0, color: m.color }
@@ -560,6 +632,8 @@ function blockMusclesHint(label: string): string {
   if (label.startsWith('Legs') || label.startsWith('Lower')) return 'Pernas · Glúteo · Pant.'
   if (label.startsWith('Upper')) return 'Peito · Costas · Braços'
   if (label.startsWith('Full Body')) return 'Corpo inteiro'
+  if (label.startsWith('Quadríceps')) return 'Quadríceps · Panturrilha'
+  if (label.startsWith('Glúteo + Posterior')) return 'Glúteo · Posterior'
   if (label.startsWith('Peito')) return 'Peito · Tríceps'
   if (label.startsWith('Costas')) return 'Costas · Bíceps'
   if (label.startsWith('Pernas')) return 'Quad · Posterior · Glúteo'
@@ -814,7 +888,7 @@ export function AIWorkoutPage() {
 
   const handleGenerate = useCallback(async () => {
     const days = parseInt(answers.daysPerWeek, 10) || 4
-    const split = getEffectiveSplit(days, answers.muscleFrequency)
+    const split = getEffectiveSplit(days, answers.muscleFrequency, answers.musclesFocus)
     const labels = getWorkoutLabels(split, days)
 
     setAppScreen('LOADING')
@@ -863,6 +937,7 @@ export function AIWorkoutPage() {
 
         const result = await generateAIWorkout(authorizedFetch, {
           prompt: buildPrompt(answers, label, i, labels.length, split),
+          dayLabel: label,
           muscleGroup: primaryMuscle || undefined,
           level: answers.experience || undefined,
           durationMin: answers.duration || undefined,
@@ -938,7 +1013,7 @@ export function AIWorkoutPage() {
 
   const handleRegenerateDay = useCallback(async (index: number) => {
     const days = parseInt(answers.daysPerWeek, 10) || 4
-    const split = getEffectiveSplit(days, answers.muscleFrequency)
+    const split = getEffectiveSplit(days, answers.muscleFrequency, answers.musclesFocus)
     const labels = getWorkoutLabels(split, days)
     const label = labels[index]
     if (!label) return
@@ -973,6 +1048,7 @@ export function AIWorkoutPage() {
       const weightNum = answers.weightKg ? parseFloat(answers.weightKg) : NaN
       const result = await generateAIWorkout(authorizedFetch, {
         prompt: buildPrompt(answers, label, index, labels.length, split),
+        dayLabel: label,
         muscleGroup: primaryMuscle || undefined,
         level: answers.experience || undefined,
         durationMin: answers.duration || undefined,
@@ -1713,7 +1789,7 @@ export function AIWorkoutPage() {
 
   if (appScreen === 'REVIEW') {
     const days = parseInt(answers.daysPerWeek, 10) || 4
-    const split = getEffectiveSplit(days, answers.muscleFrequency)
+    const split = getEffectiveSplit(days, answers.muscleFrequency, answers.musclesFocus)
     const labels = getWorkoutLabels(split, days)
 
     const restrictionsValue = [
@@ -2268,7 +2344,7 @@ export function AIWorkoutPage() {
                 {wd.exercises.map((ex, i) => {
                   const exKey = `${idx}-${i}`
                   const expanded = expandedExerciseKey === exKey
-                  const muscle = detectMuscleGroup(ex.name)
+                  const muscle = resolveMuscleGroup(ex)
                   return (
                     <li
                       key={exKey}
