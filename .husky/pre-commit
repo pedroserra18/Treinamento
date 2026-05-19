@@ -1,3 +1,27 @@
 #!/usr/bin/env sh
+
+# 1. Bloqueia extensões perigosas em commits (DB dumps, chaves, binários).
+# Adicionado depois do incidente com acad_backup.backup (Mai/2026) —
+# esses tipos de arquivo NUNCA devem entrar no repo, mesmo gitignored.
+forbidden=$(git diff --cached --name-only --diff-filter=ACMR \
+  | grep -iE '\.(backup|dump|sql\.gz|sql\.bz2|pem|key|pfx|p12|keystore)$' || true)
+
+if [ -n "$forbidden" ]; then
+  echo "ERRO: arquivos com extensão proibida no commit:"
+  echo "$forbidden"
+  echo ""
+  echo "Esses tipos de arquivo nunca devem ser commitados."
+  echo "Se foi por engano: git restore --staged <arquivo>"
+  exit 1
+fi
+
+# 2. Varre conteúdo de arquivos staged em busca de segredos (API keys,
+# tokens AWS/GCP/Stripe/etc, JWT em texto claro, chaves privadas, senhas).
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+if [ -n "$staged" ]; then
+  echo "$staged" | xargs npx secretlint --secretlintignore .gitignore || exit 1
+fi
+
+# 3. Qualidade de código (lint + typecheck) — herdado do hook anterior.
 npm run lint
 npm run typecheck
