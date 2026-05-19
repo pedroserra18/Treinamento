@@ -26,6 +26,7 @@ import { SupportTicketPage } from './pages/SupportTicketPage'
 import { AdminSupportPage } from './pages/AdminSupportPage'
 import { AdminSupportTicketPage } from './pages/AdminSupportTicketPage'
 import { AdminSupportTemplatesPage } from './pages/AdminSupportTemplatesPage'
+import { ExerciseDetailPage } from './pages/ExerciseDetailPage'
 
 function AnimatedRoutes() {
   const location = useLocation()
@@ -119,6 +120,16 @@ function AnimatedRoutes() {
             element={
               <ProtectedRoute>
                 <WorkoutDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          {/* Detalhe de exercício — destino dos links em HistoryExerciseCard
+              (clique no nome do exercício dentro do histórico/treino abre aqui). */}
+          <Route
+            path="/exercises/:exerciseId"
+            element={
+              <ProtectedRoute>
+                <ExerciseDetailPage />
               </ProtectedRoute>
             }
           />

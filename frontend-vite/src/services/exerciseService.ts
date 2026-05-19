@@ -25,17 +25,6 @@ function toExercise(value: Record<string, unknown>): Exercise {
   }
 }
 
-export async function getExercises(): Promise<Exercise[]> {
-  const response = await fetch(`${API_URL}/exercises`)
-  const payload = await safeJson<{ data?: Array<Record<string, unknown>> }>(response)
-
-  if (!response.ok) {
-    throw new Error('Falha ao carregar exercicios')
-  }
-
-  return (payload?.data ?? []).map(toExercise)
-}
-
 export async function getExerciseById(id: string): Promise<Exercise> {
   if (!id || id.trim().length < 6) {
     throw new Error('Exercicio invalido')

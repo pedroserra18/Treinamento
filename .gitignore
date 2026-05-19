@@ -20,3 +20,9 @@ dist/
 .vscode/
 *.swp
 *.swo
+
+# Database dumps — NUNCA commitar (contêm PII + hashes de senha)
+*.backup
+*.dump
+*.sql.gz
+*.sql.bz2

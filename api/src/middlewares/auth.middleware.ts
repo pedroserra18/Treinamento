@@ -19,7 +19,12 @@ export function optionalAuth(req: Request, _res: Response, next: NextFunction): 
         issuer: env.jwtIssuer,
         audience: env.jwtAudience
       }) as AccessTokenClaims;
-      if (!decoded.tokenType || decoded.tokenType === "access") {
+      // Aceita SÓ access tokens — refresh tokens nunca devem servir como Bearer,
+      // mesmo em rotas de auth opcional. Tokens sem campo tokenType (formato
+      // legado) também são rejeitados aqui: a API só emite tokens com o campo
+      // desde a auth refactor, então a ausência indica forja ou token antigo
+      // que deve ser tratado como inválido.
+      if (decoded.tokenType === "access") {
         req.context.userId = decoded.sub;
         req.context.userRole = decoded.role;
       }
