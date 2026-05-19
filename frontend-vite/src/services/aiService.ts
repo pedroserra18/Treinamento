@@ -1,26 +1,33 @@
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1'
 
 export type GenerateWorkoutInput = {
+  // Prompt curto e específico do dia (qual dia, índice, contexto especial:
+  // calistenia, iniciante, recuperação). Perfil completo vai em campos
+  // estruturados abaixo — não duplicar dentro do prompt.
   prompt: string
-  muscleGroup?: string
-  level?: string
-  durationMin?: string
-  goal?: string
+  dayLabel?: string
   weekDays?: string
   split?: string
-  equipment?: string
-  advancedTechniques?: boolean
-  injuries?: string
+  muscleFrequency?: string
+  level?: string
+  age?: string
   gender?: string
-  usedExercises?: string[]
   heightCm?: number
   weightKg?: number
+  phase?: string
+  goal?: string
+  equipment?: string
+  equipmentPreference?: string
+  durationMin?: string
   exerciseCount?: string
+  repRange?: string
+  restTime?: string
   rirTarget?: string
-  // Rótulo estruturado do dia ("Push A", "Lower B"…). O backend usa para
-  // identificar o tipo de divisão sem ter que extrair do texto do prompt
-  // (validador + limites por músculo dependem disto).
-  dayLabel?: string
+  techniques?: string[]
+  musclesFocus?: string[]
+  injuries?: string
+  usedExercises?: string[]
+  extraInfo?: string
 }
 
 export type AIExercise = {

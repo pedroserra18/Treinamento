@@ -386,33 +386,17 @@ function estimateDurationMin(exercises: { sets?: number; restSec?: number; repsM
   return Math.round(totalSec / 60)
 }
 
+// Constrói o texto da <tarefa> — propositalmente CURTO e específico do dia.
+// O perfil completo do usuário vai em campos estruturados separados (handleGenerate),
+// que o backend transforma no <perfil_usuario> consolidado. Aqui só fica o que é
+// específico DESTE dia + notas contextuais que não cabem em enum (calistenia,
+// iniciante, recuperação de lesão).
 function buildPrompt(a: QuizAnswers, dayLabel: string, dayIdx: number, total: number, split: string): string {
   const isBodyweight = a.location === 'Em casa sem equipamentos'
   const isBeginner = a.experience === 'Iniciante'
   const isInjuryRecovery = a.goal === 'Recuperação de lesão'
 
-  const injuryParts = [
-    a.hasInjury && a.injuryDescription ? `Lesão: ${a.injuryDescription}` : '',
-    a.avoidExercises ? `Evitar exercícios: ${a.avoidExercises}` : '',
-  ].filter(Boolean).join(' | ')
-
-  const mandatoryGroups: Record<string, string> = {
-    'Full Body': 'OBRIGATÓRIO neste Full Body — 1 exercício de CADA grupo sem exceção: PEITO · OMBROS · COSTAS · BÍCEPS · TRÍCEPS · QUADRÍCEPS · POSTERIOR DE COXA ou GLÚTEO · PANTURRILHA · ABDÔMEN/CORE. Mínimo 8 exercícios. O foco muscular adiciona volume EXTRA — NÃO substitui outros grupos.',
-    'Upper': 'OBRIGATÓRIO neste Upper — 1 exercício de CADA: PEITO · OMBROS · COSTAS · BÍCEPS · TRÍCEPS · ABDÔMEN.',
-    'Lower': 'OBRIGATÓRIO neste Lower — 1 exercício de CADA: QUADRÍCEPS · POSTERIOR DE COXA · GLÚTEO · PANTURRILHA.',
-    'Push': 'OBRIGATÓRIO neste Push — cobrir: PEITO · OMBROS · TRÍCEPS.',
-    'Pull': 'OBRIGATÓRIO neste Pull — cobrir: COSTAS · BÍCEPS.',
-    'Legs': 'OBRIGATÓRIO neste Legs — cobrir: QUADRÍCEPS · POSTERIOR DE COXA · GLÚTEO · PANTURRILHA.',
-  }
-  const splitKey = Object.keys(mandatoryGroups).find(k => dayLabel.startsWith(k)) ?? ''
-  const mandatoryLine = mandatoryGroups[splitKey] ?? ''
-
-  const physical = [
-    a.heightCm ? `${a.heightCm}cm` : '',
-    a.weightKg ? `${a.weightKg}kg` : '',
-  ].filter(Boolean).join(' · ')
-
-  // Cabeçalho específico de calistenia (sem equipamento) — guia o modelo a usar progressões corporais e reps até falha.
+  // Guia técnico de calistenia — não cabe em enum pois é prescrição livre.
   const bodyweightGuide = isBodyweight ? [
     '',
     'GUIA CALISTENIA (treino exclusivamente com peso corporal):',
@@ -427,7 +411,6 @@ function buildPrompt(a: QuizAnswers, dayLabel: string, dayIdx: number, total: nu
     '',
   ].join('\n') : ''
 
-  // Iniciante: aprendizado motor + segurança são prioridade; nada de técnicas avançadas.
   const beginnerNote = isBeginner ? [
     '',
     'NOTA — INICIANTE (<1 ano de treino):',
@@ -438,7 +421,6 @@ function buildPrompt(a: QuizAnswers, dayLabel: string, dayIdx: number, total: nu
     '',
   ].join('\n') : ''
 
-  // Recuperação de lesão: prioridade absoluta na lesão descrita; reps/RIR escolhidos pela IA conforme protocolo.
   const recoveryNote = isInjuryRecovery ? [
     '',
     'NOTA — RECUPERAÇÃO DE LESÃO:',
@@ -450,49 +432,12 @@ function buildPrompt(a: QuizAnswers, dayLabel: string, dayIdx: number, total: nu
     '',
   ].join('\n') : ''
 
-  // Linha de reps adapta-se ao contexto: bodyweight → AMRAP; lesão → IA define; senão usa a faixa escolhida.
-  const repLine = isBodyweight
-    ? `- Reps: AMRAP até falha técnica próxima (sem repRange fixo — ver GUIA CALISTENIA acima)`
-    : isInjuryRecovery
-      ? `- Reps: 12-20 com cargas leves/moderadas, RIR 3+ (ver NOTA — RECUPERAÇÃO DE LESÃO)`
-      : a.repRange ? `- Faixa de reps: ${a.repRange}` : ''
-
-  // Técnicas só aparecem quando o utilizador realmente escolheu alguma — para iniciantes/bodyweight/lesão são proibidas via guia.
-  const realTechniques = a.techniques.filter(t => t !== 'Nenhuma')
-  const techniquesLine = realTechniques.length > 0 ? `- Técnicas: ${realTechniques.join(', ')}` : ''
-
-  // RIR explícito só quando faz sentido (não bodyweight, não iniciante, não lesão; e o utilizador escolheu valor concreto).
-  const rirLine = (!isBodyweight && !isBeginner && !isInjuryRecovery && a.rirTarget && a.rirTarget !== 'IA decide')
-    ? `- RIR alvo: ${a.rirTarget}` : ''
-
-  // Descanso só quando relevante (bodyweight tem prescrição própria via guia).
-  const restLine = !isBodyweight ? `- Descanso entre séries: ${a.restTime || 'IA decide'}` : ''
-
   return [
     `Cria APENAS o treino "${dayLabel}" (dia ${dayIdx + 1} de ${total} do plano ${split}).`,
     `Não incluas os outros dias. OBRIGATÓRIO: inclui sempre o bloco JSON no final.`,
-    mandatoryLine ? `\n${mandatoryLine}\n` : '',
     bodyweightGuide,
     beginnerNote,
     recoveryNote,
-    `PERFIL:`,
-    `- Frequência: ${a.daysPerWeek} dias/semana | Divisão: ${split}`,
-    `- Nível: ${a.experience} | Faixa etária: ${a.age}`,
-    a.gender ? `- Gênero: ${a.gender}` : '',
-    physical ? `- Físico: ${physical}` : '',
-    `- Fase: ${a.phase} | Objetivo: ${a.goal}`,
-    isBodyweight
-      ? `- Local: ${a.location} (apenas peso corporal — calistenia)`
-      : `- Local: ${a.location}${a.equipment ? ` | Equipamento: ${a.equipment}` : ''}`,
-    `- Duração: ${a.duration} min | Frequência muscular: ${a.muscleFrequency}`,
-    repLine,
-    restLine,
-    techniquesLine,
-    a.exerciseCount && a.exerciseCount !== 'IA decide' ? `- Tamanho do treino: ${a.exerciseCount}` : '',
-    rirLine,
-    a.musclesFocus.length > 0 ? `- Foco muscular (volume EXTRA, não exclusivo): ${a.musclesFocus.join(', ')}` : '',
-    injuryParts ? `- RESTRIÇÕES: ${injuryParts}` : '',
-    a.extraInfo ? `- Pedido extra do utilizador: ${a.extraInfo}` : '',
   ].filter(l => l !== '').join('\n')
 }
 
@@ -906,27 +851,14 @@ export function AIWorkoutPage() {
       const accumulated: WorkoutSection[] = []
       const usedExercises: string[] = []
 
-      // Map quiz values to API schema enums
+      // Mapeamento local → enum aceita pelo schema da API.
       const equipmentMap: Record<string, string> = {
         'Academia completa': 'Academia (completa)',
         'Em casa com equipamentos': 'Casa com equipamentos',
         'Em casa sem equipamentos': 'Sem equipamento',
       }
-      const goalMap: Record<string, string> = {
-        'Hipertrofia': 'Hipertrofia',
-        'Força': 'Força',
-        'Emagrecimento': 'Emagrecimento',
-        'Resistência': 'Resistência',
-      }
-      const muscleGroupMap: Record<string, string> = {
-        'Ombro': 'Ombros', 'Peito': 'Peito', 'Costas': 'Costas',
-        'Bíceps': 'Braços', 'Tríceps': 'Braços',
-        'Quadríceps': 'Quadríceps', 'Posterior de Coxa': 'Posterior de Coxa',
-        'Glúteo': 'Glúteo', 'Panturrilha': '', 'Core': '',
-      }
-      const primaryMuscle = answers.musclesFocus.length > 0
-        ? (muscleGroupMap[answers.musclesFocus[0]] || '')
-        : undefined
+      // techniques no quiz inclui "Nenhuma" como sentinela — removida antes de enviar.
+      const realTechniques = answers.techniques.filter(t => t !== 'Nenhuma')
 
       for (let i = 0; i < labels.length; i++) {
         const label = labels[i]
@@ -938,24 +870,31 @@ export function AIWorkoutPage() {
         const result = await generateAIWorkout(authorizedFetch, {
           prompt: buildPrompt(answers, label, i, labels.length, split),
           dayLabel: label,
-          muscleGroup: primaryMuscle || undefined,
-          level: answers.experience || undefined,
-          durationMin: answers.duration || undefined,
-          goal: goalMap[answers.goal] || undefined,
           weekDays: answers.daysPerWeek || undefined,
           split: split || undefined,
-          equipment: equipmentMap[answers.location] || undefined,
-          advancedTechniques: answers.techniques.some(t => t !== 'Nenhuma') || undefined,
+          muscleFrequency: answers.muscleFrequency || undefined,
+          level: answers.experience || undefined,
+          age: answers.age || undefined,
           gender: answers.gender || undefined,
-          usedExercises: usedExercises.length > 0 ? usedExercises.slice(-80) : undefined,
           heightCm: Number.isFinite(heightNum) && heightNum >= 100 && heightNum <= 250 ? heightNum : undefined,
           weightKg: Number.isFinite(weightNum) && weightNum >= 30 && weightNum <= 300 ? weightNum : undefined,
+          phase: answers.phase || undefined,
+          goal: answers.goal || undefined,
+          equipment: equipmentMap[answers.location] || undefined,
+          equipmentPreference: answers.equipment || undefined,
+          durationMin: answers.duration || undefined,
           exerciseCount: answers.exerciseCount || undefined,
+          repRange: answers.repRange || undefined,
+          restTime: answers.restTime || undefined,
           rirTarget: answers.rirTarget || undefined,
+          techniques: realTechniques.length > 0 ? realTechniques : undefined,
+          musclesFocus: answers.musclesFocus.length > 0 ? answers.musclesFocus : undefined,
           injuries: [
             answers.hasInjury && answers.injuryDescription ? `Lesão: ${answers.injuryDescription}` : '',
             answers.avoidExercises ? `Evitar: ${answers.avoidExercises}` : '',
           ].filter(Boolean).join('. ') || undefined,
+          usedExercises: usedExercises.length > 0 ? usedExercises.slice(-80) : undefined,
+          extraInfo: answers.extraInfo || undefined,
         })
 
         const section = result.sections[0]
@@ -1018,23 +957,14 @@ export function AIWorkoutPage() {
     const label = labels[index]
     if (!label) return
 
-    const muscleGroupMap: Record<string, string> = {
-      'Ombro': 'Ombros', 'Peito': 'Peito', 'Costas': 'Costas',
-      'Bíceps': 'Braços', 'Tríceps': 'Braços',
-      'Quadríceps': 'Quadríceps', 'Posterior de Coxa': 'Posterior de Coxa',
-      'Glúteo': 'Glúteo', 'Panturrilha': '', 'Core': '',
-    }
     const equipmentMap: Record<string, string> = {
       'Academia completa': 'Academia (completa)',
       'Em casa com equipamentos': 'Casa com equipamentos',
       'Em casa sem equipamentos': 'Sem equipamento',
     }
-    const goalMap: Record<string, string> = {
-      'Hipertrofia': 'Hipertrofia', 'Força': 'Força', 'Emagrecimento': 'Emagrecimento', 'Resistência': 'Resistência',
-    }
-    const primaryMuscle = answers.musclesFocus.length > 0 ? (muscleGroupMap[answers.musclesFocus[0]] || '') : undefined
+    const realTechniques = answers.techniques.filter(t => t !== 'Nenhuma')
 
-    // Used exercises = all current sections except this one
+    // Used exercises = todos os exercícios das outras seções (variação entre dias)
     const used: string[] = []
     sections.forEach((s, i) => {
       if (i === index || !s.workoutData) return
@@ -1049,24 +979,31 @@ export function AIWorkoutPage() {
       const result = await generateAIWorkout(authorizedFetch, {
         prompt: buildPrompt(answers, label, index, labels.length, split),
         dayLabel: label,
-        muscleGroup: primaryMuscle || undefined,
-        level: answers.experience || undefined,
-        durationMin: answers.duration || undefined,
-        goal: goalMap[answers.goal] || undefined,
         weekDays: answers.daysPerWeek || undefined,
         split: split || undefined,
-        equipment: equipmentMap[answers.location] || undefined,
-        advancedTechniques: answers.techniques.some(t => t !== 'Nenhuma') || undefined,
+        muscleFrequency: answers.muscleFrequency || undefined,
+        level: answers.experience || undefined,
+        age: answers.age || undefined,
         gender: answers.gender || undefined,
-        usedExercises: used.length > 0 ? used.slice(-80) : undefined,
         heightCm: Number.isFinite(heightNum) && heightNum >= 100 && heightNum <= 250 ? heightNum : undefined,
         weightKg: Number.isFinite(weightNum) && weightNum >= 30 && weightNum <= 300 ? weightNum : undefined,
+        phase: answers.phase || undefined,
+        goal: answers.goal || undefined,
+        equipment: equipmentMap[answers.location] || undefined,
+        equipmentPreference: answers.equipment || undefined,
+        durationMin: answers.duration || undefined,
         exerciseCount: answers.exerciseCount || undefined,
+        repRange: answers.repRange || undefined,
+        restTime: answers.restTime || undefined,
         rirTarget: answers.rirTarget || undefined,
+        techniques: realTechniques.length > 0 ? realTechniques : undefined,
+        musclesFocus: answers.musclesFocus.length > 0 ? answers.musclesFocus : undefined,
         injuries: [
           answers.hasInjury && answers.injuryDescription ? `Lesão: ${answers.injuryDescription}` : '',
           answers.avoidExercises ? `Evitar: ${answers.avoidExercises}` : '',
         ].filter(Boolean).join('. ') || undefined,
+        usedExercises: used.length > 0 ? used.slice(-80) : undefined,
+        extraInfo: answers.extraInfo || undefined,
       })
       const newSection = result.sections[0]
       if (newSection) {

@@ -279,7 +279,7 @@ NUNCA repete o mesmo exercício entre sessões A/B/C — mas SEMPRE cobre todos 
 <volume>
 LIMITE MÁX POR MÚSCULO POR SESSÃO: Full Body 5 · Upper/Lower 7 · PPL 10 · Bro Split 14.
 ALVO: COSTAS/QUADRÍCEPS/GLÚTEO 4-5 séries (2-3 ex). PANTURRILHA/POSTERIOR 2-3 séries (1-2 ex). Outros 3 séries (1-2 ex).
-FOCO MUSCULAR DO USUÁRIO: adiciona 1-2 ex extra ao músculo de foco (volume EXTRA — não substitui obrigatórios).
+FOCO MUSCULAR DO USUÁRIO (campo "Foco muscular" do <perfil_usuario> — pode ser LISTA de até 3): adiciona 1-2 ex extra para CADA músculo da lista (volume EXTRA — não substitui obrigatórios). Se o foco contiver músculos do dia atual, todos recebem o boost; se contiver músculos de outros dias, ignora para este dia específico.
 </volume>
 
 <pedido_extra>
@@ -296,9 +296,9 @@ Limite de séries por exercício de alto SNC (Levantamento terra convencional/su
 </exercicios_snc>
 
 <reps_descanso>
-REPS: usa SEMPRE a faixa do perfil. COMPOSTO: faixa exata. ISOLADO: desloca +2 reps (ex: 5–9 → 7–11; 8–10 → 10–12), exceto se a faixa ≥12 (mantém).
-DESCANSO: usa SEMPRE o tempo do perfil. Conversão: 30s→30, 45s→45, 1min→60, 1min30s→90, 2min→120, 2min30s→150, 3min→180. Se "IA decide": força (≤6 reps)→180s, hipertrofia (7-12)→120s, resistência (≥13)→60s.
-TÉCNICAS AVANÇADAS (drop set, cluster, rest-pause, bi-set): SÓ se o usuário pedir explicitamente.
+REPS: usa SEMPRE a faixa do perfil (campo "Faixa de reps preferida"). COMPOSTO: faixa exata. ISOLADO: desloca +2 reps (ex: 5–9 → 7–11; 8–10 → 10–12), exceto se a faixa ≥12 (mantém).
+DESCANSO: usa SEMPRE o tempo do perfil (campo "Descanso entre séries"). Conversão: 30s→30, 45s→45, 1min→60, 1min30s→90, 2min→120, 2min30s→150, 3min→180. Se "IA decide": força (≤6 reps)→180s, hipertrofia (7-12)→120s, resistência (≥13)→60s.
+TÉCNICAS AVANÇADAS: usa APENAS as técnicas que aparecem no campo "Técnicas avançadas autorizadas". Se o campo não estiver presente ou estiver vazio, NÃO inventes técnicas avançadas. NUNCA misturas técnicas que não foram pedidas (ex: se autorizado só Drop Set, NÃO incluas Cluster).
 NOTES: cue técnico curto (≤60 chars) em 3-5 exercícios chave por dia (compostos pesados ou primeiro ex do grupo). Demais ex: notes=null.
 </reps_descanso>
 
@@ -393,18 +393,46 @@ Usa o exemplo correspondente à divisão pedida como referência de estrutura �
 // User message — lista de exercícios + perfil + tarefa.
 // Posta DEPOIS do system prompt para maximizar cache hits no prefixo.
 // ───────────────────────────────────────────────────────────────────────────────
+// Constrói a mensagem user_message com TODOS os campos estruturados num único
+// <perfil_usuario>. Sem duplicação com a <tarefa> — cada resposta do quiz tem
+// um lugar único e claro pra IA consumir.
 function buildUserMessage(payload: GenerateWorkoutBody, exerciseListFormatted: string): string {
   const params: string[] = [];
-  if (payload.weekDays) params.push(`Frequência: ${payload.weekDays} dias/semana`);
-  if (payload.split) params.push(`Divisão: ${payload.split}`);
-  if (payload.muscleGroup) params.push(`Foco muscular: ${payload.muscleGroup}`);
-  if (payload.level) params.push(`Nível: ${payload.level}`);
+
+  // ─── Estrutura do plano ────────────────────────────────────────────────
+  if (payload.weekDays) params.push(`Frequência semanal: ${payload.weekDays} dias/semana`);
+  if (payload.split) params.push(`Divisão escolhida: ${payload.split}`);
+  if (payload.muscleFrequency && payload.muscleFrequency !== "IA decide") {
+    params.push(`Frequência por músculo: ${payload.muscleFrequency}`);
+  }
+
+  // ─── Perfil demográfico ────────────────────────────────────────────────
+  if (payload.level) params.push(`Nível de experiência: ${payload.level}`);
+  if (payload.age) params.push(`Faixa etária: ${payload.age}`);
   if (payload.gender) params.push(`Gênero: ${payload.gender}`);
   if (payload.heightCm) params.push(`Altura: ${payload.heightCm}cm`);
   if (payload.weightKg) params.push(`Peso: ${payload.weightKg}kg`);
-  if (payload.goal) params.push(`Objetivo: ${payload.goal}`);
-  if (payload.durationMin) params.push(`Duração disponível: ${payload.durationMin}min`);
-  if (payload.equipment) params.push(`Equipamento: ${payload.equipment}`);
+
+  // ─── Periodização ──────────────────────────────────────────────────────
+  if (payload.phase) params.push(`Fase atual: ${payload.phase}`);
+  if (payload.goal) params.push(`Objetivo principal: ${payload.goal}`);
+
+  // ─── Local e equipamento ───────────────────────────────────────────────
+  if (payload.equipment) params.push(`Local de treino: ${payload.equipment}`);
+  if (payload.equipmentPreference) {
+    // Só faz sentido em academia/casa COM equipamentos. Em "Sem equipamento"
+    // (bodyweight), preferência por máquinas/pesos livres é irrelevante.
+    const hint =
+      payload.equipmentPreference === "Pesos livres"
+        ? "priorizar halteres/barras/cabos sobre máquinas guiadas"
+        : payload.equipmentPreference === "Máquinas"
+          ? "priorizar máquinas guiadas sobre pesos livres"
+          : "combinar pesos livres e máquinas conforme o exercício";
+    params.push(`Preferência de equipamento: ${payload.equipmentPreference} (${hint})`);
+  }
+
+  // ─── Estrutura da sessão ───────────────────────────────────────────────
+  if (payload.durationMin) params.push(`Duração disponível: ${payload.durationMin} minutos`);
   if (payload.exerciseCount && payload.exerciseCount !== "IA decide") {
     const hint =
       payload.exerciseCount === "Curto"
@@ -413,6 +441,16 @@ function buildUserMessage(payload: GenerateWorkoutBody, exerciseListFormatted: s
           ? "6-7 exercícios"
           : "8-10 exercícios";
     params.push(`Tamanho desejado: ${payload.exerciseCount} (${hint}) — respeita cobertura obrigatória mesmo assim`);
+  }
+
+  // ─── Prescrição ────────────────────────────────────────────────────────
+  if (payload.repRange) params.push(`Faixa de reps preferida: ${payload.repRange}`);
+  if (payload.restTime) {
+    params.push(
+      payload.restTime === "IA decide"
+        ? `Descanso entre séries: IA decide (usar regra do prompt)`
+        : `Descanso entre séries: ${payload.restTime}`
+    );
   }
   if (payload.rirTarget && payload.rirTarget !== "IA decide") {
     const hint =
@@ -423,8 +461,27 @@ function buildUserMessage(payload: GenerateWorkoutBody, exerciseListFormatted: s
           : "3+ reps na reserva, foco em técnica";
     params.push(`RIR alvo: ${payload.rirTarget} (${hint})`);
   }
-  if (payload.advancedTechniques) params.push("Técnicas avançadas: incluir Drop Set/Cluster Set quando adequado");
+  if (payload.techniques && payload.techniques.length > 0) {
+    // Lista EXATA do que o usuário pediu — não inventar técnicas adicionais
+    // ("Drop Set e/ou Cluster" era genérico demais e induzia a IA a incluir
+    // técnicas que o usuário não escolheu).
+    params.push(`Técnicas avançadas autorizadas: ${payload.techniques.join(", ")} (use APENAS estas, não inventes outras)`);
+  }
+
+  // ─── Foco e restrições ─────────────────────────────────────────────────
+  if (payload.musclesFocus && payload.musclesFocus.length > 0) {
+    // Lista completa — antes só o primeiro ia estruturado, agora todos.
+    // Cada músculo na lista recebe volume EXTRA, sem substituir cobertura.
+    params.push(`Foco muscular (volume EXTRA em CADA um): ${payload.musclesFocus.join(", ")}`);
+  }
   if (payload.injuries) params.push(`Lesões/restrições: ${payload.injuries}`);
+
+  // ─── Pedido específico em texto livre ──────────────────────────────────
+  // Label "Pedido extra" casa com o <pedido_extra> do system prompt que
+  // explica como interpretar (substituição vs adição).
+  if (payload.extraInfo) {
+    params.push(`Pedido extra: "${payload.extraInfo}"`);
+  }
 
   let msg = `<exercicios_disponiveis>\nUsa APENAS estes (nomes EXATOS):\n${exerciseListFormatted}\n</exercicios_disponiveis>\n\n`;
 
