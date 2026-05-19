@@ -508,7 +508,15 @@ function validateWorkout(
   splitKey: string | null,
   exerciseNameToMuscle: Map<string, string>,
   allowedNamesLower: Map<string, string>, // lower → canonical
-  maxSetsPerMuscle: number
+  maxSetsPerMuscle: number,
+  // Mapa do músculo SECUNDÁRIO por exercício. Em bodyweight (treino sem
+  // equipamento), bíceps/tríceps quase não têm isoladores próprios — são
+  // trabalhados via remada supinada/barra fixa (BACK + sec BICEPS) e via
+  // flexões/dips (CHEST + sec TRICEPS). Quando isBodyweight=true, o
+  // validador aceita o secundário como cobertura — caso contrário, o
+  // aviso "Faltam: Bíceps" seria sempre falso positivo em calistenia.
+  exerciseNameToSecondaryMuscle: Map<string, string>,
+  isBodyweight: boolean
 ): string[] {
   const violations: string[] = [];
 
@@ -534,8 +542,15 @@ function validateWorkout(
     const required = REQUIRED_GROUPS_BY_SPLIT_KEY[splitKey];
     const covered = new Set<string>();
     for (const ex of workout.exercises) {
-      const m = exerciseNameToMuscle.get(ex.name.toLowerCase());
-      if (m) covered.add(m);
+      const key = ex.name.toLowerCase();
+      const primary = exerciseNameToMuscle.get(key);
+      if (primary) covered.add(primary);
+      // Em bodyweight, secundário também conta — única forma realista de
+      // cobrir bíceps/tríceps sem cargas externas.
+      if (isBodyweight) {
+        const secondary = exerciseNameToSecondaryMuscle.get(key);
+        if (secondary) covered.add(secondary);
+      }
     }
     for (const grp of required) {
       if (!covered.has(grp)) {
@@ -549,7 +564,8 @@ function validateWorkout(
     }
   }
 
-  // 4. Volume máximo por músculo.
+  // 4. Volume máximo por músculo (sempre conta pelo primário — secundário
+  // não acumula séries efetivas suficientes pra estourar limite).
   const setsByMuscle = new Map<string, number>();
   for (const ex of workout.exercises) {
     const m = exerciseNameToMuscle.get(ex.name.toLowerCase());
@@ -576,7 +592,8 @@ function validateWorkout(
 // da DB pelo lookup pós-geração.
 function formatWorkoutAsLegacyText(
   workout: AIWorkoutOutput,
-  exerciseNameToMuscle: Map<string, string>
+  exerciseNameToMuscle: Map<string, string>,
+  exerciseNameToSecondaryMuscle: Map<string, string>
 ): string {
   const lines: string[] = [];
   lines.push(`## ${workout.planName}`);
@@ -599,7 +616,9 @@ function formatWorkoutAsLegacyText(
   const payload = {
     planName: workout.planName,
     exercises: workout.exercises.map((ex) => {
-      const muscleGroup = exerciseNameToMuscle.get(ex.name.toLowerCase());
+      const key = ex.name.toLowerCase();
+      const muscleGroup = exerciseNameToMuscle.get(key);
+      const secondaryMuscleGroup = exerciseNameToSecondaryMuscle.get(key);
       return {
         name: ex.name,
         sets: ex.sets,
@@ -608,6 +627,9 @@ function formatWorkoutAsLegacyText(
         restSec: ex.restSec,
         ...(ex.notes !== null && ex.notes !== "" ? { notes: ex.notes } : {}),
         ...(muscleGroup ? { muscleGroup } : {}),
+        // Frontend usa o secundário pra validar cobertura em bodyweight
+        // (ex: bíceps coberto por remada supinada).
+        ...(secondaryMuscleGroup ? { secondaryMuscleGroup } : {}),
       };
     }),
   };
@@ -685,11 +707,19 @@ export async function generateWorkout(payload: GenerateWorkoutBody, userId?: str
 
   // Lookups case-insensitive para validação tolerante (a IA pode capitalizar
   // diferente ocasionalmente — não tratamos isso como violação se o match é claro).
+  // Mantemos mapa SEPARADO para músculo secundário; usado pelo validator em
+  // modo bodyweight (ver doc na assinatura de validateWorkout).
   const exerciseNameToMuscle = new Map<string, string>();
+  const exerciseNameToSecondaryMuscle = new Map<string, string>();
   const allowedNamesLower = new Map<string, string>();
   for (const ex of exercises) {
-    exerciseNameToMuscle.set(ex.name.toLowerCase(), ex.ptLabel);
-    allowedNamesLower.set(ex.name.toLowerCase(), ex.name);
+    const key = ex.name.toLowerCase();
+    exerciseNameToMuscle.set(key, ex.ptLabel);
+    allowedNamesLower.set(key, ex.name);
+    if (ex.secondaryMuscleGroup) {
+      const secLabel = MUSCLE_GROUP_LABELS[ex.secondaryMuscleGroup] ?? ex.secondaryMuscleGroup;
+      exerciseNameToSecondaryMuscle.set(key, secLabel);
+    }
   }
 
   const splitKey = detectSplitKey(payload.dayLabel) ?? detectSplitKeyFromPrompt(payload.prompt);
@@ -699,6 +729,7 @@ export async function generateWorkout(payload: GenerateWorkoutBody, userId?: str
       : splitKey
         ? MAX_SETS_PER_MUSCLE_BY_SPLIT_KEY[splitKey] ?? 10
         : 10;
+  const isBodyweight = payload.equipment === "Sem equipamento";
 
   const userMsg = buildUserMessage(payload, exerciseListFormatted);
 
@@ -707,7 +738,15 @@ export async function generateWorkout(payload: GenerateWorkoutBody, userId?: str
     { role: "user", content: userMsg },
   ]);
 
-  let violations = validateWorkout(workout, splitKey, exerciseNameToMuscle, allowedNamesLower, maxSetsPerMuscle);
+  let violations = validateWorkout(
+    workout,
+    splitKey,
+    exerciseNameToMuscle,
+    allowedNamesLower,
+    maxSetsPerMuscle,
+    exerciseNameToSecondaryMuscle,
+    isBodyweight
+  );
 
   // Auto-retry uma vez se o validador encontrou problemas. Manda o output
   // anterior + lista de violações para a IA se auto-corrigir.
@@ -724,7 +763,15 @@ Gera de novo respeitando TODAS as regras. Lista vazia em selfCritique.violations
       { role: "user", content: retryMsg },
     ]);
 
-    violations = validateWorkout(workout, splitKey, exerciseNameToMuscle, allowedNamesLower, maxSetsPerMuscle);
+    violations = validateWorkout(
+      workout,
+      splitKey,
+      exerciseNameToMuscle,
+      allowedNamesLower,
+      maxSetsPerMuscle,
+      exerciseNameToSecondaryMuscle,
+      isBodyweight
+    );
   }
 
   // Mesmo após retry pode sobrar alguma violação — preserva a lista autoritativa
@@ -741,7 +788,7 @@ Gera de novo respeitando TODAS as regras. Lista vazia em selfCritique.violations
     return canonical ? { ...ex, name: canonical } : ex;
   });
 
-  return formatWorkoutAsLegacyText(workout, exerciseNameToMuscle);
+  return formatWorkoutAsLegacyText(workout, exerciseNameToMuscle, exerciseNameToSecondaryMuscle);
 }
 
 type SavedExercise = {

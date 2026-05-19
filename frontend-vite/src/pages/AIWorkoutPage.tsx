@@ -327,13 +327,26 @@ function getRequiredGroups(dayLabel: string): string[] {
   return key ? REQUIRED_BY_SPLIT_KEY[key] : []
 }
 
-function getMissingGroups(exercises: { name: string; muscleGroup?: string }[], dayLabel: string): string[] {
+// Em bodyweight, bíceps/tríceps quase só são treinados como secundário
+// (remada supinada → bíceps; flexão/dip → tríceps). Sem essa concessão,
+// o aviso "Faltam: Bíceps" seria falso positivo em todo Pull de calistenia.
+function getMissingGroups(
+  exercises: { name: string; muscleGroup?: string; secondaryMuscleGroup?: string }[],
+  dayLabel: string,
+  isBodyweight: boolean = false,
+): string[] {
   const required = getRequiredGroups(dayLabel)
   if (required.length === 0) return []
   const covered = new Set<string>()
   for (const ex of exercises) {
     const m = resolveMuscleGroup(ex)
     if (m) covered.add(m.label)
+    // Em bodyweight, secundário também conta — única forma realista de
+    // cobrir bíceps/tríceps sem cargas externas.
+    if (isBodyweight && ex.secondaryMuscleGroup) {
+      const secLabel = MUSCLE_BACKEND_TO_FRONTEND[ex.secondaryMuscleGroup] ?? ex.secondaryMuscleGroup
+      covered.add(secLabel)
+    }
   }
   return required.filter(g => !covered.has(g))
 }
@@ -2214,7 +2227,8 @@ export function AIWorkoutPage() {
         const idx = safeActiveIdx
         const wd = activeSection.workoutData
         const dayLabel = wd?.planName ?? `Treino ${idx + 1}`
-        const missing = wd ? getMissingGroups(wd.exercises, dayLabel) : []
+        const isBodyweight = answers.location === 'Em casa sem equipamentos'
+        const missing = wd ? getMissingGroups(wd.exercises, dayLabel, isBodyweight) : []
         const durationMin = wd ? estimateDurationMin(wd.exercises) : null
         const targetMin = answers.duration ? parseInt(answers.duration, 10) : null
         const overTime = targetMin && durationMin ? durationMin > targetMin + 10 : false

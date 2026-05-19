@@ -41,6 +41,10 @@ export type AIExercise = {
   // Disponível desde Fase 1 do refactor IA — Fase 2 fará o frontend
   // preferir este campo em vez de detectMuscleGroup() no nome.
   muscleGroup?: string
+  // Músculo secundário do exercício. Usado pelo getMissingGroups em
+  // bodyweight para aceitar cobertura via secundário (ex: bíceps via
+  // remada supinada quando não há rosca direta possível).
+  secondaryMuscleGroup?: string
 }
 
 export type AIWorkoutData = {
