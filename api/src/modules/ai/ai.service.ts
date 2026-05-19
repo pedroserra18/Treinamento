@@ -46,6 +46,29 @@ const REQUIRED_GROUPS_BY_SPLIT_KEY: Record<string, string[]> = {
   Glúteo: ["GLÚTEO", "POSTERIOR DE COXA"],
 };
 
+// Grupos PROIBIDOS por dia. Se um exercício do dia tem primário num desses
+// grupos, o dia foi "contaminado" com músculos que não pertencem ali. Bug
+// frequente em bodyweight, onde Pull tem poucas opções (4 BACK ex) e a IA
+// preenche slots com PUSH (4 CHEST + 3 SHOULDERS bodyweight). ABDÔMEN/CORE
+// nunca é proibido — pode complementar qualquer split.
+const FORBIDDEN_GROUPS_BY_SPLIT_KEY: Record<string, string[]> = {
+  Push: ["COSTAS", "BÍCEPS", "QUADRÍCEPS", "POSTERIOR DE COXA", "GLÚTEO", "PANTURRILHA"],
+  Pull: ["PEITO", "OMBROS", "TRÍCEPS", "QUADRÍCEPS", "POSTERIOR DE COXA", "GLÚTEO", "PANTURRILHA"],
+  Legs: ["PEITO", "COSTAS", "OMBROS", "BÍCEPS", "TRÍCEPS"],
+  Upper: ["QUADRÍCEPS", "POSTERIOR DE COXA", "GLÚTEO", "PANTURRILHA"],
+  Lower: ["PEITO", "COSTAS", "OMBROS", "BÍCEPS", "TRÍCEPS"],
+  // Bro Split
+  Peito: ["COSTAS", "BÍCEPS", "QUADRÍCEPS", "POSTERIOR DE COXA", "GLÚTEO", "PANTURRILHA"],
+  Costas: ["PEITO", "OMBROS", "TRÍCEPS", "QUADRÍCEPS", "POSTERIOR DE COXA", "GLÚTEO", "PANTURRILHA"],
+  Ombros: ["PEITO", "COSTAS", "BÍCEPS", "TRÍCEPS", "QUADRÍCEPS", "POSTERIOR DE COXA", "GLÚTEO", "PANTURRILHA"],
+  Braços: ["PEITO", "COSTAS", "OMBROS", "QUADRÍCEPS", "POSTERIOR DE COXA", "GLÚTEO", "PANTURRILHA"],
+  Pernas: ["PEITO", "COSTAS", "OMBROS", "BÍCEPS", "TRÍCEPS"],
+  // PPL + Lower Specialization
+  Quadríceps: ["PEITO", "COSTAS", "OMBROS", "BÍCEPS", "TRÍCEPS", "GLÚTEO", "POSTERIOR DE COXA"],
+  Glúteo: ["PEITO", "COSTAS", "OMBROS", "BÍCEPS", "TRÍCEPS", "QUADRÍCEPS"],
+  // Full Body intencionalmente vazio — pode incluir qualquer grupo.
+};
+
 const MIN_EXERCISES_BY_SPLIT_KEY: Record<string, number> = {
   "Full Body": 8,
   Upper: 7,
@@ -249,11 +272,11 @@ Quando regras conflitarem, segue esta ordem decrescente:
 
 <cobertura_por_divisao>
 FULL BODY (mín 8 ex): PEITO · OMBROS · COSTAS · BÍCEPS · TRÍCEPS · QUADRÍCEPS · POSTERIOR DE COXA ou GLÚTEO · PANTURRILHA · ABDÔMEN/CORE.
-UPPER (mín 7): PEITO · OMBROS · COSTAS · BÍCEPS · TRÍCEPS · ABDÔMEN. SEM pernas.
-LOWER (mín 5): QUADRÍCEPS · POSTERIOR DE COXA · GLÚTEO · PANTURRILHA. SEM upper.
-PUSH (mín 6): 2-3 PEITO + 2 OMBROS + 2 TRÍCEPS.
-PULL (mín 5): 3-4 COSTAS + 2 BÍCEPS.
-LEGS (mín 7): 2-3 QUADRÍCEPS + 1-2 POSTERIOR DE COXA + 1-2 GLÚTEO + 1 PANTURRILHA + 1 CORE.
+UPPER (mín 7): PEITO · OMBROS · COSTAS · BÍCEPS · TRÍCEPS · ABDÔMEN. SEM pernas (sem QUADRÍCEPS, POSTERIOR DE COXA, GLÚTEO, PANTURRILHA).
+LOWER (mín 5): QUADRÍCEPS · POSTERIOR DE COXA · GLÚTEO · PANTURRILHA. SEM upper (sem PEITO, COSTAS, OMBROS, BÍCEPS, TRÍCEPS).
+PUSH (mín 6): 2-3 PEITO + 2 OMBROS + 2 TRÍCEPS. PROIBIDO incluir COSTAS, BÍCEPS, PERNAS — escolhe APENAS exercícios cujo grupo primário seja PEITO, OMBROS ou TRÍCEPS. Se faltar opções (ex: bodyweight com poucos compostos), repete categoria/variação em vez de incluir grupo errado. CORE/ABDÔMEN é permitido como complemento.
+PULL (mín 5): 3-4 COSTAS + 2 BÍCEPS. PROIBIDO incluir PEITO, OMBROS, TRÍCEPS, PERNAS — escolhe APENAS exercícios cujo grupo primário seja COSTAS ou BÍCEPS. Se em bodyweight (poucas opções), repete ângulos/pegadas (remada supinada → pronada → neutra) em vez de meter flexões. CORE/ABDÔMEN é permitido como complemento.
+LEGS (mín 7): 2-3 QUADRÍCEPS + 1-2 POSTERIOR DE COXA + 1-2 GLÚTEO + 1 PANTURRILHA + 1 CORE. PROIBIDO incluir PEITO, COSTAS, OMBROS, BÍCEPS, TRÍCEPS.
 
 BRO SPLIT — cada dia tem um músculo principal + um secundário OBRIGATÓRIO (não opcional). Quando o plano não tem dia próprio para Braços, bíceps e tríceps SÃO trabalhados como secundário nos dias Costas e Peito — esta cobertura é tão obrigatória quanto o músculo principal:
 - Dia "Peito" (mín 5 ex): 4-5 ex de PEITO + 1-2 ex de TRÍCEPS (obrigatório).
@@ -561,6 +584,19 @@ function validateWorkout(
     const minCount = MIN_EXERCISES_BY_SPLIT_KEY[splitKey] ?? 5;
     if (workout.exercises.length < minCount) {
       violations.push(`Mínimo de ${minCount} exercícios para ${splitKey} — recebeu ${workout.exercises.length}.`);
+    }
+  }
+
+  // 3b. Grupos proibidos pelo tipo de dia. Catch típico: Pull bodyweight
+  // recebendo flexões/dips porque a IA fica sem opções de costas e preenche
+  // com push. Mesma lógica para Push recebendo remadas, etc.
+  if (splitKey && FORBIDDEN_GROUPS_BY_SPLIT_KEY[splitKey]) {
+    const forbidden = new Set(FORBIDDEN_GROUPS_BY_SPLIT_KEY[splitKey]);
+    for (const ex of workout.exercises) {
+      const primary = exerciseNameToMuscle.get(ex.name.toLowerCase());
+      if (primary && forbidden.has(primary)) {
+        violations.push(`Exercício "${ex.name}" (grupo ${primary}) não pertence a um dia de ${splitKey} — escolhe outro do grupo correto.`);
+      }
     }
   }
 
