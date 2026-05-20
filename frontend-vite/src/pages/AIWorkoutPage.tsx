@@ -876,6 +876,8 @@ export function AIWorkoutPage() {
   // Rótulos resolvidos do plano gerado (especialmente p/ divisão "Outro"
   // interpretada por IA). Guardados para o regenerar usar os MESMOS dias.
   const [resolvedLabels, setResolvedLabels] = useState<string[]>([])
+  // Dias da semana citados pelo usuário (divisão "Outro"). Vazio = auto-espaça.
+  const [resolvedWeekdays, setResolvedWeekdays] = useState<string[]>([])
   // Which day tab is open in the RESULT screen, and which exercise within it.
   // Reset both whenever a new plan is generated (handled in handleGenerate).
   const [activeDayIndex, setActiveDayIndex] = useState(0)
@@ -998,14 +1000,18 @@ export function AIWorkoutPage() {
     try {
       // Divisão "Outro": se o parser local achou só 1 dia mas o texto é uma
       // frase longa (linguagem natural), pede à IA pra interpretar a descrição.
+      let weekdays: string[] = []
       if (split === 'Outro' && labels.length <= 1 && answers.customSplit.trim().length > 20) {
         try {
-          labels = await parseCustomSplitAI(authorizedFetch, answers.customSplit, days)
+          const parsed = await parseCustomSplitAI(authorizedFetch, answers.customSplit, days)
+          labels = parsed.map((d) => d.label)
+          weekdays = parsed.map((d) => d.weekday)
         } catch {
           // Mantém o fallback do parser local se a IA falhar.
         }
       }
       setResolvedLabels(labels)
+      setResolvedWeekdays(weekdays)
 
       const accumulated: WorkoutSection[] = []
       const usedExercises: string[] = []
@@ -2212,7 +2218,11 @@ export function AIWorkoutPage() {
   const idealEndPct = (TARGET_MAX / scaleMax) * 100
   const totalSets = volume.reduce((s, v) => s + v.sets, 0)
   const balanced = volume.filter(v => v.sets >= TARGET_MIN && v.sets <= TARGET_MAX).length
-  const dows = dayOfWeekLabels(sections.length)
+  // Se a divisão "Outro" trouxe os dias da semana citados pelo usuário, usa-os;
+  // senão, auto-espaça (SEG/QUA/SEX...). Cada índice usa o weekday informado
+  // ou cai no auto quando vazio.
+  const autoDows = dayOfWeekLabels(sections.length)
+  const dows = sections.map((_, i) => resolvedWeekdays[i] || autoDows[i] || '')
   const safeActiveIdx = Math.min(activeDayIndex, Math.max(0, sections.length - 1))
   const activeSection = sections[safeActiveIdx]
   const rpeAlvo = rpeFromRir(answers.rirTarget)

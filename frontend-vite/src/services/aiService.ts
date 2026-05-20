@@ -155,25 +155,31 @@ export async function generateAIWorkout(
   return parseAIResponse(payload.text)
 }
 
+export type ParsedSplitDay = { label: string; weekday: string }
+
 // Interpreta uma divisão escrita em linguagem natural (opção "Outro") numa
-// lista de dias. Usado quando o parser local do frontend não dá conta de
-// frase natural (ex: "quero um dia pra tríceps e bíceps, outro pra ombro...").
+// lista de dias (com o dia da semana citado, se houver). Usado quando o
+// parser local do frontend não dá conta de frase natural.
 export async function parseCustomSplitAI(
   authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
   description: string,
   daysPerWeek?: number,
-): Promise<string[]> {
+): Promise<ParsedSplitDay[]> {
   const response = await authorizedFetch(`${API_URL}/ai/parse-split`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ description, daysPerWeek }),
   })
 
-  const payload = await parseJsonSafe<{ days?: string[]; message?: string; error?: string }>(response)
+  const payload = await parseJsonSafe<{ days?: ParsedSplitDay[]; message?: string; error?: string }>(response)
   if (!response.ok) {
     throw new Error(extractApiError(payload, response.status))
   }
-  const days = Array.isArray(payload?.days) ? payload!.days.filter((d) => typeof d === 'string' && d.trim()) : []
+  const days = Array.isArray(payload?.days)
+    ? payload!.days
+        .filter((d): d is ParsedSplitDay => Boolean(d && typeof d.label === 'string' && d.label.trim()))
+        .map((d) => ({ label: d.label.trim(), weekday: typeof d.weekday === 'string' ? d.weekday : '' }))
+    : []
   if (days.length === 0) {
     throw new Error('Não consegui identificar os dias na descrição')
   }

@@ -279,7 +279,7 @@ Quando regras conflitarem, segue esta ordem decrescente:
 - DIA PERSONALIZADO: se o nome do dia na <tarefa> for livre (ex: "Peito e tríceps", "Pernas completo", "Pernas (ênfase glúteo)", "Superior completo"), interpreta-o LITERALMENTE — cobre exatamente os músculos mencionados, com 4-7 exercícios, sem forçar divisão padrão. Convenções:
   • "Superior completo" / "Upper completo" = PEITO + COSTAS + OMBROS + BÍCEPS + TRÍCEPS.
   • "Inferior completo" / "Pernas completo" = QUADRÍCEPS + POSTERIOR DE COXA + GLÚTEO + PANTURRILHA.
-  • "(ênfase em X)" ou "foco em X" = cobre o resto do dia normalmente MAS dá volume EXTRA (2-3 ex a mais) ao músculo X. Ex: "Pernas (ênfase glúteo)" = dia de pernas completo com vários exercícios extra de glúteo.
+  • "(ênfase em X)" ou "foco em X" = X é o músculo DOMINANTE do dia: a MAIORIA dos exercícios é de X (3-4 ex) e os outros músculos do grupo entram com apenas 1 ex cada. Ex: "Pernas (ênfase glúteo)" → 3-4 ex de GLÚTEO + 1 de QUADRÍCEPS + 1 de POSTERIOR DE COXA + 1 de PANTURRILHA (o glúteo domina; não distribui igualmente).
   O nome do dia é a instrução de cobertura.
 </regras_criticas>
 
@@ -930,7 +930,16 @@ const SPLIT_PARSE_SCHEMA = {
     properties: {
       days: {
         type: "array",
-        items: { type: "string" },
+        items: {
+          type: "object",
+          properties: {
+            label: { type: "string" },
+            // Dia da semana abreviado se o usuário citou (SEG/TER/QUA/QUI/SEX/SÁB/DOM); "" se não.
+            weekday: { type: "string" },
+          },
+          required: ["label", "weekday"],
+          additionalProperties: false,
+        },
       },
     },
     required: ["days"],
@@ -938,7 +947,9 @@ const SPLIT_PARSE_SCHEMA = {
   },
 } as const;
 
-export async function parseCustomSplitWithAI(description: string, daysPerWeek: number): Promise<string[]> {
+export type ParsedSplitDay = { label: string; weekday: string };
+
+export async function parseCustomSplitWithAI(description: string, daysPerWeek: number): Promise<ParsedSplitDay[]> {
   const client = getOpenAIClient();
   const model = process.env.OPENAI_MODEL ?? "gpt-4o-2024-11-20";
 
@@ -950,13 +961,14 @@ export async function parseCustomSplitWithAI(description: string, daysPerWeek: n
         content:
           'Você converte uma descrição de divisão de treino (em português, linguagem natural) numa lista ORDENADA de dias. ' +
           'Cada item descreve o foco daquele dia PRESERVANDO os qualificadores que o usuário mencionou (ex: "completo", "ênfase em glúteo", "foco em peito superior"). ' +
-          'MANTÉM: nomes de músculos/regiões E as ênfases/qualificadores. Ex: "Pernas completo", "Pernas (ênfase glúteo)", "Superior completo", "Peito e Tríceps". ' +
-          'REMOVE apenas: dias da semana (segunda, terça, ...), as palavras "dia"/"treino" e numeração. ' +
-          'Se o usuário pedir o mesmo tipo de dia mais de uma vez, REPETE o item na lista (ex: perna na segunda e no sábado = dois itens "Pernas completo"). ' +
+          'Cada item é um objeto {"label","weekday"}. ' +
+          'label: nomes de músculos/regiões E as ênfases/qualificadores que o usuário mencionou (ex: "Pernas completo", "Pernas (ênfase glúteo)", "Superior completo", "Peito e Tríceps"). NÃO inclui dia da semana, "dia"/"treino" nem numeração no label. ' +
+          'weekday: o dia da semana ABREVIADO que o usuário citou para esse treino, um de SEG/TER/QUA/QUI/SEX/SÁB/DOM. Se o usuário não citou dia da semana, usa "". ' +
+          'Se o usuário pedir o mesmo tipo de treino em dias diferentes, cria um item para CADA dia, na ordem cronológica da semana (SEG→DOM). ' +
           'NÃO inventes dias que o usuário não pediu. ' +
-          'Exemplos: "segunda e sábado perna completa, terça e sexta superior completo, quarta perna com ênfase em glúteo" → ' +
-          '["Pernas completo", "Superior completo", "Pernas (ênfase glúteo)", "Superior completo", "Pernas completo"]. ' +
-          'Responde SOMENTE com o JSON no formato {"days": [...]} na ordem descrita.',
+          'Exemplo: "segunda e sábado perna completa, terça e sexta superior completo, quarta perna com ênfase em glúteo" → ' +
+          '{"days":[{"label":"Pernas completo","weekday":"SEG"},{"label":"Superior completo","weekday":"TER"},{"label":"Pernas (ênfase glúteo)","weekday":"QUA"},{"label":"Superior completo","weekday":"SEX"},{"label":"Pernas completo","weekday":"SÁB"}]}. ' +
+          'Responde SOMENTE com o JSON no formato {"days":[...]} na ordem cronológica da semana.',
       },
       {
         role: "user",
@@ -986,11 +998,18 @@ export async function parseCustomSplitWithAI(description: string, daysPerWeek: n
     });
   }
 
-  const days = Array.isArray(parsed.days)
+  const VALID_DOW = new Set(["SEG", "TER", "QUA", "QUI", "SEX", "SÁB", "DOM"]);
+  const days: ParsedSplitDay[] = Array.isArray(parsed.days)
     ? parsed.days
-        .filter((d): d is string => typeof d === "string")
-        .map((d) => d.trim())
-        .filter(Boolean)
+        .map((d): ParsedSplitDay | null => {
+          if (!d || typeof d !== "object") return null;
+          const obj = d as Record<string, unknown>;
+          const label = typeof obj.label === "string" ? obj.label.trim() : "";
+          if (!label) return null;
+          const wkRaw = typeof obj.weekday === "string" ? obj.weekday.trim().toUpperCase() : "";
+          return { label, weekday: VALID_DOW.has(wkRaw) ? wkRaw : "" };
+        })
+        .filter((d): d is ParsedSplitDay => d !== null)
         .slice(0, 7)
     : [];
 
