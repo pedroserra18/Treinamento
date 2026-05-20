@@ -64,8 +64,8 @@ function buildInitialBlocks(h: SessionHighlights): Block[] {
       value: `${r.exerciseName} ${r.weightKg}kg`,
       enabled: true,
       isRecord: true,
-      // Nome em 1 linha (cortado p/ caber em coluna estreita) + peso em 1 linha.
-      recordName: truncateName(r.exerciseName, 14),
+      // Nome COMPLETO (sem corte) — o auto-ajuste de tamanho garante que cabe.
+      recordName: r.exerciseName,
       recordWeight: `${r.weightKg}kg`,
       toggleLabel: truncateName(r.exerciseName, 14),
     })
@@ -96,6 +96,9 @@ export function WorkoutShareEditor({
   const [groupX, setGroupX] = useState(50)
   const [groupY, setGroupY] = useState(48)
   const [groupScale, setGroupScale] = useState(1)
+  // Escala máxima que ainda cabe na imagem (calculada dinamicamente).
+  const [maxScale, setMaxScale] = useState(1.6)
+  const autoFitRef = useRef(false)
 
   const previewRef = useRef<HTMLDivElement>(null)
   const groupRef = useRef<HTMLDivElement>(null)
@@ -129,10 +132,34 @@ export function WorkoutShareEditor({
     setGroupY(y)
   }, [clampPosition])
 
-  // Re-clampa quando o tamanho ou os blocos mudam (escala/toggle podem fazer o
-  // grupo crescer e ultrapassar a borda). clampPosition é idempotente, então
-  // não há loop.
+  // Calcula a escala máxima que cabe na imagem + re-clampa posição. Faz
+  // auto-fit do tamanho inicial (começa no tamanho que cabe tudo, sem corte).
   useLayoutEffect(() => {
+    const el = previewRef.current
+    const g = groupRef.current
+    if (!el || !g) return
+
+    const cw = el.clientWidth
+    const ch = el.clientHeight
+    const rect = g.getBoundingClientRect()
+    // Tamanho "natural" (escala 1) é invariante: rect já tem a escala aplicada.
+    const naturalW = rect.width / groupScale
+    const naturalH = rect.height / groupScale
+    if (naturalW > 0 && naturalH > 0) {
+      const fit = Math.min((cw * 0.96) / naturalW, (ch * 0.96) / naturalH)
+      const cappedMax = Math.max(0.4, Math.min(2.2, fit))
+      setMaxScale(cappedMax)
+
+      // Auto-fit uma vez ao abrir: começa no tamanho que cabe tudo.
+      if (!autoFitRef.current) {
+        autoFitRef.current = true
+        setGroupScale(cappedMax)
+      } else if (groupScale > cappedMax) {
+        // Nunca deixa passar do limite da imagem.
+        setGroupScale(cappedMax)
+      }
+    }
+
     const { x, y } = clampPosition(groupX, groupY)
     if (x !== groupX) setGroupX(x)
     if (y !== groupY) setGroupY(y)
@@ -306,7 +333,7 @@ export function WorkoutShareEditor({
                   block.isRecord ? (
                     <div key={block.id} className="text-center" style={{ width: 94 }}>
                       <div style={{ fontSize: 11, fontWeight: 600, opacity: 0.92, lineHeight: 1.1 }}>{block.label}</div>
-                      <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.12, marginTop: 2, whiteSpace: 'nowrap' }}>{block.recordName}</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.12, marginTop: 2 }}>{block.recordName}</div>
                       <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.1 }}>{block.recordWeight}</div>
                     </div>
                   ) : (
@@ -350,10 +377,10 @@ export function WorkoutShareEditor({
             <input
               type="range"
               min={0.35}
-              max={1.8}
+              max={maxScale}
               step={0.05}
-              value={groupScale}
-              onChange={(e) => setGroupScale(parseFloat(e.target.value))}
+              value={Math.min(groupScale, maxScale)}
+              onChange={(e) => setGroupScale(Math.min(parseFloat(e.target.value), maxScale))}
               className="w-full accent-[var(--brand)]"
             />
           </div>
