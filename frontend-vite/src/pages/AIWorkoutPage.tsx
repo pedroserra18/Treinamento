@@ -171,6 +171,26 @@ function getVisibleSteps(a: QuizAnswers): number[] {
   return ALL_STEP_IDS.filter(s => isStepVisible(s, a))
 }
 
+// Próximo/anterior step visível calculado pela ORDEM em ALL_STEP_IDS — robusto
+// ao caso em que a própria resposta torna o step atual invisível (ex: ao
+// preencher a data de nascimento o step 2 deixa de ser visível, então
+// visible.indexOf(step) daria -1 e a navegação pularia direto pro fim).
+function nextVisibleStep(currentStep: number, a: QuizAnswers): number | null {
+  const start = ALL_STEP_IDS.indexOf(currentStep)
+  for (let i = start + 1; i < ALL_STEP_IDS.length; i++) {
+    if (isStepVisible(ALL_STEP_IDS[i], a)) return ALL_STEP_IDS[i]
+  }
+  return null
+}
+
+function prevVisibleStep(currentStep: number, a: QuizAnswers): number | null {
+  const start = ALL_STEP_IDS.indexOf(currentStep)
+  for (let i = start - 1; i >= 0; i--) {
+    if (isStepVisible(ALL_STEP_IDS[i], a)) return ALL_STEP_IDS[i]
+  }
+  return null
+}
+
 // Quando uma resposta torna outras irrelevantes, limpamos os campos dependentes para não levar lixo ao prompt.
 function clearStaleAnswers(next: QuizAnswers, key: keyof QuizAnswers, value: string): QuizAnswers {
   if (key === 'location') {
@@ -970,10 +990,9 @@ export function AIWorkoutPage() {
   const advanceStep = useCallback(() => {
     setDirection(1)
     if (isEditMode) { setAppScreen('REVIEW'); return }
-    const visible = getVisibleSteps(answers)
-    const idx = visible.indexOf(step)
-    if (idx >= 0 && idx < visible.length - 1) {
-      setStep(visible[idx + 1])
+    const next = nextVisibleStep(step, answers)
+    if (next != null) {
+      setStep(next)
     } else {
       setAppScreen('REVIEW')
     }
@@ -982,10 +1001,9 @@ export function AIWorkoutPage() {
   const goBack = useCallback(() => {
     setDirection(-1)
     if (isEditMode) { setAppScreen('REVIEW'); return }
-    const visible = getVisibleSteps(answers)
-    const idx = visible.indexOf(step)
-    if (idx > 0) {
-      setStep(visible[idx - 1])
+    const prev = prevVisibleStep(step, answers)
+    if (prev != null) {
+      setStep(prev)
     } else {
       setAppScreen('WELCOME')
     }
@@ -1004,10 +1022,9 @@ export function AIWorkoutPage() {
     }
 
     setTimeout(() => {
-      const visible = getVisibleSteps(nextAnswers)
-      const idx = visible.indexOf(step)
-      if (idx >= 0 && idx < visible.length - 1) {
-        setStep(visible[idx + 1])
+      const next = nextVisibleStep(step, nextAnswers)
+      if (next != null) {
+        setStep(next)
       } else {
         setAppScreen('REVIEW')
       }
