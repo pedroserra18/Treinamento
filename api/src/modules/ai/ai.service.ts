@@ -268,6 +268,7 @@ Quando regras conflitarem, segue esta ordem decrescente:
 - Se receberes <exercicios_ja_usados>, evita esses nomes mas mantém TODOS os grupos obrigatórios cobertos (usa outro exercício do mesmo grupo).
 - O array final de "exercises" deve refletir a versão CORRIGIDA — nunca devolves um array com violações que tu próprio detetaste.
 - A SECÇÃO em que o exercício aparece em <exercicios_disponiveis> define o seu grupo muscular para efeitos de cobertura. Mesmo que o NOME sugira outro grupo (ex: "agachamento" parece quad mas pode estar listado em GLÚTEO), a SECÇÃO é autoritativa. Para cobrir QUADRÍCEPS, escolhe um exercício listado em QUADRÍCEPS — não um listado em GLÚTEO mesmo que o nome contenha "agachamento".
+- DIA PERSONALIZADO: se o nome do dia na <tarefa> for livre (ex: "Peito e tríceps", "Treino de braço", "Pernas foco glúteo"), interpreta-o LITERALMENTE — cobre exatamente os músculos mencionados no nome, com 4-7 exercícios, sem forçar uma divisão padrão (Push/Pull/Legs etc.). O nome do dia é a instrução de cobertura.
 </regras_criticas>
 
 <selecao_por_equipamento>
@@ -358,6 +359,21 @@ INICIANTE (<1 ano): sem técnicas avançadas, RIR 2-4, máquinas guiadas preferi
 LESÃO/RECUPERAÇÃO: 12-20 reps leves, RIR 3+ sem falha, sem técnicas avançadas, exclui exercícios que toquem a região lesionada.
 BODYWEIGHT (sem equipamento): AMRAP até falha técnica próxima. Progressões corporais. Descanso 30-90s. Sem cargas, sem técnicas avançadas.
 </contexto_especial>
+
+<protocolos_lesao>
+Quando o campo "Lesões/restrições" do <perfil_usuario> mencionar uma lesão, aplica o protocolo correspondente. É PROIBIDO incluir exercício contraindicado pela lesão, mesmo que seja obrigatório para cobertura — nesse caso substitui por uma alternativa segura do MESMO grupo.
+
+JOELHO — LCA (ligamento cruzado anterior) e/ou MENISCO:
+- EVITAR (contraindicado): agachamento profundo (abaixo de 90° de flexão), cadeira extensora com carga pesada em amplitude final (cadeia aberta nos últimos 30°), QUALQUER exercício com salto/pliometria (agachamento com salto pliométrico, afundo com salto), movimentos com rotação/pivô do joelho sob carga, afundo búlgaro em amplitude profunda, agachamento pistola, hack squat e leg press em amplitude profunda.
+- PREFERIR (seguro): cadeia fechada com amplitude CONTROLADA até ~90° (leg press com ROM parcial, agachamento até paralela ou box squat, agachamento no Smith controlado), cadeira extensora LEVE com reps altas (12-15) só se amplitude parcial, ÊNFASE em POSTERIOR DE COXA e GLÚTEO (isquiotibiais e glúteos estabilizam e protegem o joelho): mesa flexora, stiff leve, levantamento terra romeno leve, ponte/elevação pélvica de glúteo, abdução de quadril, cadeira/mesa flexora. Tempo controlado, sem falha.
+- MENISCO especificamente: evita flexão profunda COMBINADA com rotação e qualquer torção sob carga.
+- LCA especificamente: evita extensão de joelho de cadeira aberta com carga pesada na amplitude terminal; prioriza fortalecimento de isquiotibiais/glúteos e cadeia fechada controlada.
+- Em AMBAS (LCA + menisco): combina as duas listas — sê ainda mais conservador, amplitude parcial, cargas leves/moderadas, foco em controle e posterior/glúteo.
+
+OMBRO (manguito rotador, impacto): evita desenvolvimento militar atrás da nuca, elevação lateral acima de 90° com carga pesada, supino com pegada muito aberta. Prefere desenvolvimento neutro/halteres, face pull, elevação lateral parcial, rotação externa leve.
+
+LOMBAR (hérnia, dor lombar): evita levantamento terra convencional pesado, agachamento livre pesado, good morning, remada curvada com barra livre. Prefere variações apoiadas (leg press, cadeira, remada apoiada no peito, hip thrust com controle), core anti-extensão (prancha).
+</protocolos_lesao>
 
 <aquecimento>
 Inclui sempre nas "observations" 1 dica sobre 2 séries de aproximação no primeiro composto pesado do dia (50% e 75% da carga de trabalho).
@@ -801,7 +817,15 @@ export async function generateWorkout(payload: GenerateWorkoutBody, userId?: str
     }
   }
 
-  const splitKey = detectSplitKey(payload.dayLabel) ?? detectSplitKeyFromPrompt(payload.prompt);
+  // Divisão "Outro" (escrita livre pelo usuário) → splitKey null: a IA
+  // interpreta o dayLabel literalmente (ex: "Peito e tríceps") e o validador
+  // pula as checagens de cobertura/grupos-proibidos (não há divisão padrão
+  // pra comparar). Demais checagens (nomes, duplicatas, bodyweight, volume)
+  // continuam ativas.
+  const splitKey =
+    payload.split === "Outro"
+      ? null
+      : detectSplitKey(payload.dayLabel) ?? detectSplitKeyFromPrompt(payload.prompt);
   const maxSetsPerMuscle =
     payload.split === "Bro Split"
       ? MAX_SETS_PER_MUSCLE_BY_SPLIT_KEY["Bro Split"]

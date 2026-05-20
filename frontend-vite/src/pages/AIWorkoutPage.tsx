@@ -24,6 +24,7 @@ type QuizAnswers = {
   equipment: string
   duration: string
   splitPreference: string
+  customSplit: string
   muscleFrequency: string
   repRange: string
   restTime: string
@@ -99,6 +100,7 @@ const DEFAULT_ANSWERS: QuizAnswers = {
   equipment: '',
   duration: '',
   splitPreference: '',
+  customSplit: '',
   muscleFrequency: '',
   repRange: '',
   restTime: '',
@@ -275,6 +277,19 @@ function hasLowerBodyFocus(musclesFocus: string[]): boolean {
   return musclesFocus.some((m) => m === 'Quadríceps' || m === 'Glúteo' || m === 'Posterior de Coxa')
 }
 
+// Quebra o texto livre da divisão "Outro" em rótulos de dia (um por linha,
+// ou separados por "/" ou ";"). Cada rótulo vira um dayLabel que a IA
+// interpreta literalmente. Cap em 7 dias.
+function parseCustomSplit(text: string, fallbackDays: number): string[] {
+  const lines = text
+    .split(/[\n;/]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, 7)
+  if (lines.length > 0) return lines
+  return Array.from({ length: Math.max(1, fallbackDays) }, (_, i) => `Treino ${i + 1}`)
+}
+
 function getEffectiveSplit(
   days: number,
   muscleFrequency: string,
@@ -288,6 +303,7 @@ function getEffectiveSplit(
       if (days >= 5) return 'Lower Focus'
       return 'Push/Pull/Legs' // ≤3 dias não dá pra 3 dias de perna distintos
     }
+    // 'Outro' = divisão livre escrita pelo usuário; labels vêm de parseCustomSplit.
     // 'Full Body' | 'Upper/Lower' | 'Push/Pull/Legs' | 'Bro Split' batem
     // diretamente com os nomes que getWorkoutLabels conhece.
     return splitPreference
@@ -322,7 +338,10 @@ function getEffectiveSplit(
   return 'Bro Split'
 }
 
-function getWorkoutLabels(split: string, days: number): string[] {
+function getWorkoutLabels(split: string, days: number, customSplit: string = ''): string[] {
+  if (split === 'Outro') {
+    return parseCustomSplit(customSplit, days)
+  }
   if (split === 'Full Body') {
     if (days <= 1) return ['Full Body']
     return Array.from({ length: days }, (_, i) => `Full Body ${String.fromCharCode(65 + i)}`)
@@ -903,7 +922,7 @@ export function AIWorkoutPage() {
   const handleGenerate = useCallback(async () => {
     const days = parseInt(answers.daysPerWeek, 10) || 4
     const split = getEffectiveSplit(days, answers.muscleFrequency, answers.musclesFocus, answers.splitPreference)
-    const labels = getWorkoutLabels(split, days)
+    const labels = getWorkoutLabels(split, days, answers.customSplit)
 
     setAppScreen('LOADING')
     setLoadingMsgIdx(0)
@@ -1022,7 +1041,7 @@ export function AIWorkoutPage() {
   const handleRegenerateDay = useCallback(async (index: number) => {
     const days = parseInt(answers.daysPerWeek, 10) || 4
     const split = getEffectiveSplit(days, answers.muscleFrequency, answers.musclesFocus, answers.splitPreference)
-    const labels = getWorkoutLabels(split, days)
+    const labels = getWorkoutLabels(split, days, answers.customSplit)
     const label = labels[index]
     if (!label) return
 
@@ -1255,7 +1274,9 @@ export function AIWorkoutPage() {
     const isLastVisibleStep = visibleIdx === totalVisible - 1
 
     // Steps that need explicit Next button (multi-select or text input)
-    const needsNextButton = [12, 13, 14, 15].includes(step) || (step === 18 && answers.hasExtraInfo === true)
+    const needsNextButton = [12, 13, 14, 15].includes(step)
+      || (step === 18 && answers.hasExtraInfo === true)
+      || (step === 19 && answers.splitPreference === 'Outro')
 
     const stepContent = (() => {
       switch (step) {
@@ -1714,7 +1735,7 @@ export function AIWorkoutPage() {
           return (
             <>
               <h2 className="text-xl font-black text-[var(--text)]">Qual divisão de treino você prefere?</h2>
-              <p className="mt-1 text-sm text-[var(--muted)]">Escolha a estrutura ou deixe a IA decidir pelo seu perfil</p>
+              <p className="mt-1 text-sm text-[var(--muted)]">Escolha a estrutura, escreva a sua, ou deixe a IA decidir</p>
               <div className="mt-5 space-y-2">
                 {[
                   ['IA decide', 'A IA escolhe a melhor divisão pelo seu perfil (dias, foco, frequência)'],
@@ -1726,7 +1747,31 @@ export function AIWorkoutPage() {
                 ].map(([val, hint]) => (
                   <OptionCard key={val} label={val} hint={hint} selected={answers.splitPreference === val} onClick={() => selectAndAdvance('splitPreference', val)} />
                 ))}
+                {/* "Outro" não auto-avança — abre textarea pra escrever a divisão. */}
+                <OptionCard
+                  label="Outro (escrever a minha)"
+                  hint="Descreva sua própria divisão — a IA vai entender e gerar"
+                  selected={answers.splitPreference === 'Outro'}
+                  onClick={() => setAnswers(prev => ({ ...prev, splitPreference: 'Outro' }))}
+                />
               </div>
+              {answers.splitPreference === 'Outro' && (
+                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mt-4">
+                  <p className="mb-2 text-xs font-semibold text-[var(--muted)]">
+                    Escreve a divisão — UM DIA POR LINHA (ou separados por "/")
+                  </p>
+                  <textarea
+                    value={answers.customSplit}
+                    onChange={e => setAnswers(prev => ({ ...prev, customSplit: e.target.value }))}
+                    placeholder={'Ex:\nPeito e tríceps\nCostas e bíceps\nPernas (foco glúteo)\nOmbros e abdômen'}
+                    rows={5}
+                    className="w-full resize-none rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--muted)] focus:outline-none focus:border-[var(--brand)]"
+                  />
+                  <p className="mt-1.5 text-[11px] text-[var(--muted)]">
+                    Cada linha vira um treino. A IA cobre os músculos que você escrever em cada dia.
+                  </p>
+                </motion.div>
+              )}
             </>
           )
 
@@ -1816,7 +1861,7 @@ export function AIWorkoutPage() {
   if (appScreen === 'REVIEW') {
     const days = parseInt(answers.daysPerWeek, 10) || 4
     const split = getEffectiveSplit(days, answers.muscleFrequency, answers.musclesFocus, answers.splitPreference)
-    const labels = getWorkoutLabels(split, days)
+    const labels = getWorkoutLabels(split, days, answers.customSplit)
 
     const restrictionsValue = [
       answers.hasInjury && answers.injuryDescription ? `Lesão: ${answers.injuryDescription}` : '',
@@ -1838,7 +1883,7 @@ export function AIWorkoutPage() {
       { label: 'Local', value: answers.location || '—', step: 6 },
       { label: 'Equipamento', value: answers.equipment || '—', step: 7 },
       { label: 'Duração', value: answers.duration ? `${answers.duration} min` : '—', step: 8 },
-      { label: 'Divisão', value: answers.splitPreference || 'IA decide', step: 19 },
+      { label: 'Divisão', value: answers.splitPreference === 'Outro' ? (answers.customSplit.trim() ? `Outro: ${answers.customSplit.split(/[\n;/]+/).map(s => s.trim()).filter(Boolean).join(' / ')}` : 'Outro') : (answers.splitPreference || 'IA decide'), step: 19 },
       { label: 'Freq. muscular', value: answers.muscleFrequency || '—', step: 9 },
       { label: 'Reps', value: answers.repRange || '—', step: 10 },
       { label: 'Descanso', value: answers.restTime || 'IA decide', step: 11 },
