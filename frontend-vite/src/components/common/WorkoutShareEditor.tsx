@@ -293,13 +293,15 @@ export function WorkoutShareEditor({
               {logoEnabled && (
                 <img src={logoUrl} alt="SerraAthlo" draggable={false} style={{ width: 140, height: 'auto', objectFit: 'contain' }} />
               )}
-              {/* nowrap = todos os stats numa única linha, lado a lado. Texto
-                  longo (record) quebra apenas dentro da própria coluna. */}
-              <div className="flex flex-row flex-nowrap items-start justify-center gap-x-4">
+              {/* flex-wrap = responsivo: blocos ficam lado a lado, mas quando
+                  não cabem na largura da foto, sobem para outra linha (em vez de
+                  espremer e quebrar o texto em muitas linhas). Largura FIXA por
+                  coluna garante que cada record fique em no máx. 2 linhas. */}
+              <div className="flex flex-row flex-wrap items-start justify-center gap-x-3 gap-y-3">
                 {statBlocks.map((block) => (
-                  <div key={block.id} className="text-center" style={{ maxWidth: block.isRecord ? 150 : 120 }}>
+                  <div key={block.id} className="text-center" style={{ width: block.isRecord ? 138 : 94 }}>
                     <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.92, lineHeight: 1.1 }}>{block.label}</div>
-                    <div style={{ fontSize: block.isRecord ? 17 : 22, fontWeight: 800, lineHeight: 1.12, marginTop: 2 }}>
+                    <div style={{ fontSize: block.isRecord ? 16 : 22, fontWeight: 800, lineHeight: 1.15, marginTop: 2 }}>
                       {block.value}
                     </div>
                   </div>
