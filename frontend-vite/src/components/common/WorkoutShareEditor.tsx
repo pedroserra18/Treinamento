@@ -279,11 +279,13 @@ export function WorkoutShareEditor({
               {logoEnabled && (
                 <img src={logoUrl} alt="SerraAthlo" draggable={false} style={{ width: 140, height: 'auto', objectFit: 'contain' }} />
               )}
-              <div className="flex flex-row flex-wrap items-start justify-center gap-x-5 gap-y-2">
+              {/* nowrap = todos os stats numa única linha, lado a lado. Texto
+                  longo (record) quebra apenas dentro da própria coluna. */}
+              <div className="flex flex-row flex-nowrap items-start justify-center gap-x-4">
                 {statBlocks.map((block) => (
-                  <div key={block.id} className="text-center" style={{ maxWidth: 170 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, opacity: 0.92, lineHeight: 1.1 }}>{block.label}</div>
-                    <div style={{ fontSize: 26, fontWeight: 800, lineHeight: 1.05 }}>{block.value}</div>
+                  <div key={block.id} className="text-center" style={{ maxWidth: 120 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.92, lineHeight: 1.1 }}>{block.label}</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.1 }}>{block.value}</div>
                   </div>
                 ))}
               </div>
