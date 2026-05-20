@@ -363,6 +363,10 @@ TÉCNICAS AVANÇADAS: usa APENAS as técnicas que aparecem no campo "Técnicas a
 NOTES: cue técnico curto (≤60 chars) em 3-5 exercícios chave por dia (compostos pesados ou primeiro ex do grupo). Demais ex: notes=null.
 </reps_descanso>
 
+<progressao>
+Se o <historico_cargas> estiver presente, o usuário já treinou esses exercícios. Para os exercícios do plano que aparecem no histórico, prescreve PROGRESSÃO no campo notes: parte da carga registrada e sugere o próximo passo realista (ex: "Última: 40kg x 8. Tenta 42,5kg ou +1 rep"). Incremento conservador: 2,5–5kg em compostos, 1–2,5kg em isolados, ou +1-2 reps mantendo a carga. NUNCA sugiras saltos grandes (>10%). Exercícios SEM histórico: notes técnico normal (ver <reps_descanso>), sem inventar carga. Bodyweight (sem equipamento): progressão por reps/dificuldade, não por carga. A dica de progressão substitui o cue técnico quando ambos caberiam — escolhe a progressão.
+</progressao>
+
 <ordem>
 1. Músculo de FOCO primeiro (mesmo se isolado).
 2. Compostos pesados antes de isolados.
@@ -466,13 +470,53 @@ Usa o exemplo correspondente à divisão pedida como referência de estrutura �
 `.trim();
 
 // ───────────────────────────────────────────────────────────────────────────────
+// Histórico de cargas — progressão.
+// Busca o melhor desempenho recente do usuário por exercício (carga máxima
+// registrada e as reps atingidas nela) a partir do WorkoutHistory. A IA usa
+// isto pra prescrever uma dica de progressão realista no campo `notes`, já que
+// o plano em si não guarda carga-alvo.
+// ───────────────────────────────────────────────────────────────────────────────
+async function fetchRecentLoads(userId: string): Promise<string> {
+  const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+  const rows = await prisma.workoutHistory.findMany({
+    where: { userId, weightKg: { not: null, gt: 0 }, completedAt: { gte: since } },
+    select: { weightKg: true, reps: true, exercise: { select: { name: true } } },
+    orderBy: { completedAt: "desc" },
+    take: 400,
+  });
+
+  // Melhor carga por exercício (e reps alcançadas nessa carga máxima).
+  const best = new Map<string, { weight: number; reps: number | null }>();
+  for (const r of rows) {
+    const name = r.exercise?.name;
+    const weight = r.weightKg ?? 0;
+    if (!name || weight <= 0) continue;
+    const current = best.get(name);
+    if (!current || weight > current.weight) {
+      best.set(name, { weight, reps: r.reps ?? null });
+    }
+  }
+
+  if (best.size === 0) return "";
+
+  const lines = Array.from(best.entries()).map(([name, { weight, reps }]) =>
+    reps ? `- ${name}: ${weight}kg x ${reps} reps` : `- ${name}: ${weight}kg`
+  );
+  return lines.join("\n");
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
 // User message — lista de exercícios + perfil + tarefa.
 // Posta DEPOIS do system prompt para maximizar cache hits no prefixo.
 // ───────────────────────────────────────────────────────────────────────────────
 // Constrói a mensagem user_message com TODOS os campos estruturados num único
 // <perfil_usuario>. Sem duplicação com a <tarefa> — cada resposta do quiz tem
 // um lugar único e claro pra IA consumir.
-function buildUserMessage(payload: GenerateWorkoutBody, exerciseListFormatted: string): string {
+function buildUserMessage(
+  payload: GenerateWorkoutBody,
+  exerciseListFormatted: string,
+  recentLoads?: string
+): string {
   const params: string[] = [];
 
   // ─── Estrutura do plano ────────────────────────────────────────────────
@@ -563,6 +607,10 @@ function buildUserMessage(payload: GenerateWorkoutBody, exerciseListFormatted: s
 
   if (params.length > 0) {
     msg += `<perfil_usuario>\n${params.map((p) => "- " + p).join("\n")}\n</perfil_usuario>\n\n`;
+  }
+
+  if (recentLoads) {
+    msg += `<historico_cargas>\nMelhor carga recente do usuário por exercício (últimos 90 dias). Usa pra prescrever progressão realista no campo notes — ver <progressao>:\n${recentLoads}\n</historico_cargas>\n\n`;
   }
 
   if (payload.usedExercises && payload.usedExercises.length > 0) {
@@ -851,7 +899,10 @@ export async function generateWorkout(payload: GenerateWorkoutBody, userId?: str
   const isBodyweight = payload.equipment === "Sem equipamento";
   const extraInfoLower = (payload.extraInfo ?? "").toLowerCase();
 
-  const userMsg = buildUserMessage(payload, exerciseListFormatted);
+  // Progressão: injeta as melhores cargas recentes do usuário (se houver
+  // histórico) pra IA prescrever incremento realista no campo notes.
+  const recentLoads = userId ? await fetchRecentLoads(userId) : "";
+  const userMsg = buildUserMessage(payload, exerciseListFormatted, recentLoads);
 
   let workout = await callOpenAI(client, [
     { role: "system", content: SYSTEM_PROMPT },
@@ -1021,6 +1072,56 @@ export async function parseCustomSplitWithAI(description: string, daysPerWeek: n
   }
 
   return days;
+}
+
+// PT label → enum DB (reverso de MUSCLE_GROUP_LABELS). Usado pra trocar
+// exercício por outro do mesmo grupo.
+const PT_LABEL_TO_ENUM: Record<string, string> = Object.fromEntries(
+  Object.entries(MUSCLE_GROUP_LABELS).map(([enumKey, ptLabel]) => [ptLabel, enumKey])
+);
+
+// Troca um exercício por OUTRO do mesmo grupo muscular, sem usar IA (query
+// direta no banco) — instantâneo e não consome geração. Exclui os exercícios
+// já presentes no dia e respeita o filtro de peso corporal (sem equipamento).
+export async function swapExercise(
+  userId: string | undefined,
+  payload: { muscleGroup: string; equipment?: string; exclude?: string[] }
+): Promise<{ name: string; muscleGroup: string; secondaryMuscleGroup: string | null }> {
+  const enumGroup = PT_LABEL_TO_ENUM[payload.muscleGroup.toUpperCase()] ?? payload.muscleGroup;
+
+  const where: Record<string, unknown> = {
+    isActive: true,
+    primaryMuscleGroup: enumGroup,
+    OR: [
+      { scope: "GLOBAL" },
+      ...(userId ? [{ scope: "PRIVATE" as const, ownerUserId: userId }] : []),
+    ],
+    name: { notIn: payload.exclude ?? [] },
+  };
+  if (payload.equipment === "Sem equipamento") {
+    where.isBodyweight = true;
+  }
+
+  const candidates = await prisma.exercise.findMany({
+    where,
+    select: { name: true, primaryMuscleGroup: true, secondaryMuscleGroup: true },
+  });
+
+  if (candidates.length === 0) {
+    throw new AppError("Não há outro exercício disponível desse grupo.", {
+      statusCode: 404,
+      code: "NO_ALTERNATIVE_EXERCISE",
+    });
+  }
+
+  const pick = candidates[Math.floor(Math.random() * candidates.length)];
+  return {
+    name: pick.name,
+    muscleGroup: MUSCLE_GROUP_LABELS[pick.primaryMuscleGroup] ?? pick.primaryMuscleGroup,
+    secondaryMuscleGroup: pick.secondaryMuscleGroup
+      ? MUSCLE_GROUP_LABELS[pick.secondaryMuscleGroup] ?? pick.secondaryMuscleGroup
+      : null,
+  };
 }
 
 type SavedExercise = {

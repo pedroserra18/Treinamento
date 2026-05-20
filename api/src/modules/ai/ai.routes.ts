@@ -5,8 +5,8 @@ import { requireAuth } from "../../middlewares/auth.middleware";
 import { asyncHandler } from "../../shared/utils/async-handler";
 import { validateRequest } from "../../middlewares/validation.middleware";
 import { requireCompletedOnboarding } from "../../middlewares/onboarding.middleware";
-import { generateWorkoutBodySchema, parseSplitBodySchema, saveAIWorkoutBodySchema } from "./ai.schema";
-import { generateWorkoutController, parseSplitController, saveAIWorkoutController } from "./ai.controller";
+import { generateWorkoutBodySchema, parseSplitBodySchema, saveAIWorkoutBodySchema, swapExerciseBodySchema } from "./ai.schema";
+import { generateWorkoutController, parseSplitController, saveAIWorkoutController, swapExerciseController } from "./ai.controller";
 import { redisClient } from "../../config/redis";
 
 // Rate limit das gerações de treino IA. Migrado de Map em memória para o
@@ -72,6 +72,15 @@ router.post(
   aiGenerateRateLimit,
   validateRequest({ body: parseSplitBodySchema }),
   asyncHandler((req, res) => parseSplitController(req, res))
+);
+
+// Troca de exercício individual — sem IA (query no banco), sem rate limit.
+router.post(
+  "/ai/swap-exercise",
+  requireAuth,
+  requireCompletedOnboarding,
+  validateRequest({ body: swapExerciseBodySchema }),
+  asyncHandler((req, res) => swapExerciseController(req, res))
 );
 
 export default router;

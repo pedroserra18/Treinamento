@@ -72,6 +72,13 @@ export const parseSplitBodySchema = z.object({
   daysPerWeek: z.coerce.number().int().min(1).max(7).optional(),
 });
 
+// Troca de exercício individual — sem IA, só query no banco.
+export const swapExerciseBodySchema = z.object({
+  muscleGroup: z.string().trim().min(1).max(40),
+  equipment: z.enum(["Academia (completa)", "Casa com equipamentos", "Sem equipamento", ""]).optional(),
+  exclude: z.array(z.string().trim().min(1).max(200)).max(20).optional(),
+});
+
 export const saveAIWorkoutBodySchema = z.object({
   planName: z.string().trim().min(1).max(100),
   exercises: z
@@ -91,3 +98,4 @@ export const saveAIWorkoutBodySchema = z.object({
 export type GenerateWorkoutBody = z.infer<typeof generateWorkoutBodySchema>;
 export type SaveAIWorkoutBody = z.infer<typeof saveAIWorkoutBodySchema>;
 export type ParseSplitBody = z.infer<typeof parseSplitBodySchema>;
+export type SwapExerciseBody = z.infer<typeof swapExerciseBodySchema>;

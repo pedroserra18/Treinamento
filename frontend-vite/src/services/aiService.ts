@@ -186,6 +186,23 @@ export async function parseCustomSplitAI(
   return days
 }
 
+// Troca um exercício por outro do mesmo grupo (sem IA, instantâneo).
+export async function swapExerciseAI(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  input: { muscleGroup: string; equipment?: string; exclude?: string[] },
+): Promise<{ name: string; muscleGroup: string; secondaryMuscleGroup: string | null }> {
+  const response = await authorizedFetch(`${API_URL}/ai/swap-exercise`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  const payload = await parseJsonSafe<{ exercise?: { name: string; muscleGroup: string; secondaryMuscleGroup: string | null }; message?: string; error?: string }>(response)
+  if (!response.ok || !payload?.exercise) {
+    throw new Error(extractApiError(payload, response.status))
+  }
+  return payload.exercise
+}
+
 export async function saveAIWorkout(
   authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
   input: { planName: string; exercises: AIExercise[] },

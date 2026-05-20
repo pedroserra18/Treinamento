@@ -6,8 +6,10 @@ import {
   generateAIWorkout,
   parseCustomSplitAI,
   saveAIWorkout,
+  swapExerciseAI,
   type WorkoutSection,
 } from '../services/aiService'
+import { getProfileDefaults, updateBirthDate } from '../services/authService'
 import { Bot, ChevronLeft, Clock, Sparkles, CheckCircle2, Pencil, ChevronUp, ChevronDown, RefreshCw, AlertTriangle, X, ArrowRight } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -15,7 +17,8 @@ import { Bot, ChevronLeft, Clock, Sparkles, CheckCircle2, Pencil, ChevronUp, Che
 type QuizAnswers = {
   daysPerWeek: string
   experience: string
-  age: string
+  age: string // faixa etária (derivada do birthDate quando disponível)
+  birthDate: string // YYYY-MM-DD
   gender: string
   heightCm: string
   weightKg: string
@@ -92,6 +95,7 @@ const DEFAULT_ANSWERS: QuizAnswers = {
   daysPerWeek: '',
   experience: '',
   age: '',
+  birthDate: '',
   gender: '',
   heightCm: '',
   weightKg: '',
@@ -143,6 +147,10 @@ function isStepVisible(stepId: number, a: QuizAnswers): boolean {
   //   • Iniciantes não devem usar técnicas avançadas (volume e técnica básica primeiro).
   //   • Em recuperação de lesão, técnicas avançadas são contraindicadas.
   if (stepId === 12 && (isBodyweight || isBeginner || isInjuryRecovery)) return false
+
+  // step 2 — idade: se já temos a data de nascimento (do perfil), a idade é
+  // calculada automaticamente e a pergunta é pulada.
+  if (stepId === 2 && a.birthDate) return false
 
   // step 9 — frequência muscular: só pergunta quando a divisão (step 19) está
   // em "IA decide". Se o usuário escolheu uma divisão específica, a frequência
@@ -268,6 +276,23 @@ function detectMuscleGroup(name: string): { label: string; color: string } | nul
   if (/agachamento|leg press|hack|cadeira extensora|afundo|lunges|squat|sissy/.test(n))
     return { label: 'Quadríceps', color: 'bg-green-500/15 text-green-400 border-green-500/30' }
   return null
+}
+
+// Calcula a faixa etária a partir da data de nascimento (YYYY-MM-DD).
+// Os buckets batem com as opções do quiz para alimentar o prompt.
+function ageBucketFromBirthDate(birthDate: string): string {
+  const bd = new Date(birthDate)
+  if (Number.isNaN(bd.getTime())) return ''
+  const now = new Date()
+  let age = now.getFullYear() - bd.getFullYear()
+  const m = now.getMonth() - bd.getMonth()
+  if (m < 0 || (m === 0 && now.getDate() < bd.getDate())) age -= 1
+  if (age < 18) return 'Menos de 18'
+  if (age <= 25) return '18–25'
+  if (age <= 35) return '26–35'
+  if (age <= 45) return '36–45'
+  if (age <= 55) return '46–55'
+  return '55+'
 }
 
 // Foco "inferior" = quadríceps e/ou glúteo e/ou posterior de coxa. Quando o
@@ -915,6 +940,33 @@ export function AIWorkoutPage() {
     return () => clearInterval(interval)
   }, [appScreen])
 
+  // Pré-preenche o quiz com os dados do perfil (peso atual do progresso,
+  // altura, gênero, data de nascimento). Só preenche campos VAZIOS — não
+  // sobrescreve o que o usuário já respondeu/salvou.
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const defaults = await getProfileDefaults(authorizedFetch)
+        if (cancelled) return
+        setAnswers(prev => {
+          const next = { ...prev }
+          if (!next.weightKg && defaults.weightKg != null) next.weightKg = String(defaults.weightKg)
+          if (!next.heightCm && defaults.heightCm != null) next.heightCm = String(Math.round(defaults.heightCm))
+          if (!next.gender && defaults.gender) next.gender = defaults.gender
+          if (!next.birthDate && defaults.birthDate) {
+            next.birthDate = defaults.birthDate
+            next.age = ageBucketFromBirthDate(defaults.birthDate)
+          }
+          return next
+        })
+      } catch {
+        // Sem perfil/dados — segue com o quiz normal.
+      }
+    })()
+    return () => { cancelled = true }
+  }, [authorizedFetch])
+
   const advanceStep = useCallback(() => {
     setDirection(1)
     if (isEditMode) { setAppScreen('REVIEW'); return }
@@ -1219,6 +1271,50 @@ export function AIWorkoutPage() {
     })
   }, [])
 
+  // Troca um exercício por outro do mesmo grupo (instantâneo, sem IA). Mantém
+  // séries/reps/descanso; muda só o nome/grupo. Evita repetir os do dia.
+  const [swappingKey, setSwappingKey] = useState<string | null>(null)
+  const swapExercise = useCallback(async (sectionIndex: number, exIndex: number) => {
+    const section = sections[sectionIndex]
+    const ex = section?.workoutData?.exercises[exIndex]
+    if (!ex) return
+    const muscle = resolveMuscleGroup(ex)?.label
+    if (!muscle) return
+    const equipmentMap: Record<string, string> = {
+      'Academia completa': 'Academia (completa)',
+      'Em casa com equipamentos': 'Casa com equipamentos',
+      'Em casa sem equipamentos': 'Sem equipamento',
+    }
+    const dayNames = section.workoutData?.exercises.map(e => e.name) ?? []
+    setSwappingKey(`${sectionIndex}-${exIndex}`)
+    setError(null)
+    try {
+      const replacement = await swapExerciseAI(authorizedFetch, {
+        muscleGroup: muscle,
+        equipment: equipmentMap[answers.location] || undefined,
+        exclude: dayNames,
+      })
+      setSections(prev => prev.map((s, i) => {
+        if (i !== sectionIndex || !s.workoutData) return s
+        const exs = s.workoutData.exercises.map((e, idx) =>
+          idx === exIndex
+            ? { ...e, name: replacement.name, muscleGroup: replacement.muscleGroup, secondaryMuscleGroup: replacement.secondaryMuscleGroup ?? undefined }
+            : e,
+        )
+        return { ...s, workoutData: { ...s.workoutData, exercises: exs } }
+      }))
+      setSaveResults(prev => {
+        const copy = { ...prev }
+        delete copy[sectionIndex]
+        return copy
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao trocar exercício')
+    } finally {
+      setSwappingKey(null)
+    }
+  }, [authorizedFetch, sections, answers.location])
+
 
   // ─── WELCOME ──────────────────────────────────────────────────────────────
 
@@ -1353,7 +1449,7 @@ export function AIWorkoutPage() {
     const isLastVisibleStep = visibleIdx === totalVisible - 1
 
     // Steps that need explicit Next button (multi-select or text input)
-    const needsNextButton = [12, 13, 14, 15].includes(step)
+    const needsNextButton = [2, 12, 13, 14, 15].includes(step)
       || (step === 18 && answers.hasExtraInfo === true)
       || (step === 19 && answers.splitPreference === 'Outro')
 
@@ -1388,12 +1484,27 @@ export function AIWorkoutPage() {
         case 2:
           return (
             <>
-              <h2 className="text-xl font-black text-[var(--text)]">Qual a sua faixa etária?</h2>
-              <p className="mt-1 text-sm text-[var(--muted)]">Influencia a recuperação e o volume recomendado</p>
-              <div className="mt-5 grid gap-2 sm:grid-cols-2">
-                {['Menos de 18', '18–25', '26–35', '36–45', '46–55', '55+'].map(val => (
-                  <OptionCard key={val} label={val + ' anos'} selected={answers.age === val} onClick={() => selectAndAdvance('age', val)} />
-                ))}
+              <h2 className="text-xl font-black text-[var(--text)]">Qual a sua data de nascimento?</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">Calculamos a idade automaticamente — você não precisa responder de novo nas próximas vezes</p>
+              <div className="mt-5">
+                <input
+                  type="date"
+                  value={answers.birthDate}
+                  max={new Date().toISOString().slice(0, 10)}
+                  min="1920-01-01"
+                  onChange={(e) => {
+                    const bd = e.target.value
+                    setAnswers(prev => ({ ...prev, birthDate: bd, age: bd ? ageBucketFromBirthDate(bd) : '' }))
+                    // Persiste no perfil pra não perguntar de novo.
+                    if (bd) void updateBirthDate(authorizedFetch, bd).catch(() => {})
+                  }}
+                  className="w-full rounded-xl border border-[var(--line)] bg-transparent px-3 py-3 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--brand)]"
+                />
+                {answers.birthDate && (
+                  <p className="mt-2 text-[12px] text-[var(--muted)]">
+                    Faixa etária: <span className="font-semibold text-[var(--brand)]">{ageBucketFromBirthDate(answers.birthDate)}</span>
+                  </p>
+                )}
               </div>
             </>
           )
@@ -2568,6 +2679,19 @@ export function AIWorkoutPage() {
                               <ChevronDown size={12} />
                             </button>
                           </div>
+                        )}
+
+                        {/* Swap button — troca por outro do mesmo grupo */}
+                        {!isSaved && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); void swapExercise(idx, i) }}
+                            disabled={swappingKey === `${idx}-${i}`}
+                            className="grid h-7 w-7 place-items-center rounded-lg border border-transparent text-[var(--muted)] hover:border-[var(--brand)]/40 hover:bg-[var(--brand)]/10 hover:text-[var(--brand)] disabled:opacity-40"
+                            title="Trocar por outro exercício do mesmo grupo"
+                          >
+                            <RefreshCw size={13} className={swappingKey === `${idx}-${i}` ? 'animate-spin' : ''} />
+                          </button>
                         )}
 
                         {/* Remove button */}
