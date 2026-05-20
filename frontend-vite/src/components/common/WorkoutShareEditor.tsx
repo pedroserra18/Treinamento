@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import html2canvas from 'html2canvas'
-import { X, Download, Share2, Image as ImageIcon, Type, Move } from 'lucide-react'
+import { X, Download, Share2, Image as ImageIcon, Type, Move, RefreshCw } from 'lucide-react'
 import logoUrl from '../../assets/Logo_sem_Fundo.png'
 import type { SessionHighlights } from '../../services/workoutService'
 import { optimizeImageFileToDataUrl } from '../../lib/image-processing'
@@ -13,9 +13,6 @@ type Block = {
   label: string
   value: string
   enabled: boolean
-  xPct: number // centro do bloco em % da largura
-  yPct: number // centro do bloco em % da altura
-  scale: number // multiplicador de tamanho
   isLogo?: boolean
 }
 
@@ -38,7 +35,6 @@ function formatDuration(sec: number | null): string {
 }
 
 function formatVolume(kg: number): string {
-  // Milhar com ponto, decimal com vírgula (pt-BR).
   return `${kg.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} kg`
 }
 
@@ -52,11 +48,11 @@ function buildInitialBlocks(h: SessionHighlights): Block[] {
   const recordLabel = h.records.length > 0 ? 'Novo Record' : 'Destaque'
 
   return [
-    { id: 'logo', label: '', value: '', enabled: true, xPct: 50, yPct: 14, scale: 1, isLogo: true },
-    { id: 'volume', label: 'Volume', value: formatVolume(h.volumeKg), enabled: true, xPct: 50, yPct: 36, scale: 1 },
-    { id: 'tempo', label: 'Tempo', value: formatDuration(h.durationSec), enabled: true, xPct: 50, yPct: 54, scale: 1 },
-    { id: 'series', label: 'Séries', value: String(h.totalSeries), enabled: false, xPct: 50, yPct: 70, scale: 1 },
-    { id: 'record', label: recordLabel, value: recordValue, enabled: Boolean(recordValue), xPct: 50, yPct: 84, scale: 1 },
+    { id: 'logo', label: '', value: '', enabled: true, isLogo: true },
+    { id: 'volume', label: 'Volume', value: formatVolume(h.volumeKg), enabled: true },
+    { id: 'tempo', label: 'Tempo', value: formatDuration(h.durationSec), enabled: true },
+    { id: 'series', label: 'Séries', value: String(h.totalSeries), enabled: false },
+    { id: 'record', label: recordLabel, value: recordValue, enabled: Boolean(recordValue) },
   ]
 }
 
@@ -74,14 +70,19 @@ export function WorkoutShareEditor({
   const [bgType, setBgType] = useState<'photo' | 'gradient'>(initialPhoto ? 'photo' : 'gradient')
   const [bgPhoto, setBgPhoto] = useState<string | null>(initialPhoto)
   const [bgGradient, setBgGradient] = useState(BG_GRADIENTS[0])
-  const [selectedId, setSelectedId] = useState<BlockId | null>(null)
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const previewRef = useRef<HTMLDivElement>(null)
-  const dragState = useRef<{ id: BlockId; startX: number; startY: number; origXPct: number; origYPct: number } | null>(null)
+  // Posição e tamanho do GRUPO inteiro de informações (move tudo junto, mantendo
+  // a mesma diagramação entre treinos de usuários diferentes — igual ao Strava).
+  const [groupX, setGroupX] = useState(50)
+  const [groupY, setGroupY] = useState(48)
+  const [groupScale, setGroupScale] = useState(1)
 
-  // Drag por pointer events (mouse + touch).
+  const previewRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const dragState = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null)
+
   const onPointerMove = useCallback((e: PointerEvent) => {
     const drag = dragState.current
     const el = previewRef.current
@@ -89,9 +90,8 @@ export function WorkoutShareEditor({
     const rect = el.getBoundingClientRect()
     const dxPct = ((e.clientX - drag.startX) / rect.width) * 100
     const dyPct = ((e.clientY - drag.startY) / rect.height) * 100
-    const xPct = Math.min(98, Math.max(2, drag.origXPct + dxPct))
-    const yPct = Math.min(98, Math.max(2, drag.origYPct + dyPct))
-    setBlocks((prev) => prev.map((b) => (b.id === drag.id ? { ...b, xPct, yPct } : b)))
+    setGroupX(Math.min(95, Math.max(5, drag.origX + dxPct)))
+    setGroupY(Math.min(95, Math.max(5, drag.origY + dyPct)))
   }, [])
 
   const onPointerUp = useCallback(() => {
@@ -101,20 +101,13 @@ export function WorkoutShareEditor({
   }, [onPointerMove])
 
   const startDrag = useCallback(
-    (e: React.PointerEvent, block: Block) => {
+    (e: React.PointerEvent) => {
       e.preventDefault()
-      setSelectedId(block.id)
-      dragState.current = {
-        id: block.id,
-        startX: e.clientX,
-        startY: e.clientY,
-        origXPct: block.xPct,
-        origYPct: block.yPct,
-      }
+      dragState.current = { startX: e.clientX, startY: e.clientY, origX: groupX, origY: groupY }
       window.addEventListener('pointermove', onPointerMove)
       window.addEventListener('pointerup', onPointerUp)
     },
-    [onPointerMove, onPointerUp],
+    [groupX, groupY, onPointerMove, onPointerUp],
   )
 
   useEffect(() => {
@@ -127,10 +120,7 @@ export function WorkoutShareEditor({
   const toggleBlock = (id: BlockId) =>
     setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, enabled: !b.enabled } : b)))
 
-  const setBlockScale = (id: BlockId, scale: number) =>
-    setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, scale } : b)))
-
-  const handlePhoto = async (file: File | null) => {
+  const handlePhotoUpload = async (file: File | null) => {
     if (!file) return
     setError(null)
     try {
@@ -142,12 +132,19 @@ export function WorkoutShareEditor({
     }
   }
 
-  const selectedBlock = blocks.find((b) => b.id === selectedId) ?? null
+  // Botão "Foto": volta o fundo para a foto do usuário. Se ainda não há foto
+  // carregada, abre o seletor de arquivo.
+  const handleFotoButton = () => {
+    if (bgPhoto) {
+      setBgType('photo')
+    } else {
+      fileInputRef.current?.click()
+    }
+  }
 
   const renderToBlob = useCallback(async (): Promise<Blob | null> => {
     const el = previewRef.current
     if (!el) return null
-    // Escala para gerar ~1080px de largura na imagem final.
     const scale = Math.max(2, Math.round(1080 / el.offsetWidth))
     const canvas = await html2canvas(el, {
       backgroundColor: null,
@@ -189,7 +186,6 @@ export function WorkoutShareEditor({
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         await navigator.share({ files: [file], title: 'Meu treino - SerraAthlo' })
       } else {
-        // Fallback: baixa a imagem se o compartilhamento de arquivo não for suportado.
         await handleDownload()
       }
     } catch (err) {
@@ -207,6 +203,8 @@ export function WorkoutShareEditor({
     if (bgType === 'photo' && bgPhoto) return undefined
     return bgGradient
   }, [bgType, bgPhoto, bgGradient])
+
+  const enabledBlocks = blocks.filter((b) => b.enabled)
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex flex-col overflow-y-auto bg-black/80 p-3 sm:p-6">
@@ -231,47 +229,40 @@ export function WorkoutShareEditor({
                 : {}),
             }}
           >
-            {/* leve overlay escuro pra texto destacar sobre foto */}
             {bgType === 'photo' && bgPhoto && (
               <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: 'rgba(0,0,0,0.28)' }} />
             )}
 
-            {blocks.filter((b) => b.enabled).map((block) => (
-              <div
-                key={block.id}
-                onPointerDown={(e) => startDrag(e, block)}
-                className={`absolute cursor-move select-none touch-none ${selectedId === block.id ? 'ring-2 ring-[var(--brand)] ring-offset-1 ring-offset-transparent rounded-lg' : ''}`}
-                style={{
-                  left: `${block.xPct}%`,
-                  top: `${block.yPct}%`,
-                  transform: 'translate(-50%, -50%)',
-                  textAlign: 'center',
-                  color: textColor === 'white' ? '#fff' : '#111',
-                  textShadow: textColor === 'white' ? '0 1px 6px rgba(0,0,0,0.5)' : '0 1px 4px rgba(255,255,255,0.4)',
-                  maxWidth: '92%',
-                }}
-              >
-                {block.isLogo ? (
-                  <img
-                    src={logoUrl}
-                    alt="SerraAthlo"
-                    draggable={false}
-                    style={{ width: 90 * block.scale, height: 'auto', objectFit: 'contain' }}
-                  />
+            {/* GRUPO único — arrasta tudo junto, escala junto */}
+            <div
+              onPointerDown={startDrag}
+              className="absolute flex cursor-move select-none touch-none flex-col items-center gap-3"
+              style={{
+                left: `${groupX}%`,
+                top: `${groupY}%`,
+                transform: `translate(-50%, -50%) scale(${groupScale})`,
+                transformOrigin: 'center center',
+                width: 'max-content',
+                maxWidth: '90%',
+                color: textColor === 'white' ? '#fff' : '#111',
+                textShadow: textColor === 'white' ? '0 1px 6px rgba(0,0,0,0.5)' : '0 1px 4px rgba(255,255,255,0.4)',
+              }}
+            >
+              {enabledBlocks.map((block) =>
+                block.isLogo ? (
+                  <img key={block.id} src={logoUrl} alt="SerraAthlo" draggable={false} style={{ width: 96, height: 'auto', objectFit: 'contain' }} />
                 ) : (
-                  <>
-                    <div style={{ fontSize: 13 * block.scale, fontWeight: 600, opacity: 0.92, lineHeight: 1.1 }}>
-                      {block.label}
-                    </div>
-                    <div style={{ fontSize: 30 * block.scale, fontWeight: 800, lineHeight: 1.05 }}>{block.value}</div>
-                  </>
-                )}
-              </div>
-            ))}
+                  <div key={block.id} className="text-center">
+                    <div style={{ fontSize: 14, fontWeight: 600, opacity: 0.92, lineHeight: 1.1 }}>{block.label}</div>
+                    <div style={{ fontSize: 32, fontWeight: 800, lineHeight: 1.05 }}>{block.value}</div>
+                  </div>
+                ),
+              )}
+            </div>
           </div>
           <p className="mt-1.5 text-center text-[11px] text-white/50">
             <Move size={11} className="mr-1 inline" />
-            Arraste os textos para posicionar. Toque para selecionar e ajustar o tamanho.
+            Arraste o bloco de informações para posicionar. Tudo move junto.
           </p>
         </div>
 
@@ -301,23 +292,19 @@ export function WorkoutShareEditor({
             </div>
           </div>
 
-          {/* Tamanho do bloco selecionado */}
-          {selectedBlock && (
-            <div>
-              <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-white/60">
-                Tamanho · {selectedBlock.isLogo ? 'Logo' : selectedBlock.label}
-              </p>
-              <input
-                type="range"
-                min={0.5}
-                max={2}
-                step={0.05}
-                value={selectedBlock.scale}
-                onChange={(e) => setBlockScale(selectedBlock.id, parseFloat(e.target.value))}
-                className="w-full accent-[var(--brand)]"
-              />
-            </div>
-          )}
+          {/* Tamanho do grupo inteiro */}
+          <div>
+            <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-white/60">Tamanho das informações</p>
+            <input
+              type="range"
+              min={0.6}
+              max={1.8}
+              step={0.05}
+              value={groupScale}
+              onChange={(e) => setGroupScale(parseFloat(e.target.value))}
+              className="w-full accent-[var(--brand)]"
+            />
+          </div>
 
           {/* Cor do texto */}
           <div className="flex items-center gap-3">
@@ -342,11 +329,26 @@ export function WorkoutShareEditor({
           <div>
             <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-white/60">Fundo</p>
             <div className="flex flex-wrap items-center gap-2">
-              <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/20">
+              {/* Foto: volta para a foto do usuário (ou abre seletor se não houver) */}
+              <button
+                type="button"
+                onClick={handleFotoButton}
+                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ${bgType === 'photo' && bgPhoto ? 'bg-[var(--brand)] text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
+              >
                 <ImageIcon size={13} />
                 Foto
-                <input type="file" accept="image/*" className="hidden" onChange={(e) => void handlePhoto(e.target.files?.[0] ?? null)} />
-              </label>
+              </button>
+              {/* Trocar foto (só aparece quando já existe foto) */}
+              {bgPhoto && (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="inline-flex items-center gap-1 rounded-full bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/20"
+                >
+                  <RefreshCw size={12} />
+                  Trocar
+                </button>
+              )}
               {BG_GRADIENTS.map((g) => (
                 <button
                   key={g}
@@ -357,6 +359,13 @@ export function WorkoutShareEditor({
                   aria-label="Fundo gradiente"
                 />
               ))}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => void handlePhotoUpload(e.target.files?.[0] ?? null)}
+              />
             </div>
           </div>
 
