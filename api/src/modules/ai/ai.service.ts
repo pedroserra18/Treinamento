@@ -44,6 +44,9 @@ const REQUIRED_GROUPS_BY_SPLIT_KEY: Record<string, string[]> = {
   // PPL + Lower Specialization — dias de pernas especializados (4 dias + 1x/sem + foco inferior).
   Quadríceps: ["QUADRÍCEPS"],
   Glúteo: ["GLÚTEO", "POSTERIOR DE COXA"],
+  // Torso/Limbs — Torso = tronco; Limbs = braços + pernas.
+  Torso: ["PEITO", "COSTAS", "OMBROS"],
+  Limbs: ["BÍCEPS", "TRÍCEPS", "QUADRÍCEPS", "POSTERIOR DE COXA"],
 };
 
 // Grupos PROIBIDOS por dia. Se um exercício do dia tem primário num desses
@@ -66,6 +69,9 @@ const FORBIDDEN_GROUPS_BY_SPLIT_KEY: Record<string, string[]> = {
   // PPL + Lower Specialization
   Quadríceps: ["PEITO", "COSTAS", "OMBROS", "BÍCEPS", "TRÍCEPS", "GLÚTEO", "POSTERIOR DE COXA"],
   Glúteo: ["PEITO", "COSTAS", "OMBROS", "BÍCEPS", "TRÍCEPS", "QUADRÍCEPS"],
+  // Torso/Limbs — Torso = tronco (sem braços/pernas); Limbs = braços+pernas (sem tronco).
+  Torso: ["BÍCEPS", "TRÍCEPS", "QUADRÍCEPS", "POSTERIOR DE COXA", "GLÚTEO", "PANTURRILHA"],
+  Limbs: ["PEITO", "COSTAS", "OMBROS"],
   // Full Body intencionalmente vazio — pode incluir qualquer grupo.
 };
 
@@ -83,6 +89,8 @@ const MIN_EXERCISES_BY_SPLIT_KEY: Record<string, number> = {
   Braços: 6,
   Quadríceps: 4,
   Glúteo: 5,
+  Torso: 6,
+  Limbs: 6,
 };
 
 // Volume máximo por músculo por sessão — usado pelo validador.
@@ -306,6 +314,10 @@ BRO SPLIT — cada dia tem um músculo principal + um secundário OBRIGATÓRIO (
 - Dia "Ombros" (mín 5 ex): 4-5 ex de OMBROS + 1-2 ex de TRAPÉZIO ou pescoço (face pull, encolhimento).
 - Dia "Braços" (mín 6 ex): 3 ex de BÍCEPS + 3 ex de TRÍCEPS.
 - Dia "Pernas" (mín 7 ex): 2-3 ex de QUADRÍCEPS + 1-2 ex de POSTERIOR DE COXA + 1-2 ex de GLÚTEO + 1 ex de PANTURRILHA + 1 ex de CORE.
+
+TORSO/LIMBS (tronco/membros):
+- Dia "Torso" (mín 6 ex): PEITO + COSTAS + OMBROS (+ abdômen opcional). PROIBIDO incluir braços (bíceps/tríceps como exercício principal) e pernas — eles vão no dia Limbs.
+- Dia "Limbs" (mín 6 ex): BÍCEPS + TRÍCEPS + QUADRÍCEPS + POSTERIOR DE COXA (+ glúteo/panturrilha). PROIBIDO incluir peito/costas/ombros — esses vão no dia Torso.
 
 PERNAS ESPECIALIZADAS (split "PPL + Lower Specialization" — 4 dias, foco inferior). Cada perna-dia tem cobertura RESTRITA — NÃO misturar quad e glúteo no mesmo dia:
 - Dia "Quadríceps" (mín 4 ex, máx ~6): 3-5 ex QUAD-DOMINANTES (cadeira extensora, hack squat, leg press com pés baixos, agachamento frontal, sissy squat, afundo passada com pé curto) + 1 ex de PANTURRILHA. PROIBIDO incluir hip thrust, elevação pélvica, agachamento sumô, stiff, RDL, mesa flexora — esses são GLÚTEO/POSTERIOR e vão no outro dia.

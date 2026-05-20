@@ -277,17 +277,63 @@ function hasLowerBodyFocus(musclesFocus: string[]): boolean {
   return musclesFocus.some((m) => m === 'Quadríceps' || m === 'Glúteo' || m === 'Posterior de Coxa')
 }
 
-// Quebra o texto livre da divisão "Outro" em rótulos de dia (um por linha,
-// ou separados por "/" ou ";"). Cada rótulo vira um dayLabel que a IA
-// interpreta literalmente. Cap em 7 dias.
+// Detecta uma DESCRIÇÃO de split conhecido em texto livre (ex: "torso limbs
+// 2x na semana", "upper lower 2x", "push pull legs"). Lê a frequência (Nx) e
+// expande nos rótulos A/B/C corretos. Retorna null se não reconhecer.
+function expandKnownSplitDescription(text: string): string[] | null {
+  const t = text.toLowerCase()
+
+  // Frequência: "2x", "3x", "duas/três vezes". Default 1, cap 3.
+  let mult = 1
+  const xMatch = t.match(/(\d)\s*x/)
+  if (xMatch) mult = parseInt(xMatch[1], 10)
+  else if (/\bduas\b|\b2 vezes\b/.test(t)) mult = 2
+  else if (/\btr[eê]s\b|\b3 vezes\b/.test(t)) mult = 3
+  mult = Math.min(Math.max(mult, 1), 3)
+
+  const tag = (i: number) => (mult > 1 ? ` ${String.fromCharCode(65 + i)}` : '')
+  const repeat = (parts: string[]): string[] => {
+    const out: string[] = []
+    for (let i = 0; i < mult; i++) parts.forEach((p) => out.push(`${p}${tag(i)}`))
+    return out
+  }
+
+  // Torso/Limbs (tronco/membros)
+  if (/torso/.test(t) && /(limb|membro)/.test(t)) return repeat(['Torso', 'Limbs'])
+  // Upper/Lower (superior/inferior)
+  if ((/upper/.test(t) || /superior/.test(t)) && (/lower/.test(t) || /inferior/.test(t)))
+    return repeat(['Upper', 'Lower'])
+  // Push/Pull/Legs
+  if ((/push/.test(t) || /empurr/.test(t)) && (/pull/.test(t) || /puxa/.test(t)) && (/leg/.test(t) || /perna/.test(t)))
+    return repeat(['Push', 'Pull', 'Legs'])
+
+  return null
+}
+
+// Quebra o texto livre da divisão "Outro" em rótulos de dia. Suporta dois
+// formatos: (1) descrição de split conhecido ("torso limbs 2x") → expande;
+// (2) lista de dias um por linha / separados por "/" ou ";". Cap em 7 dias.
 function parseCustomSplit(text: string, fallbackDays: number): string[] {
-  const lines = text
+  const trimmed = text.trim()
+  if (!trimmed) {
+    return Array.from({ length: Math.max(1, fallbackDays) }, (_, i) => `Treino ${i + 1}`)
+  }
+
+  const lines = trimmed
     .split(/[\n;/]+/)
     .map((s) => s.trim())
     .filter(Boolean)
     .slice(0, 7)
-  if (lines.length > 0) return lines
-  return Array.from({ length: Math.max(1, fallbackDays) }, (_, i) => `Treino ${i + 1}`)
+
+  // Múltiplas linhas/separadores = lista explícita de dias.
+  if (lines.length > 1) return lines
+
+  // Linha única → tenta interpretar como descrição de split conhecido.
+  const expanded = expandKnownSplitDescription(trimmed)
+  if (expanded) return expanded
+
+  // Linha única sem padrão conhecido = um dia literal.
+  return lines
 }
 
 function getEffectiveSplit(
@@ -357,6 +403,14 @@ function getWorkoutLabels(split: string, days: number, customSplit: string = '')
     if (days === 5) return ['Push A', 'Pull A', 'Legs', 'Push B', 'Pull B']
     return ['Push A', 'Pull A', 'Legs A', 'Push B', 'Pull B', 'Legs B']
   }
+  if (split === 'Torso/Limbs') {
+    // Torso = peito/costas/ombros; Limbs = braços + pernas. Alterna A/B.
+    if (days <= 2) return ['Torso', 'Limbs']
+    if (days === 3) return ['Torso A', 'Limbs', 'Torso B']
+    if (days === 4) return ['Torso A', 'Limbs A', 'Torso B', 'Limbs B']
+    if (days === 5) return ['Torso A', 'Limbs A', 'Torso B', 'Limbs B', 'Torso C']
+    return ['Torso A', 'Limbs A', 'Torso B', 'Limbs B', 'Torso C', 'Limbs C']
+  }
   if (split === 'PPL + Lower Specialization') {
     // 4 dias com foco inferior — upper compactado em 2 dias eficientes, pernas
     // separadas em quad-isolado (cadeira ext., hack squat, leg press) e
@@ -395,6 +449,8 @@ const REQUIRED_BY_SPLIT_KEY: Record<string, string[]> = {
   'Braços': ['Bíceps', 'Tríceps'],
   'Quadríceps': ['Quadríceps'],
   'Glúteo': ['Glúteo', 'Posterior de Coxa'],
+  'Torso': ['Peito', 'Costas', 'Ombros'],
+  'Limbs': ['Bíceps', 'Tríceps', 'Quadríceps', 'Posterior de Coxa'],
 }
 
 function getRequiredGroups(dayLabel: string): string[] {
@@ -1742,6 +1798,7 @@ export function AIWorkoutPage() {
                   ['Full Body', 'Todos os grupos em cada treino — ótimo para força e frequência alta'],
                   ['Upper/Lower', 'Alterna superior e inferior'],
                   ['Push/Pull/Legs', 'Empurrar / Puxar / Pernas'],
+                  ['Torso/Limbs', 'Tronco (peito/costas/ombros) / Membros (braços + pernas)'],
                   ['Especializado inferior', 'Mais dias de perna com focos diferentes (quad / glúteo / posterior)'],
                   ['Bro Split', 'Um grupo muscular dedicado por dia'],
                 ].map(([val, hint]) => (
