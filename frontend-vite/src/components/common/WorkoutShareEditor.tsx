@@ -250,7 +250,7 @@ export function WorkoutShareEditor({
             >
               {enabledBlocks.map((block) =>
                 block.isLogo ? (
-                  <img key={block.id} src={logoUrl} alt="SerraAthlo" draggable={false} style={{ width: 96, height: 'auto', objectFit: 'contain' }} />
+                  <img key={block.id} src={logoUrl} alt="SerraAthlo" draggable={false} style={{ width: 140, height: 'auto', objectFit: 'contain' }} />
                 ) : (
                   <div key={block.id} className="text-center">
                     <div style={{ fontSize: 14, fontWeight: 600, opacity: 0.92, lineHeight: 1.1 }}>{block.label}</div>
