@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import html2canvas from 'html2canvas'
 import { X, Download, Share2, Image as ImageIcon, Type, Move, RefreshCw } from 'lucide-react'
@@ -80,8 +80,24 @@ export function WorkoutShareEditor({
   const [groupScale, setGroupScale] = useState(1)
 
   const previewRef = useRef<HTMLDivElement>(null)
+  const groupRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dragState = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null)
+
+  // Mantém o grupo SEMPRE dentro da foto: clampa o centro considerando a
+  // largura/altura reais do grupo (já com a escala aplicada).
+  const clampPosition = useCallback((x: number, y: number): { x: number; y: number } => {
+    const el = previewRef.current
+    const groupEl = groupRef.current
+    if (!el || !groupEl) return { x, y }
+    const rect = el.getBoundingClientRect()
+    const g = groupEl.getBoundingClientRect()
+    const halfW = (g.width / 2 / rect.width) * 100
+    const halfH = (g.height / 2 / rect.height) * 100
+    const cx = halfW >= 50 ? 50 : Math.min(100 - halfW, Math.max(halfW, x))
+    const cy = halfH >= 50 ? 50 : Math.min(100 - halfH, Math.max(halfH, y))
+    return { x: cx, y: cy }
+  }, [])
 
   const onPointerMove = useCallback((e: PointerEvent) => {
     const drag = dragState.current
@@ -90,9 +106,19 @@ export function WorkoutShareEditor({
     const rect = el.getBoundingClientRect()
     const dxPct = ((e.clientX - drag.startX) / rect.width) * 100
     const dyPct = ((e.clientY - drag.startY) / rect.height) * 100
-    setGroupX(Math.min(95, Math.max(5, drag.origX + dxPct)))
-    setGroupY(Math.min(95, Math.max(5, drag.origY + dyPct)))
-  }, [])
+    const { x, y } = clampPosition(drag.origX + dxPct, drag.origY + dyPct)
+    setGroupX(x)
+    setGroupY(y)
+  }, [clampPosition])
+
+  // Re-clampa quando o tamanho ou os blocos mudam (escala/toggle podem fazer o
+  // grupo crescer e ultrapassar a borda). clampPosition é idempotente, então
+  // não há loop.
+  useLayoutEffect(() => {
+    const { x, y } = clampPosition(groupX, groupY)
+    if (x !== groupX) setGroupX(x)
+    if (y !== groupY) setGroupY(y)
+  }, [groupScale, blocks, groupX, groupY, clampPosition])
 
   const onPointerUp = useCallback(() => {
     dragState.current = null
@@ -204,7 +230,8 @@ export function WorkoutShareEditor({
     return bgGradient
   }, [bgType, bgPhoto, bgGradient])
 
-  const enabledBlocks = blocks.filter((b) => b.enabled)
+  const logoEnabled = blocks.find((b) => b.isLogo)?.enabled ?? true
+  const statBlocks = blocks.filter((b) => !b.isLogo && b.enabled)
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex flex-col overflow-y-auto bg-black/80 p-3 sm:p-6">
@@ -233,8 +260,9 @@ export function WorkoutShareEditor({
               <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: 'rgba(0,0,0,0.28)' }} />
             )}
 
-            {/* GRUPO único — arrasta tudo junto, escala junto */}
+            {/* GRUPO único — logo em cima, stats lado a lado. Arrasta/escala junto. */}
             <div
+              ref={groupRef}
               onPointerDown={startDrag}
               className="absolute flex cursor-move select-none touch-none flex-col items-center gap-3"
               style={{
@@ -243,21 +271,22 @@ export function WorkoutShareEditor({
                 transform: `translate(-50%, -50%) scale(${groupScale})`,
                 transformOrigin: 'center center',
                 width: 'max-content',
-                maxWidth: '90%',
+                maxWidth: '94%',
                 color: textColor === 'white' ? '#fff' : '#111',
                 textShadow: textColor === 'white' ? '0 1px 6px rgba(0,0,0,0.5)' : '0 1px 4px rgba(255,255,255,0.4)',
               }}
             >
-              {enabledBlocks.map((block) =>
-                block.isLogo ? (
-                  <img key={block.id} src={logoUrl} alt="SerraAthlo" draggable={false} style={{ width: 140, height: 'auto', objectFit: 'contain' }} />
-                ) : (
-                  <div key={block.id} className="text-center">
-                    <div style={{ fontSize: 14, fontWeight: 600, opacity: 0.92, lineHeight: 1.1 }}>{block.label}</div>
-                    <div style={{ fontSize: 32, fontWeight: 800, lineHeight: 1.05 }}>{block.value}</div>
-                  </div>
-                ),
+              {logoEnabled && (
+                <img src={logoUrl} alt="SerraAthlo" draggable={false} style={{ width: 140, height: 'auto', objectFit: 'contain' }} />
               )}
+              <div className="flex flex-row flex-wrap items-start justify-center gap-x-5 gap-y-2">
+                {statBlocks.map((block) => (
+                  <div key={block.id} className="text-center" style={{ maxWidth: 170 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, opacity: 0.92, lineHeight: 1.1 }}>{block.label}</div>
+                    <div style={{ fontSize: 26, fontWeight: 800, lineHeight: 1.05 }}>{block.value}</div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
           <p className="mt-1.5 text-center text-[11px] text-white/50">
