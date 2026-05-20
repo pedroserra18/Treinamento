@@ -8,8 +8,10 @@ import { updateAvatar, updatePrivacy } from '../services/socialService'
 import {
   confirmForgotPasswordWithCode,
   exportUserData,
+  getProfileDefaults,
   requestEmailChangeCode,
   requestForgotPasswordCode,
+  updateBirthDate,
 } from '../services/authService'
 import { sanitiseHandleInput, validateHandle } from '../lib/handle'
 import {
@@ -453,6 +455,27 @@ function AccountPanel({
   const [linkingGoogle, setLinkingGoogle] = useState(false)
   const [googleLinkError, setGoogleLinkError] = useState<string | null>(null)
 
+  // Data de nascimento — usada pelo quiz da IA pra calcular a idade
+  // automaticamente. Carrega o valor atual e salva ao alterar.
+  const [birthDate, setBirthDate] = useState('')
+  const [birthDateSaved, setBirthDateSaved] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    void getProfileDefaults(authorizedFetch as never)
+      .then((d) => { if (!cancelled && d.birthDate) setBirthDate(d.birthDate) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [authorizedFetch])
+
+  const saveBirthDate = async (value: string) => {
+    setBirthDate(value)
+    try {
+      await updateBirthDate(authorizedFetch as never, value || null)
+      setBirthDateSaved(true)
+      setTimeout(() => setBirthDateSaved(false), 2500)
+    } catch { /* silencioso */ }
+  }
+
   const connectGoogle = async () => {
     setLinkingGoogle(true)
     setGoogleLinkError(null)
@@ -668,6 +691,25 @@ function AccountPanel({
 
         {emailError && <p className="mt-2 text-[12px] text-red-500">{emailError}</p>}
         {emailSuccess && <p className="mt-2 text-[12px] text-emerald-500">Email atualizado.</p>}
+      </div>
+
+      {/* ── DATA DE NASCIMENTO ──────────────────────────────────────── */}
+      <div className="mt-6">
+        <FieldLabel>Data de nascimento</FieldLabel>
+        <div className="max-w-md">
+          <input
+            type="date"
+            value={birthDate}
+            max={new Date().toISOString().slice(0, 10)}
+            min="1920-01-01"
+            onChange={(e) => void saveBirthDate(e.target.value)}
+            className="w-full rounded-xl border border-[var(--line)] bg-transparent px-3 py-2.5 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--brand)]"
+          />
+          <p className="mt-1.5 text-[12px] text-[var(--muted)]">
+            Usada pelo treino por IA pra calcular sua idade automaticamente.
+          </p>
+          {birthDateSaved && <p className="mt-1 text-[12px] text-emerald-500">Salvo.</p>}
+        </div>
       </div>
 
       {/* ── GOOGLE LINK ──────────────────────────────────────────────── */}

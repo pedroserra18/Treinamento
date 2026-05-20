@@ -168,6 +168,7 @@ model User {
   avatarUrl           String?
   passwordHash        String?
   sex                 UserSex         @default(OTHER)
+  birthDate           DateTime?
   availableDaysPerWeek Int?
   onboardingCompletedAt DateTime?
   role                UserRole        @default(USER)

@@ -316,6 +316,45 @@ export async function updateUserName(
   return asAuthUser(payload.data.user)
 }
 
+export type ProfileDefaults = {
+  weightKg: number | null
+  heightCm: number | null
+  gender: string | null
+  birthDate: string | null // YYYY-MM-DD
+  age: number | null
+}
+
+// GET /auth/profile/defaults — valores p/ pré-preencher o quiz da IA
+// (peso atual do progresso, altura, gênero e idade calculada do nascimento).
+export async function getProfileDefaults(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+): Promise<ProfileDefaults> {
+  const response = await authorizedFetch(`${API_URL}/auth/profile/defaults`)
+  const payload = (await response.json().catch(() => null)) as
+    | { data?: ProfileDefaults; error?: ApiErrorPayload }
+    | null
+  if (!response.ok || !payload?.data) {
+    throw new Error(extractApiErrorMessage(payload) ?? 'Erro ao carregar dados do perfil')
+  }
+  return payload.data
+}
+
+// PATCH /auth/profile/birthdate — salva a data de nascimento (YYYY-MM-DD | null).
+export async function updateBirthDate(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  birthDate: string | null,
+): Promise<void> {
+  const response = await authorizedFetch(`${API_URL}/auth/profile/birthdate`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ birthDate }),
+  })
+  const payload = (await response.json().catch(() => null)) as { error?: ApiErrorPayload } | null
+  if (!response.ok) {
+    throw new Error(extractApiErrorMessage(payload) ?? 'Erro ao salvar data de nascimento')
+  }
+}
+
 // POST /auth/profile/email/request-code — sends a 6-digit code to the NEW
 // email so the user proves they own it before we swap.
 export async function requestEmailChangeCode(

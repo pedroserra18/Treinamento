@@ -57,6 +57,17 @@ export const updateNameBodySchema = z
   .object({ name: z.string().trim().min(2).max(120) })
   .strict();
 
+// PATCH /auth/profile/birthdate — data de nascimento (YYYY-MM-DD ou null).
+// Usada para calcular a idade automaticamente no quiz da IA.
+export const updateBirthDateBodySchema = z
+  .object({
+    birthDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida (use AAAA-MM-DD)")
+      .nullable(),
+  })
+  .strict();
+
 // POST /auth/profile/email/request-code — kicks off email change. Code goes
 // to the NEW email so we prove ownership before swapping.
 export const requestEmailChangeBodySchema = z
@@ -126,6 +137,7 @@ export type RegisterVerifyCodeBody = z.infer<typeof registerVerifyCodeBodySchema
 export type UpdateHandleBody = z.infer<typeof updateHandleBodySchema>;
 export type DeleteProfileBody = z.infer<typeof deleteProfileBodySchema>;
 export type UpdateNameBody = z.infer<typeof updateNameBodySchema>;
+export type UpdateBirthDateBody = z.infer<typeof updateBirthDateBodySchema>;
 export type RequestEmailChangeBody = z.infer<typeof requestEmailChangeBodySchema>;
 export type ConfirmEmailChangeBody = z.infer<typeof confirmEmailChangeBodySchema>;
 export type ForgotPasswordRequestCodeBody = z.infer<typeof forgotPasswordRequestCodeBodySchema>;

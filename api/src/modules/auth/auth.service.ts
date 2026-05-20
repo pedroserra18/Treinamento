@@ -503,6 +503,49 @@ export async function logoutSession(userId: string, context: EventContext = {}):
   });
 }
 
+// Valores pré-preenchidos para o quiz da IA: peso ATUAL (último registro de
+// progresso, com fallback pro onboarding), altura, gênero e idade calculada
+// da data de nascimento. Mantém o peso sempre em dia com o que o usuário
+// registra na página de progresso (BodyMeasurement), em vez do peso estático
+// do onboarding.
+export async function getProfileDefaults(userId: string) {
+  const [user, profile, latestMeasurement] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId }, select: { sex: true, birthDate: true } }),
+    prisma.onboardingProfile.findUnique({ where: { userId }, select: { heightCm: true, weightKg: true } }),
+    prisma.bodyMeasurement.findFirst({ where: { userId }, orderBy: { date: "desc" }, select: { weight: true } }),
+  ]);
+
+  const weightKg = latestMeasurement?.weight ?? profile?.weightKg ?? null;
+  const heightCm = profile?.heightCm ?? null;
+  const sex = user?.sex ?? null;
+  const birthDate = user?.birthDate ?? null;
+
+  let age: number | null = null;
+  if (birthDate) {
+    const now = new Date();
+    age = now.getFullYear() - birthDate.getFullYear();
+    const monthDiff = now.getMonth() - birthDate.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < birthDate.getDate())) {
+      age -= 1;
+    }
+  }
+
+  return {
+    weightKg,
+    heightCm,
+    gender: sex === "MALE" ? "Masculino" : sex === "FEMALE" ? "Feminino" : null,
+    birthDate: birthDate ? birthDate.toISOString().slice(0, 10) : null, // YYYY-MM-DD
+    age,
+  };
+}
+
+export async function updateBirthDate(userId: string, birthDate: string | null): Promise<void> {
+  await prisma.user.update({
+    where: { id: userId },
+    data: { birthDate: birthDate ? new Date(birthDate) : null },
+  });
+}
+
 export async function getAuthenticatedProfile(userId: string): Promise<SafeUser> {
   const user = await prisma.user.findUnique({
     where: { id: userId },

@@ -29,6 +29,8 @@ import {
   updateAvatar,
   updateHandle,
   updateName,
+  getProfileDefaults,
+  updateBirthDate,
   updatePrivacy
 } from "./auth.service";
 import { requestEmailChangeCode } from "./registration-verification.service";
@@ -45,7 +47,8 @@ import {
   RegisterBody,
   RequestEmailChangeBody,
   UpdateHandleBody,
-  UpdateNameBody
+  UpdateNameBody,
+  UpdateBirthDateBody
 } from "./auth.schema";
 
 function maskEmail(email: string): string {
@@ -356,6 +359,19 @@ export async function updateNameController(req: Request, res: Response): Promise
   const { name } = req.body as UpdateNameBody;
   const user = await updateName(userId, name);
   res.json({ data: { user }, meta: { requestId: req.context.requestId } });
+}
+
+export async function getProfileDefaultsController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const data = await getProfileDefaults(userId);
+  res.json({ data, meta: { requestId: req.context.requestId } });
+}
+
+export async function updateBirthDateController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const { birthDate } = req.body as UpdateBirthDateBody;
+  await updateBirthDate(userId, birthDate);
+  res.json({ data: { birthDate }, meta: { requestId: req.context.requestId } });
 }
 
 export async function requestEmailChangeController(req: Request, res: Response): Promise<void> {
