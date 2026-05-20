@@ -256,18 +256,28 @@ function detectMuscleGroup(name: string): { label: string; color: string } | nul
   return null
 }
 
-// Foco "inferior" = quadríceps e/ou glúteo e/ou posterior de coxa. Com 4 dias + 1x/sem,
-// faz mais sentido especializar 2 dias de pernas (quad-isolado / glúteo+posterior)
-// do que dar um único dia comprimido — cada músculo continua a ser treinado 1x.
+// Foco "inferior" = quadríceps e/ou glúteo e/ou posterior de coxa. Quando o
+// usuário prioriza esses grupos, especializamos o split em mais dias de perna
+// com focos diferentes (quad / glúteo+posterior / pernas geral) em vez do PPL
+// padrão que dá apenas 1 dia de pernas.
 function hasLowerBodyFocus(musclesFocus: string[]): boolean {
   return musclesFocus.some((m) => m === 'Quadríceps' || m === 'Glúteo' || m === 'Posterior de Coxa')
 }
 
 function getEffectiveSplit(days: number, muscleFrequency: string, musclesFocus: string[] = []): string {
+  const lowerFocus = hasLowerBodyFocus(musclesFocus)
+
+  // Especialização inferior tem prioridade quando o usuário marcou foco em
+  // pernas/glúteo, EXCETO se ele pediu explicitamente 2x por semana (aí mantém
+  // split balanceado). Aplica-se a "1x por semana" e "IA decide".
+  if (lowerFocus && muscleFrequency !== '2x por semana') {
+    if (days === 4) return 'PPL + Lower Specialization' // 2 dias de perna + push + pull
+    if (days >= 5) return 'Lower Focus'                 // 3 dias de perna + push + pull (+ombros se 6)
+  }
+
   if (muscleFrequency === '1x por semana') {
     // Cada músculo treinado exatamente 1x por semana — split dedicado por grupo.
     // Upper/Lower com 4 dias seria A/B = músculo 2x → INVÁLIDO para esta frequência.
-    if (days === 4 && hasLowerBodyFocus(musclesFocus)) return 'PPL + Lower Specialization'
     if (days <= 2) return 'Upper/Lower'      // Upper + Lower (2 dias) = cada músculo 1x
     if (days === 3) return 'Push/Pull/Legs'  // PPL (3 dias) = cada músculo 1x
     return 'Bro Split'                       // 4+ dias = dia dedicado por grupo
@@ -305,6 +315,13 @@ function getWorkoutLabels(split: string, days: number): string[] {
     // glúteo/posterior (hip thrust, stiff, kickback). Cada músculo continua 1x/sem.
     return ['Push', 'Pull', 'Quadríceps', 'Glúteo + Posterior']
   }
+  if (split === 'Lower Focus') {
+    // 5-6 dias com foco inferior — 3 dias de perna com FOCOS DIFERENTES
+    // (quad-dominante / glúteo+posterior / pernas geral) + push + pull.
+    // Atende pedidos tipo "quero treinar inferior 3x na semana com focos diferentes".
+    if (days >= 6) return ['Quadríceps', 'Push', 'Glúteo + Posterior', 'Pull', 'Pernas', 'Ombros']
+    return ['Quadríceps', 'Push', 'Glúteo + Posterior', 'Pull', 'Pernas']
+  }
   if (split === 'Bro Split') {
     return ['Peito', 'Costas', 'Pernas', 'Ombros', 'Braços'].slice(0, Math.min(days, 5))
   }
@@ -313,6 +330,8 @@ function getWorkoutLabels(split: string, days: number): string[] {
 
 // ─── Coverage / volume / duration helpers ────────────────────────────────────
 
+// Mantém paridade com REQUIRED_GROUPS_BY_SPLIT_KEY do backend (ai.service.ts).
+// getRequiredGroups usa startsWith, então "Glúteo + Posterior" casa "Glúteo".
 const REQUIRED_BY_SPLIT_KEY: Record<string, string[]> = {
   'Full Body': ['Peito', 'Costas', 'Ombros', 'Quadríceps', 'Bíceps', 'Tríceps', 'Panturrilha'],
   'Upper': ['Peito', 'Costas', 'Ombros', 'Bíceps', 'Tríceps'],
@@ -320,6 +339,14 @@ const REQUIRED_BY_SPLIT_KEY: Record<string, string[]> = {
   'Push': ['Peito', 'Ombros', 'Tríceps'],
   'Pull': ['Costas', 'Bíceps'],
   'Legs': ['Quadríceps', 'Posterior de Coxa', 'Glúteo', 'Panturrilha'],
+  // Bro Split + dias especializados de perna
+  'Peito': ['Peito', 'Tríceps'],
+  'Costas': ['Costas', 'Bíceps'],
+  'Pernas': ['Quadríceps', 'Posterior de Coxa', 'Glúteo', 'Panturrilha'],
+  'Ombros': ['Ombros'],
+  'Braços': ['Bíceps', 'Tríceps'],
+  'Quadríceps': ['Quadríceps'],
+  'Glúteo': ['Glúteo', 'Posterior de Coxa'],
 }
 
 function getRequiredGroups(dayLabel: string): string[] {

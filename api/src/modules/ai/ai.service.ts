@@ -270,6 +270,27 @@ Quando regras conflitarem, segue esta ordem decrescente:
 - A SECÇÃO em que o exercício aparece em <exercicios_disponiveis> define o seu grupo muscular para efeitos de cobertura. Mesmo que o NOME sugira outro grupo (ex: "agachamento" parece quad mas pode estar listado em GLÚTEO), a SECÇÃO é autoritativa. Para cobrir QUADRÍCEPS, escolhe um exercício listado em QUADRÍCEPS — não um listado em GLÚTEO mesmo que o nome contenha "agachamento".
 </regras_criticas>
 
+<selecao_por_equipamento>
+A seleção DEVE respeitar o campo "Local de treino" do <perfil_usuario>:
+- "Academia (completa)" ou "Casa com equipamentos": PREFERE SEMPRE exercícios com carga externa (tags [BARRA], [HALTERES]/[DUMBBELL], [MÁQUINA]/[MACHINE], [CABO]/[CABLE], [SMITH], [KETTLEBELL]). É PROIBIDO escolher exercícios marcados [PESO_CORPORAL] quando existe variação com carga para o MESMO movimento na lista.
+  Exceções (bodyweight permitido mesmo com equipamento):
+    • Core/abdômen (prancha, abdominais — naturalmente sem carga).
+    • Quando o usuário pediu o exercício específico em "Pedido extra".
+    • Quando NÃO existe nenhuma variação com carga para aquele movimento.
+  Exemplo: POSTERIOR DE COXA em academia → "Stiff com barra", "Stiff com halter", "Levantamento terra romeno" ou "Mesa flexora". NUNCA "Stiff unilateral sem peso".
+- "Sem equipamento": usa SOMENTE exercícios [PESO_CORPORAL] (calistenia).
+</selecao_por_equipamento>
+
+<preferencias_exercicio>
+DESENVOLVIMENTO DE OMBROS — ordem de preferência (usa o primeiro disponível na lista):
+1. Desenvolvimento militar com barra (composto pesado bilateral)
+2. Desenvolvimento com halteres sentado (estável, bilateral)
+3. Desenvolvimento máquina / Desenvolvimento pegada neutra na máquina
+4. Desenvolvimento sentado no Smith
+5. Desenvolvimento Arnold (variação aceitável)
+EVITA por padrão: "Desenvolvimento unilateral com halter". Só inclui a variante unilateral se o usuário pedir EXPLICITAMENTE em "Pedido extra" ou tiver lesão que justifique trabalho unilateral. Para os DEMAIS grupos, exercícios unilaterais (afundo búlgaro, remada serrote, etc.) continuam permitidos normalmente.
+</preferencias_exercicio>
+
 <cobertura_por_divisao>
 FULL BODY (mín 8 ex): PEITO · OMBROS · COSTAS · BÍCEPS · TRÍCEPS · QUADRÍCEPS · POSTERIOR DE COXA ou GLÚTEO · PANTURRILHA · ABDÔMEN/CORE.
 UPPER (mín 7): PEITO · OMBROS · COSTAS · BÍCEPS · TRÍCEPS · ABDÔMEN. SEM pernas (sem QUADRÍCEPS, POSTERIOR DE COXA, GLÚTEO, PANTURRILHA).
@@ -539,7 +560,13 @@ function validateWorkout(
   // validador aceita o secundário como cobertura — caso contrário, o
   // aviso "Faltam: Bíceps" seria sempre falso positivo em calistenia.
   exerciseNameToSecondaryMuscle: Map<string, string>,
-  isBodyweight: boolean
+  isBodyweight: boolean,
+  // Mapa nome → isBodyweight, usado para detetar exercício de peso corporal
+  // num treino COM equipamento (bug: "Stiff unilateral sem peso" em academia).
+  exerciseNameToBodyweight: Map<string, boolean>,
+  // extraInfo do usuário em minúsculas — se ele pediu o exercício de propósito,
+  // não tratamos como violação.
+  extraInfoLower: string
 ): string[] {
   const violations: string[] = [];
 
@@ -597,6 +624,20 @@ function validateWorkout(
       if (primary && forbidden.has(primary)) {
         violations.push(`Exercício "${ex.name}" (grupo ${primary}) não pertence a um dia de ${splitKey} — escolhe outro do grupo correto.`);
       }
+    }
+  }
+
+  // 3c. Exercício de peso corporal num treino COM equipamento. Catch típico:
+  // "Stiff unilateral sem peso" numa academia completa. Permitido: core/abdômen
+  // (naturalmente sem carga) e exercícios que o usuário pediu explicitamente.
+  if (!isBodyweight) {
+    for (const ex of workout.exercises) {
+      const key = ex.name.toLowerCase();
+      if (!exerciseNameToBodyweight.get(key)) continue; // não é peso corporal
+      const primary = exerciseNameToMuscle.get(key);
+      if (primary === "CORE" || primary === "ABDÔMEN") continue; // permitido
+      if (extraInfoLower && extraInfoLower.includes(key)) continue; // pedido explícito
+      violations.push(`Exercício "${ex.name}" é de peso corporal, mas o usuário tem equipamento — usa a variação com carga (barra/halter/máquina) do mesmo movimento.`);
     }
   }
 
@@ -747,11 +788,13 @@ export async function generateWorkout(payload: GenerateWorkoutBody, userId?: str
   // modo bodyweight (ver doc na assinatura de validateWorkout).
   const exerciseNameToMuscle = new Map<string, string>();
   const exerciseNameToSecondaryMuscle = new Map<string, string>();
+  const exerciseNameToBodyweight = new Map<string, boolean>();
   const allowedNamesLower = new Map<string, string>();
   for (const ex of exercises) {
     const key = ex.name.toLowerCase();
     exerciseNameToMuscle.set(key, ex.ptLabel);
     allowedNamesLower.set(key, ex.name);
+    exerciseNameToBodyweight.set(key, ex.isBodyweight);
     if (ex.secondaryMuscleGroup) {
       const secLabel = MUSCLE_GROUP_LABELS[ex.secondaryMuscleGroup] ?? ex.secondaryMuscleGroup;
       exerciseNameToSecondaryMuscle.set(key, secLabel);
@@ -766,6 +809,7 @@ export async function generateWorkout(payload: GenerateWorkoutBody, userId?: str
         ? MAX_SETS_PER_MUSCLE_BY_SPLIT_KEY[splitKey] ?? 10
         : 10;
   const isBodyweight = payload.equipment === "Sem equipamento";
+  const extraInfoLower = (payload.extraInfo ?? "").toLowerCase();
 
   const userMsg = buildUserMessage(payload, exerciseListFormatted);
 
@@ -781,7 +825,9 @@ export async function generateWorkout(payload: GenerateWorkoutBody, userId?: str
     allowedNamesLower,
     maxSetsPerMuscle,
     exerciseNameToSecondaryMuscle,
-    isBodyweight
+    isBodyweight,
+    exerciseNameToBodyweight,
+    extraInfoLower
   );
 
   // Auto-retry uma vez se o validador encontrou problemas. Manda o output
@@ -806,7 +852,9 @@ Gera de novo respeitando TODAS as regras. Lista vazia em selfCritique.violations
       allowedNamesLower,
       maxSetsPerMuscle,
       exerciseNameToSecondaryMuscle,
-      isBodyweight
+      isBodyweight,
+      exerciseNameToBodyweight,
+      extraInfoLower
     );
   }
 
