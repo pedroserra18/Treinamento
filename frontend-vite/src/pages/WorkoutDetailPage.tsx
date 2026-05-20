@@ -5,11 +5,12 @@ import { useAuth } from '../hooks/useAuth'
 import { ImageViewer } from '../components/common/ImageViewer'
 import { SkeletonCard } from '../components/common/Skeleton'
 import { getStoredWorkoutSessionImage } from '../lib/workout-session-image'
-import { getWorkoutSessionById } from '../services/workoutService'
+import { getWorkoutSessionById, getSessionHighlights, type SessionHighlights } from '../services/workoutService'
 import { HistoryExerciseCard } from '../components/common/HistoryExerciseCard'
+import { WorkoutShareEditor } from '../components/common/WorkoutShareEditor'
 import { groupExerciseHistory } from '../lib/workout-history-grouping'
 import type { WorkoutSessionHistory } from '../types/workout'
-import { ArrowLeft, Calendar, Dumbbell, Flame, Layers, Timer, Weight } from 'lucide-react'
+import { ArrowLeft, Calendar, Dumbbell, Flame, Layers, Timer, Weight, Share2 } from 'lucide-react'
 
 function formatDuration(totalSeconds: number | null): string {
   if (!totalSeconds || totalSeconds <= 0) return '0m'
@@ -39,6 +40,8 @@ export function WorkoutDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [imageOpen, setImageOpen] = useState(false)
+  const [shareHighlights, setShareHighlights] = useState<SessionHighlights | null>(null)
+  const [loadingShare, setLoadingShare] = useState(false)
 
   useEffect(() => {
     if (!sessionId) {
@@ -138,6 +141,26 @@ export function WorkoutDetailPage() {
               {formatDateTime(session.endedAt)}
             </p>
           </div>
+          <button
+            type="button"
+            disabled={loadingShare}
+            onClick={async () => {
+              if (!sessionId) return
+              try {
+                setLoadingShare(true)
+                const highlights = await getSessionHighlights(authorizedFetch, sessionId)
+                setShareHighlights(highlights)
+              } catch (err) {
+                setError(err instanceof Error ? err.message : 'Erro ao preparar imagem')
+              } finally {
+                setLoadingShare(false)
+              }
+            }}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--brand)] bg-[var(--brand)]/10 px-3 py-2 text-[12.5px] font-bold text-[var(--brand)] disabled:opacity-60"
+          >
+            <Share2 size={13} />
+            {loadingShare ? 'Preparando…' : 'Compartilhar'}
+          </button>
         </div>
       </motion.header>
 
@@ -254,6 +277,14 @@ export function WorkoutDetailPage() {
           shape="portrait"
           caption={formatDateTime(session.endedAt)}
           onClose={() => setImageOpen(false)}
+        />
+      )}
+
+      {shareHighlights && (
+        <WorkoutShareEditor
+          highlights={shareHighlights}
+          initialPhoto={sessionId ? getStoredWorkoutSessionImage(sessionId) : null}
+          onClose={() => setShareHighlights(null)}
         />
       )}
     </section>

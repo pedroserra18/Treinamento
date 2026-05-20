@@ -27,11 +27,14 @@ import {
   createWorkoutPlan,
   deleteWorkoutPlan,
   getLatestExercisePerformance,
+  getSessionHighlights,
   listWorkoutPlans,
   searchExercisesForPlan,
   startWorkoutSession,
   updatePlanExercise,
+  type SessionHighlights,
 } from '../services/workoutService'
+import { WorkoutShareEditor } from '../components/common/WorkoutShareEditor'
 
 type TrainScreen = 'DASHBOARD' | 'ACTIVE' | 'SUMMARY' | 'EDIT' | 'RECOMMENDATIONS' | 'NEW_ROUTINE'
 type TrainOriginMode = 'EMPTY' | 'ROUTINE'
@@ -282,6 +285,10 @@ export function TrainPage() {
   const [savedSessionId, setSavedSessionId] = useState<string | null>(null)
   const [posting, setPosting] = useState(false)
   const [postDone, setPostDone] = useState(false)
+  // Editor de imagem de compartilhamento (estilo Strava).
+  const [shareHighlights, setShareHighlights] = useState<SessionHighlights | null>(null)
+  const [sharePhoto, setSharePhoto] = useState<string | null>(null)
+  const [loadingShare, setLoadingShare] = useState(false)
   const interactionOrderByExerciseRef = useRef<Record<string, number>>({})
   const interactionOrderCounterRef = useRef(0)
 
@@ -1372,6 +1379,35 @@ export function TrainPage() {
           ) : (
             <div className="space-y-3">
               <p className="text-sm font-semibold text-green-400">Treino salvo com sucesso!</p>
+              <button
+                type="button"
+                disabled={loadingShare || !savedSessionId}
+                onClick={async () => {
+                  if (!savedSessionId) return
+                  try {
+                    setLoadingShare(true)
+                    setError(null)
+                    // Converte a foto (se houver) para dataURL — blob: URL pode
+                    // falhar no html2canvas.
+                    if (summaryImageFile) {
+                      try {
+                        setSharePhoto(await optimizeImageFileToDataUrl(summaryImageFile, { maxEdge: 1600, quality: 0.88 }))
+                      } catch { setSharePhoto(null) }
+                    } else {
+                      setSharePhoto(null)
+                    }
+                    const highlights = await getSessionHighlights(authorizedFetch, savedSessionId)
+                    setShareHighlights(highlights)
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'Erro ao preparar imagem')
+                  } finally {
+                    setLoadingShare(false)
+                  }
+                }}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--brand)] bg-[var(--brand)]/10 px-4 py-2.5 text-sm font-bold text-[var(--brand)] disabled:opacity-60"
+              >
+                {loadingShare ? 'Preparando…' : 'Compartilhar imagem (Instagram, Stories…)'}
+              </button>
               {!postDone ? (
                 <>
                   <p className="text-sm font-semibold text-[var(--text)]">Deseja postar este treino?</p>
@@ -1459,6 +1495,14 @@ export function TrainPage() {
             </div>
           )}
         </article>
+
+        {shareHighlights && (
+          <WorkoutShareEditor
+            highlights={shareHighlights}
+            initialPhoto={sharePhoto}
+            onClose={() => setShareHighlights(null)}
+          />
+        )}
       </section>
     )
   }

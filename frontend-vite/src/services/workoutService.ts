@@ -645,6 +645,29 @@ export async function getWorkoutSessionById(
   return payload.data
 }
 
+export type SessionHighlights = {
+  sessionId: string
+  volumeKg: number
+  durationSec: number | null
+  totalSeries: number
+  records: Array<{ exerciseName: string; weightKg: number; reps: number }>
+  topSet: { exerciseName: string; weightKg: number; reps: number } | null
+}
+
+export async function getSessionHighlights(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  sessionId: string,
+): Promise<SessionHighlights> {
+  const response = await authorizedFetch(`${API_URL}/workouts/history/${sessionId}/highlights`)
+  const payload = await parsePayload<SessionHighlights>(response)
+
+  if (!response.ok || !payload.data) {
+    throw new Error(payload.errorMessage ?? 'Não foi possível carregar o resumo do treino')
+  }
+
+  return payload.data
+}
+
 export async function updateHistoryDuration(
   authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
   sessionId: string,

@@ -11,6 +11,7 @@ import {
   fetchWorkoutRecommendations,
   getRecommendationTemplates,
   getWorkoutSessionById,
+  getSessionHighlights,
   listWorkoutHistory,
   listLatestExerciseHistory,
   listUserWorkoutPlans,
@@ -248,6 +249,17 @@ export async function getWorkoutSessionController(req: Request, res: Response): 
 
   res.status(200).json({
     data: session,
+    meta: { requestId: req.context.requestId }
+  });
+}
+
+export async function getSessionHighlightsController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as HistorySessionParams;
+  const data = await getSessionHighlights(userId, params);
+
+  res.status(200).json({
+    data,
     meta: { requestId: req.context.requestId }
   });
 }

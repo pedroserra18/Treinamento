@@ -1103,6 +1103,96 @@ export async function updateCompletedWorkoutDuration(
   return updated;
 }
 
+// Resumo + recordes de uma sessão concluída, para a imagem de compartilhamento
+// (estilo Strava). Calcula volume/duração/séries e detecta PRs reais comparando
+// o melhor set de cada exercício na sessão com o histórico anterior do usuário.
+export async function getSessionHighlights(userId: string, params: HistorySessionParams) {
+  const session = await prisma.workoutSession.findFirst({
+    where: { id: params.sessionId, userId },
+    select: { id: true, durationSec: true, endedAt: true, scheduledAt: true, status: true },
+  });
+
+  if (!session) {
+    throw new AppError("Workout session not found", {
+      statusCode: 404,
+      code: "WORKOUT_SESSION_NOT_FOUND",
+    });
+  }
+
+  const entries = await prisma.workoutHistory.findMany({
+    where: { workoutSessionId: params.sessionId, userId },
+    select: {
+      exerciseId: true,
+      weightKg: true,
+      reps: true,
+      exercise: { select: { name: true } },
+    },
+  });
+
+  let volumeKg = 0;
+  let totalSeries = 0;
+  // Melhor set (maior carga) de cada exercício NESTA sessão.
+  const sessionBest = new Map<string, { name: string; weightKg: number; reps: number }>();
+  for (const e of entries) {
+    totalSeries += 1;
+    const w = e.weightKg ?? 0;
+    const r = e.reps ?? 0;
+    volumeKg += w * r;
+    if (w > 0) {
+      const cur = sessionBest.get(e.exerciseId);
+      if (!cur || w > cur.weightKg) {
+        sessionBest.set(e.exerciseId, { name: e.exercise.name, weightKg: w, reps: r });
+      }
+    }
+  }
+
+  // Máximo histórico anterior (excluindo esta sessão) por exercício — 1 query.
+  const exerciseIds = Array.from(sessionBest.keys());
+  const priorMaxByExercise = new Map<string, number>();
+  if (exerciseIds.length > 0) {
+    const grouped = await prisma.workoutHistory.groupBy({
+      by: ["exerciseId"],
+      where: {
+        userId,
+        exerciseId: { in: exerciseIds },
+        workoutSessionId: { not: params.sessionId },
+        weightKg: { not: null },
+      },
+      _max: { weightKg: true },
+    });
+    for (const g of grouped) {
+      priorMaxByExercise.set(g.exerciseId, g._max.weightKg ?? 0);
+    }
+  }
+
+  // PR = melhor set da sessão > máximo histórico anterior.
+  const records: Array<{ exerciseName: string; weightKg: number; reps: number }> = [];
+  for (const [exerciseId, best] of sessionBest.entries()) {
+    const priorMax = priorMaxByExercise.get(exerciseId) ?? 0;
+    if (best.weightKg > priorMax) {
+      records.push({ exerciseName: best.name, weightKg: best.weightKg, reps: best.reps });
+    }
+  }
+  records.sort((a, b) => b.weightKg - a.weightKg);
+
+  // Destaque: maior carga da sessão (mesmo que não seja PR).
+  let topSet: { exerciseName: string; weightKg: number; reps: number } | null = null;
+  for (const best of sessionBest.values()) {
+    if (!topSet || best.weightKg > topSet.weightKg) {
+      topSet = { exerciseName: best.name, weightKg: best.weightKg, reps: best.reps };
+    }
+  }
+
+  return {
+    sessionId: session.id,
+    volumeKg: Number(volumeKg.toFixed(1)),
+    durationSec: session.durationSec ?? null,
+    totalSeries,
+    records,
+    topSet,
+  };
+}
+
 export async function createManualWorkoutHistory(userId: string, payload: CreateManualHistoryBody) {
   if (payload.workoutPlanId) {
     await assertOwnedPlan(payload.workoutPlanId, userId);
