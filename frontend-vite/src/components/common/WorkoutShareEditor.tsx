@@ -282,13 +282,6 @@ export function WorkoutShareEditor({
                   {b.label}
                 </button>
               ))}
-              <button
-                type="button"
-                onClick={() => toggleBlock('logo')}
-                className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${blocks.find((b) => b.id === 'logo')?.enabled ? 'bg-[var(--brand)] text-white' : 'bg-white/10 text-white/60'}`}
-              >
-                Logo
-              </button>
             </div>
           </div>
 
@@ -297,7 +290,7 @@ export function WorkoutShareEditor({
             <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-white/60">Tamanho das informações</p>
             <input
               type="range"
-              min={0.6}
+              min={0.35}
               max={1.8}
               step={0.05}
               value={groupScale}
