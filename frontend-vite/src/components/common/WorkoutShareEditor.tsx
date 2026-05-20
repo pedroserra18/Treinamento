@@ -6,16 +6,16 @@ import logoUrl from '../../assets/Logo_sem_Fundo.png'
 import type { SessionHighlights } from '../../services/workoutService'
 import { optimizeImageFileToDataUrl } from '../../lib/image-processing'
 
-type BlockId = 'logo' | 'volume' | 'tempo' | 'series' | 'record'
+type BlockId = string // 'logo' | 'volume' | 'tempo' | 'series' | 'record-0'...
 
 type Block = {
   id: BlockId
-  label: string
+  label: string // texto exibido na imagem (ex: "Volume", "Novo Recorde")
   value: string
   enabled: boolean
   isLogo?: boolean
-  // Bloco de recordes: lista de linhas "Exercício 100kg" (até 3).
-  records?: string[]
+  isRecord?: boolean
+  toggleLabel?: string // texto curto no botão de toggle (ex: nome do exercício)
 }
 
 // Corta o nome do exercício para o record caber em no máximo 2 linhas.
@@ -54,17 +54,18 @@ function buildInitialBlocks(h: SessionHighlights): Block[] {
   ]
 
   // Só mostra recordes se houver PR real (sem "Destaque" de fallback).
-  // Até 3 recordes, cada um cortado pra caber em no máx. 2 linhas.
-  if (h.records.length > 0) {
-    const recordLines = h.records.slice(0, 3).map((r) => `${truncateName(r.exerciseName)} ${r.weightKg}kg`)
+  // Cada recorde (até 3) é um bloco PRÓPRIO — toggle individual, exibido
+  // lado a lado como "Novo Recorde" + valor abaixo.
+  h.records.slice(0, 3).forEach((r, i) => {
     blocks.push({
-      id: 'record',
-      label: recordLines.length > 1 ? 'Novos Recordes 🎉' : 'Novo Record 🎉',
-      value: '',
+      id: `record-${i}`,
+      label: 'Novo Recorde 🎉',
+      value: `${truncateName(r.exerciseName)} ${r.weightKg}kg`,
       enabled: true,
-      records: recordLines,
+      isRecord: true,
+      toggleLabel: truncateName(r.exerciseName, 14),
     })
-  }
+  })
 
   return blocks
 }
@@ -295,23 +296,14 @@ export function WorkoutShareEditor({
               {/* nowrap = todos os stats numa única linha, lado a lado. Texto
                   longo (record) quebra apenas dentro da própria coluna. */}
               <div className="flex flex-row flex-nowrap items-start justify-center gap-x-4">
-                {statBlocks.map((block) =>
-                  block.records ? (
-                    <div key={block.id} className="text-center" style={{ maxWidth: 175 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.92, lineHeight: 1.1 }}>{block.label}</div>
-                      {block.records.map((line, i) => (
-                        <div key={i} style={{ fontSize: 17, fontWeight: 800, lineHeight: 1.12, marginTop: i > 0 ? 4 : 2 }}>
-                          {line}
-                        </div>
-                      ))}
+                {statBlocks.map((block) => (
+                  <div key={block.id} className="text-center" style={{ maxWidth: block.isRecord ? 150 : 120 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.92, lineHeight: 1.1 }}>{block.label}</div>
+                    <div style={{ fontSize: block.isRecord ? 17 : 22, fontWeight: 800, lineHeight: 1.12, marginTop: 2 }}>
+                      {block.value}
                     </div>
-                  ) : (
-                    <div key={block.id} className="text-center" style={{ maxWidth: 120 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.92, lineHeight: 1.1 }}>{block.label}</div>
-                      <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.1 }}>{block.value}</div>
-                    </div>
-                  ),
-                )}
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -334,7 +326,7 @@ export function WorkoutShareEditor({
                   onClick={() => toggleBlock(b.id)}
                   className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${b.enabled ? 'bg-[var(--brand)] text-white' : 'bg-white/10 text-white/60'}`}
                 >
-                  {b.label}
+                  {b.toggleLabel ?? b.label}
                 </button>
               ))}
             </div>
