@@ -15,10 +15,11 @@ type Block = {
   enabled: boolean
   isLogo?: boolean
   isRecord?: boolean
+  recordName?: string // nome do exercício (1 linha)
+  recordWeight?: string // peso (1 linha) — record = nome + peso = 2 linhas
   toggleLabel?: string // texto curto no botão de toggle (ex: nome do exercício)
 }
 
-// Corta o nome do exercício para o record caber em no máximo 2 linhas.
 function truncateName(name: string, max = 22): string {
   return name.length > max ? `${name.slice(0, max - 1).trimEnd()}…` : name
 }
@@ -60,9 +61,12 @@ function buildInitialBlocks(h: SessionHighlights): Block[] {
     blocks.push({
       id: `record-${i}`,
       label: 'Novo Recorde 🎉',
-      value: `${truncateName(r.exerciseName)} ${r.weightKg}kg`,
+      value: `${r.exerciseName} ${r.weightKg}kg`,
       enabled: true,
       isRecord: true,
+      // Nome em 1 linha (cortado p/ caber em coluna estreita) + peso em 1 linha.
+      recordName: truncateName(r.exerciseName, 14),
+      recordWeight: `${r.weightKg}kg`,
       toggleLabel: truncateName(r.exerciseName, 14),
     })
   })
@@ -285,7 +289,7 @@ export function WorkoutShareEditor({
                 transform: `translate(-50%, -50%) scale(${groupScale})`,
                 transformOrigin: 'center center',
                 width: 'max-content',
-                maxWidth: '94%',
+                maxWidth: '97%',
                 color: textColor === 'white' ? '#fff' : '#111',
                 textShadow: textColor === 'white' ? '0 1px 6px rgba(0,0,0,0.5)' : '0 1px 4px rgba(255,255,255,0.4)',
               }}
@@ -297,15 +301,21 @@ export function WorkoutShareEditor({
                   não cabem na largura da foto, sobem para outra linha (em vez de
                   espremer e quebrar o texto em muitas linhas). Largura FIXA por
                   coluna garante que cada record fique em no máx. 2 linhas. */}
-              <div className="flex flex-row flex-wrap items-start justify-center gap-x-3 gap-y-3">
-                {statBlocks.map((block) => (
-                  <div key={block.id} className="text-center" style={{ width: block.isRecord ? 138 : 94 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.92, lineHeight: 1.1 }}>{block.label}</div>
-                    <div style={{ fontSize: block.isRecord ? 16 : 22, fontWeight: 800, lineHeight: 1.15, marginTop: 2 }}>
-                      {block.value}
+              <div className="flex flex-row flex-wrap items-start justify-center gap-x-2 gap-y-3">
+                {statBlocks.map((block) =>
+                  block.isRecord ? (
+                    <div key={block.id} className="text-center" style={{ width: 94 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, opacity: 0.92, lineHeight: 1.1 }}>{block.label}</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.12, marginTop: 2, whiteSpace: 'nowrap' }}>{block.recordName}</div>
+                      <div style={{ fontSize: 18, fontWeight: 800, lineHeight: 1.1 }}>{block.recordWeight}</div>
                     </div>
-                  </div>
-                ))}
+                  ) : (
+                    <div key={block.id} className="text-center" style={{ width: 90 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.92, lineHeight: 1.1 }}>{block.label}</div>
+                      <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.15, marginTop: 2 }}>{block.value}</div>
+                    </div>
+                  ),
+                )}
               </div>
             </div>
           </div>
