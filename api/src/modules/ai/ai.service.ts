@@ -276,7 +276,11 @@ Quando regras conflitarem, segue esta ordem decrescente:
 - Se receberes <exercicios_ja_usados>, evita esses nomes mas mantém TODOS os grupos obrigatórios cobertos (usa outro exercício do mesmo grupo).
 - O array final de "exercises" deve refletir a versão CORRIGIDA — nunca devolves um array com violações que tu próprio detetaste.
 - A SECÇÃO em que o exercício aparece em <exercicios_disponiveis> define o seu grupo muscular para efeitos de cobertura. Mesmo que o NOME sugira outro grupo (ex: "agachamento" parece quad mas pode estar listado em GLÚTEO), a SECÇÃO é autoritativa. Para cobrir QUADRÍCEPS, escolhe um exercício listado em QUADRÍCEPS — não um listado em GLÚTEO mesmo que o nome contenha "agachamento".
-- DIA PERSONALIZADO: se o nome do dia na <tarefa> for livre (ex: "Peito e tríceps", "Treino de braço", "Pernas foco glúteo"), interpreta-o LITERALMENTE — cobre exatamente os músculos mencionados no nome, com 4-7 exercícios, sem forçar uma divisão padrão (Push/Pull/Legs etc.). O nome do dia é a instrução de cobertura.
+- DIA PERSONALIZADO: se o nome do dia na <tarefa> for livre (ex: "Peito e tríceps", "Pernas completo", "Pernas (ênfase glúteo)", "Superior completo"), interpreta-o LITERALMENTE — cobre exatamente os músculos mencionados, com 4-7 exercícios, sem forçar divisão padrão. Convenções:
+  • "Superior completo" / "Upper completo" = PEITO + COSTAS + OMBROS + BÍCEPS + TRÍCEPS.
+  • "Inferior completo" / "Pernas completo" = QUADRÍCEPS + POSTERIOR DE COXA + GLÚTEO + PANTURRILHA.
+  • "(ênfase em X)" ou "foco em X" = cobre o resto do dia normalmente MAS dá volume EXTRA (2-3 ex a mais) ao músculo X. Ex: "Pernas (ênfase glúteo)" = dia de pernas completo com vários exercícios extra de glúteo.
+  O nome do dia é a instrução de cobertura.
 </regras_criticas>
 
 <selecao_por_equipamento>
@@ -944,11 +948,15 @@ export async function parseCustomSplitWithAI(description: string, daysPerWeek: n
       {
         role: "system",
         content:
-          'Você converte uma descrição de divisão de treino (em português, linguagem natural) numa lista ordenada de dias. ' +
-          'Cada item da lista é o NOME CURTO dos grupos musculares daquele dia, capitalizado, sem texto extra. ' +
-          'Exemplos de itens válidos: "Tríceps e Bíceps", "Ombros", "Peito e Costas", "Pernas", "Peito e Tríceps". ' +
-          'Não inventes dias que o usuário não pediu. Não incluas números, dias da semana nem palavras como "dia" ou "treino" no nome — só os músculos. ' +
-          'Responde SOMENTE com o JSON no formato {"days": [...]}.',
+          'Você converte uma descrição de divisão de treino (em português, linguagem natural) numa lista ORDENADA de dias. ' +
+          'Cada item descreve o foco daquele dia PRESERVANDO os qualificadores que o usuário mencionou (ex: "completo", "ênfase em glúteo", "foco em peito superior"). ' +
+          'MANTÉM: nomes de músculos/regiões E as ênfases/qualificadores. Ex: "Pernas completo", "Pernas (ênfase glúteo)", "Superior completo", "Peito e Tríceps". ' +
+          'REMOVE apenas: dias da semana (segunda, terça, ...), as palavras "dia"/"treino" e numeração. ' +
+          'Se o usuário pedir o mesmo tipo de dia mais de uma vez, REPETE o item na lista (ex: perna na segunda e no sábado = dois itens "Pernas completo"). ' +
+          'NÃO inventes dias que o usuário não pediu. ' +
+          'Exemplos: "segunda e sábado perna completa, terça e sexta superior completo, quarta perna com ênfase em glúteo" → ' +
+          '["Pernas completo", "Superior completo", "Pernas (ênfase glúteo)", "Superior completo", "Pernas completo"]. ' +
+          'Responde SOMENTE com o JSON no formato {"days": [...]} na ordem descrita.',
       },
       {
         role: "user",
