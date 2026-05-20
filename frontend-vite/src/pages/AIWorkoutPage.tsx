@@ -23,6 +23,7 @@ type QuizAnswers = {
   location: string
   equipment: string
   duration: string
+  splitPreference: string
   muscleFrequency: string
   repRange: string
   restTime: string
@@ -49,7 +50,11 @@ type SaveResult = {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const ALL_STEP_IDS = Array.from({ length: 19 }, (_, i) => i)
+// Ordem explícita dos passos. A pergunta de divisão (19) foi inserida ANTES
+// da frequência muscular (9) — assim o usuário escolhe a divisão primeiro, e
+// a frequência só aparece se ele deixar "IA decide". Usar array explícito
+// (em vez de range numérico) evita renumerar todos os steps existentes.
+const ALL_STEP_IDS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 19, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
 
 const MUSCLES_LIST = [
   'Ombro', 'Peito', 'Costas', 'Bíceps', 'Tríceps',
@@ -93,6 +98,7 @@ const DEFAULT_ANSWERS: QuizAnswers = {
   location: '',
   equipment: '',
   duration: '',
+  splitPreference: '',
   muscleFrequency: '',
   repRange: '',
   restTime: '',
@@ -134,6 +140,11 @@ function isStepVisible(stepId: number, a: QuizAnswers): boolean {
   //   • Iniciantes não devem usar técnicas avançadas (volume e técnica básica primeiro).
   //   • Em recuperação de lesão, técnicas avançadas são contraindicadas.
   if (stepId === 12 && (isBodyweight || isBeginner || isInjuryRecovery)) return false
+
+  // step 9 — frequência muscular: só pergunta quando a divisão (step 19) está
+  // em "IA decide". Se o usuário escolheu uma divisão específica, a frequência
+  // já está implícita nela e perguntar seria redundante/conflitante.
+  if (stepId === 9 && a.splitPreference !== '' && a.splitPreference !== 'IA decide') return false
 
   // step 13 — foco muscular: em recuperação de lesão, o "foco" é dado pela lesão (descrita em step 14).
   if (stepId === 13 && isInjuryRecovery) return false
@@ -264,7 +275,25 @@ function hasLowerBodyFocus(musclesFocus: string[]): boolean {
   return musclesFocus.some((m) => m === 'Quadríceps' || m === 'Glúteo' || m === 'Posterior de Coxa')
 }
 
-function getEffectiveSplit(days: number, muscleFrequency: string, musclesFocus: string[] = []): string {
+function getEffectiveSplit(
+  days: number,
+  muscleFrequency: string,
+  musclesFocus: string[] = [],
+  splitPreference: string = '',
+): string {
+  // 1. Escolha EXPLÍCITA do usuário manda sobre qualquer inferência.
+  if (splitPreference && splitPreference !== 'IA decide') {
+    if (splitPreference === 'Especializado inferior') {
+      if (days === 4) return 'PPL + Lower Specialization'
+      if (days >= 5) return 'Lower Focus'
+      return 'Push/Pull/Legs' // ≤3 dias não dá pra 3 dias de perna distintos
+    }
+    // 'Full Body' | 'Upper/Lower' | 'Push/Pull/Legs' | 'Bro Split' batem
+    // diretamente com os nomes que getWorkoutLabels conhece.
+    return splitPreference
+  }
+
+  // 2. Inferência automática (quando "IA decide" ou não respondido).
   const lowerFocus = hasLowerBodyFocus(musclesFocus)
 
   // Especialização inferior tem prioridade quando o usuário marcou foco em
@@ -873,7 +902,7 @@ export function AIWorkoutPage() {
 
   const handleGenerate = useCallback(async () => {
     const days = parseInt(answers.daysPerWeek, 10) || 4
-    const split = getEffectiveSplit(days, answers.muscleFrequency, answers.musclesFocus)
+    const split = getEffectiveSplit(days, answers.muscleFrequency, answers.musclesFocus, answers.splitPreference)
     const labels = getWorkoutLabels(split, days)
 
     setAppScreen('LOADING')
@@ -992,7 +1021,7 @@ export function AIWorkoutPage() {
 
   const handleRegenerateDay = useCallback(async (index: number) => {
     const days = parseInt(answers.daysPerWeek, 10) || 4
-    const split = getEffectiveSplit(days, answers.muscleFrequency, answers.musclesFocus)
+    const split = getEffectiveSplit(days, answers.muscleFrequency, answers.musclesFocus, answers.splitPreference)
     const labels = getWorkoutLabels(split, days)
     const label = labels[index]
     if (!label) return
@@ -1681,6 +1710,26 @@ export function AIWorkoutPage() {
             </>
           )
 
+        case 19:
+          return (
+            <>
+              <h2 className="text-xl font-black text-[var(--text)]">Qual divisão de treino você prefere?</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">Escolha a estrutura ou deixe a IA decidir pelo seu perfil</p>
+              <div className="mt-5 space-y-2">
+                {[
+                  ['IA decide', 'A IA escolhe a melhor divisão pelo seu perfil (dias, foco, frequência)'],
+                  ['Full Body', 'Todos os grupos em cada treino — ótimo para força e frequência alta'],
+                  ['Upper/Lower', 'Alterna superior e inferior'],
+                  ['Push/Pull/Legs', 'Empurrar / Puxar / Pernas'],
+                  ['Especializado inferior', 'Mais dias de perna com focos diferentes (quad / glúteo / posterior)'],
+                  ['Bro Split', 'Um grupo muscular dedicado por dia'],
+                ].map(([val, hint]) => (
+                  <OptionCard key={val} label={val} hint={hint} selected={answers.splitPreference === val} onClick={() => selectAndAdvance('splitPreference', val)} />
+                ))}
+              </div>
+            </>
+          )
+
         default:
           return null
       }
@@ -1766,7 +1815,7 @@ export function AIWorkoutPage() {
 
   if (appScreen === 'REVIEW') {
     const days = parseInt(answers.daysPerWeek, 10) || 4
-    const split = getEffectiveSplit(days, answers.muscleFrequency, answers.musclesFocus)
+    const split = getEffectiveSplit(days, answers.muscleFrequency, answers.musclesFocus, answers.splitPreference)
     const labels = getWorkoutLabels(split, days)
 
     const restrictionsValue = [
@@ -1789,6 +1838,7 @@ export function AIWorkoutPage() {
       { label: 'Local', value: answers.location || '—', step: 6 },
       { label: 'Equipamento', value: answers.equipment || '—', step: 7 },
       { label: 'Duração', value: answers.duration ? `${answers.duration} min` : '—', step: 8 },
+      { label: 'Divisão', value: answers.splitPreference || 'IA decide', step: 19 },
       { label: 'Freq. muscular', value: answers.muscleFrequency || '—', step: 9 },
       { label: 'Reps', value: answers.repRange || '—', step: 10 },
       { label: 'Descanso', value: answers.restTime || 'IA decide', step: 11 },
