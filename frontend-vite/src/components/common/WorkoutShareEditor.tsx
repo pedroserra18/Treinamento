@@ -14,6 +14,13 @@ type Block = {
   value: string
   enabled: boolean
   isLogo?: boolean
+  // Bloco de recordes: lista de linhas "Exercício 100kg" (até 3).
+  records?: string[]
+}
+
+// Corta o nome do exercício para o record caber em no máximo 2 linhas.
+function truncateName(name: string, max = 22): string {
+  return name.length > max ? `${name.slice(0, max - 1).trimEnd()}…` : name
 }
 
 const BG_GRADIENTS = [
@@ -39,21 +46,27 @@ function formatVolume(kg: number): string {
 }
 
 function buildInitialBlocks(h: SessionHighlights): Block[] {
-  const recordValue =
-    h.records.length > 0
-      ? `${h.records[0].exerciseName} ${h.records[0].weightKg}kg 🎉`
-      : h.topSet
-        ? `${h.topSet.exerciseName} ${h.topSet.weightKg}kg`
-        : ''
-  const recordLabel = h.records.length > 0 ? 'Novo Record' : 'Destaque'
-
-  return [
+  const blocks: Block[] = [
     { id: 'logo', label: '', value: '', enabled: true, isLogo: true },
     { id: 'volume', label: 'Volume', value: formatVolume(h.volumeKg), enabled: true },
     { id: 'tempo', label: 'Tempo', value: formatDuration(h.durationSec), enabled: true },
     { id: 'series', label: 'Séries', value: String(h.totalSeries), enabled: false },
-    { id: 'record', label: recordLabel, value: recordValue, enabled: Boolean(recordValue) },
   ]
+
+  // Só mostra recordes se houver PR real (sem "Destaque" de fallback).
+  // Até 3 recordes, cada um cortado pra caber em no máx. 2 linhas.
+  if (h.records.length > 0) {
+    const recordLines = h.records.slice(0, 3).map((r) => `${truncateName(r.exerciseName)} ${r.weightKg}kg`)
+    blocks.push({
+      id: 'record',
+      label: recordLines.length > 1 ? 'Novos Recordes 🎉' : 'Novo Record 🎉',
+      value: '',
+      enabled: true,
+      records: recordLines,
+    })
+  }
+
+  return blocks
 }
 
 export function WorkoutShareEditor({
@@ -282,12 +295,23 @@ export function WorkoutShareEditor({
               {/* nowrap = todos os stats numa única linha, lado a lado. Texto
                   longo (record) quebra apenas dentro da própria coluna. */}
               <div className="flex flex-row flex-nowrap items-start justify-center gap-x-4">
-                {statBlocks.map((block) => (
-                  <div key={block.id} className="text-center" style={{ maxWidth: 120 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.92, lineHeight: 1.1 }}>{block.label}</div>
-                    <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.1 }}>{block.value}</div>
-                  </div>
-                ))}
+                {statBlocks.map((block) =>
+                  block.records ? (
+                    <div key={block.id} className="text-center" style={{ maxWidth: 175 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.92, lineHeight: 1.1 }}>{block.label}</div>
+                      {block.records.map((line, i) => (
+                        <div key={i} style={{ fontSize: 17, fontWeight: 800, lineHeight: 1.12, marginTop: i > 0 ? 4 : 2 }}>
+                          {line}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div key={block.id} className="text-center" style={{ maxWidth: 120 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, opacity: 0.92, lineHeight: 1.1 }}>{block.label}</div>
+                      <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.1 }}>{block.value}</div>
+                    </div>
+                  ),
+                )}
               </div>
             </div>
           </div>
