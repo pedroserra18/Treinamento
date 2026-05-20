@@ -66,6 +66,12 @@ export const generateWorkoutBodySchema = z.object({
   extraInfo: z.string().trim().max(500).optional(),
 });
 
+// Interpreta uma divisão escrita em linguagem natural ("Outro" no quiz).
+export const parseSplitBodySchema = z.object({
+  description: z.string().trim().min(1, "Descreve a divisão").max(1000),
+  daysPerWeek: z.coerce.number().int().min(1).max(7).optional(),
+});
+
 export const saveAIWorkoutBodySchema = z.object({
   planName: z.string().trim().min(1).max(100),
   exercises: z
@@ -84,3 +90,4 @@ export const saveAIWorkoutBodySchema = z.object({
 
 export type GenerateWorkoutBody = z.infer<typeof generateWorkoutBodySchema>;
 export type SaveAIWorkoutBody = z.infer<typeof saveAIWorkoutBodySchema>;
+export type ParseSplitBody = z.infer<typeof parseSplitBodySchema>;

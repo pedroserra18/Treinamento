@@ -155,6 +155,31 @@ export async function generateAIWorkout(
   return parseAIResponse(payload.text)
 }
 
+// Interpreta uma divisão escrita em linguagem natural (opção "Outro") numa
+// lista de dias. Usado quando o parser local do frontend não dá conta de
+// frase natural (ex: "quero um dia pra tríceps e bíceps, outro pra ombro...").
+export async function parseCustomSplitAI(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  description: string,
+  daysPerWeek?: number,
+): Promise<string[]> {
+  const response = await authorizedFetch(`${API_URL}/ai/parse-split`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ description, daysPerWeek }),
+  })
+
+  const payload = await parseJsonSafe<{ days?: string[]; message?: string; error?: string }>(response)
+  if (!response.ok) {
+    throw new Error(extractApiError(payload, response.status))
+  }
+  const days = Array.isArray(payload?.days) ? payload!.days.filter((d) => typeof d === 'string' && d.trim()) : []
+  if (days.length === 0) {
+    throw new Error('Não consegui identificar os dias na descrição')
+  }
+  return days
+}
+
 export async function saveAIWorkout(
   authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
   input: { planName: string; exercises: AIExercise[] },

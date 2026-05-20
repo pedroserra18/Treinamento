@@ -5,8 +5,8 @@ import { requireAuth } from "../../middlewares/auth.middleware";
 import { asyncHandler } from "../../shared/utils/async-handler";
 import { validateRequest } from "../../middlewares/validation.middleware";
 import { requireCompletedOnboarding } from "../../middlewares/onboarding.middleware";
-import { generateWorkoutBodySchema, saveAIWorkoutBodySchema } from "./ai.schema";
-import { generateWorkoutController, saveAIWorkoutController } from "./ai.controller";
+import { generateWorkoutBodySchema, parseSplitBodySchema, saveAIWorkoutBodySchema } from "./ai.schema";
+import { generateWorkoutController, parseSplitController, saveAIWorkoutController } from "./ai.controller";
 import { redisClient } from "../../config/redis";
 
 // Rate limit das gerações de treino IA. Migrado de Map em memória para o
@@ -61,6 +61,17 @@ router.post(
   requireCompletedOnboarding,
   validateRequest({ body: saveAIWorkoutBodySchema }),
   asyncHandler((req, res) => saveAIWorkoutController(req, res))
+);
+
+// Interpreta divisão em linguagem natural ("Outro"). Compartilha o mesmo
+// rate limit das gerações (chama a OpenAI também).
+router.post(
+  "/ai/parse-split",
+  requireAuth,
+  requireCompletedOnboarding,
+  aiGenerateRateLimit,
+  validateRequest({ body: parseSplitBodySchema }),
+  asyncHandler((req, res) => parseSplitController(req, res))
 );
 
 export default router;

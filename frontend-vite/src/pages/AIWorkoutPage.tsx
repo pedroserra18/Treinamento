@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import {
   generateAIWorkout,
+  parseCustomSplitAI,
   saveAIWorkout,
   type WorkoutSection,
 } from '../services/aiService'
@@ -872,6 +873,9 @@ export function AIWorkoutPage() {
   const [saveResults, setSaveResults] = useState<Record<number, SaveResult>>({})
   const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null)
   const [extraHistory, setExtraHistory] = useState<string[]>([])
+  // Rótulos resolvidos do plano gerado (especialmente p/ divisão "Outro"
+  // interpretada por IA). Guardados para o regenerar usar os MESMOS dias.
+  const [resolvedLabels, setResolvedLabels] = useState<string[]>([])
   // Which day tab is open in the RESULT screen, and which exercise within it.
   // Reset both whenever a new plan is generated (handled in handleGenerate).
   const [activeDayIndex, setActiveDayIndex] = useState(0)
@@ -978,7 +982,7 @@ export function AIWorkoutPage() {
   const handleGenerate = useCallback(async () => {
     const days = parseInt(answers.daysPerWeek, 10) || 4
     const split = getEffectiveSplit(days, answers.muscleFrequency, answers.musclesFocus, answers.splitPreference)
-    const labels = getWorkoutLabels(split, days, answers.customSplit)
+    let labels = getWorkoutLabels(split, days, answers.customSplit)
 
     setAppScreen('LOADING')
     setLoadingMsgIdx(0)
@@ -992,6 +996,17 @@ export function AIWorkoutPage() {
     if (answers.extraInfo) pushExtraHistory(answers.extraInfo)
 
     try {
+      // Divisão "Outro": se o parser local achou só 1 dia mas o texto é uma
+      // frase longa (linguagem natural), pede à IA pra interpretar a descrição.
+      if (split === 'Outro' && labels.length <= 1 && answers.customSplit.trim().length > 20) {
+        try {
+          labels = await parseCustomSplitAI(authorizedFetch, answers.customSplit, days)
+        } catch {
+          // Mantém o fallback do parser local se a IA falhar.
+        }
+      }
+      setResolvedLabels(labels)
+
       const accumulated: WorkoutSection[] = []
       const usedExercises: string[] = []
 
@@ -1097,7 +1112,9 @@ export function AIWorkoutPage() {
   const handleRegenerateDay = useCallback(async (index: number) => {
     const days = parseInt(answers.daysPerWeek, 10) || 4
     const split = getEffectiveSplit(days, answers.muscleFrequency, answers.musclesFocus, answers.splitPreference)
-    const labels = getWorkoutLabels(split, days, answers.customSplit)
+    // Usa os labels resolvidos na geração (inclui interpretação IA do "Outro");
+    // só recalcula se não houver (ex: regenerar sem ter gerado antes).
+    const labels = resolvedLabels.length > 0 ? resolvedLabels : getWorkoutLabels(split, days, answers.customSplit)
     const label = labels[index]
     if (!label) return
 
@@ -1165,7 +1182,7 @@ export function AIWorkoutPage() {
     } finally {
       setRegeneratingIndex(null)
     }
-  }, [authorizedFetch, answers, sections])
+  }, [authorizedFetch, answers, sections, resolvedLabels])
 
   const moveExercise = useCallback((sectionIndex: number, exIndex: number, dir: -1 | 1) => {
     setSections(prev => prev.map((s, i) => {

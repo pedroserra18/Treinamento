@@ -911,6 +911,91 @@ Gera de novo respeitando TODAS as regras. Lista vazia em selfCritique.violations
   return formatWorkoutAsLegacyText(workout, exerciseNameToMuscle, exerciseNameToSecondaryMuscle);
 }
 
+// ───────────────────────────────────────────────────────────────────────────────
+// Interpreta uma descrição de divisão em LINGUAGEM NATURAL e devolve a lista de
+// dias. Usado quando o usuário escolhe "Outro" e escreve algo como "quero um
+// dia só pra tríceps e bíceps, outro dia só pra ombro, um dia pra peito e
+// costas e o último pra perna". O parser regex do frontend não dá conta de
+// frase natural — aqui a IA faz o trabalho e o frontend gera dia a dia normal.
+// ───────────────────────────────────────────────────────────────────────────────
+const SPLIT_PARSE_SCHEMA = {
+  name: "split_days",
+  strict: true,
+  schema: {
+    type: "object",
+    properties: {
+      days: {
+        type: "array",
+        items: { type: "string" },
+      },
+    },
+    required: ["days"],
+    additionalProperties: false,
+  },
+} as const;
+
+export async function parseCustomSplitWithAI(description: string, daysPerWeek: number): Promise<string[]> {
+  const client = getOpenAIClient();
+  const model = process.env.OPENAI_MODEL ?? "gpt-4o-2024-11-20";
+
+  const response = await client.chat.completions.create({
+    model,
+    messages: [
+      {
+        role: "system",
+        content:
+          'Você converte uma descrição de divisão de treino (em português, linguagem natural) numa lista ordenada de dias. ' +
+          'Cada item da lista é o NOME CURTO dos grupos musculares daquele dia, capitalizado, sem texto extra. ' +
+          'Exemplos de itens válidos: "Tríceps e Bíceps", "Ombros", "Peito e Costas", "Pernas", "Peito e Tríceps". ' +
+          'Não inventes dias que o usuário não pediu. Não incluas números, dias da semana nem palavras como "dia" ou "treino" no nome — só os músculos. ' +
+          'Responde SOMENTE com o JSON no formato {"days": [...]}.',
+      },
+      {
+        role: "user",
+        content: `Frequência informada: ${daysPerWeek} dias/semana.\nDescrição do usuário: "${description}"\n\nDevolve a lista de dias na ordem descrita.`,
+      },
+    ],
+    response_format: { type: "json_schema", json_schema: SPLIT_PARSE_SCHEMA },
+    temperature: 0.1,
+    max_tokens: 400,
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) {
+    throw new AppError("A IA não conseguiu interpretar a divisão. Tenta reescrever.", {
+      statusCode: 502,
+      code: "AI_SPLIT_PARSE_FAILED",
+    });
+  }
+
+  let parsed: { days?: unknown };
+  try {
+    parsed = JSON.parse(content) as { days?: unknown };
+  } catch {
+    throw new AppError("A IA devolveu formato inválido ao interpretar a divisão.", {
+      statusCode: 502,
+      code: "AI_SPLIT_PARSE_INVALID",
+    });
+  }
+
+  const days = Array.isArray(parsed.days)
+    ? parsed.days
+        .filter((d): d is string => typeof d === "string")
+        .map((d) => d.trim())
+        .filter(Boolean)
+        .slice(0, 7)
+    : [];
+
+  if (days.length === 0) {
+    throw new AppError("Não consegui identificar os dias na descrição. Tenta detalhar mais.", {
+      statusCode: 422,
+      code: "AI_SPLIT_PARSE_EMPTY",
+    });
+  }
+
+  return days;
+}
+
 type SavedExercise = {
   name: string;
   found: boolean;
