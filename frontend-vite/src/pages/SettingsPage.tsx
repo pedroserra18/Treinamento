@@ -122,23 +122,30 @@ export function SettingsPage() {
         </p>
       </motion.header>
 
-      {/* Seletor de seção no mobile (a sidebar fica oculta < lg) */}
-      <div className="lg:hidden">
-        <label className="sr-only" htmlFor="settings-section">Seção</label>
-        <select
-          id="settings-section"
-          value={section}
-          onChange={(e) => setSectionAndUrl(e.target.value as Section)}
-          className="w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-2.5 text-sm font-semibold text-[var(--text)]"
-        >
-          {(['CONTA', 'PREFERÊNCIAS', 'ZONA DE RISCO'] as const).map((group) => (
-            <optgroup key={group} label={group}>
-              {SECTIONS.filter((s) => s.group === group).map((s) => (
-                <option key={s.id} value={s.id}>{s.label}</option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
+      {/* Seletor de seção no mobile/tablet — chips on-brand (sidebar fica < lg) */}
+      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 lg:hidden">
+        {SECTIONS.map((s) => {
+          const active = section === s.id
+          return (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => setSectionAndUrl(s.id)}
+              className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-2 text-[13px] font-medium transition-colors ${
+                active
+                  ? 'border-[var(--brand)] bg-[var(--brand)] text-white'
+                  : s.danger
+                    ? 'border-[var(--line)] text-red-500 hover:bg-red-500/8'
+                    : 'border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]'
+              }`}
+            >
+              <span className={`grid h-4 w-4 place-items-center ${active ? 'text-white' : s.danger ? 'text-red-500' : 'text-[var(--brand)]'}`}>
+                {s.icon}
+              </span>
+              {s.label}
+            </button>
+          )
+        })}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
