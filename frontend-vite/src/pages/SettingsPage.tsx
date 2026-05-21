@@ -17,7 +17,7 @@ import {
 import { sanitiseHandleInput, validateHandle } from '../lib/handle'
 import {
   AtSign, Check, Download, Lock, LogOut, Moon, ShieldAlert, Sun,
-  User as UserIcon, AlertTriangle, LifeBuoy, ArrowLeft,
+  AlertTriangle, LifeBuoy, ArrowLeft,
 } from 'lucide-react'
 
 // ─── Sidebar config ────────────────────────────────────────────────────────
@@ -41,8 +41,10 @@ type SectionDef = {
   danger?: boolean
 }
 
+// "Perfil" (editar avatar/nome) NÃO entra aqui de propósito: é acessado pelo
+// botão "Editar perfil" na página de perfil. Mantê-lo como aba duplicaria a
+// função. O painel ainda renderiza via /settings?section=profile.
 const SECTIONS: SectionDef[] = [
-  { id: 'profile',  group: 'CONTA',         label: 'Perfil',           icon: <UserIcon size={14} /> },
   { id: 'account',  group: 'CONTA',         label: 'Conta',            icon: <Lock size={14} /> },
   { id: 'handle',   group: 'CONTA',         label: '@handle público',  icon: <AtSign size={14} /> },
   { id: 'privacy',  group: 'PREFERÊNCIAS',  label: 'Privacidade',      icon: <ShieldAlert size={14} /> },
@@ -65,10 +67,13 @@ export function SettingsPage() {
   const [params, setParams] = useSearchParams()
 
   // Lets us deep-link to a specific section via `?section=handle`.
+  // 'profile' é válido por deep-link (botão "Editar perfil"), mesmo não sendo
+  // uma aba listada. As demais vêm de SECTIONS. Padrão = Conta.
   const sectionFromUrl = params.get('section') as Section | null
-  const initialSection: Section = sectionFromUrl && SECTIONS.some((s) => s.id === sectionFromUrl)
-    ? sectionFromUrl
-    : 'profile'
+  const initialSection: Section =
+    sectionFromUrl && (sectionFromUrl === 'profile' || SECTIONS.some((s) => s.id === sectionFromUrl))
+      ? sectionFromUrl
+      : 'account'
   const [section, setSection] = useState<Section>(initialSection)
   // Alterações não salvas (painéis Perfil/Handle reportam via onDirtyChange).
   const [dirty, setDirty] = useState(false)

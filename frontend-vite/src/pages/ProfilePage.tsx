@@ -529,7 +529,7 @@ export function ProfilePage() {
                 )}
               </div>
               <Link
-                to="/settings"
+                to="/settings?section=profile"
                 className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 text-[12.5px] font-medium text-[var(--text)] hover:bg-[var(--surface-hover)]"
               >
                 <Pencil size={12} />
