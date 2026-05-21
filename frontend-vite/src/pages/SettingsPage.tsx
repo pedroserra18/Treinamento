@@ -70,11 +70,35 @@ export function SettingsPage() {
     ? sectionFromUrl
     : 'profile'
   const [section, setSection] = useState<Section>(initialSection)
+  // Alterações não salvas (painéis Perfil/Handle reportam via onDirtyChange).
+  const [dirty, setDirty] = useState(false)
+  const [pendingSection, setPendingSection] = useState<Section | null>(null)
 
-  const setSectionAndUrl = (next: Section) => {
+  const commitSection = (next: Section) => {
+    setDirty(false)
     setSection(next)
     setParams({ section: next }, { replace: true })
   }
+
+  const setSectionAndUrl = (next: Section) => {
+    if (next === section) return
+    if (dirty) {
+      setPendingSection(next)
+      return
+    }
+    commitSection(next)
+  }
+
+  // Avisa ao fechar/recarregar a aba com alterações não salvas.
+  useEffect(() => {
+    if (!dirty) return
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [dirty])
 
   return (
     <section className="space-y-4">
@@ -98,9 +122,28 @@ export function SettingsPage() {
         </p>
       </motion.header>
 
+      {/* Seletor de seção no mobile (a sidebar fica oculta < lg) */}
+      <div className="lg:hidden">
+        <label className="sr-only" htmlFor="settings-section">Seção</label>
+        <select
+          id="settings-section"
+          value={section}
+          onChange={(e) => setSectionAndUrl(e.target.value as Section)}
+          className="w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-2.5 text-sm font-semibold text-[var(--text)]"
+        >
+          {(['CONTA', 'PREFERÊNCIAS', 'ZONA DE RISCO'] as const).map((group) => (
+            <optgroup key={group} label={group}>
+              {SECTIONS.filter((s) => s.group === group).map((s) => (
+                <option key={s.id} value={s.id}>{s.label}</option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+      </div>
+
       <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
         {/* ────────── SIDEBAR ────────── */}
-        <aside className="space-y-4">
+        <aside className="hidden space-y-4 lg:block">
           {(['CONTA', 'PREFERÊNCIAS', 'ZONA DE RISCO'] as const).map((group) => (
             <div key={group}>
               <p className="mb-1.5 px-2 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
@@ -152,6 +195,7 @@ export function SettingsPage() {
                   updateName={updateName}
                   avatarUrl={user?.avatarUrl ?? null}
                   name={user?.name ?? ''}
+                  onDirtyChange={setDirty}
                 />
               )}
               {section === 'account' && (
@@ -166,6 +210,7 @@ export function SettingsPage() {
                 <HandlePanel
                   currentHandle={user?.handle ?? ''}
                   updateHandle={updateHandle}
+                  onDirtyChange={setDirty}
                 />
               )}
               {section === 'privacy' && (
@@ -193,6 +238,34 @@ export function SettingsPage() {
           </AnimatePresence>
         </div>
       </div>
+
+      {/* Aviso de alterações não salvas ao trocar de seção */}
+      {pendingSection ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4 backdrop-blur-sm" onClick={() => setPendingSection(null)}>
+          <div className="w-full max-w-sm rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-lg font-bold text-[var(--text)]">Alterações não salvas</h2>
+            <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">
+              Você tem alterações que ainda não foram salvas. Se sair desta seção agora, elas serão descartadas.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingSection(null)}
+                className="rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
+              >
+                Continuar editando
+              </button>
+              <button
+                type="button"
+                onClick={() => { const next = pendingSection; setPendingSection(null); commitSection(next) }}
+                className="rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-semibold text-white hover:bg-[var(--brand-strong)]"
+              >
+                Descartar e sair
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   )
 }
@@ -222,7 +295,7 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 // ─── Profile (avatar + name) ──────────────────────────────────────────────
 
 function ProfilePanel({
-  authorizedFetch, applyUserPatch, refreshUser, updateName, avatarUrl, name,
+  authorizedFetch, applyUserPatch, refreshUser, updateName, avatarUrl, name, onDirtyChange,
 }: {
   authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   applyUserPatch: (patch: Partial<{ avatarUrl: string | null; name: string | null }>) => void
@@ -230,6 +303,7 @@ function ProfilePanel({
   updateName: (name: string) => Promise<void>
   avatarUrl: string | null
   name: string
+  onDirtyChange?: (dirty: boolean) => void
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [preview, setPreview] = useState<string | null>(avatarUrl)
@@ -249,6 +323,13 @@ function ProfilePanel({
   useEffect(() => {
     setNameDraft(name)
   }, [name])
+
+  // Reporta "alterações não salvas" ao pai (nome editado ou avatar trocado).
+  const isDirty = nameDraft.trim() !== name.trim() || avatarDirty
+  useEffect(() => {
+    onDirtyChange?.(isDirty)
+  }, [isDirty, onDirtyChange])
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
 
   const trimmedName = nameDraft.trim()
   const nameDirty = trimmedName !== name && trimmedName.length >= 2
@@ -880,10 +961,11 @@ function AccountPanel({
 // ─── Handle ───────────────────────────────────────────────────────────────
 
 function HandlePanel({
-  currentHandle, updateHandle,
+  currentHandle, updateHandle, onDirtyChange,
 }: {
   currentHandle: string
   updateHandle: (handle: string) => Promise<void>
+  onDirtyChange?: (dirty: boolean) => void
 }) {
   const [draft, setDraft] = useState(currentHandle)
   const [saving, setSaving] = useState(false)
@@ -892,6 +974,11 @@ function HandlePanel({
 
   const formatError = validateHandle(draft)
   const changed = draft.trim().toLowerCase() !== currentHandle
+
+  useEffect(() => {
+    onDirtyChange?.(changed)
+  }, [changed, onDirtyChange])
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
 
   const save = async () => {
     const next = draft.trim().toLowerCase()
