@@ -12,6 +12,7 @@ import {
   requestEmailChangeCode,
   requestForgotPasswordCode,
   updateBirthDate,
+  updateGender,
 } from '../services/authService'
 import { sanitiseHandleInput, validateHandle } from '../lib/handle'
 import {
@@ -459,10 +460,17 @@ function AccountPanel({
   // automaticamente. Carrega o valor atual e salva ao alterar.
   const [birthDate, setBirthDate] = useState('')
   const [birthDateSaved, setBirthDateSaved] = useState(false)
+  // Gênero — salvo no perfil e reutilizado pelo quiz da IA (pula a pergunta).
+  const [gender, setGender] = useState<'' | 'Masculino' | 'Feminino'>('')
+  const [genderSaved, setGenderSaved] = useState(false)
   useEffect(() => {
     let cancelled = false
     void getProfileDefaults(authorizedFetch as never)
-      .then((d) => { if (!cancelled && d.birthDate) setBirthDate(d.birthDate) })
+      .then((d) => {
+        if (cancelled) return
+        if (d.birthDate) setBirthDate(d.birthDate)
+        if (d.gender === 'Masculino' || d.gender === 'Feminino') setGender(d.gender)
+      })
       .catch(() => {})
     return () => { cancelled = true }
   }, [authorizedFetch])
@@ -473,6 +481,15 @@ function AccountPanel({
       await updateBirthDate(authorizedFetch as never, value || null)
       setBirthDateSaved(true)
       setTimeout(() => setBirthDateSaved(false), 2500)
+    } catch { /* silencioso */ }
+  }
+
+  const saveGender = async (value: 'Masculino' | 'Feminino') => {
+    setGender(value)
+    try {
+      await updateGender(authorizedFetch as never, value)
+      setGenderSaved(true)
+      setTimeout(() => setGenderSaved(false), 2500)
     } catch { /* silencioso */ }
   }
 
@@ -709,6 +726,33 @@ function AccountPanel({
             Usada pelo treino por IA pra calcular sua idade automaticamente.
           </p>
           {birthDateSaved && <p className="mt-1 text-[12px] text-emerald-500">Salvo.</p>}
+        </div>
+      </div>
+
+      {/* ── GÊNERO ───────────────────────────────────────────────────── */}
+      <div className="mt-6">
+        <FieldLabel>Gênero</FieldLabel>
+        <div className="max-w-md">
+          <div className="grid grid-cols-2 gap-2">
+            {(['Masculino', 'Feminino'] as const).map((g) => (
+              <button
+                key={g}
+                type="button"
+                onClick={() => void saveGender(g)}
+                className={`rounded-xl border px-3 py-2.5 text-sm font-semibold transition-colors ${
+                  gender === g
+                    ? 'border-[var(--brand)] bg-[var(--brand)]/10 text-[var(--brand)]'
+                    : 'border-[var(--line)] text-[var(--text)] hover:border-[var(--brand)]/40'
+                }`}
+              >
+                {g}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[12px] text-[var(--muted)]">
+            Usado pelo treino por IA pra definir a ênfase muscular padrão.
+          </p>
+          {genderSaved && <p className="mt-1 text-[12px] text-emerald-500">Salvo.</p>}
         </div>
       </div>
 
