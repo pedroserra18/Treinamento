@@ -460,11 +460,12 @@ export async function getUserDetail(targetUserId: string) {
     throw new AppError("User not found", { statusCode: 404, code: "USER_NOT_FOUND" });
   }
 
-  const [workoutPlanCount, workoutSessionCount, completedSessionCount, followersCount, followingCount, recentEvents] =
+  const [workoutPlanCount, workoutSessionCount, completedSessionCount, aiPlansGenerated, followersCount, followingCount, recentEvents] =
     await Promise.all([
       prisma.workoutPlan.count({ where: { userId: targetUserId } }),
       prisma.workoutSession.count({ where: { userId: targetUserId } }),
       prisma.workoutSession.count({ where: { userId: targetUserId, status: "COMPLETED" } }),
+      prisma.eventLog.count({ where: { userId: targetUserId, action: "ai_plan_generated" } }),
       prisma.follow.count({ where: { followingId: targetUserId } }),
       prisma.follow.count({ where: { followerId: targetUserId } }),
       prisma.eventLog.findMany({
@@ -486,6 +487,7 @@ export async function getUserDetail(targetUserId: string) {
       workoutPlanCount,
       workoutSessionCount,
       completedSessionCount,
+      aiPlansGenerated,
       followersCount,
       followingCount
     },

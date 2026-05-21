@@ -60,6 +60,7 @@ export type AdminUserDetail = {
     workoutPlanCount: number
     workoutSessionCount: number
     completedSessionCount: number
+    aiPlansGenerated: number
     followersCount: number
     followingCount: number
   }

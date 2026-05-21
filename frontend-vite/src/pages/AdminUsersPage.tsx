@@ -450,6 +450,7 @@ function UserDrawer({
             <div className="mt-5 grid grid-cols-3 gap-2">
               {[
                 { k: 'Planos', v: detail.stats.workoutPlanCount },
+                { k: 'Treinos IA', v: detail.stats.aiPlansGenerated },
                 { k: 'Sessões', v: detail.stats.workoutSessionCount },
                 { k: 'Concluídas', v: detail.stats.completedSessionCount },
                 { k: 'Seguidores', v: detail.stats.followersCount },

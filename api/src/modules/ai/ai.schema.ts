@@ -64,6 +64,10 @@ export const generateWorkoutBodySchema = z.object({
   // Pedido específico do usuário em texto livre. Backend tem regras para
   // interpretar "adicionar X" vs "substituir Y por X" no <pedido_extra> do prompt.
   extraInfo: z.string().trim().max(500).optional(),
+
+  // Marca o primeiro dia de uma geração de plano nova (não regeneração de dia).
+  // Usado apenas para registrar 1 evento de uso por plano gerado (métrica admin).
+  isFirstDay: z.boolean().optional(),
 });
 
 // Interpreta uma divisão escrita em linguagem natural ("Outro" no quiz).

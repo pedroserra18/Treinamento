@@ -28,6 +28,8 @@ export type GenerateWorkoutInput = {
   injuries?: string
   usedExercises?: string[]
   extraInfo?: string
+  // Marca o primeiro dia de uma geração de plano nova (para contagem de uso).
+  isFirstDay?: boolean
 }
 
 export type AIExercise = {

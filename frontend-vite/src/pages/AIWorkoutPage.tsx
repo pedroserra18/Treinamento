@@ -1141,6 +1141,7 @@ export function AIWorkoutPage() {
         const result = await generateAIWorkout(authorizedFetch, {
           prompt: buildPrompt(answers, label, i, labels.length, split),
           dayLabel: label,
+          isFirstDay: i === 0,
           weekDays: answers.daysPerWeek || undefined,
           split: split || undefined,
           muscleFrequency: answers.muscleFrequency || undefined,
