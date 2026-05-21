@@ -303,7 +303,7 @@ function SkeletonRows() {
   return (
     <>
       {Array.from({ length: 6 }).map((_, i) => (
-        <tr key={i} className="[&>td]:border-b [&>td]:border-[var(--line)] [&>td]:px-2.5 [&>td]:py-3.5">
+        <tr key={i} className="[&>td]:border-b [&>td]:border-[var(--line)] [&>td]:px-2 [&>td]:py-3.5">
           <td className="!pl-4">
             <div className="flex items-center gap-3">
               <div className="h-9 w-9 animate-pulse rounded-full bg-[var(--surface-hover)]" />
@@ -843,9 +843,9 @@ export function AdminUsersPage() {
           <p className="px-4 py-8 text-center text-sm text-red-500">{error}</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] border-collapse text-left">
+            <table className="w-full min-w-[560px] border-collapse text-left">
               <thead>
-                <tr className="bg-[var(--surface-hover)] [&>th]:border-b [&>th]:border-[var(--line)] [&>th]:px-2.5 [&>th]:py-3 [&>th]:font-mono [&>th]:text-[10px] [&>th]:font-semibold [&>th]:uppercase [&>th]:tracking-wider [&>th]:text-[var(--muted)]">
+                <tr className="bg-[var(--surface-hover)] [&>th]:border-b [&>th]:border-[var(--line)] [&>th]:px-2 [&>th]:py-3 [&>th]:font-mono [&>th]:text-[10px] [&>th]:font-semibold [&>th]:uppercase [&>th]:tracking-wider [&>th]:text-[var(--muted)]">
                   <th className="!pl-4"><SortHeader label="Usuário" field="name" activeField={sortBy} order={sortOrder} onSort={onSort} /></th>
                   <th><SortHeader label="Email" field="email" activeField={sortBy} order={sortOrder} onSort={onSort} /></th>
                   <th><SortHeader label="Tipo / Role" field="role" activeField={sortBy} order={sortOrder} onSort={onSort} /></th>
@@ -883,7 +883,7 @@ export function AdminUsersPage() {
                             setDrawerId(u.id)
                           }
                         }}
-                        className="cursor-pointer transition-colors hover:bg-[var(--surface-hover)] focus:outline-none focus-visible:bg-[var(--surface-hover)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--brand)] [&>td]:border-b [&>td]:border-[var(--line)] [&>td]:px-2.5 [&>td]:py-3 [&>td]:align-middle [&>td]:text-[13px] [&>td]:text-[var(--text)] [&:last-child>td]:border-b-0"
+                        className="cursor-pointer transition-colors hover:bg-[var(--surface-hover)] focus:outline-none focus-visible:bg-[var(--surface-hover)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--brand)] [&>td]:border-b [&>td]:border-[var(--line)] [&>td]:px-2 [&>td]:py-3 [&>td]:align-middle [&>td]:text-[13px] [&>td]:text-[var(--text)] [&:last-child>td]:border-b-0"
                       >
                         <td className="!pl-4">
                           <div className="flex items-center gap-3">
@@ -907,7 +907,7 @@ export function AdminUsersPage() {
                           </div>
                         </td>
                         <td>
-                          <span className="block max-w-[220px] truncate font-mono text-[11.5px] text-[var(--text)]" title={u.email}>{u.email}</span>
+                          <span className="block max-w-[170px] truncate font-mono text-[11.5px] text-[var(--text)]" title={u.email}>{u.email}</span>
                         </td>
                         <td>
                           <div className="flex flex-col items-start gap-1">
