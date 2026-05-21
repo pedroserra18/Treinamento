@@ -1,24 +1,35 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useAdminUsers } from '../hooks/useAdminUsers'
 import {
   deactivateUserByAdmin,
   deleteUserByAdmin,
+  getUserDetailForAdmin,
   reactivateUserByAdmin,
+  updateUserRoleByAdmin,
 } from '../services/adminService'
-import type { AdminUser } from '../types/admin'
+import type { AdminSortBy, AdminUserDetail } from '../types/admin'
 import {
   Ban,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Crown,
   RotateCcw,
   Search,
+  ShieldCheck,
   Trash2,
   X,
 } from 'lucide-react'
 
 const PAGE_SIZE = 20
+
+type Role = 'USER' | 'COACH' | 'ADMIN'
+type StatusFilter = '' | 'ACTIVE' | 'PENDING' | 'SUSPENDED' | 'DISABLED'
+type RoleFilter = '' | Role
+type OnbFilter = '' | 'completed' | 'pending'
+type SortOrder = 'asc' | 'desc'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -72,6 +83,14 @@ function avatarGradient(id: string): string {
   return AVATAR_GRADIENTS[hash % AVATAR_GRADIENTS.length]
 }
 
+// Rótulos amigáveis para ações registradas no EventLog.
+const EVENT_LABELS: Record<string, string> = {
+  admin_user_deactivated: 'Conta desativada',
+  admin_user_reactivated: 'Conta reativada',
+  admin_user_deleted: 'Conta excluída',
+  admin_user_role_changed: 'Papel alterado',
+}
+
 function CountUp({ target }: { target: number }) {
   const [value, setValue] = useState(0)
   useEffect(() => {
@@ -90,7 +109,6 @@ function CountUp({ target }: { target: number }) {
   return <>{value}</>
 }
 
-// Janela de páginas para o paginador (compacta quando há muitas).
 function pageWindow(current: number, totalPages: number): number[] {
   if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1)
   const pages = new Set<number>([1, totalPages, current, current - 1, current + 1])
@@ -101,34 +119,49 @@ function pageWindow(current: number, totalPages: number): number[] {
 
 // ─── Subcomponents ──────────────────────────────────────────────────────────
 
-type PillTone = 'real' | 'test' | 'active' | 'pending' | 'suspended' | 'disabled' | 'admin' | 'user'
+type PillTone = 'real' | 'test' | 'active' | 'pending' | 'suspended' | 'disabled' | 'admin' | 'user' | 'coach'
+
+const PILL_TONES: Record<PillTone, string> = {
+  real: 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30',
+  test: 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30',
+  active: 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30',
+  pending: 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30',
+  suspended: 'bg-orange-100 text-orange-700 border-orange-300 dark:bg-orange-500/15 dark:text-orange-300 dark:border-orange-500/30',
+  disabled: 'bg-[var(--surface-hover)] text-[var(--muted)] border-[var(--line)]',
+  admin: 'bg-[var(--text)] text-[var(--surface)] border-[var(--text)]',
+  user: 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-500/15 dark:text-blue-300 dark:border-blue-500/30',
+  coach: 'bg-violet-100 text-violet-700 border-violet-300 dark:bg-violet-500/15 dark:text-violet-300 dark:border-violet-500/30',
+}
 
 function Pill({ children, tone }: { children: React.ReactNode; tone: PillTone }) {
-  const tones: Record<PillTone, string> = {
-    real: 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30',
-    test: 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30',
-    active: 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30',
-    pending: 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30',
-    suspended: 'bg-orange-100 text-orange-700 border-orange-300 dark:bg-orange-500/15 dark:text-orange-300 dark:border-orange-500/30',
-    disabled: 'bg-[var(--surface-hover)] text-[var(--muted)] border-[var(--line)]',
-    admin: 'bg-[var(--text)] text-[var(--surface)] border-[var(--text)]',
-    user: 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-500/15 dark:text-blue-300 dark:border-blue-500/30',
-  }
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 font-mono text-[9.5px] font-semibold uppercase tracking-wider ${tones[tone]}`}
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 font-mono text-[9.5px] font-semibold uppercase tracking-wider ${PILL_TONES[tone]}`}
     >
       {children}
     </span>
   )
 }
 
-// Mapeia o status da conta (AccountStatus) para rótulo + cor da pílula.
 const STATUS_META: Record<string, { label: string; tone: PillTone; dot: string }> = {
   ACTIVE: { label: 'Ativo', tone: 'active', dot: 'bg-emerald-500' },
   PENDING: { label: 'Pendente', tone: 'pending', dot: 'bg-amber-500' },
   SUSPENDED: { label: 'Suspenso', tone: 'suspended', dot: 'bg-orange-500' },
   DISABLED: { label: 'Desativado', tone: 'disabled', dot: 'bg-[var(--muted)]' },
+}
+
+function roleTone(role: string): PillTone {
+  return role === 'ADMIN' ? 'admin' : role === 'COACH' ? 'coach' : 'user'
+}
+
+function StatusPill({ status }: { status: string }) {
+  const meta = STATUS_META[status] ?? { label: status || '—', tone: 'disabled' as PillTone, dot: 'bg-[var(--muted)]' }
+  return (
+    <Pill tone={meta.tone}>
+      <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
+      {meta.label}
+    </Pill>
+  )
 }
 
 function IconButton({
@@ -166,10 +199,10 @@ function IconButton({
   )
 }
 
-type PendingAction = {
-  kind: 'deactivate' | 'delete' | 'reactivate'
-  user: AdminUser
-}
+type ModalTarget = { id: string; name: string | null; email: string }
+type PendingAction =
+  | { kind: 'deactivate' | 'delete' | 'reactivate'; user: ModalTarget }
+  | { kind: 'role'; user: ModalTarget; newRole: Role }
 
 function ConfirmModal({
   action,
@@ -182,26 +215,34 @@ function ConfirmModal({
   onConfirm: () => void
   onCancel: () => void
 }) {
-  const config = {
-    deactivate: {
-      title: 'Desativar conta',
-      body: 'A conta será desativada e as sessões revogadas. O usuário não poderá entrar até ser reativado.',
-      confirm: 'Desativar',
-      btn: 'bg-amber-500 hover:bg-amber-600',
-    },
-    delete: {
-      title: 'Excluir conta',
-      body: 'Esta ação remove a conta da listagem ativa e revoga os acessos. Não pode ser desfeita pela interface.',
-      confirm: 'Excluir',
-      btn: 'bg-red-600 hover:bg-red-700',
-    },
-    reactivate: {
-      title: 'Reativar conta',
-      body: 'A conta voltará a ficar ativa e o usuário poderá entrar novamente.',
-      confirm: 'Reativar',
-      btn: 'bg-emerald-600 hover:bg-emerald-700',
-    },
-  }[action.kind]
+  const config =
+    action.kind === 'role'
+      ? {
+          title: 'Alterar papel',
+          body: `O usuário passará a ter o papel ${action.newRole}. Isso muda as permissões da conta imediatamente.`,
+          confirm: 'Alterar papel',
+          btn: 'bg-[var(--brand)] hover:bg-[var(--brand-strong)]',
+        }
+      : {
+          deactivate: {
+            title: 'Desativar conta',
+            body: 'A conta será desativada e as sessões revogadas. O usuário não poderá entrar até ser reativado.',
+            confirm: 'Desativar',
+            btn: 'bg-amber-500 hover:bg-amber-600',
+          },
+          delete: {
+            title: 'Excluir conta',
+            body: 'Esta ação remove a conta da listagem ativa e revoga os acessos. Não pode ser desfeita pela interface.',
+            confirm: 'Excluir',
+            btn: 'bg-red-600 hover:bg-red-700',
+          },
+          reactivate: {
+            title: 'Reativar conta',
+            body: 'A conta voltará a ficar ativa e o usuário poderá entrar novamente.',
+            confirm: 'Reativar',
+            btn: 'bg-emerald-600 hover:bg-emerald-700',
+          },
+        }[action.kind]
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -212,22 +253,11 @@ function ConfirmModal({
   }, [loading, onCancel])
 
   return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4 backdrop-blur-sm"
-      onClick={() => !loading && onCancel()}
-    >
-      <div
-        className="w-full max-w-md rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 z-[60] grid place-items-center bg-black/50 p-4 backdrop-blur-sm" onClick={() => !loading && onCancel()}>
+      <div className="w-full max-w-md rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3">
           <h2 className="text-lg font-bold text-[var(--text)]">{config.title}</h2>
-          <button
-            type="button"
-            onClick={() => !loading && onCancel()}
-            className="grid h-7 w-7 place-items-center rounded-lg text-[var(--muted)] hover:bg-[var(--surface-hover)]"
-            aria-label="Fechar"
-          >
+          <button type="button" onClick={() => !loading && onCancel()} className="grid h-7 w-7 place-items-center rounded-lg text-[var(--muted)] hover:bg-[var(--surface-hover)]" aria-label="Fechar">
             <X size={16} />
           </button>
         </div>
@@ -237,20 +267,10 @@ function ConfirmModal({
           <div className="font-mono text-[12px] text-[var(--muted)]">{action.user.email}</div>
         </div>
         <div className="mt-5 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={loading}
-            className="rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)] disabled:opacity-50"
-          >
+          <button type="button" onClick={onCancel} disabled={loading} className="rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)] disabled:opacity-50">
             Cancelar
           </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={loading}
-            className={`rounded-xl px-4 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-60 ${config.btn}`}
-          >
+          <button type="button" onClick={onConfirm} disabled={loading} className={`rounded-xl px-4 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-60 ${config.btn}`}>
             {loading ? 'Processando…' : config.confirm}
           </button>
         </div>
@@ -285,38 +305,288 @@ function SkeletonRows() {
   )
 }
 
+// Cabeçalho de coluna ordenável.
+function SortHeader({
+  label,
+  field,
+  activeField,
+  order,
+  onSort,
+}: {
+  label: string
+  field: AdminSortBy
+  activeField: AdminSortBy
+  order: SortOrder
+  onSort: (f: AdminSortBy) => void
+}) {
+  const active = activeField === field
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(field)}
+      className={`inline-flex items-center gap-1 transition-colors hover:text-[var(--text)] ${active ? 'text-[var(--text)]' : ''}`}
+    >
+      {label}
+      <span className={`text-[9px] ${active ? 'text-[var(--brand)]' : 'opacity-40'}`}>
+        {active ? (order === 'asc' ? '▲' : '▼') : '↕'}
+      </span>
+    </button>
+  )
+}
+
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3 border-b border-[var(--line)] py-2 last:border-b-0">
+      <span className="font-mono text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">{label}</span>
+      <span className="text-right text-[13px] text-[var(--text)]">{value}</span>
+    </div>
+  )
+}
+
+// ─── Detail drawer ────────────────────────────────────────────────────────────
+
+function UserDrawer({
+  detail,
+  loading,
+  isSelf,
+  onClose,
+  onRoleChange,
+  onAction,
+}: {
+  detail: AdminUserDetail | null
+  loading: boolean
+  isSelf: boolean
+  onClose: () => void
+  onRoleChange: (role: Role) => void
+  onAction: (kind: 'deactivate' | 'reactivate' | 'delete') => void
+}) {
+  const u = detail?.user
+  const [roleDraft, setRoleDraft] = useState<Role>('USER')
+  // Sincroniza o draft com o usuário carregado sem useEffect (padrão de ajuste
+  // de estado durante o render — reseta quando o id do usuário muda).
+  const [syncedId, setSyncedId] = useState<string | null>(null)
+  if (u && u.id !== syncedId) {
+    setSyncedId(u.id)
+    setRoleDraft(u.role)
+  }
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [onClose])
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="h-full w-full max-w-md overflow-y-auto border-l border-[var(--line)] bg-[var(--surface)] shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--line)] bg-[var(--surface)] px-5 py-4">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--muted)]">Detalhes do usuário</h2>
+          <button type="button" onClick={onClose} className="grid h-7 w-7 place-items-center rounded-lg text-[var(--muted)] hover:bg-[var(--surface-hover)]" aria-label="Fechar">
+            <X size={16} />
+          </button>
+        </div>
+
+        {loading || !u ? (
+          <div className="space-y-3 p-5">
+            <div className="h-16 w-full animate-pulse rounded-xl bg-[var(--surface-hover)]" />
+            <div className="h-24 w-full animate-pulse rounded-xl bg-[var(--surface-hover)]" />
+            <div className="h-40 w-full animate-pulse rounded-xl bg-[var(--surface-hover)]" />
+          </div>
+        ) : (
+          <div className="p-5">
+            {/* Identidade */}
+            <div className="flex items-center gap-3">
+              {u.avatarUrl ? (
+                <img src={u.avatarUrl} alt="" className="h-14 w-14 rounded-full object-cover" />
+              ) : (
+                <div className="grid h-14 w-14 place-items-center rounded-full text-lg font-semibold text-white" style={{ background: avatarGradient(u.id) }}>
+                  {initials(u.name, u.email)}
+                </div>
+              )}
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="truncate text-base font-bold text-[var(--text)]">{u.name ?? 'Sem nome'}</span>
+                  {u.mfaEnabled ? <ShieldCheck size={15} className="text-emerald-500" /> : null}
+                </div>
+                <div className="truncate font-mono text-[11px] text-[var(--muted)]">{u.handle ? `@${u.handle}` : `ID ${u.id.slice(0, 12)}`}</div>
+                <div className="truncate font-mono text-[11px] text-[var(--muted)]">{u.email}</div>
+              </div>
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              <Pill tone={u.accountType === 'TEST' ? 'test' : 'real'}>{u.accountType === 'TEST' ? 'Teste' : 'Real'}</Pill>
+              <Pill tone={roleTone(u.role)}>{u.role}</Pill>
+              <StatusPill status={u.status} />
+            </div>
+
+            {/* Stats */}
+            <div className="mt-5 grid grid-cols-3 gap-2">
+              {[
+                { k: 'Planos', v: detail.stats.workoutPlanCount },
+                { k: 'Sessões', v: detail.stats.workoutSessionCount },
+                { k: 'Concluídas', v: detail.stats.completedSessionCount },
+                { k: 'Seguidores', v: detail.stats.followersCount },
+                { k: 'Seguindo', v: detail.stats.followingCount },
+                { k: 'Dias/sem', v: u.availableDaysPerWeek ?? '—' },
+              ].map((s) => (
+                <div key={s.k} className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2.5 text-center">
+                  <div className="text-lg font-bold text-[var(--text)]">{s.v}</div>
+                  <div className="font-mono text-[9px] font-semibold uppercase tracking-wider text-[var(--muted)]">{s.k}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Campos */}
+            <div className="mt-5 rounded-xl border border-[var(--line)] px-3.5 py-1">
+              <DetailRow label="MFA / 2FA" value={u.mfaEnabled ? <span className="text-emerald-600 dark:text-emerald-400">Ativado</span> : <span className="text-[var(--muted)]">Desativado</span>} />
+              <DetailRow label="E-mail verificado" value={u.emailVerifiedAt ? formatDate(u.emailVerifiedAt) : <span className="text-[var(--muted)]">Não</span>} />
+              <DetailRow label="Onboarding" value={u.onboardingCompletedAt ? formatDate(u.onboardingCompletedAt) : <span className="text-amber-600 dark:text-amber-400">Pendente</span>} />
+              <DetailRow label="Nascimento" value={u.birthDate ? formatDate(u.birthDate) : '—'} />
+              <DetailRow label="Sexo" value={u.sex === 'MALE' ? 'Masculino' : u.sex === 'FEMALE' ? 'Feminino' : 'Outro'} />
+              <DetailRow label="Cadastro" value={`${formatDate(u.createdAt)} · ${relativeTime(u.createdAt)}`} />
+              <DetailRow label="Último login" value={u.lastLoginAt ? `${formatDate(u.lastLoginAt)} · ${relativeTime(u.lastLoginAt)}` : '—'} />
+            </div>
+
+            {/* Gestão de papel */}
+            <div className="mt-5">
+              <h3 className="font-mono text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">Papel</h3>
+              <div className="mt-2 flex items-center gap-2">
+                <select
+                  value={roleDraft}
+                  onChange={(e) => setRoleDraft(e.target.value as Role)}
+                  disabled={isSelf}
+                  className="flex-1 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] disabled:opacity-50"
+                >
+                  <option value="USER">USER</option>
+                  <option value="COACH">COACH</option>
+                  <option value="ADMIN">ADMIN</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => onRoleChange(roleDraft)}
+                  disabled={isSelf || roleDraft === u.role}
+                  className="rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[var(--brand-strong)] disabled:opacity-40"
+                >
+                  Aplicar
+                </button>
+              </div>
+              {isSelf ? <p className="mt-1.5 text-[11px] text-[var(--muted)]">Você não pode alterar o próprio papel.</p> : null}
+            </div>
+
+            {/* Ações rápidas */}
+            <div className="mt-5 flex flex-wrap gap-2">
+              {u.status === 'DISABLED' ? (
+                <button type="button" onClick={() => onAction('reactivate')} className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50 dark:border-emerald-500/30 dark:text-emerald-300 dark:hover:bg-emerald-500/15">
+                  <RotateCcw size={14} /> Reativar
+                </button>
+              ) : (
+                <button type="button" onClick={() => onAction('deactivate')} disabled={isSelf} className="inline-flex items-center gap-1.5 rounded-xl border border-amber-300 px-3 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-50 disabled:opacity-40 dark:border-amber-500/30 dark:text-amber-300 dark:hover:bg-amber-500/15">
+                  <Ban size={14} /> Desativar
+                </button>
+              )}
+              <button type="button" onClick={() => onAction('delete')} disabled={isSelf} className="inline-flex items-center gap-1.5 rounded-xl border border-red-300 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-40 dark:border-red-500/30 dark:text-red-400 dark:hover:bg-red-500/15">
+                <Trash2 size={14} /> Excluir
+              </button>
+            </div>
+
+            {/* Histórico de ações admin */}
+            <div className="mt-5">
+              <h3 className="font-mono text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">Ações administrativas recentes</h3>
+              {detail.recentEvents.length === 0 ? (
+                <p className="mt-2 text-[13px] text-[var(--muted)]">Nenhuma ação registrada.</p>
+              ) : (
+                <ul className="mt-2 space-y-1.5">
+                  {detail.recentEvents.map((ev) => (
+                    <li key={ev.id} className="flex items-center justify-between gap-3 rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2">
+                      <span className="text-[12.5px] text-[var(--text)]">{EVENT_LABELS[ev.action] ?? ev.action}</span>
+                      <span className="font-mono text-[10px] text-[var(--muted)]">{formatDate(ev.occurredAt)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function AdminUsersPage() {
   const { user: authUser, authorizedFetch } = useAuth()
-  const [accountScope, setAccountScope] = useState<'REAL' | 'TEST' | 'ALL'>('REAL')
-  const [registrationOrder, setRegistrationOrder] = useState<'desc' | 'asc'>('desc')
-  const [query, setQuery] = useState('')
-  const [debouncedQuery, setDebouncedQuery] = useState('')
-  const [page, setPage] = useState(1)
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // Estado inicial vem da URL (filtros persistentes / compartilháveis).
+  const [accountScope, setAccountScope] = useState<'REAL' | 'TEST' | 'ALL'>(
+    (['REAL', 'TEST', 'ALL'].includes(searchParams.get('scope') ?? '') ? searchParams.get('scope') : 'REAL') as 'REAL' | 'TEST' | 'ALL',
+  )
+  const [sortBy, setSortBy] = useState<AdminSortBy>((searchParams.get('sort') as AdminSortBy) || 'createdAt')
+  const [sortOrder, setSortOrder] = useState<SortOrder>((searchParams.get('dir') as SortOrder) || 'desc')
+  const [roleFilter, setRoleFilter] = useState<RoleFilter>((searchParams.get('role') as RoleFilter) || '')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>((searchParams.get('status') as StatusFilter) || '')
+  const [onbFilter, setOnbFilter] = useState<OnbFilter>((searchParams.get('onb') as OnbFilter) || '')
+  const [query, setQuery] = useState(searchParams.get('q') ?? '')
+  const [debouncedQuery, setDebouncedQuery] = useState(searchParams.get('q') ?? '')
+  const [page, setPage] = useState(Math.max(1, Number(searchParams.get('page')) || 1))
+
   const [pending, setPending] = useState<PendingAction | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
+  const [drawerId, setDrawerId] = useState<string | null>(null)
+  const [drawerDetail, setDrawerDetail] = useState<AdminUserDetail | null>(null)
+  const [drawerLoading, setDrawerLoading] = useState(false)
+  const [toasts, setToasts] = useState<{ id: number; msg: string; kind: 'ok' | 'err' }[]>([])
   const searchRef = useRef<HTMLInputElement>(null)
 
-  // Debounce da busca (evita uma requisição por tecla).
+  const pushToast = useCallback((msg: string, kind: 'ok' | 'err') => {
+    const id = Date.now() + Math.random()
+    setToasts((t) => [...t, { id, msg, kind }])
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200)
+  }, [])
+
+  // Debounce da busca.
   useEffect(() => {
     const id = setTimeout(() => setDebouncedQuery(query.trim()), 300)
     return () => clearTimeout(id)
   }, [query])
 
-  // Volta para a primeira página quando os filtros mudam.
+  // Volta para a página 1 quando filtros/busca/ordem mudam.
   useEffect(() => {
     setPage(1)
-  }, [accountScope, registrationOrder, debouncedQuery])
+  }, [accountScope, sortBy, sortOrder, roleFilter, statusFilter, onbFilter, debouncedQuery])
+
+  // Persiste o estado na URL.
+  useEffect(() => {
+    const next = new URLSearchParams()
+    if (accountScope !== 'REAL') next.set('scope', accountScope)
+    if (sortBy !== 'createdAt') next.set('sort', sortBy)
+    if (sortOrder !== 'desc') next.set('dir', sortOrder)
+    if (roleFilter) next.set('role', roleFilter)
+    if (statusFilter) next.set('status', statusFilter)
+    if (onbFilter) next.set('onb', onbFilter)
+    if (debouncedQuery) next.set('q', debouncedQuery)
+    if (page > 1) next.set('page', String(page))
+    setSearchParams(next, { replace: true })
+  }, [accountScope, sortBy, sortOrder, roleFilter, statusFilter, onbFilter, debouncedQuery, page, setSearchParams])
 
   const listingOptions = useMemo(
     () => ({
       accountScope,
       includeTest: accountScope !== 'REAL',
-      registrationOrder,
+      sortBy,
+      sortOrder,
       search: debouncedQuery,
+      role: roleFilter || undefined,
+      status: statusFilter || undefined,
+      onboarding: onbFilter || undefined,
     }),
-    [accountScope, registrationOrder, debouncedQuery],
+    [accountScope, sortBy, sortOrder, debouncedQuery, roleFilter, statusFilter, onbFilter],
   )
 
   const { data, loading, error, refresh } = useAdminUsers(page, PAGE_SIZE, listingOptions)
@@ -332,26 +602,77 @@ export function AdminUsersPage() {
     return () => document.removeEventListener('keydown', handler)
   }, [])
 
+  // Carrega o detalhe quando o drawer abre.
+  useEffect(() => {
+    if (!drawerId) {
+      setDrawerDetail(null)
+      return
+    }
+    let cancelled = false
+    setDrawerLoading(true)
+    void getUserDetailForAdmin(authorizedFetch, drawerId)
+      .then((d) => { if (!cancelled) setDrawerDetail(d) })
+      .catch((err) => {
+        if (!cancelled) {
+          pushToast(err instanceof Error ? err.message : 'Erro ao carregar detalhes', 'err')
+          setDrawerId(null)
+        }
+      })
+      .finally(() => { if (!cancelled) setDrawerLoading(false) })
+    return () => { cancelled = true }
+  }, [drawerId, authorizedFetch, pushToast])
+
   const items = data?.items ?? []
   const total = data?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const summary = data?.summary ?? { realCount: 0, testCount: 0, totalCount: 0, newRealLast7Days: 0 }
-  const scopeLabel =
-    accountScope === 'REAL' ? 'somente reais' : accountScope === 'TEST' ? 'somente teste' : 'reais + teste'
+  const scopeLabel = accountScope === 'REAL' ? 'somente reais' : accountScope === 'TEST' ? 'somente teste' : 'reais + teste'
   const rangeStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
   const rangeEnd = Math.min(page * PAGE_SIZE, total)
+  const hasFilters = Boolean(roleFilter || statusFilter || onbFilter || debouncedQuery)
+
+  const onSort = (field: AdminSortBy) => {
+    if (field === sortBy) {
+      setSortOrder((o) => (o === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortBy(field)
+      setSortOrder(['name', 'email', 'status', 'role'].includes(field) ? 'asc' : 'desc')
+    }
+  }
+
+  const clearFilters = () => {
+    setRoleFilter('')
+    setStatusFilter('')
+    setOnbFilter('')
+    setQuery('')
+  }
 
   const runAction = async () => {
     if (!pending) return
     setActionLoading(true)
     try {
-      if (pending.kind === 'deactivate') await deactivateUserByAdmin(authorizedFetch, pending.user.id)
-      else if (pending.kind === 'reactivate') await reactivateUserByAdmin(authorizedFetch, pending.user.id)
-      else await deleteUserByAdmin(authorizedFetch, pending.user.id)
+      if (pending.kind === 'deactivate') {
+        await deactivateUserByAdmin(authorizedFetch, pending.user.id)
+        pushToast('Conta desativada.', 'ok')
+      } else if (pending.kind === 'reactivate') {
+        await reactivateUserByAdmin(authorizedFetch, pending.user.id)
+        pushToast('Conta reativada.', 'ok')
+      } else if (pending.kind === 'role') {
+        await updateUserRoleByAdmin(authorizedFetch, pending.user.id, pending.newRole)
+        pushToast(`Papel alterado para ${pending.newRole}.`, 'ok')
+        if (drawerId) {
+          const fresh = await getUserDetailForAdmin(authorizedFetch, drawerId).catch(() => null)
+          if (fresh) setDrawerDetail(fresh)
+        }
+      } else {
+        await deleteUserByAdmin(authorizedFetch, pending.user.id)
+        pushToast('Conta excluída.', 'ok')
+        if (pending.user.id === drawerId) setDrawerId(null)
+      }
       setPending(null)
       await refresh()
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : 'Erro ao executar ação')
+      pushToast(err instanceof Error ? err.message : 'Erro ao executar ação', 'err')
     } finally {
       setActionLoading(false)
     }
@@ -378,12 +699,10 @@ export function AdminUsersPage() {
             WebkitMaskImage: 'radial-gradient(620px 240px at 12% 50%, #000 0%, transparent 70%)',
           }}
         />
-
         <span className="absolute right-5 top-5 z-[2] inline-flex items-center gap-1.5 rounded-full bg-[var(--text)] px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--surface)]">
           <span className="h-1.5 w-1.5 rounded-full bg-[var(--brand)] ring-2 ring-[var(--brand)]/30" />
           Admin
         </span>
-
         <div className="relative z-[1] flex flex-col items-start justify-between gap-6 md:flex-row md:items-end">
           <div className="min-w-0 flex-1">
             <div className="inline-flex items-center gap-2 font-mono text-[10.5px] font-semibold uppercase tracking-[0.22em] text-[var(--brand-strong)]">
@@ -400,29 +719,20 @@ export function AdminUsersPage() {
               Veja e gerencie todas as contas — usuários reais, contas de teste e ações administrativas em um só lugar.
             </p>
           </div>
-
           <div className="grid grid-cols-3 gap-6">
             <div className="text-right">
               <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Reais</div>
-              <div className="mt-1 text-2xl font-semibold leading-none tracking-tight text-[var(--brand-strong)] sm:text-3xl">
-                <CountUp target={summary.realCount} />
-              </div>
-              <div className="mt-1 font-mono text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
-                {summary.newRealLast7Days > 0 ? `▲ ${summary.newRealLast7Days} esta semana` : 'sem novos · 7d'}
-              </div>
+              <div className="mt-1 text-2xl font-semibold leading-none tracking-tight text-[var(--brand-strong)] sm:text-3xl"><CountUp target={summary.realCount} /></div>
+              <div className="mt-1 font-mono text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">{summary.newRealLast7Days > 0 ? `▲ ${summary.newRealLast7Days} esta semana` : 'sem novos · 7d'}</div>
             </div>
             <div className="text-right">
               <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Teste</div>
-              <div className="mt-1 text-2xl font-semibold leading-none tracking-tight text-[var(--text)] sm:text-3xl">
-                <CountUp target={summary.testCount} />
-              </div>
+              <div className="mt-1 text-2xl font-semibold leading-none tracking-tight text-[var(--text)] sm:text-3xl"><CountUp target={summary.testCount} /></div>
               <div className="mt-1 font-mono text-[10px] font-semibold text-[var(--muted)]">contas internas</div>
             </div>
             <div className="text-right">
               <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Base total</div>
-              <div className="mt-1 text-2xl font-semibold leading-none tracking-tight text-[var(--text)] sm:text-3xl">
-                <CountUp target={summary.totalCount} />
-              </div>
+              <div className="mt-1 text-2xl font-semibold leading-none tracking-tight text-[var(--text)] sm:text-3xl"><CountUp target={summary.totalCount} /></div>
               <div className="mt-1 font-mono text-[10px] font-semibold text-[var(--muted)]">reais + teste</div>
             </div>
           </div>
@@ -430,59 +740,62 @@ export function AdminUsersPage() {
       </header>
 
       {/* ── TOOLBAR ─────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 items-center gap-2.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-3.5 md:grid-cols-[minmax(220px,1fr)_auto_auto]">
-        <label className="relative flex items-center rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2.5 focus-within:border-[var(--brand)] focus-within:bg-[var(--surface)]">
-          <Search size={14} className="mr-2 text-[var(--muted)]" />
-          <input
-            ref={searchRef}
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Buscar por nome, e-mail, handle ou ID…"
-            className="flex-1 border-0 bg-transparent text-sm text-[var(--text)] outline-none placeholder:text-[var(--muted)]"
-          />
-          <kbd className="ml-2 hidden rounded border border-[var(--line)] bg-[var(--surface)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--muted)] sm:inline">
-            ⌘K
-          </kbd>
-        </label>
+      <div className="space-y-2.5 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-3.5">
+        <div className="grid grid-cols-1 items-center gap-2.5 md:grid-cols-[minmax(220px,1fr)_auto]">
+          <label className="relative flex items-center rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2.5 focus-within:border-[var(--brand)] focus-within:bg-[var(--surface)]">
+            <Search size={14} className="mr-2 text-[var(--muted)]" />
+            <input
+              ref={searchRef}
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Buscar por nome, e-mail, handle ou ID…"
+              className="flex-1 border-0 bg-transparent text-sm text-[var(--text)] outline-none placeholder:text-[var(--muted)]"
+            />
+            <kbd className="ml-2 hidden rounded border border-[var(--line)] bg-[var(--surface)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--muted)] sm:inline">⌘K</kbd>
+          </label>
 
-        <div className="inline-flex rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-1">
-          {segments.map((seg) => (
-            <button
-              key={seg.key}
-              type="button"
-              onClick={() => setAccountScope(seg.key)}
-              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-mono text-[10.5px] font-semibold uppercase tracking-wide transition-colors ${
-                accountScope === seg.key
-                  ? 'bg-[var(--surface)] text-[var(--text)] shadow-sm'
-                  : 'text-[var(--muted)] hover:text-[var(--text)]'
-              }`}
-            >
-              {seg.label}
-              <span
-                className={`rounded-full px-1.5 py-px font-mono text-[9.5px] ${
-                  accountScope === seg.key
-                    ? 'bg-[var(--brand)] text-white'
-                    : 'border border-[var(--line)] bg-[var(--surface)] text-[var(--text)]'
-                }`}
+          <div className="inline-flex rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-1">
+            {segments.map((seg) => (
+              <button
+                key={seg.key}
+                type="button"
+                onClick={() => setAccountScope(seg.key)}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-mono text-[10.5px] font-semibold uppercase tracking-wide transition-colors ${accountScope === seg.key ? 'bg-[var(--surface)] text-[var(--text)] shadow-sm' : 'text-[var(--muted)] hover:text-[var(--text)]'}`}
               >
-                {seg.count}
-              </span>
-            </button>
-          ))}
+                {seg.label}
+                <span className={`rounded-full px-1.5 py-px font-mono text-[9.5px] ${accountScope === seg.key ? 'bg-[var(--brand)] text-white' : 'border border-[var(--line)] bg-[var(--surface)] text-[var(--text)]'}`}>{seg.count}</span>
+              </button>
+            ))}
+          </div>
         </div>
 
-        <label className="inline-flex items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 hover:border-[var(--brand)]/40">
-          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Ordem</span>
-          <select
-            value={registrationOrder}
-            onChange={(e) => setRegistrationOrder(e.target.value as 'desc' | 'asc')}
-            className="border-0 bg-transparent text-xs font-semibold text-[var(--text)] outline-none"
-          >
-            <option value="desc">Mais recentes</option>
-            <option value="asc">Mais antigas</option>
+        {/* Filtros */}
+        <div className="flex flex-wrap items-center gap-2">
+          <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as RoleFilter)} className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 text-xs font-semibold text-[var(--text)]">
+            <option value="">Papel: todos</option>
+            <option value="USER">USER</option>
+            <option value="COACH">COACH</option>
+            <option value="ADMIN">ADMIN</option>
           </select>
-        </label>
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)} className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 text-xs font-semibold text-[var(--text)]">
+            <option value="">Status: todos</option>
+            <option value="ACTIVE">Ativo</option>
+            <option value="PENDING">Pendente</option>
+            <option value="SUSPENDED">Suspenso</option>
+            <option value="DISABLED">Desativado</option>
+          </select>
+          <select value={onbFilter} onChange={(e) => setOnbFilter(e.target.value as OnbFilter)} className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 text-xs font-semibold text-[var(--text)]">
+            <option value="">Onboarding: todos</option>
+            <option value="completed">Completo</option>
+            <option value="pending">Pendente</option>
+          </select>
+          {hasFilters ? (
+            <button type="button" onClick={clearFilters} className="inline-flex items-center gap-1 rounded-xl border border-[var(--line)] px-3 py-2 text-xs font-semibold text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]">
+              <X size={12} /> Limpar
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {/* ── TABLE CARD ──────────────────────────────────────────────── */}
@@ -490,15 +803,13 @@ export function AdminUsersPage() {
         <div className="flex items-center justify-between gap-3 border-b border-[var(--line)] bg-[var(--surface-hover)] px-4 py-3.5">
           <div className="inline-flex items-center gap-2.5 text-sm font-semibold text-[var(--text)]">
             Resultados
-            <span className="rounded-full bg-[var(--text)] px-2.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--surface)]">
-              {total}
-            </span>
+            <span className="rounded-full bg-[var(--text)] px-2.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--surface)]">{total}</span>
             <span className="font-mono text-[11px] tracking-wide text-[var(--muted)]">· {scopeLabel}</span>
           </div>
           <div className="hidden items-center gap-3.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)] sm:inline-flex">
             <span className="inline-flex items-center gap-1.5"><span className="h-[7px] w-[7px] rounded-full bg-emerald-500" />Ativo</span>
             <span className="inline-flex items-center gap-1.5"><span className="h-[7px] w-[7px] rounded-full bg-amber-400" />Onboarding parcial</span>
-            <span className="inline-flex items-center gap-1.5"><span className="h-[7px] w-[7px] rounded-full bg-[var(--muted)]" />Sem login</span>
+            <span className="inline-flex items-center gap-1.5"><ShieldCheck size={11} className="text-emerald-500" />2FA ativo</span>
           </div>
         </div>
 
@@ -509,11 +820,17 @@ export function AdminUsersPage() {
             <table className="w-full min-w-[860px] border-collapse text-left">
               <thead>
                 <tr className="bg-[var(--surface-hover)] [&>th]:border-b [&>th]:border-[var(--line)] [&>th]:px-2.5 [&>th]:py-3 [&>th]:font-mono [&>th]:text-[10px] [&>th]:font-semibold [&>th]:uppercase [&>th]:tracking-wider [&>th]:text-[var(--muted)]">
-                  <th className="!pl-4">Usuário</th>
-                  <th>Email</th>
-                  <th>Tipo / Role</th>
-                  <th>Status</th>
-                  <th>Cadastro / Último login</th>
+                  <th className="!pl-4"><SortHeader label="Usuário" field="name" activeField={sortBy} order={sortOrder} onSort={onSort} /></th>
+                  <th><SortHeader label="Email" field="email" activeField={sortBy} order={sortOrder} onSort={onSort} /></th>
+                  <th><SortHeader label="Tipo / Role" field="role" activeField={sortBy} order={sortOrder} onSort={onSort} /></th>
+                  <th><SortHeader label="Status" field="status" activeField={sortBy} order={sortOrder} onSort={onSort} /></th>
+                  <th>
+                    <span className="inline-flex items-center gap-2">
+                      <SortHeader label="Cadastro" field="createdAt" activeField={sortBy} order={sortOrder} onSort={onSort} />
+                      <span className="opacity-30">/</span>
+                      <SortHeader label="Login" field="lastLoginAt" activeField={sortBy} order={sortOrder} onSort={onSort} />
+                    </span>
+                  </th>
                   <th>Onboarding</th>
                   <th className="!pr-4 text-right">Ações</th>
                 </tr>
@@ -530,87 +847,47 @@ export function AdminUsersPage() {
                     return (
                       <tr
                         key={u.id}
-                        className="transition-colors hover:bg-[var(--surface-hover)] [&>td]:border-b [&>td]:border-[var(--line)] [&>td]:px-2.5 [&>td]:py-3 [&>td]:align-middle [&>td]:text-[13px] [&>td]:text-[var(--text)] [&:last-child>td]:border-b-0"
+                        onClick={() => setDrawerId(u.id)}
+                        className="cursor-pointer transition-colors hover:bg-[var(--surface-hover)] [&>td]:border-b [&>td]:border-[var(--line)] [&>td]:px-2.5 [&>td]:py-3 [&>td]:align-middle [&>td]:text-[13px] [&>td]:text-[var(--text)] [&:last-child>td]:border-b-0"
                       >
-                        {/* Usuário */}
                         <td className="!pl-4">
                           <div className="flex items-center gap-3">
                             <div className="relative h-9 w-9 flex-shrink-0">
                               {u.avatarUrl ? (
-                                <img
-                                  src={u.avatarUrl}
-                                  alt=""
-                                  className="h-9 w-9 rounded-full object-cover"
-                                />
+                                <img src={u.avatarUrl} alt="" className="h-9 w-9 rounded-full object-cover" />
                               ) : (
-                                <div
-                                  className="grid h-9 w-9 place-items-center rounded-full text-[13px] font-semibold text-white"
-                                  style={{ background: avatarGradient(u.id) }}
-                                >
-                                  {initials(u.name, u.email)}
-                                </div>
+                                <div className="grid h-9 w-9 place-items-center rounded-full text-[13px] font-semibold text-white" style={{ background: avatarGradient(u.id) }}>{initials(u.name, u.email)}</div>
                               )}
                               {isAdmin ? (
-                                <span className="absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full border-2 border-[var(--surface)] bg-[var(--text)] text-amber-400">
-                                  <Crown size={8} />
-                                </span>
+                                <span className="absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full border-2 border-[var(--surface)] bg-[var(--text)] text-amber-400"><Crown size={8} /></span>
                               ) : null}
                             </div>
                             <div className="min-w-0">
-                              <div className="truncate text-[13.5px] font-semibold text-[var(--text)]">
-                                {u.name ?? 'Sem nome'}
+                              <div className="flex items-center gap-1.5">
+                                <span className="truncate text-[13.5px] font-semibold text-[var(--text)]">{u.name ?? 'Sem nome'}</span>
+                                {u.mfaEnabled ? <ShieldCheck size={13} className="flex-shrink-0 text-emerald-500" /> : null}
                               </div>
-                              <div className="mt-0.5 truncate font-mono text-[10.5px] text-[var(--muted)]">
-                                {u.handle ? `@${u.handle}` : `ID ${u.id.slice(0, 10)}`}
-                              </div>
+                              <div className="mt-0.5 truncate font-mono text-[10.5px] text-[var(--muted)]">{u.handle ? `@${u.handle}` : `ID ${u.id.slice(0, 10)}`}</div>
                             </div>
                           </div>
                         </td>
-
-                        {/* Email */}
                         <td>
-                          <span className="block max-w-[220px] truncate font-mono text-[11.5px] text-[var(--text)]" title={u.email}>
-                            {u.email}
-                          </span>
+                          <span className="block max-w-[220px] truncate font-mono text-[11.5px] text-[var(--text)]" title={u.email}>{u.email}</span>
                         </td>
-
-                        {/* Tipo / Role */}
                         <td>
                           <div className="flex flex-col items-start gap-1">
-                            <Pill tone={u.accountType === 'TEST' ? 'test' : 'real'}>
-                              {u.accountType === 'TEST' ? 'Teste' : 'Real'}
-                            </Pill>
-                            <Pill tone={isAdmin ? 'admin' : 'user'}>{u.role}</Pill>
+                            <Pill tone={u.accountType === 'TEST' ? 'test' : 'real'}>{u.accountType === 'TEST' ? 'Teste' : 'Real'}</Pill>
+                            <Pill tone={roleTone(u.role)}>{u.role}</Pill>
                           </div>
                         </td>
-
-                        {/* Status */}
-                        <td>
-                          {(() => {
-                            const meta = STATUS_META[u.status] ?? {
-                              label: u.status || '—',
-                              tone: 'disabled' as PillTone,
-                              dot: 'bg-[var(--muted)]',
-                            }
-                            return (
-                              <Pill tone={meta.tone}>
-                                <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
-                                {meta.label}
-                              </Pill>
-                            )
-                          })()}
-                        </td>
-
-                        {/* Cadastro / Último login */}
+                        <td><StatusPill status={u.status} /></td>
                         <td>
                           <div className="grid gap-1.5">
                             <div className="grid grid-cols-[16px_1fr] items-baseline gap-1.5">
                               <span className="font-mono text-[9px] font-semibold uppercase tracking-wider text-[var(--muted)]">Cd</span>
                               <span className="font-mono text-[11px] text-[var(--text)]">
                                 {formatDate(u.createdAt)}
-                                <span className="block text-[10px] text-[var(--muted)]">
-                                  {[formatTime(u.createdAt), relativeTime(u.createdAt)].filter(Boolean).join(' · ')}
-                                </span>
+                                <span className="block text-[10px] text-[var(--muted)]">{[formatTime(u.createdAt), relativeTime(u.createdAt)].filter(Boolean).join(' · ')}</span>
                               </span>
                             </div>
                             <div className="grid grid-cols-[16px_1fr] items-baseline gap-1.5">
@@ -626,49 +903,26 @@ export function AdminUsersPage() {
                             </div>
                           </div>
                         </td>
-
-                        {/* Onboarding */}
                         <td>
                           <span className="inline-flex items-center gap-2 text-xs font-medium">
                             <span className="inline-block h-[5px] w-9 overflow-hidden rounded-full bg-[var(--line)]">
-                              <span
-                                className={`block h-full rounded-full ${onboarded ? 'bg-emerald-500' : 'bg-amber-400'}`}
-                                style={{ width: onboarded ? '100%' : '40%' }}
-                              />
+                              <span className={`block h-full rounded-full ${onboarded ? 'bg-emerald-500' : 'bg-amber-400'}`} style={{ width: onboarded ? '100%' : '40%' }} />
                             </span>
-                            <span className={onboarded ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}>
-                              {onboarded ? 'OK' : 'Parcial'}
-                            </span>
+                            <span className={onboarded ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}>{onboarded ? 'OK' : 'Parcial'}</span>
                           </span>
                         </td>
-
-                        {/* Ações */}
-                        <td className="!pr-4">
+                        <td className="!pr-4" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-end gap-1">
                             {isActive ? (
-                              <IconButton
-                                title={isSelf ? 'Esta é a sua conta' : 'Desativar conta'}
-                                tone="warn"
-                                disabled={isSelf}
-                                onClick={() => setPending({ kind: 'deactivate', user: u })}
-                              >
+                              <IconButton title={isSelf ? 'Esta é a sua conta' : 'Desativar conta'} tone="warn" disabled={isSelf} onClick={() => setPending({ kind: 'deactivate', user: u })}>
                                 <Ban size={14} />
                               </IconButton>
                             ) : (
-                              <IconButton
-                                title="Reativar conta"
-                                tone="ok"
-                                onClick={() => setPending({ kind: 'reactivate', user: u })}
-                              >
+                              <IconButton title="Reativar conta" tone="ok" onClick={() => setPending({ kind: 'reactivate', user: u })}>
                                 <RotateCcw size={14} />
                               </IconButton>
                             )}
-                            <IconButton
-                              title={isSelf ? 'Não pode excluir a própria conta' : 'Excluir conta'}
-                              tone="danger"
-                              disabled={isSelf}
-                              onClick={() => setPending({ kind: 'delete', user: u })}
-                            >
+                            <IconButton title={isSelf ? 'Não pode excluir a própria conta' : 'Excluir conta'} tone="danger" disabled={isSelf} onClick={() => setPending({ kind: 'delete', user: u })}>
                               <Trash2 size={14} />
                             </IconButton>
                           </div>
@@ -681,13 +935,9 @@ export function AdminUsersPage() {
                 {!loading && items.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="px-4 py-12 text-center">
-                      <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-[var(--surface-hover)] text-[var(--muted)]">
-                        <Search size={20} />
-                      </div>
+                      <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-[var(--surface-hover)] text-[var(--muted)]"><Search size={20} /></div>
                       <p className="mt-3 text-sm font-semibold text-[var(--text)]">Nenhum usuário encontrado</p>
-                      <p className="mt-1 text-xs text-[var(--muted)]">
-                        {debouncedQuery ? 'Tente outro termo de busca.' : 'Não há contas neste filtro.'}
-                      </p>
+                      <p className="mt-1 text-xs text-[var(--muted)]">{hasFilters ? 'Tente ajustar a busca ou os filtros.' : 'Não há contas neste filtro.'}</p>
                     </td>
                   </tr>
                 ) : null}
@@ -696,59 +946,56 @@ export function AdminUsersPage() {
           </div>
         )}
 
-        {/* Footer */}
         {!error ? (
           <div className="flex flex-col items-center justify-between gap-3 border-t border-[var(--line)] bg-[var(--surface-hover)] px-4 py-3.5 text-xs text-[var(--muted)] sm:flex-row">
             <span>
-              Mostrando <b className="text-[var(--text)]">{rangeStart}–{rangeEnd}</b> de{' '}
-              <b className="text-[var(--text)]">{total}</b> usuários
+              Mostrando <b className="text-[var(--text)]">{rangeStart}–{rangeEnd}</b> de <b className="text-[var(--text)]">{total}</b> usuários
             </span>
             <div className="inline-flex items-center gap-1.5">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page <= 1 || loading}
-                className="grid h-[30px] w-[30px] place-items-center rounded-lg border border-[var(--line)] bg-[var(--surface)] text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] disabled:pointer-events-none disabled:opacity-40"
-                aria-label="Anterior"
-              >
-                <ChevronLeft size={12} />
-              </button>
+              <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1 || loading} className="grid h-[30px] w-[30px] place-items-center rounded-lg border border-[var(--line)] bg-[var(--surface)] text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] disabled:pointer-events-none disabled:opacity-40" aria-label="Anterior"><ChevronLeft size={12} /></button>
               {pageWindow(page, totalPages).map((p, idx, arr) => (
                 <span key={p} className="inline-flex items-center gap-1.5">
                   {idx > 0 && p - arr[idx - 1] > 1 ? <span className="px-0.5 text-[var(--muted)]">…</span> : null}
-                  <button
-                    onClick={() => setPage(p)}
-                    disabled={loading}
-                    className={`grid h-[30px] min-w-[30px] place-items-center rounded-lg border px-1.5 font-mono text-[11px] font-semibold transition-colors ${
-                      p === page
-                        ? 'border-[var(--brand)] bg-[var(--brand)] text-white'
-                        : 'border-[var(--line)] bg-[var(--surface)] text-[var(--text)] hover:bg-[var(--surface-hover)]'
-                    }`}
-                  >
-                    {p}
-                  </button>
+                  <button onClick={() => setPage(p)} disabled={loading} className={`grid h-[30px] min-w-[30px] place-items-center rounded-lg border px-1.5 font-mono text-[11px] font-semibold transition-colors ${p === page ? 'border-[var(--brand)] bg-[var(--brand)] text-white' : 'border-[var(--line)] bg-[var(--surface)] text-[var(--text)] hover:bg-[var(--surface-hover)]'}`}>{p}</button>
                 </span>
               ))}
-              <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page >= totalPages || loading}
-                className="grid h-[30px] w-[30px] place-items-center rounded-lg border border-[var(--line)] bg-[var(--surface)] text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] disabled:pointer-events-none disabled:opacity-40"
-                aria-label="Próxima"
-              >
-                <ChevronRight size={12} />
-              </button>
+              <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages || loading} className="grid h-[30px] w-[30px] place-items-center rounded-lg border border-[var(--line)] bg-[var(--surface)] text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] disabled:pointer-events-none disabled:opacity-40" aria-label="Próxima"><ChevronRight size={12} /></button>
             </div>
           </div>
         ) : null}
       </div>
 
-      {pending ? (
-        <ConfirmModal
-          action={pending}
-          loading={actionLoading}
-          onConfirm={runAction}
-          onCancel={() => setPending(null)}
+      {/* Drawer */}
+      {drawerId ? (
+        <UserDrawer
+          detail={drawerDetail}
+          loading={drawerLoading}
+          isSelf={drawerDetail?.user.id === authUser?.id}
+          onClose={() => setDrawerId(null)}
+          onRoleChange={(role) => drawerDetail && setPending({ kind: 'role', user: drawerDetail.user, newRole: role })}
+          onAction={(kind) => drawerDetail && setPending({ kind, user: drawerDetail.user })}
         />
       ) : null}
+
+      {/* Modal de confirmação */}
+      {pending ? <ConfirmModal action={pending} loading={actionLoading} onConfirm={runAction} onCancel={() => setPending(null)} /> : null}
+
+      {/* Toasts */}
+      <div className="fixed bottom-4 right-4 z-[70] flex flex-col gap-2">
+        {toasts.map((t) => (
+          <div
+            key={t.id}
+            className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold shadow-lg ${
+              t.kind === 'ok'
+                ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200'
+                : 'border-red-300 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/15 dark:text-red-200'
+            }`}
+          >
+            {t.kind === 'ok' ? <CheckCircle2 size={15} /> : <X size={15} />}
+            {t.msg}
+          </div>
+        ))}
+      </div>
     </section>
   )
 }

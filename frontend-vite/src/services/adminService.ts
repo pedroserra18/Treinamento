@@ -1,4 +1,4 @@
-import type { AdminUser, AdminUsersResponse } from '../types/admin'
+import type { AdminSortBy, AdminUser, AdminUserDetail, AdminUsersResponse } from '../types/admin'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1'
 
@@ -68,6 +68,11 @@ type AdminUsersQueryOptions = {
   includeTest?: boolean
   registrationOrder?: 'asc' | 'desc'
   search?: string
+  sortBy?: AdminSortBy
+  sortOrder?: 'asc' | 'desc'
+  role?: 'USER' | 'COACH' | 'ADMIN'
+  status?: 'ACTIVE' | 'PENDING' | 'SUSPENDED' | 'DISABLED'
+  onboarding?: 'completed' | 'pending'
 }
 
 type AdminUsersPayload = {
@@ -108,10 +113,13 @@ export async function listUsersForAdmin(
     accountScope: options.accountScope ?? (options.includeTest ? 'ALL' : 'REAL'),
     includeTest: options.includeTest || options.accountScope === 'TEST' ? 'true' : 'false',
     registrationOrder: options.registrationOrder ?? 'desc',
+    sortBy: options.sortBy ?? 'createdAt',
+    sortOrder: options.sortOrder ?? 'desc',
   })
-  if (options.search?.trim()) {
-    fullQuery.set('search', options.search.trim())
-  }
+  if (options.search?.trim()) fullQuery.set('search', options.search.trim())
+  if (options.role) fullQuery.set('role', options.role)
+  if (options.status) fullQuery.set('status', options.status)
+  if (options.onboarding) fullQuery.set('onboarding', options.onboarding)
 
   let { response, payload } = await requestAdminUsers(authorizedFetch, fullQuery)
 
@@ -200,6 +208,47 @@ export async function deactivateUserByAdmin(
   }
 
   throw new Error(payload?.error?.message ?? 'Falha ao desativar conta do usuario')
+}
+
+export async function getUserDetailForAdmin(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  userId: string,
+): Promise<AdminUserDetail> {
+  const response = await authorizedFetch(`${API_URL}/admin/users/${userId}`)
+  const payload = (await response.json().catch(() => null)) as
+    | { data?: AdminUserDetail; error?: { message?: string; code?: string } }
+    | null
+
+  if (!response.ok || !payload?.data) {
+    if (payload?.error?.code === 'ROUTE_NOT_FOUND') {
+      throw new Error('API desatualizada. Reinicie o servidor da API para ver os detalhes.')
+    }
+    throw new Error(payload?.error?.message ?? 'Falha ao carregar detalhes do usuário')
+  }
+  return payload.data
+}
+
+export async function updateUserRoleByAdmin(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  userId: string,
+  role: 'USER' | 'COACH' | 'ADMIN',
+): Promise<void> {
+  const response = await authorizedFetch(`${API_URL}/admin/users/${userId}/role`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role }),
+  })
+
+  if (response.ok) return
+
+  const payload = (await response.json().catch(() => null)) as
+    | { error?: { message?: string; code?: string } }
+    | null
+
+  if (payload?.error?.code === 'ROUTE_NOT_FOUND') {
+    throw new Error('API desatualizada. Reinicie o servidor da API para gerenciar papéis.')
+  }
+  throw new Error(payload?.error?.message ?? 'Falha ao alterar o papel do usuário')
 }
 
 export async function reactivateUserByAdmin(

@@ -8,6 +8,11 @@ type UseAdminUsersOptions = {
   includeTest?: boolean
   registrationOrder?: 'asc' | 'desc'
   search?: string
+  sortBy?: 'createdAt' | 'lastLoginAt' | 'name' | 'email' | 'status' | 'role'
+  sortOrder?: 'asc' | 'desc'
+  role?: 'USER' | 'COACH' | 'ADMIN'
+  status?: 'ACTIVE' | 'PENDING' | 'SUSPENDED' | 'DISABLED'
+  onboarding?: 'completed' | 'pending'
 }
 
 export function useAdminUsers(page = 1, pageSize = 20, options: UseAdminUsersOptions = {}) {

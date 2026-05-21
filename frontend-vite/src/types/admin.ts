@@ -26,3 +26,42 @@ export type AdminUsersResponse = {
   }
   items: AdminUser[]
 }
+
+export type AdminSortBy = 'createdAt' | 'lastLoginAt' | 'name' | 'email' | 'status' | 'role'
+
+export type AdminUserEvent = {
+  id: string
+  action: string
+  severity: string
+  occurredAt: string
+  userId: string | null
+}
+
+export type AdminUserDetail = {
+  user: {
+    id: string
+    name: string | null
+    handle: string | null
+    avatarUrl: string | null
+    email: string
+    role: 'USER' | 'COACH' | 'ADMIN'
+    status: string
+    sex: string
+    birthDate: string | null
+    availableDaysPerWeek: number | null
+    onboardingCompletedAt: string | null
+    emailVerifiedAt: string | null
+    mfaEnabled: boolean
+    lastLoginAt: string | null
+    createdAt: string
+    accountType: 'REAL' | 'TEST'
+  }
+  stats: {
+    workoutPlanCount: number
+    workoutSessionCount: number
+    completedSessionCount: number
+    followersCount: number
+    followingCount: number
+  }
+  recentEvents: AdminUserEvent[]
+}
