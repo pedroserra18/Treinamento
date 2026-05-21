@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowLeft, CheckCircle2, Send, ShieldCheck, X } from 'lucide-react'
+import { ArrowLeft, ArrowDown, CheckCircle2, Send, ShieldCheck, X } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { SupportAttachmentInput } from '../components/common/SupportAttachmentInput'
+import { ImageLightbox } from '../components/common/ImageLightbox'
 import {
   STATUS_COLORS,
   STATUS_LABELS,
@@ -27,7 +28,7 @@ function formatDateTime(iso: string): string {
   })
 }
 
-function MessageBubble({ message }: { message: SupportMessage }) {
+function MessageBubble({ message, onImageClick }: { message: SupportMessage; onImageClick: (src: string) => void }) {
   const isAdmin = message.authorRole === 'ADMIN'
   const isSystem = message.authorRole === 'SYSTEM'
   const isUser = message.authorRole === 'USER'
@@ -59,15 +60,14 @@ function MessageBubble({ message }: { message: SupportMessage }) {
         {message.attachments.length > 0 ? (
           <div className="mt-2 flex flex-wrap gap-2">
             {message.attachments.map((src, idx) => (
-              <a
+              <button
                 key={idx}
-                href={src}
-                target="_blank"
-                rel="noreferrer"
+                type="button"
+                onClick={() => onImageClick(src)}
                 className="block h-24 w-24 overflow-hidden rounded-lg border border-black/10"
               >
                 <img src={src} alt={`Anexo ${idx + 1}`} className="h-full w-full object-cover" />
-              </a>
+              </button>
             ))}
           </div>
         ) : null}
@@ -92,7 +92,20 @@ export function SupportTicketPage() {
   const [resolving, setResolving] = useState(false)
   const [showResolveModal, setShowResolveModal] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
+  const [showNewMsg, setShowNewMsg] = useState(false)
   const scrollerRef = useRef<HTMLDivElement>(null)
+
+  const isNearBottom = () => {
+    const el = scrollerRef.current
+    if (!el) return true
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 80
+  }
+  const scrollToBottom = () => {
+    const el = scrollerRef.current
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    setShowNewMsg(false)
+  }
 
   // refresh silencioso (poll/foco) não mexe no estado de loading nem reabre erro.
   const refresh = useCallback(
@@ -116,8 +129,11 @@ export function SupportTicketPage() {
     void refresh()
   }, [refresh])
 
+  // Só rola automaticamente se o usuário já estava no fim; senão mostra o
+  // botão "nova mensagem" para não atrapalhar quem está lendo mais acima.
   useEffect(() => {
-    scrollerRef.current?.scrollTo({ top: scrollerRef.current.scrollHeight, behavior: 'smooth' })
+    if (isNearBottom()) scrollToBottom()
+    else setShowNewMsg(true)
   }, [data?.messages.length])
 
   // Atualização ao vivo: poll a cada 15s + refetch ao focar a aba, enquanto o
@@ -249,13 +265,25 @@ export function SupportTicketPage() {
         </p>
       </motion.header>
 
-      <div
-        ref={scrollerRef}
-        className="max-h-[60vh] space-y-3 overflow-y-auto rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4"
-      >
-        {messages.map((m) => (
-          <MessageBubble key={m.id} message={m} />
-        ))}
+      <div className="relative">
+        <div
+          ref={scrollerRef}
+          onScroll={() => { if (isNearBottom()) setShowNewMsg(false) }}
+          className="max-h-[60vh] space-y-3 overflow-y-auto rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4"
+        >
+          {messages.map((m) => (
+            <MessageBubble key={m.id} message={m} onImageClick={setLightboxSrc} />
+          ))}
+        </div>
+        {showNewMsg ? (
+          <button
+            type="button"
+            onClick={scrollToBottom}
+            className="absolute bottom-3 left-1/2 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-[var(--brand)] px-3 py-1.5 text-xs font-bold text-white shadow-lg"
+          >
+            <ArrowDown size={13} /> Nova mensagem
+          </button>
+        ) : null}
       </div>
 
       {canReply ? (
@@ -263,9 +291,15 @@ export function SupportTicketPage() {
           <textarea
             value={reply}
             onChange={(e) => setReply(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                e.currentTarget.closest('form')?.requestSubmit()
+              }
+            }}
             maxLength={MAX_BODY}
             rows={3}
-            placeholder="Sua resposta..."
+            placeholder="Sua resposta... (Enter envia, Shift+Enter quebra linha)"
             className="w-full resize-none rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--brand)]"
           />
           <SupportAttachmentInput attachments={attachments} onChange={setAttachments} disabled={sending} />
@@ -336,6 +370,8 @@ export function SupportTicketPage() {
           {toast}
         </div>
       ) : null}
+
+      {lightboxSrc ? <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} /> : null}
     </section>
   )
 }

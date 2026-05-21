@@ -292,14 +292,29 @@ export async function adminListTickets(query: AdminListQuery) {
     orderBy: [{ status: "asc" }, { lastActivityAt: "desc" }],
     skip: (query.page - 1) * query.pageSize,
     take: query.pageSize,
-    select: ticketSelect,
+    select: {
+      ...ticketSelect,
+      messages: {
+        where: { isInternalNote: false },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { body: true, authorRole: true },
+      },
+    },
   });
 
   return {
     page: query.page,
     pageSize: query.pageSize,
     total,
-    items: tickets.map(serializeTicket),
+    items: tickets.map((t) => {
+      const last = t.messages[0];
+      return {
+        ...serializeTicket(t),
+        lastMessagePreview: last ? (last.body.length > 90 ? `${last.body.slice(0, 87)}...` : last.body) : null,
+        lastMessageRole: last ? last.authorRole : null,
+      };
+    }),
   };
 }
 

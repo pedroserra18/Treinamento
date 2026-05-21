@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowLeft, ChevronDown, ChevronUp, FileText, RotateCcw, Send, ShieldCheck, StickyNote, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ChevronDown, ChevronUp, FileText, RotateCcw, Send, ShieldCheck, StickyNote, Trash2 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { SupportAttachmentInput } from '../components/common/SupportAttachmentInput'
+import { ImageLightbox } from '../components/common/ImageLightbox'
 import {
   STATUS_COLORS,
   STATUS_LABELS,
@@ -35,7 +36,7 @@ function formatDateTime(iso: string): string {
   })
 }
 
-function MessageBubble({ message }: { message: SupportMessage }) {
+function MessageBubble({ message, onImageClick }: { message: SupportMessage; onImageClick: (src: string) => void }) {
   const isAdmin = message.authorRole === 'ADMIN'
   const isSystem = message.authorRole === 'SYSTEM'
 
@@ -83,15 +84,14 @@ function MessageBubble({ message }: { message: SupportMessage }) {
         {message.attachments.length > 0 ? (
           <div className="mt-2 flex flex-wrap gap-2">
             {message.attachments.map((src, idx) => (
-              <a
+              <button
                 key={idx}
-                href={src}
-                target="_blank"
-                rel="noreferrer"
+                type="button"
+                onClick={() => onImageClick(src)}
                 className="block h-24 w-24 overflow-hidden rounded-lg border border-black/10"
               >
                 <img src={src} alt={`Anexo ${idx + 1}`} className="h-full w-full object-cover" />
-              </a>
+              </button>
             ))}
           </div>
         ) : null}
@@ -290,7 +290,20 @@ export function AdminSupportTicketPage() {
   const [removedPosts, setRemovedPosts] = useState<RemovedPost[]>([])
   const [removedPostsOpen, setRemovedPostsOpen] = useState(false)
   const [restoringId, setRestoringId] = useState<string | null>(null)
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
+  const [showNewMsg, setShowNewMsg] = useState(false)
   const scrollerRef = useRef<HTMLDivElement>(null)
+
+  const isNearBottom = () => {
+    const el = scrollerRef.current
+    if (!el) return true
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 80
+  }
+  const scrollToBottom = () => {
+    const el = scrollerRef.current
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    setShowNewMsg(false)
+  }
 
   const refresh = async () => {
     if (!ticketId) return
@@ -332,7 +345,8 @@ export function AdminSupportTicketPage() {
   }
 
   useEffect(() => {
-    scrollerRef.current?.scrollTo({ top: scrollerRef.current.scrollHeight, behavior: 'smooth' })
+    if (isNearBottom()) scrollToBottom()
+    else setShowNewMsg(true)
   }, [data?.messages.length])
 
   // Atualização ao vivo da fila do admin: poll a cada 15s + refetch ao focar a
@@ -460,13 +474,25 @@ export function AdminSupportTicketPage() {
         </div>
       </motion.header>
 
-      <div
-        ref={scrollerRef}
-        className="max-h-[55vh] space-y-3 overflow-y-auto rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4"
-      >
-        {messages.map((m) => (
-          <MessageBubble key={m.id} message={m} />
-        ))}
+      <div className="relative">
+        <div
+          ref={scrollerRef}
+          onScroll={() => { if (isNearBottom()) setShowNewMsg(false) }}
+          className="max-h-[55vh] space-y-3 overflow-y-auto rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4"
+        >
+          {messages.map((m) => (
+            <MessageBubble key={m.id} message={m} onImageClick={setLightboxSrc} />
+          ))}
+        </div>
+        {showNewMsg ? (
+          <button
+            type="button"
+            onClick={scrollToBottom}
+            className="absolute bottom-3 left-1/2 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-[var(--brand)] px-3 py-1.5 text-xs font-bold text-white shadow-lg"
+          >
+            <ArrowDown size={13} /> Nova mensagem
+          </button>
+        ) : null}
       </div>
 
       {/* Removed posts (admin review) */}
@@ -527,9 +553,15 @@ export function AdminSupportTicketPage() {
         <textarea
           value={reply}
           onChange={(e) => setReply(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault()
+              e.currentTarget.closest('form')?.requestSubmit()
+            }
+          }}
           maxLength={MAX_BODY}
           rows={4}
-          placeholder={isInternalNote ? 'Nota interna (apenas admins veem)...' : 'Resposta para o usuário...'}
+          placeholder={isInternalNote ? 'Nota interna (apenas admins veem)... (Enter envia)' : 'Resposta para o usuário... (Enter envia, Shift+Enter quebra linha)'}
           className={`w-full resize-none rounded-xl border px-3 py-2 text-sm outline-none ${
             isInternalNote
               ? 'border-amber-500/40 bg-amber-500/5 text-amber-100'
@@ -581,6 +613,8 @@ export function AdminSupportTicketPage() {
           </button>
         </div>
       </form>
+
+      {lightboxSrc ? <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} /> : null}
     </section>
   )
 }

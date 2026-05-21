@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ChevronRight, RefreshCw, Search, Inbox } from 'lucide-react'
+import { ChevronRight, RefreshCw, Search, Inbox, AlertTriangle } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import {
   STATUS_COLORS,
@@ -12,6 +12,17 @@ import {
   type SupportTicketSummary,
   type TicketStatus,
 } from '../services/supportService'
+
+const SLA_MS = 48 * 60 * 60 * 1000
+
+function relativeAge(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime()
+  const hours = Math.floor(diffMs / 3_600_000)
+  if (hours < 1) return 'há menos de 1h'
+  if (hours < 24) return `há ${hours}h`
+  const days = Math.floor(hours / 24)
+  return days === 1 ? 'há 1 dia' : `há ${days} dias`
+}
 
 const STATUS_FILTERS: (TicketStatus | 'ALL')[] = ['ALL', 'OPEN', 'IN_PROGRESS', 'AWAITING_USER', 'RESOLVED', 'CLOSED']
 
@@ -57,6 +68,36 @@ export function AdminSupportPage() {
   useEffect(() => {
     void refresh()
   }, [statusFilter]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Atualização ao vivo da fila: poll a cada 20s + refetch ao focar a aba,
+  // silencioso (não mexe no loading). Lê o filtro/busca atuais via ref para
+  // não reiniciar o timer a cada tecla.
+  const queryRef = useRef({ statusFilter, search })
+  queryRef.current = { statusFilter, search }
+  useEffect(() => {
+    const tick = async () => {
+      try {
+        const { statusFilter: sf, search: q } = queryRef.current
+        const data = await adminListTickets(authorizedFetch, {
+          status: sf === 'ALL' ? undefined : sf,
+          search: q.trim() || undefined,
+          page: 1,
+          pageSize: 50,
+        })
+        setItems(data.items)
+        setTotal(data.total)
+      } catch {
+        // silencioso
+      }
+    }
+    const interval = setInterval(() => void tick(), 20_000)
+    const onFocus = () => void tick()
+    window.addEventListener('focus', onFocus)
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [authorizedFetch])
 
   const handleAutoClose = async () => {
     setAutoClosing(true)
@@ -176,30 +217,50 @@ export function AdminSupportPage() {
         </div>
       ) : (
         <ul className="space-y-2">
-          {items.map((t) => (
-            <li key={t.id}>
-              <Link
-                to={`/admin/support/${t.id}`}
-                className="flex items-center gap-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-3 transition-colors hover:bg-[var(--surface-hover)]"
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-mono text-xs font-bold text-[var(--muted)]">{t.code}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${STATUS_COLORS[t.status]}`}>
-                      {STATUS_LABELS[t.status]}
-                    </span>
-                    <span className="text-[10px] text-[var(--muted)]">{TOPIC_LABELS[t.topic]}</span>
-                    <span className="text-[10px] text-[var(--muted)]">· {t.user.name ?? t.user.email}</span>
+          {items.map((t) => {
+            const needsReply = t.lastMessageRole === 'USER' && t.status !== 'RESOLVED' && t.status !== 'CLOSED'
+            const slaBreached = needsReply && Date.now() - new Date(t.lastActivityAt).getTime() > SLA_MS
+            return (
+              <li key={t.id}>
+                <Link
+                  to={`/admin/support/${t.id}`}
+                  className={`flex items-center gap-3 rounded-2xl border bg-[var(--surface)] p-3 transition-colors hover:bg-[var(--surface-hover)] ${
+                    slaBreached ? 'border-red-400/60' : needsReply ? 'border-[var(--brand)]/40' : 'border-[var(--line)]'
+                  }`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-xs font-bold text-[var(--muted)]">{t.code}</span>
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${STATUS_COLORS[t.status]}`}>
+                        {STATUS_LABELS[t.status]}
+                      </span>
+                      <span className="text-[10px] text-[var(--muted)]">{TOPIC_LABELS[t.topic]}</span>
+                      <span className="text-[10px] text-[var(--muted)]">· {t.user.name ?? t.user.email}</span>
+                      {needsReply ? (
+                        <span className="rounded-full bg-[var(--brand)]/10 px-1.5 py-0.5 text-[10px] font-bold text-[var(--brand)]">
+                          Aguardando resposta
+                        </span>
+                      ) : null}
+                      {slaBreached ? (
+                        <span className="inline-flex items-center gap-0.5 rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-bold text-red-500">
+                          <AlertTriangle size={10} /> SLA 48h
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="mt-1 truncate text-sm font-bold text-[var(--text)]">{t.subject}</p>
+                    {t.lastMessagePreview ? (
+                      <p className="mt-0.5 truncate text-[11px] text-[var(--muted)]">
+                        <span className="font-semibold">{t.lastMessageRole === 'ADMIN' ? 'Você: ' : 'Cliente: '}</span>
+                        {t.lastMessagePreview}
+                      </p>
+                    ) : null}
+                    <p className="mt-0.5 text-[11px] text-[var(--muted)]">Atualizado {relativeAge(t.lastActivityAt)}</p>
                   </div>
-                  <p className="mt-1 truncate text-sm font-bold text-[var(--text)]">{t.subject}</p>
-                  <p className="mt-0.5 text-[11px] text-[var(--muted)]">
-                    Atualizado em {new Date(t.lastActivityAt).toLocaleString('pt-BR')}
-                  </p>
-                </div>
-                <ChevronRight size={16} className="shrink-0 text-[var(--muted)]" />
-              </Link>
-            </li>
-          ))}
+                  <ChevronRight size={16} className="shrink-0 text-[var(--muted)]" />
+                </Link>
+              </li>
+            )
+          })}
         </ul>
       )}
     </section>
