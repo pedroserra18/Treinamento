@@ -105,6 +105,10 @@ export function SettingsPage() {
     return () => window.removeEventListener('beforeunload', handler)
   }, [dirty])
 
+  // Modo "editar perfil": tela focada (sem abas/sidebar), acessada pelo botão
+  // "Editar perfil". As demais seções formam as Configurações normais.
+  const isProfileEdit = section === 'profile'
+
   return (
     <section className="space-y-4">
       <motion.header
@@ -119,15 +123,29 @@ export function SettingsPage() {
           <ArrowLeft size={11} />
           Voltar ao perfil
         </Link>
-        <h1 className="text-3xl font-semibold tracking-tight text-[var(--text)] sm:text-4xl">
-          Config<span className="font-serif-accent text-[var(--brand-strong)]">urações</span>
-        </h1>
-        <p className="mt-1.5 text-sm text-[var(--muted)]">
-          Gerencie sua conta, privacidade e preferências.
-        </p>
+        {isProfileEdit ? (
+          <>
+            <h1 className="text-3xl font-semibold tracking-tight text-[var(--text)] sm:text-4xl">
+              Editar <span className="font-serif-accent text-[var(--brand-strong)]">perfil</span>
+            </h1>
+            <p className="mt-1.5 text-sm text-[var(--muted)]">
+              Sua foto e nome, exibidos no feed e no seu perfil público.
+            </p>
+          </>
+        ) : (
+          <>
+            <h1 className="text-3xl font-semibold tracking-tight text-[var(--text)] sm:text-4xl">
+              Config<span className="font-serif-accent text-[var(--brand-strong)]">urações</span>
+            </h1>
+            <p className="mt-1.5 text-sm text-[var(--muted)]">
+              Gerencie sua conta, privacidade e preferências.
+            </p>
+          </>
+        )}
       </motion.header>
 
       {/* Seletor de seção no mobile/tablet — chips on-brand (sidebar fica < lg) */}
+      {!isProfileEdit && (
       <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 lg:hidden">
         {SECTIONS.map((s) => {
           const active = section === s.id
@@ -152,9 +170,11 @@ export function SettingsPage() {
           )
         })}
       </div>
+      )}
 
-      <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
-        {/* ────────── SIDEBAR ────────── */}
+      <div className={isProfileEdit ? '' : 'grid gap-4 lg:grid-cols-[220px_1fr]'}>
+        {/* ────────── SIDEBAR (oculta no modo editar perfil) ────────── */}
+        {!isProfileEdit && (
         <aside className="hidden space-y-4 lg:block">
           {(['CONTA', 'PREFERÊNCIAS', 'ZONA DE RISCO'] as const).map((group) => (
             <div key={group}>
@@ -188,6 +208,7 @@ export function SettingsPage() {
             </div>
           ))}
         </aside>
+        )}
 
         {/* ────────── PANEL ────────── */}
         <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 sm:p-6">
