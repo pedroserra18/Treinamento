@@ -143,14 +143,13 @@ export function AppShell({ children }: AppShellProps) {
     ...(settingsItem ? [settingsItem] : []),
   ]
 
-  // Bottom nav — 5 itens principais para mobile. "Histórico" foi removido
-  // junto com o item no top nav; o slot foi para "IA" (recomendações),
-  // que é mais usado no dia-a-dia que progresso.
+  // Bottom nav (celular + tablet, < lg) — 5 destinos principais. As páginas
+  // secundárias (Progresso, Configurações, Admin) ficam no hub do Perfil.
   const bottomNavItems = [
     visibleItems.find((i) => i.to === '/'),
-    visibleItems.find((i) => i.to === '/train'),
     visibleItems.find((i) => i.to === '/feed'),
     visibleItems.find((i) => i.to === '/ai-workout'),
+    visibleItems.find((i) => i.to === '/train'),
     profileItem,
   ].filter(Boolean) as NavItem[]
 
@@ -169,10 +168,10 @@ export function AppShell({ children }: AppShellProps) {
     }`
 
   return (
-    <div className="mx-auto min-h-screen max-w-5xl px-4 pb-24 pt-24 sm:pb-8 sm:px-6 lg:px-8">
+    <div className="mx-auto min-h-screen max-w-5xl px-4 pb-24 pt-4 sm:px-6 lg:px-8 lg:pb-8 lg:pt-24">
 
-      {/* Navbar pill — separada no topo */}
-      <nav className="fixed top-3 left-1/2 z-20 flex w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2 items-center justify-around rounded-full border border-[var(--line)] bg-[var(--surface)] p-2 shadow-lg backdrop-blur-md">
+      {/* Navbar pill no topo — apenas desktop (< lg usa a bottom nav) */}
+      <nav className="fixed top-3 left-1/2 z-20 hidden w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2 items-center justify-around rounded-full border border-[var(--line)] bg-[var(--surface)] p-2 shadow-lg backdrop-blur-md lg:flex">
         {visibleItems.map((item) => (
           <NavLink
             key={item.to}
@@ -196,7 +195,7 @@ export function AppShell({ children }: AppShellProps) {
           {isAuthenticated ? (
             <button
               onClick={() => void logout()}
-              className="rounded-full border border-[var(--line)] px-3 py-2 text-xs font-medium text-[var(--text)]"
+              className="hidden rounded-full border border-[var(--line)] px-3 py-2 text-xs font-medium text-[var(--text)] lg:inline-flex"
               type="button"
             >
               Sair
@@ -211,8 +210,8 @@ export function AppShell({ children }: AppShellProps) {
       {/* Status bar — globally visible on authenticated pages (shrinks on mobile). */}
       {isAuthenticated && <StatusBar />}
 
-      {/* Bottom nav — visível apenas no mobile */}
-      <nav className="fixed bottom-0 left-0 right-0 z-20 flex items-center justify-around border-t border-[var(--line)] bg-[var(--surface)]/95 px-2 pb-safe pt-2 backdrop-blur-md sm:hidden">
+      {/* Bottom nav — celular e tablet (oculta no desktop) */}
+      <nav className="fixed bottom-0 left-0 right-0 z-20 flex items-center justify-around border-t border-[var(--line)] bg-[var(--surface)]/95 px-2 pb-safe pt-2 backdrop-blur-md lg:hidden">
         {bottomNavItems.map((item) => (
           <NavLink key={item.to} to={item.to} end={item.to === '/'} className={bottomNavLinkClass}>
             {item.icon}

@@ -16,6 +16,7 @@ import { SkeletonCard } from '../components/common/Skeleton'
 import { createPortal } from 'react-dom'
 import {
   ChevronLeft, ChevronRight, Pencil, Dumbbell, X as XIcon,
+  TrendingUp, Settings as SettingsIcon, LogOut, Users, LifeBuoy, FileText,
 } from 'lucide-react'
 
 const PAGE_SIZE = 12 // workouts fetched per scroll batch
@@ -299,7 +300,7 @@ function CalendarPanel({ sessionDays }: { sessionDays: Set<string> }) {
 // ─── Page ─────────────────────────────────────────────────────────────────
 
 export function ProfilePage() {
-  const { user, authorizedFetch } = useAuth()
+  const { user, authorizedFetch, logout } = useAuth()
   const navigate = useNavigate()
 
   // Infinite history — we accumulate items page by page and let the rest of
@@ -567,6 +568,52 @@ export function ProfilePage() {
           </div>
         </div>
       </motion.article>
+
+      {/* ────────── MENU (mobile/tablet — desktop usa a nav do topo) ────────── */}
+      <nav className="overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] lg:hidden">
+        <Link to="/progress" className="flex items-center gap-3 border-b border-[var(--line)] px-4 py-3 text-[14px] text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]">
+          <TrendingUp size={16} className="text-[var(--muted)]" />
+          <span className="flex-1">Progresso</span>
+          <ChevronRight size={16} className="text-[var(--muted)]" />
+        </Link>
+        <Link to="/settings" className="flex items-center gap-3 px-4 py-3 text-[14px] text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]">
+          <SettingsIcon size={16} className="text-[var(--muted)]" />
+          <span className="flex-1">Configurações</span>
+          <ChevronRight size={16} className="text-[var(--muted)]" />
+        </Link>
+
+        {user?.role === 'ADMIN' ? (
+          <>
+            <p className="border-t border-[var(--line)] bg-[var(--surface-hover)] px-4 py-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+              Administração
+            </p>
+            <Link to="/admin/users" className="flex items-center gap-3 border-b border-[var(--line)] px-4 py-3 text-[14px] text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]">
+              <Users size={16} className="text-[var(--muted)]" />
+              <span className="flex-1">Usuários</span>
+              <ChevronRight size={16} className="text-[var(--muted)]" />
+            </Link>
+            <Link to="/admin/support" className="flex items-center gap-3 border-b border-[var(--line)] px-4 py-3 text-[14px] text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]">
+              <LifeBuoy size={16} className="text-[var(--muted)]" />
+              <span className="flex-1">Suporte</span>
+              <ChevronRight size={16} className="text-[var(--muted)]" />
+            </Link>
+            <Link to="/admin/support/templates" className="flex items-center gap-3 px-4 py-3 text-[14px] text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]">
+              <FileText size={16} className="text-[var(--muted)]" />
+              <span className="flex-1">Respostas prontas</span>
+              <ChevronRight size={16} className="text-[var(--muted)]" />
+            </Link>
+          </>
+        ) : null}
+
+        <button
+          type="button"
+          onClick={() => void logout()}
+          className="flex w-full items-center gap-3 border-t border-[var(--line)] px-4 py-3 text-left text-[14px] font-medium text-red-500 transition-colors hover:bg-red-500/8"
+        >
+          <LogOut size={16} />
+          <span className="flex-1">Sair da conta</span>
+        </button>
+      </nav>
 
       {/* ────────── STATS + CALENDAR ────────── */}
       <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
