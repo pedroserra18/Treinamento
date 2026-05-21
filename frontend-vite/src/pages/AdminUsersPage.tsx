@@ -101,18 +101,16 @@ function pageWindow(current: number, totalPages: number): number[] {
 
 // ─── Subcomponents ──────────────────────────────────────────────────────────
 
-function Pill({
-  children,
-  tone,
-}: {
-  children: React.ReactNode
-  tone: 'real' | 'test' | 'active' | 'inactive' | 'admin' | 'user'
-}) {
-  const tones: Record<string, string> = {
+type PillTone = 'real' | 'test' | 'active' | 'pending' | 'suspended' | 'disabled' | 'admin' | 'user'
+
+function Pill({ children, tone }: { children: React.ReactNode; tone: PillTone }) {
+  const tones: Record<PillTone, string> = {
     real: 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30',
     test: 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30',
     active: 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30',
-    inactive: 'bg-[var(--surface-hover)] text-[var(--muted)] border-[var(--line)]',
+    pending: 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30',
+    suspended: 'bg-orange-100 text-orange-700 border-orange-300 dark:bg-orange-500/15 dark:text-orange-300 dark:border-orange-500/30',
+    disabled: 'bg-[var(--surface-hover)] text-[var(--muted)] border-[var(--line)]',
     admin: 'bg-[var(--text)] text-[var(--surface)] border-[var(--text)]',
     user: 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-500/15 dark:text-blue-300 dark:border-blue-500/30',
   }
@@ -123,6 +121,14 @@ function Pill({
       {children}
     </span>
   )
+}
+
+// Mapeia o status da conta (AccountStatus) para rótulo + cor da pílula.
+const STATUS_META: Record<string, { label: string; tone: PillTone; dot: string }> = {
+  ACTIVE: { label: 'Ativo', tone: 'active', dot: 'bg-emerald-500' },
+  PENDING: { label: 'Pendente', tone: 'pending', dot: 'bg-amber-500' },
+  SUSPENDED: { label: 'Suspenso', tone: 'suspended', dot: 'bg-orange-500' },
+  DISABLED: { label: 'Desativado', tone: 'disabled', dot: 'bg-[var(--muted)]' },
 }
 
 function IconButton({
@@ -580,14 +586,19 @@ export function AdminUsersPage() {
 
                         {/* Status */}
                         <td>
-                          {isActive ? (
-                            <Pill tone="active">
-                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                              Ativo
-                            </Pill>
-                          ) : (
-                            <Pill tone="inactive">Inativo</Pill>
-                          )}
+                          {(() => {
+                            const meta = STATUS_META[u.status] ?? {
+                              label: u.status || '—',
+                              tone: 'disabled' as PillTone,
+                              dot: 'bg-[var(--muted)]',
+                            }
+                            return (
+                              <Pill tone={meta.tone}>
+                                <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
+                                {meta.label}
+                              </Pill>
+                            )
+                          })()}
                         </td>
 
                         {/* Cadastro / Último login */}
