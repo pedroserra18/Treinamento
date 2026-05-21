@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useAdminUsers } from '../hooks/useAdminUsers'
@@ -257,7 +258,7 @@ function ConfirmModal({
   const [confirmText, setConfirmText] = useState('')
   const confirmed = !requiresTyping || confirmText.trim().toLowerCase() === action.user.email.toLowerCase()
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[60] grid place-items-center bg-black/50 p-4 backdrop-blur-sm" onClick={() => !loading && onCancel()}>
       <div className="w-full max-w-md rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3">
@@ -295,7 +296,8 @@ function ConfirmModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -398,7 +400,7 @@ function UserDrawer({
     return () => document.removeEventListener('keydown', handler)
   }, [onClose])
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-sm" onClick={onClose}>
       <div
         className="h-full w-full max-w-md overflow-y-auto border-l border-[var(--line)] bg-[var(--surface)] shadow-2xl"
@@ -533,7 +535,8 @@ function UserDrawer({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
