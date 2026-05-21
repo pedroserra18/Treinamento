@@ -622,6 +622,21 @@ export function AdminUsersPage() {
     return () => document.removeEventListener('keydown', handler)
   }, [])
 
+  // Trava a rolagem do fundo enquanto o modal ou o drawer está aberto (só a
+  // sobreposição rola). Compensa a barra de rolagem pra não dar salto de layout.
+  useEffect(() => {
+    if (!pending && !drawerId) return
+    const scrollBarWidth = window.innerWidth - document.documentElement.clientWidth
+    const prevOverflow = document.body.style.overflow
+    const prevPaddingRight = document.body.style.paddingRight
+    document.body.style.overflow = 'hidden'
+    if (scrollBarWidth > 0) document.body.style.paddingRight = `${scrollBarWidth}px`
+    return () => {
+      document.body.style.overflow = prevOverflow
+      document.body.style.paddingRight = prevPaddingRight
+    }
+  }, [pending, drawerId])
+
   // Carrega o detalhe quando o drawer abre.
   useEffect(() => {
     if (!drawerId) {
