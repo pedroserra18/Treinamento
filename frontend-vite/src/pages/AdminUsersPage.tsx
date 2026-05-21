@@ -252,6 +252,11 @@ function ConfirmModal({
     return () => document.removeEventListener('keydown', handler)
   }, [loading, onCancel])
 
+  // Exclusão exige digitar o e-mail (padrão de confirmação de alto risco).
+  const requiresTyping = action.kind === 'delete'
+  const [confirmText, setConfirmText] = useState('')
+  const confirmed = !requiresTyping || confirmText.trim().toLowerCase() === action.user.email.toLowerCase()
+
   return (
     <div className="fixed inset-0 z-[60] grid place-items-center bg-black/50 p-4 backdrop-blur-sm" onClick={() => !loading && onCancel()}>
       <div className="w-full max-w-md rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
@@ -266,11 +271,26 @@ function ConfirmModal({
           <div className="text-sm font-semibold text-[var(--text)]">{action.user.name ?? 'Sem nome'}</div>
           <div className="font-mono text-[12px] text-[var(--muted)]">{action.user.email}</div>
         </div>
+        {requiresTyping ? (
+          <div className="mt-3">
+            <label className="text-[12px] text-[var(--muted)]">
+              Digite <span className="font-mono font-semibold text-[var(--text)]">{action.user.email}</span> para confirmar:
+            </label>
+            <input
+              type="text"
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              disabled={loading}
+              autoComplete="off"
+              className="mt-1.5 w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-2 font-mono text-sm text-[var(--text)] outline-none focus:border-[var(--brand)]"
+            />
+          </div>
+        ) : null}
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" onClick={onCancel} disabled={loading} className="rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)] disabled:opacity-50">
             Cancelar
           </button>
-          <button type="button" onClick={onConfirm} disabled={loading} className={`rounded-xl px-4 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-60 ${config.btn}`}>
+          <button type="button" onClick={onConfirm} disabled={loading || !confirmed} className={`rounded-xl px-4 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-40 ${config.btn}`}>
             {loading ? 'Processando…' : config.confirm}
           </button>
         </div>
@@ -625,6 +645,12 @@ export function AdminUsersPage() {
   const items = data?.items ?? []
   const total = data?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+
+  // Evita ficar preso numa página vazia (ex: após excluir o último item da
+  // página). Ajuste durante o render — converge sem useEffect.
+  if (!loading && data && page > totalPages) {
+    setPage(totalPages)
+  }
   const summary = data?.summary ?? { realCount: 0, testCount: 0, totalCount: 0, newRealLast7Days: 0 }
   const scopeLabel = accountScope === 'REAL' ? 'somente reais' : accountScope === 'TEST' ? 'somente teste' : 'reais + teste'
   const rangeStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
@@ -847,8 +873,17 @@ export function AdminUsersPage() {
                     return (
                       <tr
                         key={u.id}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Ver detalhes de ${u.name ?? u.email}`}
                         onClick={() => setDrawerId(u.id)}
-                        className="cursor-pointer transition-colors hover:bg-[var(--surface-hover)] [&>td]:border-b [&>td]:border-[var(--line)] [&>td]:px-2.5 [&>td]:py-3 [&>td]:align-middle [&>td]:text-[13px] [&>td]:text-[var(--text)] [&:last-child>td]:border-b-0"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            setDrawerId(u.id)
+                          }
+                        }}
+                        className="cursor-pointer transition-colors hover:bg-[var(--surface-hover)] focus:outline-none focus-visible:bg-[var(--surface-hover)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--brand)] [&>td]:border-b [&>td]:border-[var(--line)] [&>td]:px-2.5 [&>td]:py-3 [&>td]:align-middle [&>td]:text-[13px] [&>td]:text-[var(--text)] [&:last-child>td]:border-b-0"
                       >
                         <td className="!pl-4">
                           <div className="flex items-center gap-3">
