@@ -546,6 +546,15 @@ export async function updateBirthDate(userId: string, birthDate: string | null):
   });
 }
 
+// Salva o gênero (campo User.sex) a partir do rótulo PT usado no quiz, pra que
+// a pergunta não seja feita de novo. Espelha o mapeamento de getProfileDefaults.
+export async function updateGender(userId: string, gender: "Masculino" | "Feminino"): Promise<void> {
+  await prisma.user.update({
+    where: { id: userId },
+    data: { sex: gender === "Masculino" ? "MALE" : "FEMALE" },
+  });
+}
+
 export async function getAuthenticatedProfile(userId: string): Promise<SafeUser> {
   const user = await prisma.user.findUnique({
     where: { id: userId },

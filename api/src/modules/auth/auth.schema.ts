@@ -68,6 +68,14 @@ export const updateBirthDateBodySchema = z
   })
   .strict();
 
+// PATCH /auth/profile/gender — gênero (campo sex). Salvo a partir do quiz da IA
+// pra não reperguntar.
+export const updateGenderBodySchema = z
+  .object({
+    gender: z.enum(["Masculino", "Feminino"]),
+  })
+  .strict();
+
 // POST /auth/profile/email/request-code — kicks off email change. Code goes
 // to the NEW email so we prove ownership before swapping.
 export const requestEmailChangeBodySchema = z
@@ -138,6 +146,7 @@ export type UpdateHandleBody = z.infer<typeof updateHandleBodySchema>;
 export type DeleteProfileBody = z.infer<typeof deleteProfileBodySchema>;
 export type UpdateNameBody = z.infer<typeof updateNameBodySchema>;
 export type UpdateBirthDateBody = z.infer<typeof updateBirthDateBodySchema>;
+export type UpdateGenderBody = z.infer<typeof updateGenderBodySchema>;
 export type RequestEmailChangeBody = z.infer<typeof requestEmailChangeBodySchema>;
 export type ConfirmEmailChangeBody = z.infer<typeof confirmEmailChangeBodySchema>;
 export type ForgotPasswordRequestCodeBody = z.infer<typeof forgotPasswordRequestCodeBodySchema>;

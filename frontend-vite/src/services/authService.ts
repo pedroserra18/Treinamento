@@ -355,6 +355,22 @@ export async function updateBirthDate(
   }
 }
 
+// PATCH /auth/profile/gender — salva o gênero (Masculino | Feminino).
+export async function updateGender(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  gender: 'Masculino' | 'Feminino',
+): Promise<void> {
+  const response = await authorizedFetch(`${API_URL}/auth/profile/gender`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gender }),
+  })
+  const payload = (await response.json().catch(() => null)) as { error?: ApiErrorPayload } | null
+  if (!response.ok) {
+    throw new Error(extractApiErrorMessage(payload) ?? 'Erro ao salvar gênero')
+  }
+}
+
 // POST /auth/profile/email/request-code — sends a 6-digit code to the NEW
 // email so the user proves they own it before we swap.
 export async function requestEmailChangeCode(

@@ -9,7 +9,7 @@ import {
   swapExerciseAI,
   type WorkoutSection,
 } from '../services/aiService'
-import { getProfileDefaults, updateBirthDate, type ProfileDefaults } from '../services/authService'
+import { getProfileDefaults, updateBirthDate, updateGender, type ProfileDefaults } from '../services/authService'
 import { Bot, ChevronLeft, Clock, Sparkles, CheckCircle2, Pencil, ChevronUp, ChevronDown, RefreshCw, AlertTriangle, X, ArrowRight } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -151,6 +151,9 @@ function isStepVisible(stepId: number, a: QuizAnswers): boolean {
   // step 2 — idade: se já temos a data de nascimento (do perfil), a idade é
   // calculada automaticamente e a pergunta é pulada.
   if (stepId === 2 && a.birthDate) return false
+
+  // step 3 — gênero: salvo no perfil; se já conhecido, não pergunta de novo.
+  if (stepId === 3 && a.gender) return false
 
   // step 9 — frequência muscular: só pergunta quando a divisão (step 19) está
   // em "IA decide". Se o usuário escolheu uma divisão específica, a frequência
@@ -1054,6 +1057,17 @@ export function AIWorkoutPage() {
     }, 160)
   }, [isEditMode, step, answers])
 
+  // Seleciona o gênero, persiste no perfil (pra não reperguntar), atualiza o
+  // ref dos defaults (caso recomece o quiz na mesma sessão) e avança.
+  const selectGender = useCallback((value: 'Masculino' | 'Feminino') => {
+    profileDefaultsRef.current = {
+      ...(profileDefaultsRef.current ?? { weightKg: null, heightCm: null, gender: null, birthDate: null, age: null }),
+      gender: value,
+    }
+    void updateGender(authorizedFetch, value).catch(() => {})
+    selectAndAdvance('gender', value)
+  }, [authorizedFetch, selectAndAdvance])
+
   const toggleTechnique = (t: string) => {
     setAnswers(prev => {
       if (t === 'Nenhuma') return { ...prev, techniques: ['Nenhuma'] }
@@ -1558,7 +1572,7 @@ export function AIWorkoutPage() {
               <p className="mt-1 text-sm text-[var(--muted)]">Define a ênfase muscular padrão quando não há foco específico</p>
               <div className="mt-5 space-y-2">
                 {[['Masculino', 'Ênfase padrão em superiores (peito/costas/ombros)'], ['Feminino', 'Ênfase padrão em inferiores (glúteo/posterior/quad)']].map(([val, hint]) => (
-                  <OptionCard key={val} label={val} hint={hint} selected={answers.gender === val} onClick={() => selectAndAdvance('gender', val)} />
+                  <OptionCard key={val} label={val} hint={hint} selected={answers.gender === val} onClick={() => selectGender(val as 'Masculino' | 'Feminino')} />
                 ))}
               </div>
             </>

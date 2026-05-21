@@ -22,7 +22,8 @@ import {
   requestEmailChangeBodySchema,
   updateHandleBodySchema,
   updateNameBodySchema,
-  updateBirthDateBodySchema
+  updateBirthDateBodySchema,
+  updateGenderBodySchema
 } from "./auth.schema";
 import {
   confirmEmailChangeController,
@@ -45,6 +46,7 @@ import {
   updateNameController,
   getProfileDefaultsController,
   updateBirthDateController,
+  updateGenderController,
   updatePrivacyController,
   registerRequestCodeController,
   registerVerifyCodeController,
@@ -145,6 +147,12 @@ router.patch(
   requireAuth,
   validateRequest({ body: updateBirthDateBodySchema }),
   asyncHandler(async (req, res) => updateBirthDateController(req, res))
+);
+router.patch(
+  "/auth/profile/gender",
+  requireAuth,
+  validateRequest({ body: updateGenderBodySchema }),
+  asyncHandler(async (req, res) => updateGenderController(req, res))
 );
 router.post(
   "/auth/profile/email/request-code",
