@@ -3,12 +3,22 @@ import { requireAuth } from "../../middlewares/auth.middleware";
 import { asyncHandler } from "../../shared/utils/async-handler";
 import { requireAdminRole } from "../../middlewares/role.middleware";
 import { validateRequest } from "../../middlewares/validation.middleware";
-import { deactivateUserController, deleteUserController, listUsersController, reactivateUserController } from "./admin.controller";
+import {
+  deactivateUserController,
+  deleteUserController,
+  listUsersController,
+  reactivateUserController,
+  updateUserRoleController,
+  userDetailController
+} from "./admin.controller";
 import {
   deactivateUserParamsSchema,
   deleteUserParamsSchema,
   listUsersQuerySchema,
-  reactivateUserParamsSchema
+  reactivateUserParamsSchema,
+  updateRoleBodySchema,
+  updateRoleParamsSchema,
+  userDetailParamsSchema
 } from "./admin.schema";
 
 const router = Router();
@@ -29,12 +39,28 @@ router.patch(
   asyncHandler(async (req, res) => deactivateUserController(req, res))
 );
 
+router.get(
+  "/admin/users/:userId",
+  requireAuth,
+  requireAdminRole,
+  validateRequest({ params: userDetailParamsSchema }),
+  asyncHandler(async (req, res) => userDetailController(req, res))
+);
+
 router.patch(
   "/admin/users/:userId/reactivate",
   requireAuth,
   requireAdminRole,
   validateRequest({ params: reactivateUserParamsSchema }),
   asyncHandler(async (req, res) => reactivateUserController(req, res))
+);
+
+router.patch(
+  "/admin/users/:userId/role",
+  requireAuth,
+  requireAdminRole,
+  validateRequest({ params: updateRoleParamsSchema, body: updateRoleBodySchema }),
+  asyncHandler(async (req, res) => updateUserRoleController(req, res))
 );
 
 router.delete(
