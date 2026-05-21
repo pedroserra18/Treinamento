@@ -222,6 +222,9 @@ body,
 #root {
   margin: 0;
   min-height: 100%;
+  /* Trava o scroll horizontal: nenhuma página deve "vazar" pro lado no mobile. */
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 body {

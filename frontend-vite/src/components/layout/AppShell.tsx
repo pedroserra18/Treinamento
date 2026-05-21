@@ -168,7 +168,7 @@ export function AppShell({ children }: AppShellProps) {
     }`
 
   return (
-    <div className="mx-auto min-h-screen max-w-5xl px-4 pb-24 pt-4 sm:px-6 lg:px-8 lg:pb-8 lg:pt-24">
+    <div className="mx-auto min-h-screen w-full max-w-5xl overflow-x-hidden px-4 pb-24 pt-4 sm:px-6 lg:px-8 lg:pb-8 lg:pt-24">
 
       {/* Navbar pill no topo — apenas desktop (< lg usa a bottom nav) */}
       <nav className="fixed top-3 left-1/2 z-20 hidden w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2 items-center justify-around rounded-full border border-[var(--line)] bg-[var(--surface)] p-2 shadow-lg backdrop-blur-md lg:flex">
@@ -205,7 +205,7 @@ export function AppShell({ children }: AppShellProps) {
         </div>
       </header>
 
-      <main>{children}</main>
+      <main className="min-w-0">{children}</main>
 
       {/* Status bar — globally visible on authenticated pages (shrinks on mobile). */}
       {isAuthenticated && <StatusBar />}
