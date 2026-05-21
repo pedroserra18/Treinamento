@@ -55,6 +55,8 @@ export async function listRegisteredUsers(query: ListUsersQuery) {
     select: {
       id: true,
       name: true,
+      handle: true,
+      avatarUrl: true,
       email: true,
       role: true,
       status: true,
@@ -74,6 +76,12 @@ export async function listRegisteredUsers(query: ListUsersQuery) {
   const realCount = classifiedUsers.filter((user) => user.accountType === "REAL").length;
   const testCount = classifiedUsers.length - realCount;
 
+  // Contas reais criadas nos últimos 7 dias — alimenta a métrica do cabeçalho.
+  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const newRealLast7Days = classifiedUsers.filter(
+    (user) => user.accountType === "REAL" && user.createdAt.getTime() >= weekAgo
+  ).length;
+
   const scopedUsers = classifiedUsers.filter((user) => {
     const accountType = user.accountType;
 
@@ -88,9 +96,22 @@ export async function listRegisteredUsers(query: ListUsersQuery) {
     return true;
   });
 
-  const total = scopedUsers.length;
+  // Busca server-side: nome, e-mail, handle ou ID (case-insensitive).
+  const searchTerm = query.search?.trim().toLowerCase();
+  const matchedUsers = searchTerm
+    ? scopedUsers.filter((user) => {
+        return (
+          (user.name ?? "").toLowerCase().includes(searchTerm) ||
+          user.email.toLowerCase().includes(searchTerm) ||
+          (user.handle ?? "").toLowerCase().includes(searchTerm) ||
+          user.id.toLowerCase().includes(searchTerm)
+        );
+      })
+    : scopedUsers;
+
+  const total = matchedUsers.length;
   const skip = (query.page - 1) * query.pageSize;
-  const pagedUsers = scopedUsers.slice(skip, skip + query.pageSize);
+  const pagedUsers = matchedUsers.slice(skip, skip + query.pageSize);
 
   return {
     page: query.page,
@@ -99,10 +120,59 @@ export async function listRegisteredUsers(query: ListUsersQuery) {
     summary: {
       realCount,
       testCount,
-      totalCount: classifiedUsers.length
+      totalCount: classifiedUsers.length,
+      newRealLast7Days
     },
     items: pagedUsers
   };
+}
+
+export async function reactivateUserAccount(
+  targetUserId: string,
+  actorUserId: string,
+  context: EventContext = {}
+) {
+  const existing = await prisma.user.findUnique({
+    where: { id: targetUserId },
+    select: {
+      id: true,
+      email: true,
+      status: true,
+      isDeleted: true
+    }
+  });
+
+  if (!existing || existing.isDeleted) {
+    throw new AppError("User not found", {
+      statusCode: 404,
+      code: "USER_NOT_FOUND"
+    });
+  }
+
+  if (existing.status === "ACTIVE") {
+    return { id: existing.id, email: existing.email, status: existing.status };
+  }
+
+  const result = await prisma.user.update({
+    where: { id: targetUserId },
+    data: { status: "ACTIVE" },
+    select: { id: true, email: true, status: true }
+  });
+
+  await trackEvent({
+    userId: actorUserId,
+    category: "SECURITY",
+    severity: "INFO",
+    action: "admin_user_reactivated",
+    resourceType: "user",
+    resourceId: targetUserId,
+    requestId: context.requestId,
+    ipAddress: context.ipAddress,
+    userAgent: context.userAgent,
+    metadata: { targetEmail: existing.email }
+  });
+
+  return result;
 }
 
 export async function deactivateUserAccount(

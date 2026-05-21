@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
-import { DeactivateUserParams, DeleteUserParams, ListUsersQuery } from "./admin.schema";
-import { deactivateUserAccount, deleteUserAccount, listRegisteredUsers } from "./admin.service";
+import { DeactivateUserParams, DeleteUserParams, ListUsersQuery, ReactivateUserParams } from "./admin.schema";
+import { deactivateUserAccount, deleteUserAccount, listRegisteredUsers, reactivateUserAccount } from "./admin.service";
 import { eventContextFromRequest } from "../../shared/utils/event-context";
 
 export async function listUsersController(req: Request, res: Response): Promise<void> {
@@ -36,6 +36,22 @@ export async function deleteUserController(req: Request, res: Response): Promise
   const actorUserId = req.context.userId as string;
 
   const user = await deleteUserAccount(params.userId, actorUserId, eventContextFromRequest(req));
+
+  res.status(200).json({
+    data: {
+      user
+    },
+    meta: {
+      requestId: req.context.requestId
+    }
+  });
+}
+
+export async function reactivateUserController(req: Request, res: Response): Promise<void> {
+  const params = req.params as unknown as ReactivateUserParams;
+  const actorUserId = req.context.userId as string;
+
+  const user = await reactivateUserAccount(params.userId, actorUserId, eventContextFromRequest(req));
 
   res.status(200).json({
     data: {

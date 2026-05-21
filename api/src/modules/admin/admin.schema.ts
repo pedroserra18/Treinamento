@@ -6,7 +6,9 @@ export const listUsersQuerySchema = z
     pageSize: z.coerce.number().int().min(1).max(100).default(20),
     includeTest: z.coerce.boolean().default(false),
     accountScope: z.enum(["REAL", "TEST", "ALL"]).optional(),
-    registrationOrder: z.enum(["desc", "asc"]).default("desc")
+    registrationOrder: z.enum(["desc", "asc"]).default("desc"),
+    // Busca server-side por nome, e-mail, handle ou ID.
+    search: z.string().trim().max(120).optional()
   })
   .strict();
 
@@ -17,7 +19,9 @@ export const deactivateUserParamsSchema = z
   .strict();
 
 export const deleteUserParamsSchema = deactivateUserParamsSchema;
+export const reactivateUserParamsSchema = deactivateUserParamsSchema;
 
 export type ListUsersQuery = z.infer<typeof listUsersQuerySchema>;
 export type DeactivateUserParams = z.infer<typeof deactivateUserParamsSchema>;
 export type DeleteUserParams = z.infer<typeof deleteUserParamsSchema>;
+export type ReactivateUserParams = z.infer<typeof reactivateUserParamsSchema>;
