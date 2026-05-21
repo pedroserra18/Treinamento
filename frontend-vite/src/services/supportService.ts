@@ -18,6 +18,8 @@ export type SupportTicketSummary = {
   closedAt: string | null
   createdAt: string
   user: { id: string; name: string | null; email: string; avatarUrl: string | null }
+  lastMessagePreview?: string | null
+  lastMessageRole?: MessageAuthorRole | null
 }
 
 export type SupportMessage = {

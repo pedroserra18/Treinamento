@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowLeft, CheckCircle2, Send, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Send, ShieldCheck, X } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
+import { SupportAttachmentInput } from '../components/common/SupportAttachmentInput'
 import {
   STATUS_COLORS,
   STATUS_LABELS,
@@ -55,6 +56,21 @@ function MessageBubble({ message }: { message: SupportMessage }) {
           </div>
         ) : null}
         <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.body}</p>
+        {message.attachments.length > 0 ? (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {message.attachments.map((src, idx) => (
+              <a
+                key={idx}
+                href={src}
+                target="_blank"
+                rel="noreferrer"
+                className="block h-24 w-24 overflow-hidden rounded-lg border border-black/10"
+              >
+                <img src={src} alt={`Anexo ${idx + 1}`} className="h-full w-full object-cover" />
+              </a>
+            ))}
+          </div>
+        ) : null}
         <p className={`mt-1 text-[10px] ${isUser ? 'text-white/70' : 'text-[var(--muted)]'}`}>
           {formatDateTime(message.createdAt)}
         </p>
@@ -71,39 +87,70 @@ export function SupportTicketPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [reply, setReply] = useState('')
+  const [attachments, setAttachments] = useState<string[]>([])
   const [sending, setSending] = useState(false)
   const [resolving, setResolving] = useState(false)
+  const [showResolveModal, setShowResolveModal] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
   const scrollerRef = useRef<HTMLDivElement>(null)
 
-  const refresh = async () => {
-    if (!ticketId) return
-    try {
-      const result = await getMyTicket(authorizedFetch, ticketId)
-      setData(result)
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao carregar ticket')
-    } finally {
-      setLoading(false)
-    }
-  }
+  // refresh silencioso (poll/foco) não mexe no estado de loading nem reabre erro.
+  const refresh = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (!ticketId) return
+      try {
+        const result = await getMyTicket(authorizedFetch, ticketId)
+        setData(result)
+        setError(null)
+      } catch (err) {
+        if (!opts?.silent) setError(err instanceof Error ? err.message : 'Erro ao carregar ticket')
+      } finally {
+        if (!opts?.silent) setLoading(false)
+      }
+    },
+    [ticketId, authorizedFetch],
+  )
 
   useEffect(() => {
     setLoading(true)
     void refresh()
-  }, [ticketId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [refresh])
 
   useEffect(() => {
     scrollerRef.current?.scrollTo({ top: scrollerRef.current.scrollHeight, behavior: 'smooth' })
   }, [data?.messages.length])
 
+  // Atualização ao vivo: poll a cada 15s + refetch ao focar a aba, enquanto o
+  // ticket não estiver fechado. Silencioso para não piscar a tela.
+  useEffect(() => {
+    if (!data || data.ticket.status === 'CLOSED') return
+    const interval = setInterval(() => void refresh({ silent: true }), 15_000)
+    const onFocus = () => void refresh({ silent: true })
+    window.addEventListener('focus', onFocus)
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [data, refresh])
+
+  // Auto-dismiss do toast.
+  useEffect(() => {
+    if (!toast) return
+    const id = setTimeout(() => setToast(null), 2600)
+    return () => clearTimeout(id)
+  }, [toast])
+
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!ticketId || !reply.trim()) return
+    if (!ticketId || (!reply.trim() && attachments.length === 0)) return
     setSending(true)
     try {
-      await postUserReply(authorizedFetch, ticketId, { body: reply.trim() })
+      await postUserReply(authorizedFetch, ticketId, {
+        body: reply.trim() || '(imagem)',
+        attachments: attachments.length > 0 ? attachments : undefined,
+      })
       setReply('')
+      setAttachments([])
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao enviar mensagem')
@@ -114,10 +161,11 @@ export function SupportTicketPage() {
 
   const handleResolve = async () => {
     if (!ticketId) return
-    if (!window.confirm('Marcar este ticket como resolvido?')) return
     setResolving(true)
     try {
       await userResolveTicket(authorizedFetch, ticketId)
+      setShowResolveModal(false)
+      setToast('Ticket marcado como resolvido.')
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao resolver ticket')
@@ -127,7 +175,17 @@ export function SupportTicketPage() {
   }
 
   if (loading) {
-    return <p className="text-sm text-[var(--muted)]">Carregando ticket...</p>
+    return (
+      <section className="space-y-4">
+        <div className="h-4 w-32 animate-pulse rounded bg-[var(--surface-hover)]" />
+        <div className="h-24 w-full animate-pulse rounded-2xl bg-[var(--surface-hover)]" />
+        <div className="space-y-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+          <div className="h-12 w-2/3 animate-pulse rounded-2xl bg-[var(--surface-hover)]" />
+          <div className="ml-auto h-12 w-1/2 animate-pulse rounded-2xl bg-[var(--surface-hover)]" />
+          <div className="h-12 w-3/5 animate-pulse rounded-2xl bg-[var(--surface-hover)]" />
+        </div>
+      </section>
+    )
   }
 
   if (error || !data) {
@@ -210,23 +268,24 @@ export function SupportTicketPage() {
             placeholder="Sua resposta..."
             className="w-full resize-none rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--brand)]"
           />
+          <SupportAttachmentInput attachments={attachments} onChange={setAttachments} disabled={sending} />
           <div className="flex items-center justify-between gap-2">
             <span className="text-[10px] text-[var(--muted)]">{reply.length}/{MAX_BODY}</span>
             <div className="flex gap-2">
               {canResolve ? (
                 <button
                   type="button"
-                  onClick={handleResolve}
+                  onClick={() => setShowResolveModal(true)}
                   disabled={resolving}
                   className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-400 transition-colors hover:bg-emerald-500/20 disabled:opacity-50"
                 >
                   <CheckCircle2 size={14} />
-                  {resolving ? 'Marcando...' : 'Marcar como resolvido'}
+                  Marcar como resolvido
                 </button>
               ) : null}
               <button
                 type="submit"
-                disabled={sending || !reply.trim()}
+                disabled={sending || (!reply.trim() && attachments.length === 0)}
                 className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--brand)] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
               >
                 <Send size={14} />
@@ -244,6 +303,39 @@ export function SupportTicketPage() {
           se ainda precisar de ajuda.
         </div>
       )}
+
+      {/* Modal: confirmar resolução */}
+      {showResolveModal ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4 backdrop-blur-sm" onClick={() => !resolving && setShowResolveModal(false)}>
+          <div className="w-full max-w-sm rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3">
+              <h2 className="text-lg font-bold text-[var(--text)]">Marcar como resolvido</h2>
+              <button type="button" onClick={() => !resolving && setShowResolveModal(false)} className="grid h-7 w-7 place-items-center rounded-lg text-[var(--muted)] hover:bg-[var(--surface-hover)]" aria-label="Fechar">
+                <X size={16} />
+              </button>
+            </div>
+            <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">
+              Confirma que seu problema foi resolvido? Você ainda poderá responder se precisar reabrir.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={() => setShowResolveModal(false)} disabled={resolving} className="rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)] disabled:opacity-50">
+                Cancelar
+              </button>
+              <button type="button" onClick={handleResolve} disabled={resolving} className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-60">
+                {resolving ? 'Marcando…' : 'Confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Toast */}
+      {toast ? (
+        <div className="fixed bottom-4 right-4 z-[60] flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-800 shadow-lg dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200">
+          <CheckCircle2 size={15} />
+          {toast}
+        </div>
+      ) : null}
     </section>
   )
 }

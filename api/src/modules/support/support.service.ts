@@ -167,9 +167,25 @@ export async function listMyTickets(userId: string) {
   const tickets = await prisma.supportTicket.findMany({
     where: { userId },
     orderBy: [{ status: "asc" }, { lastActivityAt: "desc" }],
-    select: ticketSelect,
+    select: {
+      ...ticketSelect,
+      messages: {
+        where: { isInternalNote: false },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { body: true, authorRole: true },
+      },
+    },
   });
-  return tickets.map(serializeTicket);
+  return tickets.map((t) => {
+    const last = t.messages[0];
+    return {
+      ...serializeTicket(t),
+      // Prévia da última mensagem + quem a enviou (para indicador "Suporte respondeu").
+      lastMessagePreview: last ? (last.body.length > 90 ? `${last.body.slice(0, 87)}...` : last.body) : null,
+      lastMessageRole: last ? last.authorRole : null,
+    };
+  });
 }
 
 export async function getTicketForUser(userId: string, ticketId: string) {
