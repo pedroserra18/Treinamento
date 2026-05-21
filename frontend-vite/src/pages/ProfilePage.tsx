@@ -501,14 +501,14 @@ export function ProfilePage() {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35 }}
-        className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 sm:p-6"
+        className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 sm:p-6"
       >
-        <div className="flex flex-wrap items-start gap-5">
+        <div className="flex flex-wrap items-start gap-4 sm:gap-5">
           <button
             type="button"
             onClick={() => user?.avatarUrl && setViewerOpen(true)}
             disabled={!user?.avatarUrl}
-            className="relative h-24 w-24 shrink-0 overflow-hidden rounded-full border border-[var(--line)] bg-[var(--surface-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] disabled:cursor-default"
+            className="relative h-20 w-20 shrink-0 overflow-hidden rounded-full border border-[var(--line)] bg-[var(--surface-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] disabled:cursor-default sm:h-24 sm:w-24"
             aria-label="Ver avatar em tamanho grande"
           >
             {user?.avatarUrl
@@ -521,11 +521,11 @@ export function ProfilePage() {
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="min-w-0">
-                <h1 className="text-[22px] font-semibold tracking-tight text-[var(--text)]">
+                <h1 className="truncate text-xl font-semibold tracking-tight text-[var(--text)] sm:text-[22px]">
                   @{user?.handle ?? '—'}
                 </h1>
                 {user?.name && (
-                  <p className="mt-0.5 text-[13.5px] text-[var(--muted)]">{user.name}</p>
+                  <p className="mt-0.5 truncate text-[13.5px] text-[var(--muted)]">{user.name}</p>
                 )}
               </div>
               <Link
@@ -537,7 +537,7 @@ export function ProfilePage() {
               </Link>
             </div>
 
-            <div className="mt-3.5 flex flex-wrap gap-6">
+            <div className="mt-3.5 flex flex-wrap gap-x-6 gap-y-2">
               <Stat
                 label="Treinos"
                 value={initialLoad ? '—' : <CountUp value={totalCount ?? completedSessions.length} />}
