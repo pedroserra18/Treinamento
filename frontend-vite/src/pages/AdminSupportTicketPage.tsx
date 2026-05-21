@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowLeft, ChevronDown, ChevronUp, FileText, RotateCcw, Send, ShieldCheck, StickyNote, Trash2 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
+import { SupportAttachmentInput } from '../components/common/SupportAttachmentInput'
 import {
   STATUS_COLORS,
   STATUS_LABELS,
@@ -282,8 +283,8 @@ export function AdminSupportTicketPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [reply, setReply] = useState('')
+  const [attachments, setAttachments] = useState<string[]>([])
   const [isInternalNote, setIsInternalNote] = useState(false)
-  const [nextStatus, setNextStatus] = useState<TicketStatus | ''>('')
   const [sending, setSending] = useState(false)
   const [updatingStatus, setUpdatingStatus] = useState(false)
   const [removedPosts, setRemovedPosts] = useState<RemovedPost[]>([])
@@ -361,17 +362,17 @@ export function AdminSupportTicketPage() {
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!ticketId || !reply.trim()) return
+    if (!ticketId || (!reply.trim() && attachments.length === 0)) return
     setSending(true)
     try {
       await adminPostReply(authorizedFetch, ticketId, {
-        body: reply.trim(),
+        body: reply.trim() || '(imagem)',
         isInternalNote,
-        nextStatus: nextStatus || undefined,
+        attachments: attachments.length > 0 ? attachments : undefined,
       })
       setReply('')
+      setAttachments([])
       setIsInternalNote(false)
-      setNextStatus('')
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao enviar')
@@ -535,6 +536,7 @@ export function AdminSupportTicketPage() {
               : 'border-[var(--line)] bg-[var(--surface-hover)] text-[var(--text)]'
           }`}
         />
+        <SupportAttachmentInput attachments={attachments} onChange={setAttachments} disabled={sending} />
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-3">
             <label className="flex cursor-pointer items-center gap-1.5 text-[11px] font-semibold text-[var(--muted)]">
@@ -547,14 +549,21 @@ export function AdminSupportTicketPage() {
               Nota interna
             </label>
             {!isInternalNote ? (
+              // Aplica o status na hora ao selecionar (sem confirmar). O select
+              // sempre volta para "(definir status...)" porque o valor real do
+              // ticket aparece nos botões "MUDAR STATUS" acima.
               <select
-                value={nextStatus}
-                onChange={(e) => setNextStatus(e.target.value as TicketStatus | '')}
-                className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-2 py-1 text-[11px] text-[var(--text)] outline-none"
+                value=""
+                disabled={updatingStatus}
+                onChange={(e) => {
+                  const v = e.target.value as TicketStatus | ''
+                  if (v) void handleStatus(v)
+                }}
+                className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-2 py-1 text-[11px] text-[var(--text)] outline-none disabled:opacity-50"
               >
-                <option value="">(definir status...)</option>
+                <option value="">{updatingStatus ? 'Atualizando…' : '(definir status...)'}</option>
                 {NEXT_STATUS_OPTIONS.map((s) => (
-                  <option key={s} value={s}>
+                  <option key={s} value={s} disabled={ticket.status === s}>
                     {STATUS_LABELS[s]}
                   </option>
                 ))}
@@ -564,7 +573,7 @@ export function AdminSupportTicketPage() {
           </div>
           <button
             type="submit"
-            disabled={sending || !reply.trim()}
+            disabled={sending || (!reply.trim() && attachments.length === 0)}
             className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--brand)] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
           >
             <Send size={14} />
