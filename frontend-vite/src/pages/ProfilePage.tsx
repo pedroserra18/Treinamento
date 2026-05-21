@@ -616,12 +616,12 @@ export function ProfilePage() {
       </nav>
 
       {/* ────────── STATS + CALENDAR ────────── */}
-      <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+      <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
         <motion.article
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35, delay: 0.05 }}
-          className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 sm:p-5"
+          className="min-w-0 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 sm:p-5"
         >
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-base font-semibold text-[var(--text)]">Estatísticas</h2>
@@ -666,7 +666,7 @@ export function ProfilePage() {
             <span className="text-[12.5px] text-[var(--muted)]">Esta semana</span>
           </div>
 
-          <div className="h-[220px] w-full">
+          <div className="h-[220px] w-full min-w-0">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
                 <XAxis
@@ -701,6 +701,7 @@ export function ProfilePage() {
         </motion.article>
 
         <motion.div
+          className="min-w-0"
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35, delay: 0.1 }}
