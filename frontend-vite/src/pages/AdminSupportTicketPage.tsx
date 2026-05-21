@@ -79,6 +79,21 @@ function MessageBubble({ message }: { message: SupportMessage }) {
           </div>
         )}
         <p className="whitespace-pre-wrap text-sm leading-relaxed">{message.body}</p>
+        {message.attachments.length > 0 ? (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {message.attachments.map((src, idx) => (
+              <a
+                key={idx}
+                href={src}
+                target="_blank"
+                rel="noreferrer"
+                className="block h-24 w-24 overflow-hidden rounded-lg border border-black/10"
+              >
+                <img src={src} alt={`Anexo ${idx + 1}`} className="h-full w-full object-cover" />
+              </a>
+            ))}
+          </div>
+        ) : null}
         <p className={`mt-1 text-[10px] ${isAdmin ? 'text-white/70' : 'text-[var(--muted)]'}`}>
           {formatDateTime(message.createdAt)}
         </p>
@@ -318,6 +333,31 @@ export function AdminSupportTicketPage() {
   useEffect(() => {
     scrollerRef.current?.scrollTo({ top: scrollerRef.current.scrollHeight, behavior: 'smooth' })
   }, [data?.messages.length])
+
+  // Atualização ao vivo da fila do admin: poll a cada 15s + refetch ao focar a
+  // aba, enquanto o ticket não estiver fechado. Silencioso (não mexe no loading
+  // nem reabre o painel de posts removidos).
+  const ticketStatus = data?.ticket.status
+  useEffect(() => {
+    if (!ticketId || !ticketStatus || ticketStatus === 'CLOSED') return
+    let cancelled = false
+    const tick = async () => {
+      try {
+        const result = await adminGetTicket(authorizedFetch, ticketId)
+        if (!cancelled) setData(result)
+      } catch {
+        // silencioso — mantém o que já está na tela
+      }
+    }
+    const interval = setInterval(() => void tick(), 15_000)
+    const onFocus = () => void tick()
+    window.addEventListener('focus', onFocus)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [ticketId, authorizedFetch, ticketStatus])
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault()
