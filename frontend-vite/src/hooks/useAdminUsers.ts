@@ -7,6 +7,7 @@ type UseAdminUsersOptions = {
   accountScope?: 'REAL' | 'TEST' | 'ALL'
   includeTest?: boolean
   registrationOrder?: 'asc' | 'desc'
+  search?: string
 }
 
 export function useAdminUsers(page = 1, pageSize = 20, options: UseAdminUsersOptions = {}) {

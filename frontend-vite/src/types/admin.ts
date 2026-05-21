@@ -1,6 +1,8 @@
 export type AdminUser = {
   id: string
   name: string | null
+  handle: string | null
+  avatarUrl: string | null
   email: string
   accountType: 'REAL' | 'TEST'
   role: 'USER' | 'COACH' | 'ADMIN'
@@ -20,6 +22,7 @@ export type AdminUsersResponse = {
     realCount: number
     testCount: number
     totalCount: number
+    newRealLast7Days: number
   }
   items: AdminUser[]
 }

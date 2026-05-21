@@ -47,6 +47,8 @@ function toAdminUser(value: Record<string, unknown>): AdminUser {
   return {
     id: String(value.id ?? ''),
     name: typeof value.name === 'string' ? value.name : null,
+    handle: typeof value.handle === 'string' ? value.handle : null,
+    avatarUrl: typeof value.avatarUrl === 'string' ? value.avatarUrl : null,
     email,
     accountType: inferredTest ? 'TEST' : accountTypeFromApi ?? 'REAL',
     role: (value.role ?? 'USER') as AdminUser['role'],
@@ -65,6 +67,7 @@ type AdminUsersQueryOptions = {
   accountScope?: 'REAL' | 'TEST' | 'ALL'
   includeTest?: boolean
   registrationOrder?: 'asc' | 'desc'
+  search?: string
 }
 
 type AdminUsersPayload = {
@@ -76,6 +79,7 @@ type AdminUsersPayload = {
       realCount?: number
       testCount?: number
       totalCount?: number
+      newRealLast7Days?: number
     }
     items?: Array<Record<string, unknown>>
   }
@@ -105,6 +109,9 @@ export async function listUsersForAdmin(
     includeTest: options.includeTest || options.accountScope === 'TEST' ? 'true' : 'false',
     registrationOrder: options.registrationOrder ?? 'desc',
   })
+  if (options.search?.trim()) {
+    fullQuery.set('search', options.search.trim())
+  }
 
   let { response, payload } = await requestAdminUsers(authorizedFetch, fullQuery)
 
@@ -134,8 +141,13 @@ export async function listUsersForAdmin(
 
   const mappedItems = (payload.data.items ?? []).map(toAdminUser)
   const accountScope = options.accountScope ?? (options.includeTest ? 'ALL' : 'REAL')
-  const filteredItems =
-    accountScope === 'TEST'
+
+  // API moderna já escopa, busca e conta no servidor: confia no total/summary.
+  // Só refiltra no client como rede de segurança para APIs legadas (sem summary).
+  const hasServerSummary = typeof payload.data.summary?.totalCount === 'number'
+  const items = hasServerSummary
+    ? mappedItems
+    : accountScope === 'TEST'
       ? mappedItems.filter((item) => item.accountType === 'TEST')
       : accountScope === 'REAL'
         ? mappedItems.filter((item) => item.accountType === 'REAL')
@@ -144,7 +156,7 @@ export async function listUsersForAdmin(
   return {
     page: payload.data.page ?? page,
     pageSize: payload.data.pageSize ?? pageSize,
-    total: filteredItems.length,
+    total: hasServerSummary ? payload.data.total ?? items.length : items.length,
     summary: {
       realCount:
         typeof payload.data.summary?.realCount === 'number'
@@ -158,8 +170,12 @@ export async function listUsersForAdmin(
         typeof payload.data.summary?.totalCount === 'number'
           ? payload.data.summary.totalCount
           : mappedItems.length,
+      newRealLast7Days:
+        typeof payload.data.summary?.newRealLast7Days === 'number'
+          ? payload.data.summary.newRealLast7Days
+          : 0,
     },
-    items: filteredItems,
+    items,
   }
 }
 
@@ -184,6 +200,29 @@ export async function deactivateUserByAdmin(
   }
 
   throw new Error(payload?.error?.message ?? 'Falha ao desativar conta do usuario')
+}
+
+export async function reactivateUserByAdmin(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  userId: string,
+): Promise<void> {
+  const response = await authorizedFetch(`${API_URL}/admin/users/${userId}/reactivate`, {
+    method: 'PATCH',
+  })
+
+  if (response.ok) {
+    return
+  }
+
+  const payload = (await response.json().catch(() => null)) as
+    | { error?: { message?: string; code?: string } }
+    | null
+
+  if (payload?.error?.code === 'ROUTE_NOT_FOUND') {
+    throw new Error('API desatualizada. Reinicie o servidor da API para habilitar a reativação.')
+  }
+
+  throw new Error(payload?.error?.message ?? 'Falha ao reativar conta do usuario')
 }
 
 export async function deleteUserByAdmin(
