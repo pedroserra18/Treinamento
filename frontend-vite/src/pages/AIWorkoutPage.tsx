@@ -9,7 +9,7 @@ import {
   swapExerciseAI,
   type WorkoutSection,
 } from '../services/aiService'
-import { getProfileDefaults, updateBirthDate } from '../services/authService'
+import { getProfileDefaults, updateBirthDate, type ProfileDefaults } from '../services/authService'
 import { Bot, ChevronLeft, Clock, Sparkles, CheckCircle2, Pencil, ChevronUp, ChevronDown, RefreshCw, AlertTriangle, X, ArrowRight } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -313,6 +313,23 @@ function ageBucketFromBirthDate(birthDate: string): string {
   if (age <= 45) return '36–45'
   if (age <= 55) return '46–55'
   return '55+'
+}
+
+// Aplica os dados do perfil sobre um conjunto de respostas, preenchendo só os
+// campos VAZIOS (não sobrescreve o que o usuário já respondeu). Usado tanto no
+// pré-preenchimento inicial quanto ao recomeçar o quiz do zero, pra que a data
+// de nascimento (e demais dados do perfil) volte em vez de ser perguntada de novo.
+function applyProfileDefaults(base: QuizAnswers, d: ProfileDefaults | null): QuizAnswers {
+  if (!d) return base
+  const next = { ...base }
+  if (!next.weightKg && d.weightKg != null) next.weightKg = String(d.weightKg)
+  if (!next.heightCm && d.heightCm != null) next.heightCm = String(Math.round(d.heightCm))
+  if (!next.gender && d.gender) next.gender = d.gender
+  if (!next.birthDate && d.birthDate) {
+    next.birthDate = d.birthDate
+    next.age = ageBucketFromBirthDate(d.birthDate)
+  }
+  return next
 }
 
 // Foco "inferior" = quadríceps e/ou glúteo e/ou posterior de coxa. Quando o
@@ -960,6 +977,11 @@ export function AIWorkoutPage() {
     return () => clearInterval(interval)
   }, [appScreen])
 
+  // Guarda os dados do perfil pra reaplicar ao recomeçar o quiz do zero (a
+  // requisição só roda uma vez na montagem; o reset não pode re-buscar de forma
+  // síncrona).
+  const profileDefaultsRef = useRef<ProfileDefaults | null>(null)
+
   // Pré-preenche o quiz com os dados do perfil (peso atual do progresso,
   // altura, gênero, data de nascimento). Só preenche campos VAZIOS — não
   // sobrescreve o que o usuário já respondeu/salvou.
@@ -969,23 +991,24 @@ export function AIWorkoutPage() {
       try {
         const defaults = await getProfileDefaults(authorizedFetch)
         if (cancelled) return
-        setAnswers(prev => {
-          const next = { ...prev }
-          if (!next.weightKg && defaults.weightKg != null) next.weightKg = String(defaults.weightKg)
-          if (!next.heightCm && defaults.heightCm != null) next.heightCm = String(Math.round(defaults.heightCm))
-          if (!next.gender && defaults.gender) next.gender = defaults.gender
-          if (!next.birthDate && defaults.birthDate) {
-            next.birthDate = defaults.birthDate
-            next.age = ageBucketFromBirthDate(defaults.birthDate)
-          }
-          return next
-        })
+        profileDefaultsRef.current = defaults
+        setAnswers(prev => applyProfileDefaults(prev, defaults))
       } catch {
         // Sem perfil/dados — segue com o quiz normal.
       }
     })()
     return () => { cancelled = true }
   }, [authorizedFetch])
+
+  // Recomeça o quiz do zero, mas reaplica os dados do perfil (ex: data de
+  // nascimento já salva) pra não reperguntar o que já sabemos.
+  const resetQuiz = useCallback(() => {
+    try { localStorage.removeItem(ANSWERS_STORAGE_KEY) } catch {/* ignore */}
+    setStep(0)
+    setAnswers(applyProfileDefaults({ ...DEFAULT_ANSWERS }, profileDefaultsRef.current))
+    setIsEditMode(false)
+    setAppScreen('QUIZ')
+  }, [])
 
   const advanceStep = useCallback(() => {
     setDirection(1)
@@ -1379,10 +1402,7 @@ export function AIWorkoutPage() {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  try { localStorage.removeItem(ANSWERS_STORAGE_KEY) } catch {/* ignore */}
-                  setStep(0); setAnswers(DEFAULT_ANSWERS); setIsEditMode(false); setAppScreen('QUIZ')
-                }}
+                onClick={resetQuiz}
                 className="w-full rounded-2xl border border-[var(--line)] py-3 text-xs font-semibold text-[var(--muted)]"
               >
                 Começar do zero
@@ -1391,7 +1411,7 @@ export function AIWorkoutPage() {
           ) : (
             <button
               type="button"
-              onClick={() => { setStep(0); setAnswers(DEFAULT_ANSWERS); setIsEditMode(false); setAppScreen('QUIZ') }}
+              onClick={resetQuiz}
               className="mt-6 w-full rounded-2xl bg-[var(--brand)] py-3.5 text-sm font-bold text-white"
             >
               Começar
@@ -1512,8 +1532,13 @@ export function AIWorkoutPage() {
                   onChange={(e) => {
                     const bd = e.target.value
                     setAnswers(prev => ({ ...prev, birthDate: bd, age: bd ? ageBucketFromBirthDate(bd) : '' }))
-                    // Persiste no perfil pra não perguntar de novo.
-                    if (bd) void updateBirthDate(authorizedFetch, bd).catch(() => {})
+                    if (bd) {
+                      // Persiste no perfil pra não perguntar de novo, e atualiza
+                      // o ref pra que "começar do zero" na mesma sessão não
+                      // reperguntar (o ref foi populado na montagem, antes disto).
+                      profileDefaultsRef.current = { ...(profileDefaultsRef.current ?? { weightKg: null, heightCm: null, gender: null, birthDate: null, age: null }), birthDate: bd }
+                      void updateBirthDate(authorizedFetch, bd).catch(() => {})
+                    }
                   }}
                   className="w-full rounded-xl border border-[var(--line)] bg-transparent px-3 py-3 text-sm text-[var(--text)] focus:outline-none focus:border-[var(--brand)]"
                 />
@@ -2393,10 +2418,7 @@ export function AIWorkoutPage() {
             <div className="mt-5 flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => {
-                  try { localStorage.removeItem(ANSWERS_STORAGE_KEY) } catch {/* ignore */}
-                  setStep(0); setAnswers(DEFAULT_ANSWERS); setIsEditMode(false); setAppScreen('QUIZ')
-                }}
+                onClick={resetQuiz}
                 className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--text)] px-4 py-2 text-xs font-bold text-[var(--surface)] transition-opacity hover:opacity-90"
               >
                 <Sparkles size={13} /> Novo questionário
