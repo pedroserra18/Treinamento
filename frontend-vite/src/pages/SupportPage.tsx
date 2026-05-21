@@ -76,8 +76,16 @@ export function SupportPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!topic || !subject.trim() || !body.trim()) {
-      setFormError('Preencha todos os campos antes de enviar.')
+    if (!topic) {
+      setFormError('Escolha um tópico antes de enviar.')
+      return
+    }
+    if (subject.trim().length < 3) {
+      setFormError('O assunto precisa de pelo menos 3 caracteres.')
+      return
+    }
+    if (body.trim().length < 5) {
+      setFormError('A mensagem precisa de pelo menos 5 caracteres.')
       return
     }
     setSubmitting(true)
@@ -234,7 +242,7 @@ export function SupportPage() {
             <>
               <div>
                 <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">
-                  2. Assunto
+                  2. Assunto <span className="font-normal normal-case">(mín. 3 caracteres)</span>
                 </label>
                 <input
                   type="text"
@@ -249,7 +257,7 @@ export function SupportPage() {
 
               <div>
                 <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">
-                  3. Mensagem
+                  3. Mensagem <span className="font-normal normal-case">(mín. 5 caracteres)</span>
                 </label>
                 <textarea
                   value={body}
