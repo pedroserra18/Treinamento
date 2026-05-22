@@ -565,11 +565,39 @@ export function HomePage() {
 
       {/* ──────── STATS ──────────────────────────────────────────────── */}
       {isAuthenticated && (
+        <>
+        {/* Mobile: barra de resumo compacta, clicável → Progresso */}
+        <Link
+          to="/progress"
+          className="grid grid-cols-3 overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] transition-colors active:bg-[var(--surface-hover)] sm:hidden"
+        >
+          {[
+            { label: 'Sequência', node: <CountUp value={streak} />, unit: 'dias' },
+            { label: 'Treinos', node: <CountUp value={thisWeek?.sessions ?? 0} />, unit: '/sem' },
+            {
+              label: 'Volume',
+              node: (thisWeek && thisWeek.volumeKg >= 1000
+                ? `${(thisWeek.volumeKg / 1000).toFixed(thisWeek.volumeKg >= 10_000 ? 0 : 1).replace(/\.0$/, '')}k`
+                : `${Math.round(thisWeek?.volumeKg ?? 0)}`),
+              unit: 'kg',
+            },
+          ].map((s, i) => (
+            <div key={s.label} className={`flex flex-col items-center gap-0.5 px-2 py-3 text-center ${i > 0 ? 'border-l border-[var(--line)]' : ''}`}>
+              <span className="flex items-baseline gap-0.5">
+                <span className="text-xl font-bold leading-none text-[var(--text)]">{s.node}</span>
+                <span className="text-[10px] text-[var(--muted)]">{s.unit}</span>
+              </span>
+              <span className="font-mono text-[9px] font-semibold uppercase tracking-wider text-[var(--muted)]">{s.label}</span>
+            </div>
+          ))}
+        </Link>
+
+        {/* Desktop/tablet: cards completos */}
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.05 }}
-          className="grid grid-cols-1 gap-2.5 sm:grid-cols-3"
+          className="hidden grid-cols-1 gap-2.5 sm:grid sm:grid-cols-3"
         >
           <StatCard
             label="Sequência"
@@ -616,6 +644,7 @@ export function HomePage() {
             spark={<LineSparkline values={weekly.map((w) => w.volumeKg)} color="#0a8a4a" />}
           />
         </motion.div>
+        </>
       )}
 
       {/* ──────── HEATMAP ────────────────────────────────────────────── */}
