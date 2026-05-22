@@ -1512,7 +1512,7 @@ export function AIWorkoutPage() {
             <>
               <h2 className="text-xl font-black text-[var(--text)]">Quantos dias por semana você vai treinar?</h2>
               <p className="mt-1 text-sm text-[var(--muted)]">Escolha sua frequência semanal</p>
-              <div className="mt-5 grid gap-2 sm:grid-cols-2">
+              <div className="mt-5 grid grid-cols-2 gap-2">
                 {[['2', '2x por semana', 'Ideal para começar'], ['3', '3x por semana', 'Bom equilíbrio'], ['4', '4x por semana', 'Frequência eficiente'], ['5', '5x por semana', 'Volume alto'], ['6', '6x por semana', 'Atletas avançados']].map(([val, label, hint]) => (
                   <OptionCard key={val} label={label} hint={hint} selected={answers.daysPerWeek === val} onClick={() => selectAndAdvance('daysPerWeek', val)} />
                 ))}
@@ -1636,7 +1636,7 @@ export function AIWorkoutPage() {
             <>
               <h2 className="text-xl font-black text-[var(--text)]">Duração desejada da sessão?</h2>
               <p className="mt-1 text-sm text-[var(--muted)]">O tempo que você tem disponível por treino</p>
-              <div className="mt-5 grid gap-2 sm:grid-cols-2">
+              <div className="mt-5 grid grid-cols-2 gap-2">
                 {[['30', '30 minutos'], ['45', '45 minutos'], ['60', '1 hora'], ['90', '1h30'], ['120', '2 horas']].map(([val, label]) => (
                   <OptionCard key={val} label={label} selected={answers.duration === val} onClick={() => selectAndAdvance('duration', val)} />
                 ))}
@@ -1662,7 +1662,7 @@ export function AIWorkoutPage() {
             <>
               <h2 className="text-xl font-black text-[var(--text)]">Faixa de repetições preferida?</h2>
               <p className="mt-1 text-sm text-[var(--muted)]">Será usada como referência principal nos exercícios</p>
-              <div className="mt-5 grid gap-2 sm:grid-cols-2">
+              <div className="mt-5 grid grid-cols-2 gap-2">
                 {(['4–6', '5–9', '6–8', '8–10', '10–12', '12–15'] as const).map(val => (
                   <OptionCard
                     key={val}
@@ -1687,7 +1687,7 @@ export function AIWorkoutPage() {
             <>
               <h2 className="text-xl font-black text-[var(--text)]">Tempo de descanso entre séries?</h2>
               <p className="mt-1 text-sm text-[var(--muted)]">Influencia diretamente a intensidade e o volume da sessão</p>
-              <div className="mt-5 grid gap-2 sm:grid-cols-2">
+              <div className="mt-5 grid grid-cols-2 gap-2">
                 {([
                   ['30s', '30 segundos', 'Resistência e condicionamento'],
                   ['45s', '45 segundos', 'Alta intensidade metabólica'],
@@ -2676,10 +2676,17 @@ export function AIWorkoutPage() {
                           : 'border-[var(--line)] bg-[var(--surface)] hover:border-[var(--brand)]/40 hover:bg-[var(--surface-hover)]'
                       }`}
                     >
-                      <button
-                        type="button"
+                      <div
+                        role="button"
+                        tabIndex={0}
                         onClick={() => setExpandedExerciseKey(expanded ? null : exKey)}
-                        className="grid w-full grid-cols-[auto_1fr_auto] items-center gap-3 px-3 py-2.5 text-left sm:grid-cols-[40px_1fr_auto_auto] sm:px-4"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            setExpandedExerciseKey(expanded ? null : exKey)
+                          }
+                        }}
+                        className="grid w-full cursor-pointer grid-cols-[auto_1fr_auto] items-center gap-3 px-3 py-2.5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--brand)] sm:grid-cols-[40px_1fr_auto_auto] sm:px-4"
                       >
                         {/* Number badge */}
                         <span
@@ -2760,7 +2767,7 @@ export function AIWorkoutPage() {
                             <X size={13} />
                           </button>
                         )}
-                      </button>
+                      </div>
 
                       {/* Expandable details */}
                       <AnimatePresence>
