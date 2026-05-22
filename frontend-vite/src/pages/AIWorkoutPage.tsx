@@ -2420,7 +2420,7 @@ export function AIWorkoutPage() {
             </div>
 
             {/* Big serif title with italic accent */}
-            <h1 className="mt-4 font-serif text-4xl font-normal leading-[1.04] tracking-tight text-[var(--text)] sm:text-5xl">
+            <h1 className="mt-4 font-serif text-3xl font-normal leading-[1.04] tracking-tight text-[var(--text)] sm:text-5xl">
               Seu plano{' '}
               <em className="italic text-[var(--brand-strong)]">personalizado</em>
             </h1>
