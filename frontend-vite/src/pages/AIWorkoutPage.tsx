@@ -686,12 +686,12 @@ function OptionCard({
           : 'border-[var(--line)] bg-[var(--surface)] hover:border-[var(--brand)]/50'
       }`}
     >
-      {recommended && (
-        <span className="absolute right-3 top-3 rounded-full bg-[var(--brand)]/15 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[var(--brand)]">
-          Recomendado
-        </span>
-      )}
-      <p className={`text-sm font-bold ${selected ? 'text-[var(--brand)]' : 'text-[var(--text)]'}`}>{label}</p>
+      <p className={`flex items-center gap-1.5 text-sm font-bold ${selected ? 'text-[var(--brand)]' : 'text-[var(--text)]'}`}>
+        <span className="min-w-0 truncate">{label}</span>
+        {recommended && (
+          <span className="shrink-0 text-[12px] text-[var(--brand)]" title="Recomendado" aria-label="Recomendado">★</span>
+        )}
+      </p>
       {hint && <p className="mt-0.5 text-[11px] text-[var(--muted)]">{hint}</p>}
     </button>
   )
