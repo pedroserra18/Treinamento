@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { useAuth } from '../hooks/useAuth'
 import {
   Flame, Layers, Dumbbell, Plus, Play, Search, Pencil, Sparkles, MoreHorizontal,
+  Activity, X,
 } from 'lucide-react'
 import { SkeletonCard } from '../components/common/Skeleton'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -20,7 +21,7 @@ import { isBodyweightEquipment, resolveBodyweightFlag } from '../lib/exercise-me
 import { formatClock, formatRestOptionLabel, REST_OPTIONS_SEC } from '../lib/workout-timing'
 import { saveWorkoutSessionImage } from '../lib/workout-session-image'
 import { optimizeImageFileToDataUrl } from '../lib/image-processing'
-import type { WorkoutPlan } from '../types/workout'
+import type { WorkoutPlan, CardioType, CardioEntryInput } from '../types/workout'
 import {
   addExerciseToPlan,
   completeWorkoutSession,
@@ -225,6 +226,95 @@ function relativeDaysFromNow(iso: string): string {
   return `há ${Math.floor(d / 30)}m`
 }
 
+const CARDIO_LABELS: Record<CardioType, string> = {
+  WALK: 'Caminhada', RUN: 'Corrida', BIKE: 'Bicicleta', STAIRS: 'Escada',
+  ELLIPTICAL: 'Elíptico', ROW: 'Remo', JUMP_ROPE: 'Corda', SWIM: 'Natação', OTHER: 'Outro',
+}
+const CARDIO_TYPES = Object.keys(CARDIO_LABELS) as CardioType[]
+
+// Seção de cardio do treino ativo: lista os cardios adicionados e um mini-form
+// (tipo + minutos + distância opcional em km) para acrescentar mais.
+function CardioSection({ entries, onAdd, onRemove }: {
+  entries: CardioEntryInput[]
+  onAdd: (entry: CardioEntryInput) => void
+  onRemove: (index: number) => void
+}) {
+  const [type, setType] = useState<CardioType>('WALK')
+  const [minutes, setMinutes] = useState('')
+  const [km, setKm] = useState('')
+
+  const add = () => {
+    const min = parseInt(minutes, 10)
+    if (!Number.isFinite(min) || min <= 0) return
+    const dist = parseFloat(km.replace(',', '.'))
+    onAdd({
+      type,
+      durationSec: min * 60,
+      distanceMeters: Number.isFinite(dist) && dist > 0 ? Math.round(dist * 1000) : undefined,
+    })
+    setMinutes('')
+    setKm('')
+  }
+
+  return (
+    <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+      <h2 className="flex items-center gap-2 text-[15px] font-semibold text-[var(--text)]">
+        <Activity size={15} className="text-[var(--brand)]" /> Cardio
+      </h2>
+      <p className="mt-0.5 text-[12px] text-[var(--muted)]">Caminhada, corrida, bike, escada… registre o que fez.</p>
+
+      {entries.length > 0 && (
+        <ul className="mt-3 space-y-1.5">
+          {entries.map((c, i) => (
+            <li key={i} className="flex items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 text-sm">
+              <span className="font-semibold text-[var(--text)]">{CARDIO_LABELS[c.type]}</span>
+              <span className="text-[var(--muted)]">· {Math.round(c.durationSec / 60)} min</span>
+              {c.distanceMeters ? <span className="text-[var(--muted)]">· {(c.distanceMeters / 1000).toFixed(2).replace(/\.?0+$/, '')} km</span> : null}
+              <button type="button" onClick={() => onRemove(i)} className="ml-auto grid h-6 w-6 place-items-center rounded-md text-[var(--muted)] hover:bg-rose-500/10 hover:text-rose-500" aria-label="Remover cardio">
+                <X size={13} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-[1fr_auto_auto_auto]">
+        <select
+          value={type}
+          onChange={(e) => setType(e.target.value as CardioType)}
+          className="rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)]"
+        >
+          {CARDIO_TYPES.map((t) => <option key={t} value={t}>{CARDIO_LABELS[t]}</option>)}
+        </select>
+        <input
+          type="number"
+          inputMode="numeric"
+          value={minutes}
+          onChange={(e) => setMinutes(e.target.value)}
+          placeholder="min"
+          className="w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] sm:w-20"
+        />
+        <input
+          type="number"
+          inputMode="decimal"
+          value={km}
+          onChange={(e) => setKm(e.target.value)}
+          placeholder="km (opc.)"
+          className="w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] sm:w-24"
+        />
+        <button
+          type="button"
+          onClick={add}
+          disabled={!minutes.trim()}
+          className="col-span-2 rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-[var(--brand-strong)] disabled:opacity-40 sm:col-span-1"
+        >
+          Adicionar
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function TrainPage() {
   const { authorizedFetch, user } = useAuth()
   const isProfilePrivate = user?.isPrivate ?? false
@@ -246,6 +336,8 @@ export function TrainPage() {
   const [routineFilter, setRoutineFilter] = useState<RoutineFilter>('ALL')
   const [originMode, setOriginMode] = useState<TrainOriginMode>('EMPTY')
   const [activeExercises, setActiveExercises] = useState<ActiveExercise[]>([])
+  // Cardio registrado durante o treino (caminhada, corrida, bike, etc.).
+  const [cardioEntries, setCardioEntries] = useState<CardioEntryInput[]>([])
 
   const [elapsedSec, setElapsedSec] = useState(0)
   const [isWorkoutRunning, setIsWorkoutRunning] = useState(false)
@@ -609,6 +701,7 @@ export function TrainPage() {
     setOriginMode('EMPTY')
     setActivePlanName('Treinamento vazio')
     setActiveExercises([])
+    setCardioEntries([])
     setElapsedSec(0)
     setIsWorkoutRunning(false)
     setManualTimerMinutes('')
@@ -639,6 +732,7 @@ export function TrainPage() {
     setOriginMode('EMPTY')
     setActivePlanName('Treinamento vazio')
     setActiveExercises([])
+    setCardioEntries([])
     setElapsedSec(0)
     setIsWorkoutRunning(true)
     setStartedAt(new Date())
@@ -654,6 +748,7 @@ export function TrainPage() {
     setActivePlanId(plan.id)
     setActivePlanName(plan.name)
     setActiveExercises(mapPlanToActiveExercises(plan))
+    setCardioEntries([])
     setElapsedSec(0)
     setIsWorkoutRunning(true)
     setStartedAt(new Date())
@@ -1146,6 +1241,7 @@ export function TrainPage() {
         durationSec,
         notes: notesSegments.join('\n\n') || undefined,
         exercises: performedSets.length > 0 ? performedSets : undefined,
+        cardio: cardioEntries.length > 0 ? cardioEntries : undefined,
       })
 
       setSavedSessionId(started.id)
@@ -2169,6 +2265,12 @@ export function TrainPage() {
             )
           })}
         </article>
+
+        <CardioSection
+          entries={cardioEntries}
+          onAdd={(entry) => setCardioEntries((current) => [...current, entry])}
+          onRemove={(index) => setCardioEntries((current) => current.filter((_, i) => i !== index))}
+        />
       </section>
     )
   }

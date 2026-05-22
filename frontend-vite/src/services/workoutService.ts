@@ -1,4 +1,5 @@
 import type {
+  CardioType,
   ExerciseOption,
   LatestExercisePerformanceResponse,
   RecommendationTemplateResponse,
@@ -593,6 +594,13 @@ export async function completeWorkoutSession(
       distanceMeters?: number
       weightKg?: number
       perceivedExertion?: number
+      notes?: string
+    }>
+    cardio?: Array<{
+      type: CardioType
+      durationSec: number
+      distanceMeters?: number
+      calories?: number
       notes?: string
     }>
   },

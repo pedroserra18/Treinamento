@@ -62,6 +62,26 @@ export type ExerciseOption = {
   videoUrl: string | null
 }
 
+export type CardioType =
+  | 'WALK' | 'RUN' | 'BIKE' | 'STAIRS' | 'ELLIPTICAL' | 'ROW' | 'JUMP_ROPE' | 'SWIM' | 'OTHER'
+
+export type CardioEntryInput = {
+  type: CardioType
+  durationSec: number
+  distanceMeters?: number
+  calories?: number
+  notes?: string
+}
+
+export type CardioEntry = {
+  id: string
+  type: CardioType
+  durationSec: number
+  distanceMeters: number | null
+  calories: number | null
+  notes: string | null
+}
+
 export type WorkoutSessionHistory = {
   id: string
   status: string
@@ -98,6 +118,7 @@ export type WorkoutSessionHistory = {
       primaryMuscleGroup: string
     }
   }>
+  cardioEntries?: CardioEntry[]
 }
 
 export type WorkoutHistoryResponse = {
