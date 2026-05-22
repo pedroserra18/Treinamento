@@ -10,8 +10,19 @@ import { WorkoutPostImage } from './WorkoutPostImage'
 import {
   Users, Heart, Globe2, Lock,
   Trash2, MoreHorizontal, MessageCircle, Share2,
-  ArrowRight, ChevronUp, Send, X, Check, BarChart3,
+  ArrowRight, ChevronUp, Send, X, Check, BarChart3, Activity,
 } from 'lucide-react'
+
+const CARDIO_PT: Record<string, string> = {
+  WALK: 'Caminhada', RUN: 'Corrida', BIKE: 'Bicicleta', STAIRS: 'Escada',
+  ELLIPTICAL: 'Elíptico', ROW: 'Remo', JUMP_ROPE: 'Corda', SWIM: 'Natação', OTHER: 'Cardio',
+}
+
+function formatCardioChip(c: { type: string; durationSec: number; distanceMeters: number | null }): string {
+  const min = `${Math.round(c.durationSec / 60)} min`
+  const km = c.distanceMeters ? ` · ${(c.distanceMeters / 1000).toFixed(2).replace(/\.?0+$/, '')} km` : ''
+  return `${min}${km}`
+}
 
 // ─── Formatters ────────────────────────────────────────────────────────────
 
@@ -787,6 +798,21 @@ export function FeedPostCard({
                 +{exerciseCount - 6}
               </span>
             )}
+          </div>
+        )}
+
+        {post.workoutSummary?.cardio && post.workoutSummary.cardio.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {post.workoutSummary.cardio.map((c, i) => (
+              <span
+                key={i}
+                className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-300"
+              >
+                <Activity size={11} />
+                <span className="font-medium">{CARDIO_PT[c.type] ?? 'Cardio'}</span>
+                <span className="font-mono text-[10.5px]">{formatCardioChip(c)}</span>
+              </span>
+            ))}
           </div>
         )}
 

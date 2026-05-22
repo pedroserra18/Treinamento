@@ -20,10 +20,18 @@ export type WorkoutExerciseSummary = {
   totalVolumeKg: number
 }
 
+export type WorkoutCardioSummary = {
+  type: string
+  durationSec: number
+  distanceMeters: number | null
+  calories: number | null
+}
+
 export type WorkoutSummary = {
   durationSec: number | null
   totalVolumeKg: number
   exercises: WorkoutExerciseSummary[]
+  cardio?: WorkoutCardioSummary[]
 }
 
 export type FeedPostUser = {

@@ -1,9 +1,14 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { useMemo, useState } from 'react'
-import { ArrowRight, ChevronUp } from 'lucide-react'
+import { ArrowRight, ChevronUp, Activity } from 'lucide-react'
 import type { WorkoutSessionHistory } from '../../types/workout'
 import { HistoryExerciseCard } from './HistoryExerciseCard'
 import { groupExerciseHistory } from '../../lib/workout-history-grouping'
+
+const CARDIO_PT: Record<string, string> = {
+  WALK: 'Caminhada', RUN: 'Corrida', BIKE: 'Bicicleta', STAIRS: 'Escada',
+  ELLIPTICAL: 'Elíptico', ROW: 'Remo', JUMP_ROPE: 'Corda', SWIM: 'Natação', OTHER: 'Cardio',
+}
 
 // ─── Formatters (mirror FeedPage so the visual reads the same) ────────────
 
@@ -132,6 +137,25 @@ export function WorkoutSessionCard({ session }: { session: WorkoutSessionHistory
                 +{summary.chips.length - 6}
               </span>
             )}
+          </div>
+        )}
+
+        {/* CARDIO CHIPS */}
+        {session.cardioEntries && session.cardioEntries.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {session.cardioEntries.map((c) => (
+              <span
+                key={c.id}
+                className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-300"
+              >
+                <Activity size={11} />
+                <span className="font-medium">{CARDIO_PT[c.type] ?? 'Cardio'}</span>
+                <span className="font-mono text-[10.5px]">
+                  {Math.round(c.durationSec / 60)} min
+                  {c.distanceMeters ? ` · ${(c.distanceMeters / 1000).toFixed(2).replace(/\.?0+$/, '')} km` : ''}
+                </span>
+              </span>
+            ))}
           </div>
         )}
 
