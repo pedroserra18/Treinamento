@@ -93,6 +93,15 @@ function computeVolume7D(items: WorkoutSessionHistory[]): number {
     .reduce((acc, s) => acc + calcVolumeKg(s), 0)
 }
 
+// Minutos de cardio nos últimos 7 dias (soma das durações dos CardioEntry).
+function computeCardio7D(items: WorkoutSessionHistory[]): number {
+  const cutoff = Date.now() - 7 * 86_400_000
+  const totalSec = items
+    .filter((s) => s.endedAt && new Date(s.endedAt).getTime() >= cutoff)
+    .reduce((acc, s) => acc + (s.cardioEntries ?? []).reduce((sum, c) => sum + c.durationSec, 0), 0)
+  return Math.round(totalSec / 60)
+}
+
 // New PR within the current month per pinned exercise. A "PR" here is a
 // session whose maxLoadKg strictly exceeds the max of every earlier session
 // for that same exercise.
@@ -839,6 +848,7 @@ export function ProgressPage() {
   const volume7d = useMemo(() => Math.round(computeVolume7D(workoutHistory)), [workoutHistory])
   const prsThisMonth = useMemo(() => computePRsThisMonth(exerciseProgress), [exerciseProgress])
   const streak = useMemo(() => computeStreak(workoutHistory), [workoutHistory])
+  const cardio7d = useMemo(() => computeCardio7D(workoutHistory), [workoutHistory])
   const lastSession = useMemo(() => lastSessionDate(exerciseProgress, workoutHistory), [exerciseProgress, workoutHistory])
 
   // Body panel derived data — measurements sorted oldest-first for chart,
@@ -998,8 +1008,9 @@ export function ProgressPage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-3 gap-4 sm:gap-5 sm:text-right">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-5 sm:text-right">
             <HeroStat label="Volume 7D" value={volume7d.toLocaleString('pt-BR')} unit="kg" tone="brand" />
+            <HeroStat label="Cardio 7D" value={String(cardio7d)} unit="min" tone="default" />
             <HeroStat label="PRs no mês" value={String(prsThisMonth)} tone="default" />
             <HeroStat label="Sequência" value={String(streak)} unit="dias" tone="default" />
           </div>
