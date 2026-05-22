@@ -115,34 +115,54 @@ export function SettingsPage() {
       <motion.header
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        className="px-1"
+        className="relative overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 sm:p-6"
       >
-        <Link
-          to="/profile"
-          className="mb-2 inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.12em] text-[var(--muted)] hover:text-[var(--text)]"
-        >
-          <ArrowLeft size={11} />
-          Voltar ao perfil
-        </Link>
-        {isProfileEdit ? (
-          <>
-            <h1 className="text-3xl font-semibold tracking-tight text-[var(--text)] sm:text-4xl">
-              Editar <span className="font-serif-accent text-[var(--brand-strong)]">perfil</span>
-            </h1>
-            <p className="mt-1.5 text-sm text-[var(--muted)]">
-              Sua foto e nome, exibidos no feed e no seu perfil público.
-            </p>
-          </>
-        ) : (
-          <>
-            <h1 className="text-3xl font-semibold tracking-tight text-[var(--text)] sm:text-4xl">
-              Config<span className="font-serif-accent text-[var(--brand-strong)]">urações</span>
-            </h1>
-            <p className="mt-1.5 text-sm text-[var(--muted)]">
-              Gerencie sua conta, privacidade e preferências.
-            </p>
-          </>
-        )}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0"
+          style={{
+            backgroundImage:
+              'linear-gradient(color-mix(in srgb, var(--brand) 6%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--brand) 6%, transparent) 1px, transparent 1px)',
+            backgroundSize: '28px 28px',
+            maskImage: 'radial-gradient(560px 200px at 12% 50%, #000 0%, transparent 70%)',
+            WebkitMaskImage: 'radial-gradient(560px 200px at 12% 50%, #000 0%, transparent 70%)',
+          }}
+        />
+        <div className="relative">
+          <Link
+            to="/profile"
+            className="mb-2 inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.12em] text-[var(--muted)] hover:text-[var(--text)]"
+          >
+            <ArrowLeft size={11} />
+            Voltar ao perfil
+          </Link>
+          <div className="inline-flex items-center gap-2 font-mono text-[10.5px] font-semibold uppercase tracking-[0.22em] text-[var(--brand-strong)]">
+            <span className="relative inline-flex h-[7px] w-[7px]">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--brand)] opacity-60" />
+              <span className="relative inline-flex h-[7px] w-[7px] rounded-full bg-[var(--brand)]" />
+            </span>
+            {isProfileEdit ? 'Perfil · foto e nome' : 'Sua conta · preferências'}
+          </div>
+          {isProfileEdit ? (
+            <>
+              <h1 className="mt-1.5 text-3xl font-semibold tracking-tight text-[var(--text)] sm:text-4xl">
+                Editar <span className="font-serif-accent text-[var(--brand-strong)]">perfil</span>
+              </h1>
+              <p className="mt-1.5 text-sm text-[var(--muted)]">
+                Sua foto e nome, exibidos no feed e no seu perfil público.
+              </p>
+            </>
+          ) : (
+            <>
+              <h1 className="mt-1.5 text-3xl font-semibold tracking-tight text-[var(--text)] sm:text-4xl">
+                Config<span className="font-serif-accent text-[var(--brand-strong)]">urações</span>
+              </h1>
+              <p className="mt-1.5 text-sm text-[var(--muted)]">
+                Gerencie sua conta, privacidade e preferências.
+              </p>
+            </>
+          )}
+        </div>
       </motion.header>
 
       {/* Seletor de seção no mobile/tablet — chips on-brand (sidebar fica < lg) */}
