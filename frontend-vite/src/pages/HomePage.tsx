@@ -572,18 +572,22 @@ export function HomePage() {
           className="grid grid-cols-3 overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] transition-colors active:bg-[var(--surface-hover)] sm:hidden"
         >
           {[
-            { label: 'Sequência', node: <CountUp value={streak} />, unit: 'dias' },
-            { label: 'Treinos', node: <CountUp value={thisWeek?.sessions ?? 0} />, unit: '/sem' },
+            { label: 'Sequência', node: <CountUp value={streak} />, unit: 'dias', flame: true },
+            { label: 'Treinos', node: <CountUp value={thisWeek?.sessions ?? 0} />, unit: '/sem', flame: false },
             {
               label: 'Volume',
               node: (thisWeek && thisWeek.volumeKg >= 1000
                 ? `${(thisWeek.volumeKg / 1000).toFixed(thisWeek.volumeKg >= 10_000 ? 0 : 1).replace(/\.0$/, '')}k`
                 : `${Math.round(thisWeek?.volumeKg ?? 0)}`),
               unit: 'kg',
+              flame: false,
             },
           ].map((s, i) => (
             <div key={s.label} className={`flex flex-col items-center gap-0.5 px-2 py-3 text-center ${i > 0 ? 'border-l border-[var(--line)]' : ''}`}>
               <span className="flex items-baseline gap-0.5">
+                {s.flame && (
+                  <span aria-hidden className={`text-base leading-none ${streak > 0 ? 'flame-alive' : 'flame-frozen'}`}>🔥</span>
+                )}
                 <span className="text-xl font-bold leading-none text-[var(--text)]">{s.node}</span>
                 <span className="text-[10px] text-[var(--muted)]">{s.unit}</span>
               </span>
