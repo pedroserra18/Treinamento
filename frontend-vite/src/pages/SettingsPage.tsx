@@ -119,7 +119,7 @@ export function SettingsPage() {
       >
         <Link
           to="/profile"
-          className="mb-2 inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.12em] text-[var(--muted)] hover:text-[var(--text)]"
+          className="mb-2 inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.12em] text-[var(--muted)] hover:text-[var(--text)] lg:hidden"
         >
           <ArrowLeft size={11} />
           Voltar ao perfil
