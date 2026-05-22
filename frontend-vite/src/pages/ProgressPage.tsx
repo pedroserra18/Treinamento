@@ -973,21 +973,9 @@ export function ProgressPage() {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35, ease: 'easeOut' }}
-        className="relative overflow-hidden rounded-[18px] border border-[var(--line)] bg-[var(--surface)] p-5 sm:p-6"
+        className="rounded-[18px] border border-[var(--line)] bg-[var(--surface)] p-4 sm:p-6"
       >
-        {/* Faux blueprint grid masked to the left half — matches the mock */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0"
-          style={{
-            backgroundImage:
-              'linear-gradient(color-mix(in srgb, var(--brand) 4%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--brand) 4%, transparent) 1px, transparent 1px)',
-            backgroundSize: '28px 28px',
-            WebkitMaskImage: 'radial-gradient(620px 220px at 12% 50%, #000 0%, transparent 70%)',
-            maskImage: 'radial-gradient(620px 220px at 12% 50%, #000 0%, transparent 70%)',
-          }}
-        />
-        <div className="relative flex flex-col gap-5 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+        <div className="flex flex-col gap-5 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
           <div className="min-w-0 sm:flex-1">
             <p className="inline-flex items-center gap-2 font-mono text-[10.5px] font-semibold uppercase tracking-[0.22em] text-[var(--brand-strong)]">
               <span
