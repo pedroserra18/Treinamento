@@ -722,7 +722,7 @@ export function FeedPostCard({
             </div>
           )}
 
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex w-full flex-wrap items-center justify-end gap-1.5 sm:w-auto">
             {relLabel && (
               <ChipBtn
                 icon={Users}
