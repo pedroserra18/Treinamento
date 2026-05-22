@@ -26,9 +26,10 @@ import type {
 } from '../types/progress'
 import type { ExerciseOption, WorkoutSessionHistory } from '../types/workout'
 import {
-  Activity, ChevronDown, Dumbbell, Image as ImageIcon, Pin, Plus, Search,
+  Activity, ArrowLeft, ChevronDown, Dumbbell, Image as ImageIcon, Pin, Plus, Search,
   Trash2, TrendingUp, X as XIcon,
 } from 'lucide-react'
+import { Link } from 'react-router-dom'
 
 // ─── Formatters ───────────────────────────────────────────────────────────
 
@@ -167,7 +168,7 @@ type LoadPoint = {
   date: string
   load: number
   reps: number | null
-  volume: number
+  volume: number 
   isPr: boolean
   completedAt: string
 }
@@ -533,11 +534,11 @@ function ExerciseCard({
                       })}
                     </div>
                   </div>
-                  <div className="h-[200px] w-full">
+                  <div className="h-[200px] w-full min-w-0">
                     {/* minHeight={0} silences the recharts dev warning when
                         the AnimatePresence parent briefly has 0 height during
                         the open/close animation — chart still renders fine. */}
-                    <ResponsiveContainer width="100%" height="100%" minHeight={0}>
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                       <AreaChart data={chartData} margin={{ top: 12, right: 12, left: -12, bottom: 0 }}>
                         <defs>
                           <linearGradient id={`load-${item.exercise.id}`} x1="0" y1="0" x2="0" y2="1">
@@ -958,6 +959,15 @@ export function ProgressPage() {
 
   return (
     <section className="space-y-3.5">
+      {/* Voltar ao perfil — só mobile/tablet (no desktop Progresso é item de nav) */}
+      <Link
+        to="/profile"
+        className="inline-flex items-center gap-1.5 px-1 font-mono text-[11px] uppercase tracking-[0.12em] text-[var(--muted)] hover:text-[var(--text)] lg:hidden"
+      >
+        <ArrowLeft size={11} />
+        Voltar ao perfil
+      </Link>
+
       {/* ───── HEADER ───── */}
       <motion.section
         initial={{ opacity: 0, y: 8 }}
@@ -977,8 +987,8 @@ export function ProgressPage() {
             maskImage: 'radial-gradient(620px 220px at 12% 50%, #000 0%, transparent 70%)',
           }}
         />
-        <div className="relative flex flex-wrap items-end justify-between gap-5">
-          <div className="min-w-0 flex-1">
+        <div className="relative flex flex-col gap-5 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+          <div className="min-w-0 sm:flex-1">
             <p className="inline-flex items-center gap-2 font-mono text-[10.5px] font-semibold uppercase tracking-[0.22em] text-[var(--brand-strong)]">
               <span
                 className="inline-block h-[7px] w-[7px] rounded-full bg-[var(--brand)]"
@@ -1152,8 +1162,8 @@ export function ProgressPage() {
                   Registre pelo menos 2 medições pra ver a evolução.
                 </p>
               ) : (
-                <div className="h-[160px] w-full">
-                  <ResponsiveContainer width="100%" height="100%" minHeight={0}>
+                <div className="h-[160px] w-full min-w-0">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                     <LineChart
                       data={measurementsOldFirst.map((m) => ({
                         date: formatShortDate(new Date(m.date)),
