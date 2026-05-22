@@ -1624,7 +1624,7 @@ export function TrainPage() {
                     key="rest-running"
                     initial={{ y: 100, opacity: 0 }}
                     animate={{ y: 0, opacity: 1 }}
-                    className={`fixed bottom-3 left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2 overflow-hidden rounded-2xl border shadow-2xl px-4 py-3 bg-[var(--surface)] ${
+                    className={`fixed bottom-20 left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2 overflow-hidden rounded-2xl border shadow-2xl px-4 py-3 bg-[var(--surface)] lg:bottom-3 ${
                       isLow ? 'border-red-500/40 animate-pulse' : 'border-green-500/40'
                     }`}
                   >
@@ -1640,7 +1640,7 @@ export function TrainPage() {
                           : 'var(--tech-gradient)',
                       }}
                     />
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 sm:gap-3">
                       <div className="flex-1 min-w-0">
                         <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
                           Descansando
@@ -1652,11 +1652,11 @@ export function TrainPage() {
                       <button
                         type="button"
                         onClick={() => adjustRestTimer(runningIndex, -15)}
-                        className="shrink-0 rounded-xl border border-[var(--line)] px-3 py-2 text-xs font-bold text-[var(--muted)]"
+                        className="shrink-0 rounded-xl border border-[var(--line)] px-2.5 py-2 text-xs font-bold text-[var(--muted)] sm:px-3"
                       >
                         −15s
                       </button>
-                      <p className={`text-4xl font-black tabular-nums shrink-0 ${
+                      <p className={`shrink-0 text-3xl font-black tabular-nums sm:text-4xl ${
                         isLow ? 'text-red-400' : 'text-green-400'
                       }`}>
                         {formatClock(runningExercise.restRemainingSec)}
@@ -1664,14 +1664,14 @@ export function TrainPage() {
                       <button
                         type="button"
                         onClick={() => adjustRestTimer(runningIndex, 15)}
-                        className="shrink-0 rounded-xl border border-[var(--line)] px-3 py-2 text-xs font-bold text-[var(--muted)]"
+                        className="shrink-0 rounded-xl border border-[var(--line)] px-2.5 py-2 text-xs font-bold text-[var(--muted)] sm:px-3"
                       >
                         +15s
                       </button>
                       <button
                         type="button"
                         onClick={() => toggleRestTimer(runningIndex)}
-                        className="shrink-0 rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)]"
+                        className="shrink-0 rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--text)] sm:px-4"
                       >
                         Pular
                       </button>

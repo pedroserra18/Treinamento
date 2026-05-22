@@ -258,6 +258,16 @@ textarea:focus {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent);
 }
 
+/* No mobile, fontes < 16px fazem o iOS dar zoom ao focar o campo. Forçamos
+   16px em inputs/textarea/select abaixo de 640px para evitar esse zoom. */
+@media (max-width: 639px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]),
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
 .dark body {
   background:
     radial-gradient(circle at 0% 0%, rgba(190, 24, 24, 0.25) 0%, transparent 28%),
