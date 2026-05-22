@@ -355,6 +355,15 @@ export async function updateBirthDate(
   }
 }
 
+// GET /auth/profile/google-status — indica se o login Google está vinculado.
+export async function getGoogleLinkStatus(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+): Promise<boolean> {
+  const response = await authorizedFetch(`${API_URL}/auth/profile/google-status`)
+  const payload = (await response.json().catch(() => null)) as { data?: { linked?: boolean } } | null
+  return Boolean(payload?.data?.linked)
+}
+
 // PATCH /auth/profile/gender — salva o gênero (Masculino | Feminino).
 export async function updateGender(
   authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,

@@ -30,6 +30,7 @@ import {
   updateHandle,
   updateName,
   getProfileDefaults,
+  getGoogleLinkStatus,
   updateBirthDate,
   updateGender,
   updatePrivacy
@@ -381,6 +382,12 @@ export async function updateGenderController(req: Request, res: Response): Promi
   const { gender } = req.body as UpdateGenderBody;
   await updateGender(userId, gender);
   res.json({ data: { gender }, meta: { requestId: req.context.requestId } });
+}
+
+export async function googleStatusController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const status = await getGoogleLinkStatus(userId);
+  res.json({ data: status, meta: { requestId: req.context.requestId } });
 }
 
 export async function requestEmailChangeController(req: Request, res: Response): Promise<void> {

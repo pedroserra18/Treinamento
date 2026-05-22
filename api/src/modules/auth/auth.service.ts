@@ -555,6 +555,15 @@ export async function updateGender(userId: string, gender: "Masculino" | "Femini
   });
 }
 
+// Indica se a conta tem o login Google vinculado e ativo (não revogado).
+export async function getGoogleLinkStatus(userId: string): Promise<{ linked: boolean }> {
+  const provider = await prisma.authProvider.findFirst({
+    where: { userId, provider: "GOOGLE", revokedAt: null },
+    select: { id: true },
+  });
+  return { linked: Boolean(provider) };
+}
+
 export async function getAuthenticatedProfile(userId: string): Promise<SafeUser> {
   const user = await prisma.user.findUnique({
     where: { id: userId },

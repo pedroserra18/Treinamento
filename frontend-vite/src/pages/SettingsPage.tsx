@@ -8,6 +8,7 @@ import { updateAvatar, updatePrivacy } from '../services/socialService'
 import {
   confirmForgotPasswordWithCode,
   exportUserData,
+  getGoogleLinkStatus,
   getProfileDefaults,
   requestEmailChangeCode,
   requestForgotPasswordCode,
@@ -569,6 +570,15 @@ function AccountPanel({
   // the message inline.
   const [linkingGoogle, setLinkingGoogle] = useState(false)
   const [googleLinkError, setGoogleLinkError] = useState<string | null>(null)
+  // null = ainda carregando o status; true/false = vinculado ou não.
+  const [googleLinked, setGoogleLinked] = useState<boolean | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    void getGoogleLinkStatus(authorizedFetch as never)
+      .then((linked) => { if (!cancelled) setGoogleLinked(linked) })
+      .catch(() => { if (!cancelled) setGoogleLinked(false) })
+    return () => { cancelled = true }
+  }, [authorizedFetch])
 
   // Data de nascimento — usada pelo quiz da IA pra calcular a idade
   // automaticamente. Carrega o valor atual e salva ao alterar.
@@ -874,32 +884,52 @@ function AccountPanel({
       <div className="mt-6">
         <FieldLabel>Login com Google</FieldLabel>
         <div className="max-w-md rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3.5">
-          <p className="mb-2 text-[13px] text-[var(--text)]">
-            Conecte sua conta Google para poder entrar com um clique nas próximas
-            vezes (sem precisar digitar email e senha).
-          </p>
-          <p className="mb-3 text-[11.5px] text-[var(--muted)]">
-            A conta Google precisa usar o mesmo email da sua conta atual{' '}
-            <b className="text-[var(--text)]">({email})</b> — caso contrário a
-            vinculação será recusada.
-          </p>
-          <button
-            type="button"
-            onClick={() => void connectGoogle()}
-            disabled={linkingGoogle}
-            className="inline-flex h-10 items-center gap-2 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-4 text-[13px] font-medium text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)] disabled:opacity-50"
-          >
-            {/* Google "G" multi-color logo, inline SVG so we don't pull a CDN */}
-            <svg width="16" height="16" viewBox="0 0 48 48" aria-hidden>
-              <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3a12 12 0 0 1-11.3 8c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3l5.7-5.7C34.1 6.6 29.3 5 24 5 13.5 5 5 13.5 5 24s8.5 19 19 19c10.5 0 19-8.5 19-19 0-1.3-.1-2.4-.4-3.5z"/>
-              <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8a12 12 0 0 1 11.1-7.5c3.1 0 5.8 1.2 7.9 3l5.7-5.7C34.1 6.6 29.3 5 24 5 16.3 5 9.7 9.4 6.3 14.7z"/>
-              <path fill="#4CAF50" d="M24 43c5.2 0 9.9-2 13.5-5.3l-6.2-5.3a12 12 0 0 1-7.3 2.6 12 12 0 0 1-11.3-8l-6.6 5.1C9.5 38.5 16.2 43 24 43z"/>
-              <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3a12 12 0 0 1-4.1 5.4l6.2 5.3C40.1 36.7 44 31.1 44 24c0-1.3-.1-2.4-.4-3.5z"/>
-            </svg>
-            {linkingGoogle ? 'Conectando…' : 'Conectar conta Google'}
-          </button>
-          {googleLinkError && (
-            <p className="mt-2 text-[12px] text-red-500">{googleLinkError}</p>
+          {googleLinked === true ? (
+            <div className="flex items-center gap-3">
+              <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden className="shrink-0">
+                <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3a12 12 0 0 1-11.3 8c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3l5.7-5.7C34.1 6.6 29.3 5 24 5 13.5 5 5 13.5 5 24s8.5 19 19 19c10.5 0 19-8.5 19-19 0-1.3-.1-2.4-.4-3.5z"/>
+                <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8a12 12 0 0 1 11.1-7.5c3.1 0 5.8 1.2 7.9 3l5.7-5.7C34.1 6.6 29.3 5 24 5 16.3 5 9.7 9.4 6.3 14.7z"/>
+                <path fill="#4CAF50" d="M24 43c5.2 0 9.9-2 13.5-5.3l-6.2-5.3a12 12 0 0 1-7.3 2.6 12 12 0 0 1-11.3-8l-6.6 5.1C9.5 38.5 16.2 43 24 43z"/>
+                <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3a12 12 0 0 1-4.1 5.4l6.2 5.3C40.1 36.7 44 31.1 44 24c0-1.3-.1-2.4-.4-3.5z"/>
+              </svg>
+              <div className="min-w-0 flex-1">
+                <p className="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--text)]">
+                  <Check size={14} className="text-emerald-500" />
+                  Conta Google conectada
+                </p>
+                <p className="mt-0.5 truncate text-[11.5px] text-[var(--muted)]">{email}</p>
+              </div>
+            </div>
+          ) : (
+            <>
+              <p className="mb-2 text-[13px] text-[var(--text)]">
+                Conecte sua conta Google para poder entrar com um clique nas próximas
+                vezes (sem precisar digitar email e senha).
+              </p>
+              <p className="mb-3 text-[11.5px] text-[var(--muted)]">
+                A conta Google precisa usar o mesmo email da sua conta atual{' '}
+                <b className="text-[var(--text)]">({email})</b> — caso contrário a
+                vinculação será recusada.
+              </p>
+              <button
+                type="button"
+                onClick={() => void connectGoogle()}
+                disabled={linkingGoogle || googleLinked === null}
+                className="inline-flex h-10 items-center gap-2 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-4 text-[13px] font-medium text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)] disabled:opacity-50"
+              >
+                {/* Google "G" multi-color logo, inline SVG so we don't pull a CDN */}
+                <svg width="16" height="16" viewBox="0 0 48 48" aria-hidden>
+                  <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3a12 12 0 0 1-11.3 8c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3l5.7-5.7C34.1 6.6 29.3 5 24 5 13.5 5 5 13.5 5 24s8.5 19 19 19c10.5 0 19-8.5 19-19 0-1.3-.1-2.4-.4-3.5z"/>
+                  <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8a12 12 0 0 1 11.1-7.5c3.1 0 5.8 1.2 7.9 3l5.7-5.7C34.1 6.6 29.3 5 24 5 16.3 5 9.7 9.4 6.3 14.7z"/>
+                  <path fill="#4CAF50" d="M24 43c5.2 0 9.9-2 13.5-5.3l-6.2-5.3a12 12 0 0 1-7.3 2.6 12 12 0 0 1-11.3-8l-6.6 5.1C9.5 38.5 16.2 43 24 43z"/>
+                  <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3a12 12 0 0 1-4.1 5.4l6.2 5.3C40.1 36.7 44 31.1 44 24c0-1.3-.1-2.4-.4-3.5z"/>
+                </svg>
+                {linkingGoogle ? 'Conectando…' : 'Conectar conta Google'}
+              </button>
+              {googleLinkError && (
+                <p className="mt-2 text-[12px] text-red-500">{googleLinkError}</p>
+              )}
+            </>
           )}
         </div>
       </div>

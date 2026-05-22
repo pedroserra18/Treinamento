@@ -45,6 +45,7 @@ import {
   updateHandleController,
   updateNameController,
   getProfileDefaultsController,
+  googleStatusController,
   updateBirthDateController,
   updateGenderController,
   updatePrivacyController,
@@ -141,6 +142,11 @@ router.get(
   "/auth/profile/defaults",
   requireAuth,
   asyncHandler(async (req, res) => getProfileDefaultsController(req, res))
+);
+router.get(
+  "/auth/profile/google-status",
+  requireAuth,
+  asyncHandler(async (req, res) => googleStatusController(req, res))
 );
 router.patch(
   "/auth/profile/birthdate",
