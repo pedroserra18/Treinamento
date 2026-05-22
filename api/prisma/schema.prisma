@@ -190,6 +190,7 @@ model User {
   workoutPlans      WorkoutPlan[]
   workoutSessions   WorkoutSession[]
   workoutHistories  WorkoutHistory[]
+  cardioEntries     CardioEntry[]
   pinnedExercises   PinnedExercise[]
   bodyMeasurements  BodyMeasurement[]
   eventLogs         EventLog[]
@@ -377,12 +378,46 @@ model WorkoutSession {
   user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   workoutPlan WorkoutPlan?   @relation(fields: [workoutPlanId], references: [id], onDelete: SetNull)
   history     WorkoutHistory[]
+  cardioEntries CardioEntry[]
   post        WorkoutPost?
 
   @@index([userId, scheduledAt])
   @@index([workoutPlanId, status])
   @@index([status, startedAt])
   @@map("workout_sessions")
+}
+
+enum CardioType {
+  WALK
+  RUN
+  BIKE
+  STAIRS
+  ELLIPTICAL
+  ROW
+  JUMP_ROPE
+  SWIM
+  OTHER
+}
+
+// Atividade de cardio registrada dentro de uma sessão de treino. Separada do
+// WorkoutHistory (que é por série de musculação) — cardio é tipo + duração.
+model CardioEntry {
+  id               String     @id @default(cuid())
+  userId           String
+  workoutSessionId String
+  type             CardioType
+  durationSec      Int
+  distanceMeters   Float?
+  calories         Int?
+  notes            String?
+  createdAt        DateTime   @default(now())
+
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workoutSession WorkoutSession @relation(fields: [workoutSessionId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([workoutSessionId])
+  @@map("cardio_entries")
 }
 
 model WorkoutHistory {

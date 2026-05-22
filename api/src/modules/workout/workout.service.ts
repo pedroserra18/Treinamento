@@ -776,6 +776,7 @@ export async function completeWorkoutSession(
       : undefined);
 
   const exercises = payload.exercises ?? [];
+  const cardio = payload.cardio ?? [];
 
   const completed = await prisma.$transaction(async (tx) => {
     if (exercises.length > 0) {
@@ -830,6 +831,20 @@ export async function completeWorkoutSession(
           notes: entry.notes,
           // Keep per-set execution order stable for history rendering.
           completedAt: new Date(endedAt.getTime() + index)
+        }))
+      });
+    }
+
+    if (cardio.length > 0) {
+      await tx.cardioEntry.createMany({
+        data: cardio.map((entry) => ({
+          userId,
+          workoutSessionId: params.sessionId,
+          type: entry.type,
+          durationSec: entry.durationSec,
+          distanceMeters: entry.distanceMeters,
+          calories: entry.calories,
+          notes: entry.notes
         }))
       });
     }
@@ -916,6 +931,10 @@ export async function listWorkoutHistory(userId: string, query: ListWorkoutHisto
               }
             }
           }
+        },
+        cardioEntries: {
+          orderBy: { createdAt: "asc" },
+          select: { id: true, type: true, durationSec: true, distanceMeters: true, calories: true, notes: true }
         }
       }
     })
@@ -957,6 +976,10 @@ export async function getWorkoutSessionById(userId: string, sessionId: string) {
             select: { id: true, name: true, primaryMuscleGroup: true }
           }
         }
+      },
+      cardioEntries: {
+        orderBy: { createdAt: "asc" },
+        select: { id: true, type: true, durationSec: true, distanceMeters: true, calories: true, notes: true }
       }
     }
   });

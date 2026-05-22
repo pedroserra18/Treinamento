@@ -31,6 +31,10 @@ const POST_SELECT = {
         },
         orderBy: [{ executionOrder: "asc" as const }, { setNumber: "asc" as const }],
       },
+      cardioEntries: {
+        select: { type: true, durationSec: true, distanceMeters: true, calories: true },
+        orderBy: { createdAt: "asc" as const },
+      },
     },
   },
 };
@@ -58,9 +62,17 @@ type HistoryRow = {
   executionOrder: number;
 };
 
+type CardioRow = {
+  type: string;
+  durationSec: number;
+  distanceMeters: number | null;
+  calories: number | null;
+};
+
 function summariseSession(session: {
   durationSec: number | null;
   history: HistoryRow[];
+  cardioEntries?: CardioRow[];
 } | null) {
   if (!session) return null;
 
@@ -110,10 +122,18 @@ function summariseSession(session: {
       totalVolumeKg: Number(e.totalVolumeKg.toFixed(1)),
     }));
 
+  const cardio = (session.cardioEntries ?? []).map((c) => ({
+    type: c.type,
+    durationSec: c.durationSec,
+    distanceMeters: c.distanceMeters,
+    calories: c.calories,
+  }));
+
   return {
     durationSec: session.durationSec,
     totalVolumeKg: Number(totalVolumeKg.toFixed(1)),
     exercises,
+    cardio,
   };
 }
 

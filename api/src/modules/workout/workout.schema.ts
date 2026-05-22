@@ -98,12 +98,23 @@ const historyEntryBodySchema = z
   })
   .strict();
 
+const cardioEntryBodySchema = z
+  .object({
+    type: z.enum(["WALK", "RUN", "BIKE", "STAIRS", "ELLIPTICAL", "ROW", "JUMP_ROPE", "SWIM", "OTHER"]),
+    durationSec: z.number().int().min(10).max(8 * 60 * 60),
+    distanceMeters: z.number().min(0).max(200000).optional(),
+    calories: z.number().int().min(0).max(5000).optional(),
+    notes: z.string().trim().min(1).max(300).optional()
+  })
+  .strict();
+
 export const completeWorkoutBodySchema = z
   .object({
     durationSec: z.number().int().min(60).max(8 * 60 * 60).optional(),
     caloriesBurned: z.number().int().min(0).max(5000).optional(),
     notes: z.string().trim().min(1).max(800).optional(),
-    exercises: z.array(historyEntryBodySchema).max(150).optional()
+    exercises: z.array(historyEntryBodySchema).max(150).optional(),
+    cardio: z.array(cardioEntryBodySchema).max(20).optional()
   })
   .strict();
 
