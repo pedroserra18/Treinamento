@@ -10,7 +10,7 @@ import {
   type WorkoutSection,
 } from '../services/aiService'
 import { getProfileDefaults, updateBirthDate, updateGender, type ProfileDefaults } from '../services/authService'
-import { Bot, ChevronLeft, Clock, Sparkles, CheckCircle2, Pencil, ChevronUp, ChevronDown, RefreshCw, AlertTriangle, X, ArrowRight } from 'lucide-react'
+import { Bot, ChevronLeft, Clock, Sparkles, CheckCircle2, Pencil, ChevronUp, ChevronDown, RefreshCw, AlertTriangle, X, ArrowRight, Activity } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -42,6 +42,9 @@ type QuizAnswers = {
   rirTarget: string
   hasExtraInfo: boolean | null
   extraInfo: string
+  // Pede pra IA incluir cardio leve (caminhada/esteira/bike) como aquecimento
+  // ou finalizador nos dias. Aplicado via <pedido_extra> no backend.
+  wantsCardio: boolean
 }
 
 type AppScreen = 'WELCOME' | 'QUIZ' | 'REVIEW' | 'LOADING' | 'RESULT'
@@ -119,6 +122,7 @@ const DEFAULT_ANSWERS: QuizAnswers = {
   rirTarget: '',
   hasExtraInfo: null,
   extraInfo: '',
+  wantsCardio: false,
 }
 
 // ─── Helper functions ─────────────────────────────────────────────────────────
@@ -1166,7 +1170,10 @@ export function AIWorkoutPage() {
             answers.avoidExercises ? `Evitar: ${answers.avoidExercises}` : '',
           ].filter(Boolean).join('. ') || undefined,
           usedExercises: usedExercises.length > 0 ? usedExercises.slice(-80) : undefined,
-          extraInfo: answers.extraInfo || undefined,
+          extraInfo: [
+            answers.wantsCardio ? 'Incluir 10-15 min de cardio leve por dia (caminhada/esteira/bike), como aquecimento ou finalizador — descreva no campo "observations" do dia.' : '',
+            answers.extraInfo,
+          ].filter(Boolean).join(' ').trim() || undefined,
         })
 
         const section = result.sections[0]
@@ -2306,6 +2313,30 @@ export function AIWorkoutPage() {
             })}
           </div>
         </div>
+
+        {/* Cardio opcional — instrui a IA a incluir 10-15 min de cardio leve */}
+        <button
+          type="button"
+          onClick={() => setAnswers((a) => ({ ...a, wantsCardio: !a.wantsCardio }))}
+          className={`flex w-full items-center justify-between gap-3 rounded-2xl border-2 p-4 text-left transition-all ${
+            answers.wantsCardio
+              ? 'border-[var(--brand)] bg-[color-mix(in_srgb,var(--brand)_8%,var(--surface))]'
+              : 'border-[var(--line)] bg-[var(--surface)] hover:border-[var(--brand)]/50'
+          }`}
+        >
+          <span className="flex min-w-0 items-center gap-3">
+            <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${answers.wantsCardio ? 'bg-[var(--brand)] text-white' : 'bg-[var(--surface-hover)] text-[var(--brand)]'}`}>
+              <Activity size={16} />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-bold text-[var(--text)]">Incluir cardio nos treinos</span>
+              <span className="block text-[11.5px] text-[var(--muted)]">10–15 min de cardio leve (aquecimento ou finalizador), sugerido nos dias.</span>
+            </span>
+          </span>
+          <span className={`grid h-6 w-10 shrink-0 items-center rounded-full transition-colors ${answers.wantsCardio ? 'bg-[var(--brand)]' : 'bg-[var(--line)]'}`}>
+            <span className={`h-5 w-5 rounded-full bg-white shadow transition-transform ${answers.wantsCardio ? 'translate-x-[18px]' : 'translate-x-[2px]'}`} />
+          </span>
+        </button>
 
         {error && (
           <p className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400">
