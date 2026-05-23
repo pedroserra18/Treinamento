@@ -2,8 +2,10 @@ import { Request, Response } from "express";
 import { AppError } from "../../shared/errors/app-error";
 import {
   addExerciseToPlan,
+  addPlanCardio,
   createManualWorkoutHistory,
   createWorkoutPlan,
+  deletePlanCardio,
   deletePlanExercise,
   deleteWorkoutPlan,
   completeWorkoutSession,
@@ -24,6 +26,7 @@ import {
   updatePlanExercise
 } from "./workout.service";
 import {
+  AddPlanCardioBody,
   AddPlanExerciseBody,
   CreateManualHistoryBody,
   CreateWorkoutPlanBody,
@@ -33,6 +36,7 @@ import {
   HistorySessionParams,
   LatestExerciseHistoryBody,
   ListWorkoutHistoryQuery,
+  PlanCardioParams,
   PlanExerciseParams,
   RecommendationTemplateQuery,
   ReorderPlanExercisesBody,
@@ -167,6 +171,21 @@ export async function deletePlanExerciseController(req: Request, res: Response):
       requestId: req.context.requestId
     }
   });
+}
+
+export async function addPlanCardioController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as WorkoutPlanParams;
+  const body = req.body as AddPlanCardioBody;
+  const data = await addPlanCardio(userId, params, body);
+  res.status(201).json({ data, meta: { requestId: req.context.requestId } });
+}
+
+export async function deletePlanCardioController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as PlanCardioParams;
+  const data = await deletePlanCardio(userId, params);
+  res.status(200).json({ data, meta: { requestId: req.context.requestId } });
 }
 
 export async function reorderPlanExercisesController(req: Request, res: Response): Promise<void> {

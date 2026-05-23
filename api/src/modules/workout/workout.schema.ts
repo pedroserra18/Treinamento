@@ -26,6 +26,22 @@ export const planExerciseParamsSchema = z
   })
   .strict();
 
+export const planCardioParamsSchema = z
+  .object({
+    planId: z.string().cuid(),
+    planCardioId: z.string().cuid()
+  })
+  .strict();
+
+export const addPlanCardioBodySchema = z
+  .object({
+    type: z.enum(["WALK", "RUN", "BIKE", "STAIRS", "ELLIPTICAL", "ROW", "JUMP_ROPE", "SWIM", "OTHER"]),
+    durationSec: z.number().int().min(10).max(8 * 60 * 60),
+    distanceMeters: z.number().min(0).max(200000).optional(),
+    notes: z.string().trim().min(1).max(300).optional()
+  })
+  .strict();
+
 export const createWorkoutPlanBodySchema = z
   .object({
     name: z.string().trim().min(2).max(120),
@@ -219,6 +235,8 @@ export const latestExerciseHistoryBodySchema = z
 export type StartWorkoutBody = z.infer<typeof startWorkoutBodySchema>;
 export type WorkoutPlanParams = z.infer<typeof workoutPlanParamsSchema>;
 export type PlanExerciseParams = z.infer<typeof planExerciseParamsSchema>;
+export type PlanCardioParams = z.infer<typeof planCardioParamsSchema>;
+export type AddPlanCardioBody = z.infer<typeof addPlanCardioBodySchema>;
 export type CreateWorkoutPlanBody = z.infer<typeof createWorkoutPlanBodySchema>;
 export type UpdateWorkoutPlanBody = z.infer<typeof updateWorkoutPlanBodySchema>;
 export type AddPlanExerciseBody = z.infer<typeof addPlanExerciseBodySchema>;

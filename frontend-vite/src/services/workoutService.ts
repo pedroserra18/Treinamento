@@ -543,6 +543,46 @@ export async function deletePlanExercise(
   }
 }
 
+export async function addPlanCardio(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  planId: string,
+  input: {
+    type: CardioType
+    durationSec: number
+    distanceMeters?: number
+    notes?: string
+  },
+): Promise<void> {
+  const response = await authorizedFetch(`${API_URL}/workouts/plans/${planId}/cardio`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+
+  const payload = await parsePayload(response)
+
+  if (!response.ok) {
+    throw new Error(payload.errorMessage ?? 'Falha ao adicionar cardio')
+  }
+}
+
+export async function deletePlanCardio(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  planId: string,
+  planCardioId: string,
+): Promise<void> {
+  const response = await authorizedFetch(
+    `${API_URL}/workouts/plans/${planId}/cardio/${planCardioId}`,
+    { method: 'DELETE' },
+  )
+
+  const payload = await parsePayload(response)
+
+  if (!response.ok) {
+    throw new Error(payload.errorMessage ?? 'Falha ao remover cardio')
+  }
+}
+
 export async function reorderPlanExercises(
   authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
   planId: string,

@@ -4,6 +4,7 @@ import { asyncHandler } from "../../shared/utils/async-handler";
 import { validateRequest } from "../../middlewares/validation.middleware";
 import { requireCompletedOnboarding } from "../../middlewares/onboarding.middleware";
 import {
+  addPlanCardioBodySchema,
   addPlanExerciseBodySchema,
   completeWorkoutBodySchema,
   completeWorkoutParamsSchema,
@@ -13,6 +14,7 @@ import {
   historySessionParamsSchema,
   latestExerciseHistoryBodySchema,
   listWorkoutHistoryQuerySchema,
+  planCardioParamsSchema,
   planExerciseParamsSchema,
   recommendationTemplateQuerySchema,
   reorderPlanExercisesBodySchema,
@@ -25,10 +27,12 @@ import {
   workoutPlanParamsSchema
 } from "./workout.schema";
 import {
+  addPlanCardioController,
   addPlanExerciseController,
   completeWorkoutController,
   createManualHistoryController,
   createWorkoutPlanController,
+  deletePlanCardioController,
   deletePlanExerciseController,
   deleteWorkoutPlanController,
   exploreWorkoutsController,
@@ -126,6 +130,22 @@ router.delete(
   requireCompletedOnboarding,
   validateRequest({ params: planExerciseParamsSchema }),
   asyncHandler(async (req, res) => deletePlanExerciseController(req, res))
+);
+
+router.post(
+  "/workouts/plans/:planId/cardio",
+  requireAuth,
+  requireCompletedOnboarding,
+  validateRequest({ params: workoutPlanParamsSchema, body: addPlanCardioBodySchema }),
+  asyncHandler(async (req, res) => addPlanCardioController(req, res))
+);
+
+router.delete(
+  "/workouts/plans/:planId/cardio/:planCardioId",
+  requireAuth,
+  requireCompletedOnboarding,
+  validateRequest({ params: planCardioParamsSchema }),
+  asyncHandler(async (req, res) => deletePlanCardioController(req, res))
 );
 
 router.get(

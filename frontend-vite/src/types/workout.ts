@@ -40,6 +40,15 @@ export type PlanExercise = {
   }
 }
 
+export type PlanCardio = {
+  id: string
+  orderIndex: number
+  type: CardioType
+  durationSec: number
+  distanceMeters: number | null
+  notes: string | null
+}
+
 export type WorkoutPlan = {
   id: string
   name: string
@@ -47,6 +56,7 @@ export type WorkoutPlan = {
   status: string
   createdAt: string
   exercises: PlanExercise[]
+  cardio?: PlanCardio[]
 }
 
 export type ExerciseOption = {

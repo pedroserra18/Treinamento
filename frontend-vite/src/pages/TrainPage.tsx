@@ -748,7 +748,14 @@ export function TrainPage() {
     setActivePlanId(plan.id)
     setActivePlanName(plan.name)
     setActiveExercises(mapPlanToActiveExercises(plan))
-    setCardioEntries([])
+    setCardioEntries(
+      (plan.cardio ?? []).map((c) => ({
+        type: c.type,
+        durationSec: c.durationSec,
+        distanceMeters: c.distanceMeters ?? undefined,
+        notes: c.notes ?? undefined,
+      })),
+    )
     setElapsedSec(0)
     setIsWorkoutRunning(true)
     setStartedAt(new Date())

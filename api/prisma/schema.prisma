@@ -331,11 +331,32 @@ model WorkoutPlan {
   user     User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   sessions WorkoutSession[]
   exercises WorkoutPlanExercise[]
+  cardio   WorkoutPlanCardio[]
   sharedPlans SharedPlan[]
 
   @@index([userId, status])
   @@index([startsAt, endsAt])
   @@map("workout_plans")
+}
+
+// Cardio que faz parte do template da rotina (não de uma sessão concreta).
+// Ao iniciar a rotina, essas entradas são pré-carregadas como sugestões na
+// sessão ativa, onde o usuário confirma/ajusta antes de salvar.
+model WorkoutPlanCardio {
+  id               String     @id @default(cuid())
+  workoutPlanId    String
+  orderIndex       Int
+  type             CardioType
+  durationSec      Int
+  distanceMeters   Float?
+  notes            String?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  workoutPlan WorkoutPlan @relation(fields: [workoutPlanId], references: [id], onDelete: Cascade)
+
+  @@unique([workoutPlanId, orderIndex])
+  @@map("workout_plan_cardio")
 }
 
 model WorkoutPlanExercise {

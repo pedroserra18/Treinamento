@@ -5,6 +5,7 @@ import { AppError } from "../../shared/errors/app-error";
 import { trackEvent } from "../../shared/services/event-log.service";
 import { getWorkoutRecommendationsForUser } from "../recommendation/recommendation.service";
 import {
+  AddPlanCardioBody,
   AddPlanExerciseBody,
   CreateManualHistoryBody,
   CreateWorkoutPlanBody,
@@ -13,6 +14,7 @@ import {
   ExploreWorkoutsQuery,
   HistorySessionParams,
   ListWorkoutHistoryQuery,
+  PlanCardioParams,
   PlanExerciseParams,
   RecommendationTemplateQuery,
   ReorderPlanExercisesBody,
@@ -253,6 +255,10 @@ export async function listUserWorkoutPlans(userId: string) {
             }
           }
         }
+      },
+      cardio: {
+        orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
+        select: { id: true, orderIndex: true, type: true, durationSec: true, distanceMeters: true, notes: true }
       }
     }
   });
@@ -538,6 +544,63 @@ export async function deletePlanExercise(userId: string, params: PlanExercisePar
   return {
     success: true
   };
+}
+
+// ── Cardio do template da rotina ──────────────────────────────────────────────
+// Cada rotina pode ter N entradas de cardio (aquecimento/finalizador) que são
+// pré-carregadas na sessão ativa ao iniciar a rotina.
+
+export async function addPlanCardio(
+  userId: string,
+  params: WorkoutPlanParams,
+  payload: AddPlanCardioBody
+) {
+  await assertOwnedPlan(params.planId, userId);
+
+  const last = await prisma.workoutPlanCardio.findFirst({
+    where: { workoutPlanId: params.planId },
+    orderBy: { orderIndex: "desc" },
+    select: { orderIndex: true }
+  });
+  const nextIndex = (last?.orderIndex ?? -1) + 1;
+
+  return prisma.workoutPlanCardio.create({
+    data: {
+      workoutPlanId: params.planId,
+      orderIndex: nextIndex,
+      type: payload.type,
+      durationSec: payload.durationSec,
+      distanceMeters: payload.distanceMeters,
+      notes: payload.notes
+    },
+    select: { id: true, orderIndex: true, type: true, durationSec: true, distanceMeters: true, notes: true }
+  });
+}
+
+export async function deletePlanCardio(userId: string, params: PlanCardioParams) {
+  await assertOwnedPlan(params.planId, userId);
+
+  const existing = await prisma.workoutPlanCardio.findFirst({
+    where: { id: params.planCardioId, workoutPlanId: params.planId },
+    select: { id: true, orderIndex: true }
+  });
+
+  if (!existing) {
+    throw new AppError("Plan cardio not found", {
+      statusCode: 404,
+      code: "PLAN_CARDIO_NOT_FOUND"
+    });
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.workoutPlanCardio.delete({ where: { id: params.planCardioId } });
+    await tx.workoutPlanCardio.updateMany({
+      where: { workoutPlanId: params.planId, orderIndex: { gt: existing.orderIndex } },
+      data: { orderIndex: { decrement: 1 } }
+    });
+  });
+
+  return { success: true };
 }
 
 export async function reorderPlanExercises(
