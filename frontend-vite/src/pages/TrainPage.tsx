@@ -762,12 +762,16 @@ export function TrainPage() {
     setIsWorkoutRunning(false)
 
     setSummaryName(activePlanName)
-    setSummaryDurationMin(String(Math.max(1, Math.round(elapsedSec / 60))))
+    // Inclui o tempo de cardio no padrão da duração — sem isso, registrar
+    // "30 min de corrida" em 1 min de cronômetro pré-encheria apenas 1 min.
+    const cardioMin = Math.round(cardioEntries.reduce((s, c) => s + c.durationSec, 0) / 60)
+    const clockMin = Math.round(elapsedSec / 60)
+    setSummaryDurationMin(String(Math.max(1, clockMin, cardioMin)))
     setScreen('SUMMARY')
   }
 
   const backToDashboardFromActive = () => {
-    const hasProgress = elapsedSec > 0 || activeExercises.length > 0
+    const hasProgress = elapsedSec > 0 || activeExercises.length > 0 || cardioEntries.length > 0
     if (hasProgress) {
       const confirmed = window.confirm(
         'Deseja voltar e descartar este treino em andamento? Voce perdera os dados nao salvos.',
@@ -1059,7 +1063,8 @@ export function TrainPage() {
       return
     }
 
-    const durationMin = parsePositiveInt(summaryDurationMin, Math.max(1, Math.round(elapsedSec / 60)))
+    const cardioFallbackMin = Math.round(cardioEntries.reduce((s, c) => s + c.durationSec, 0) / 60)
+    const durationMin = parsePositiveInt(summaryDurationMin, Math.max(1, Math.round(elapsedSec / 60), cardioFallbackMin))
     const durationSec = Math.max(60, durationMin * 60)
 
     const exercisesWithDisplayIndex = activeExercises.map((exercise, displayIndex) => ({

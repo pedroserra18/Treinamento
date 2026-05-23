@@ -24,6 +24,11 @@ function truncateName(name: string, max = 22): string {
   return name.length > max ? `${name.slice(0, max - 1).trimEnd()}…` : name
 }
 
+const CARDIO_TYPE_LABEL: Record<string, string> = {
+  WALK: 'Caminhada', RUN: 'Corrida', BIKE: 'Bicicleta', STAIRS: 'Escada',
+  ELLIPTICAL: 'Elíptico', ROW: 'Remo', JUMP_ROPE: 'Corda', SWIM: 'Natação', OTHER: 'Cardio',
+}
+
 const BG_GRADIENTS = [
   'linear-gradient(160deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
   'linear-gradient(160deg, #2b1055 0%, #7597de 100%)',
@@ -68,6 +73,24 @@ function buildInitialBlocks(h: SessionHighlights): Block[] {
       recordName: r.exerciseName,
       recordWeight: `${r.weightKg}kg`,
       toggleLabel: truncateName(r.exerciseName, 14),
+    })
+  })
+
+  // Cardio — um bloco por entrada (até 4), com o tipo em cima e o valor abaixo
+  // (km se houver distância; caso contrário, min).
+  ;(h.cardio ?? []).slice(0, 4).forEach((c, i) => {
+    const typeLabel = CARDIO_TYPE_LABEL[c.type] ?? 'Cardio'
+    const minutes = Math.round(c.durationSec / 60)
+    const km = c.distanceMeters ? +(c.distanceMeters / 1000).toFixed(2) : null
+    const value = km && km > 0
+      ? `${km.toString().replace('.', ',')} km`
+      : `${minutes} min`
+    blocks.push({
+      id: `cardio-${i}`,
+      label: typeLabel,
+      value,
+      enabled: true,
+      toggleLabel: typeLabel,
     })
   })
 

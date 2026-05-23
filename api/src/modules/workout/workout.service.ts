@@ -1206,6 +1206,13 @@ export async function getSessionHighlights(userId: string, params: HistorySessio
     }
   }
 
+  // Cardio da sessão — para os chips de cardio do share editor.
+  const cardio = await prisma.cardioEntry.findMany({
+    where: { workoutSessionId: params.sessionId, userId },
+    orderBy: { createdAt: "asc" },
+    select: { type: true, durationSec: true, distanceMeters: true, calories: true },
+  });
+
   return {
     sessionId: session.id,
     volumeKg: Number(volumeKg.toFixed(1)),
@@ -1213,6 +1220,7 @@ export async function getSessionHighlights(userId: string, params: HistorySessio
     totalSeries,
     records,
     topSet,
+    cardio,
   };
 }
 

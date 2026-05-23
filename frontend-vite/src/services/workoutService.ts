@@ -660,6 +660,7 @@ export type SessionHighlights = {
   totalSeries: number
   records: Array<{ exerciseName: string; weightKg: number; reps: number }>
   topSet: { exerciseName: string; weightKg: number; reps: number } | null
+  cardio?: Array<{ type: CardioType; durationSec: number; distanceMeters: number | null; calories: number | null }>
 }
 
 export async function getSessionHighlights(
