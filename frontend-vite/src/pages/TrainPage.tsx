@@ -2009,6 +2009,25 @@ export function TrainPage() {
                 </div>
               </div>
 
+              <label className="mt-3 block">
+                <span className="text-[11px] uppercase tracking-wide text-[var(--muted)]">
+                  Notas do exercicio (opcional)
+                </span>
+                <textarea
+                  value={exercise.userNote}
+                  onChange={(event) => {
+                    const value = event.target.value
+                    setActiveExercises((current) =>
+                      current.map((ex, idx) => (idx === exerciseIndex ? { ...ex, userNote: value } : ex)),
+                    )
+                  }}
+                  rows={2}
+                  maxLength={250}
+                  placeholder="Ex: senti dor no ombro, focar na cadencia..."
+                  className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1.5 text-sm text-[var(--text)] placeholder:text-[var(--muted)]"
+                />
+              </label>
+
               <div className="mt-3 space-y-2">
                 {exercise.sets.map((setInput, setIndex) => (
                   (() => {
@@ -2302,25 +2321,6 @@ export function TrainPage() {
                 >
                   Adicionar serie
                 </button>
-
-                <label className="block">
-                  <span className="text-[11px] uppercase tracking-wide text-[var(--muted)]">
-                    Notas do exercicio (opcional)
-                  </span>
-                  <textarea
-                    value={exercise.userNote}
-                    onChange={(event) => {
-                      const value = event.target.value
-                      setActiveExercises((current) =>
-                        current.map((ex, idx) => (idx === exerciseIndex ? { ...ex, userNote: value } : ex)),
-                      )
-                    }}
-                    rows={2}
-                    maxLength={250}
-                    placeholder="Ex: senti dor no ombro, focar na cadencia..."
-                    className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1.5 text-sm text-[var(--text)] placeholder:text-[var(--muted)]"
-                  />
-                </label>
               </div>
               </div>
             )
