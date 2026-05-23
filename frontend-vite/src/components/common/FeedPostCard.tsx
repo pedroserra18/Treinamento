@@ -802,17 +802,30 @@ export function FeedPostCard({
         )}
 
         {post.workoutSummary?.cardio && post.workoutSummary.cardio.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {post.workoutSummary.cardio.map((c, i) => (
-              <span
-                key={i}
-                className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-300"
-              >
-                <Activity size={11} />
-                <span className="font-medium">{CARDIO_PT[c.type] ?? 'Cardio'}</span>
-                <span className="font-mono text-[10.5px]">{formatCardioChip(c)}</span>
-              </span>
-            ))}
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap gap-1.5">
+              {post.workoutSummary.cardio.map((c, i) => (
+                <span
+                  key={i}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-300"
+                >
+                  <Activity size={11} />
+                  <span className="font-medium">{CARDIO_PT[c.type] ?? 'Cardio'}</span>
+                  <span className="font-mono text-[10.5px]">{formatCardioChip(c)}</span>
+                </span>
+              ))}
+            </div>
+            {post.workoutSummary.cardio.some((c) => c.notes) && (
+              <ul className="space-y-1 text-[11.5px] italic text-[var(--muted)]">
+                {post.workoutSummary.cardio
+                  .filter((c) => c.notes)
+                  .map((c, i) => (
+                    <li key={`cnote-${i}`}>
+                      <span className="font-semibold not-italic text-[var(--text)]">{CARDIO_PT[c.type] ?? 'Cardio'}:</span> "{c.notes}"
+                    </li>
+                  ))}
+              </ul>
+            )}
           </div>
         )}
 

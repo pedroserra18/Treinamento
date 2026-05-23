@@ -69,6 +69,7 @@ type ActiveExercise = {
   restRemainingSec: number
   restRunning: boolean
   sets: ExerciseSetInput[]
+  userNote: string
 }
 
 function createSet(reps = '', weightKg = '', rir = '', rpe = ''): ExerciseSetInput {
@@ -136,6 +137,7 @@ function mapPlanToActiveExercises(plan: WorkoutPlan): ActiveExercise[] {
       restRemainingSec: entry.restSec ?? 0,
       restRunning: false,
       sets: Array.from({ length: Math.max(1, entry.sets ?? 3) }, () => createSet()),
+      userNote: '',
     }
   })
 }
@@ -242,18 +244,22 @@ function CardioSection({ entries, onAdd, onRemove }: {
   const [type, setType] = useState<CardioType>('WALK')
   const [minutes, setMinutes] = useState('')
   const [km, setKm] = useState('')
+  const [note, setNote] = useState('')
 
   const add = () => {
     const min = parseInt(minutes, 10)
     if (!Number.isFinite(min) || min <= 0) return
     const dist = parseFloat(km.replace(',', '.'))
+    const trimmedNote = note.trim()
     onAdd({
       type,
       durationSec: min * 60,
       distanceMeters: Number.isFinite(dist) && dist > 0 ? Math.round(dist * 1000) : undefined,
+      notes: trimmedNote ? trimmedNote.slice(0, 250) : undefined,
     })
     setMinutes('')
     setKm('')
+    setNote('')
   }
 
   return (
@@ -266,13 +272,16 @@ function CardioSection({ entries, onAdd, onRemove }: {
       {entries.length > 0 && (
         <ul className="mt-3 space-y-1.5">
           {entries.map((c, i) => (
-            <li key={i} className="flex items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 text-sm">
-              <span className="font-semibold text-[var(--text)]">{CARDIO_LABELS[c.type]}</span>
-              <span className="text-[var(--muted)]">· {Math.round(c.durationSec / 60)} min</span>
-              {c.distanceMeters ? <span className="text-[var(--muted)]">· {(c.distanceMeters / 1000).toFixed(2).replace(/\.?0+$/, '')} km</span> : null}
-              <button type="button" onClick={() => onRemove(i)} className="ml-auto grid h-6 w-6 place-items-center rounded-md text-[var(--muted)] hover:bg-rose-500/10 hover:text-rose-500" aria-label="Remover cardio">
-                <X size={13} />
-              </button>
+            <li key={i} className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-[var(--text)]">{CARDIO_LABELS[c.type]}</span>
+                <span className="text-[var(--muted)]">· {Math.round(c.durationSec / 60)} min</span>
+                {c.distanceMeters ? <span className="text-[var(--muted)]">· {(c.distanceMeters / 1000).toFixed(2).replace(/\.?0+$/, '')} km</span> : null}
+                <button type="button" onClick={() => onRemove(i)} className="ml-auto grid h-6 w-6 place-items-center rounded-md text-[var(--muted)] hover:bg-rose-500/10 hover:text-rose-500" aria-label="Remover cardio">
+                  <X size={13} />
+                </button>
+              </div>
+              {c.notes ? <p className="mt-1 text-[12px] italic text-[var(--muted)]">"{c.notes}"</p> : null}
             </li>
           ))}
         </ul>
@@ -311,6 +320,14 @@ function CardioSection({ entries, onAdd, onRemove }: {
           Adicionar
         </button>
       </div>
+      <textarea
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        rows={2}
+        maxLength={250}
+        placeholder="Nota (opcional): como foi, ritmo, percurso..."
+        className="mt-2 w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--muted)]"
+      />
     </div>
   )
 }
@@ -678,6 +695,7 @@ export function TrainPage() {
             restRemainingSec: 0,
             restRunning: false,
             sets: [createSet()],
+            userNote: '',
           },
         ]
       })
@@ -1088,8 +1106,19 @@ export function TrainPage() {
 
         return a.displayIndex - b.displayIndex
       })
-      .flatMap(({ exercise }) =>
-        exercise.sets.reduce<
+      .flatMap(({ exercise }) => {
+        const userNoteRaw = exercise.userNote.trim()
+        // Tag user-written exercise notes so the feed/history can extract them
+        // back out from the per-set notes column (keeps backend schema stable).
+        const userNoteTag = userNoteRaw ? `[nota:${userNoteRaw.slice(0, 240)}]` : ''
+        let userNoteApplied = false
+        const applyUserNote = (existing: string | undefined): string | undefined => {
+          if (!userNoteTag || userNoteApplied) return existing
+          userNoteApplied = true
+          const base = (existing ?? '').trim()
+          return base ? `${userNoteTag} ${base}` : userNoteTag
+        }
+        return exercise.sets.reduce<
         Array<{
           exerciseId: string
           setNumber: number
@@ -1128,7 +1157,7 @@ export function TrainPage() {
                   ? w
                   : undefined,
               perceivedExertion: sharedRpe,
-              notes: `[tipo:drop][drop:${dropIdx + 1}/${validDrops.length}]`,
+              notes: applyUserNote(`[tipo:drop][drop:${dropIdx + 1}/${validDrops.length}]`),
             })
           })
           return acc
@@ -1157,7 +1186,7 @@ export function TrainPage() {
                 ? weightKg
                 : undefined,
             perceivedExertion: Number.isFinite(rpe) && rpe >= 1 && rpe <= 10 ? rpe : undefined,
-            notes: noteParts.join(' '),
+            notes: applyUserNote(noteParts.join(' ')),
           })
           return acc
         }
@@ -1226,15 +1255,16 @@ export function TrainPage() {
           // the back-end keeps its current schema and the feed/history still
           // surfaces it from `perceivedExertion`.
           perceivedExertion: Number.isFinite(rpe) && rpe >= 1 && rpe <= 10 ? rpe : undefined,
-          notes:
+          notes: applyUserNote(
             typeTag || (Number.isFinite(rir) && rir >= 0)
               ? `${typeTag}${Number.isFinite(rir) && rir >= 0 ? `RIR: ${Math.floor(rir)}` : ''}`.trim() || undefined
               : undefined,
+          ),
         })
 
         return acc
-      }, []),
-      )
+      }, [])
+      })
 
     try {
       setSaving(true)
@@ -2272,6 +2302,25 @@ export function TrainPage() {
                 >
                   Adicionar serie
                 </button>
+
+                <label className="block">
+                  <span className="text-[11px] uppercase tracking-wide text-[var(--muted)]">
+                    Notas do exercicio (opcional)
+                  </span>
+                  <textarea
+                    value={exercise.userNote}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setActiveExercises((current) =>
+                        current.map((ex, idx) => (idx === exerciseIndex ? { ...ex, userNote: value } : ex)),
+                      )
+                    }}
+                    rows={2}
+                    maxLength={250}
+                    placeholder="Ex: senti dor no ombro, focar na cadencia..."
+                    className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1.5 text-sm text-[var(--text)] placeholder:text-[var(--muted)]"
+                  />
+                </label>
               </div>
               </div>
             )

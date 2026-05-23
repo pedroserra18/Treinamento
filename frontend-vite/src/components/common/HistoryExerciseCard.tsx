@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { BarChart3, Check } from 'lucide-react'
 import {
   rirFromNotes,
+  userNoteFromNotes,
   type GroupedExerciseHistory,
   type HistoryEntry,
 } from '../../lib/workout-history-grouping'
@@ -148,6 +149,11 @@ export function HistoryExerciseCard({ group }: { group: GroupedExerciseHistory }
 
   const pill = musclePillStyle(group.primaryMuscleGroup)
 
+  const userNote =
+    group.entries
+      .map((entry) => userNoteFromNotes(entry.notes))
+      .find((value): value is string => value != null) ?? null
+
   const valueLabel = kind === 'duration' ? 'Tempo' : kind === 'distance' ? 'Distância' : 'Reps'
   const barLabel = kind === 'duration' ? 'Sustentação' : kind === 'distance' ? 'Trajeto' : 'Intensidade'
 
@@ -205,6 +211,11 @@ export function HistoryExerciseCard({ group }: { group: GroupedExerciseHistory }
           const fillPct = (entryMagnitude(entry, kind) / maxMagnitude) * 100
           return <HistorySetRow key={entry.id} entry={entry} kind={kind} fillPct={fillPct} />
         })}
+        {userNote ? (
+          <p className="mt-2 rounded-md border border-[var(--line)] bg-[var(--surface-hover)] px-2.5 py-1.5 text-[11.5px] italic leading-snug text-[var(--muted)]">
+            "{userNote}"
+          </p>
+        ) : null}
       </div>
 
       <div className="flex flex-wrap items-center gap-2 px-3.5 pb-3 pt-2 sm:px-4">

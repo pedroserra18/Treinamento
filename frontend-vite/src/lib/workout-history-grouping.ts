@@ -62,3 +62,13 @@ export function rirFromNotes(notes: string | null | undefined): number | null {
   const n = Number(match[1])
   return Number.isFinite(n) ? n : null
 }
+
+// User-written exercise notes are tagged as `[nota:...]` on the first set's
+// `notes` so the back-end schema stays put. Pull them back out for the UI.
+export function userNoteFromNotes(notes: string | null | undefined): string | null {
+  if (!notes) return null
+  const match = notes.match(/\[nota:([^\]]+)\]/)
+  if (!match) return null
+  const value = match[1].trim()
+  return value.length > 0 ? value : null
+}

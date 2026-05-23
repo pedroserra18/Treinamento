@@ -25,6 +25,7 @@ export type WorkoutCardioSummary = {
   durationSec: number
   distanceMeters: number | null
   calories: number | null
+  notes?: string | null
 }
 
 export type WorkoutSummary = {

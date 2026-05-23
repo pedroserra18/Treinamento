@@ -32,7 +32,7 @@ const POST_SELECT = {
         orderBy: [{ executionOrder: "asc" as const }, { setNumber: "asc" as const }],
       },
       cardioEntries: {
-        select: { type: true, durationSec: true, distanceMeters: true, calories: true },
+        select: { type: true, durationSec: true, distanceMeters: true, calories: true, notes: true },
         orderBy: { createdAt: "asc" as const },
       },
     },
@@ -67,6 +67,7 @@ type CardioRow = {
   durationSec: number;
   distanceMeters: number | null;
   calories: number | null;
+  notes: string | null;
 };
 
 function summariseSession(session: {
@@ -127,6 +128,7 @@ function summariseSession(session: {
     durationSec: c.durationSec,
     distanceMeters: c.distanceMeters,
     calories: c.calories,
+    notes: c.notes,
   }));
 
   return {

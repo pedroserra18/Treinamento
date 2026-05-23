@@ -142,20 +142,33 @@ export function WorkoutSessionCard({ session }: { session: WorkoutSessionHistory
 
         {/* CARDIO CHIPS */}
         {session.cardioEntries && session.cardioEntries.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {session.cardioEntries.map((c) => (
-              <span
-                key={c.id}
-                className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-300"
-              >
-                <Activity size={11} />
-                <span className="font-medium">{CARDIO_PT[c.type] ?? 'Cardio'}</span>
-                <span className="font-mono text-[10.5px]">
-                  {Math.round(c.durationSec / 60)} min
-                  {c.distanceMeters ? ` · ${(c.distanceMeters / 1000).toFixed(2).replace(/\.?0+$/, '')} km` : ''}
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap gap-1.5">
+              {session.cardioEntries.map((c) => (
+                <span
+                  key={c.id}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-300"
+                >
+                  <Activity size={11} />
+                  <span className="font-medium">{CARDIO_PT[c.type] ?? 'Cardio'}</span>
+                  <span className="font-mono text-[10.5px]">
+                    {Math.round(c.durationSec / 60)} min
+                    {c.distanceMeters ? ` · ${(c.distanceMeters / 1000).toFixed(2).replace(/\.?0+$/, '')} km` : ''}
+                  </span>
                 </span>
-              </span>
-            ))}
+              ))}
+            </div>
+            {session.cardioEntries.some((c) => c.notes) && (
+              <ul className="space-y-1 text-[11.5px] italic text-[var(--muted)]">
+                {session.cardioEntries
+                  .filter((c) => c.notes)
+                  .map((c) => (
+                    <li key={`note-${c.id}`}>
+                      <span className="font-semibold not-italic text-[var(--text)]">{CARDIO_PT[c.type] ?? 'Cardio'}:</span> "{c.notes}"
+                    </li>
+                  ))}
+              </ul>
+            )}
           </div>
         )}
 
