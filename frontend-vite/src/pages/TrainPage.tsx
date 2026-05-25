@@ -36,6 +36,13 @@ import {
   type SessionHighlights,
 } from '../services/workoutService'
 import { WorkoutShareEditor } from '../components/common/WorkoutShareEditor'
+import {
+  ACTIVE_WORKOUT_DISCARD_EVENT,
+  clearActiveWorkout,
+  deriveElapsedSec,
+  readActiveWorkout,
+  writeActiveWorkout,
+} from '../lib/active-workout-storage'
 
 type TrainScreen = 'DASHBOARD' | 'ACTIVE' | 'SUMMARY' | 'EDIT' | 'RECOMMENDATIONS' | 'NEW_ROUTINE'
 type TrainOriginMode = 'EMPTY' | 'ROUTINE'
@@ -437,6 +444,90 @@ export function TrainPage() {
     return () => window.clearInterval(id)
   }, [isWorkoutRunning, screen])
 
+  // Hydrate the active workout on mount. If the user navigated away from
+  // /train mid-session, the snapshot in localStorage is restored here and
+  // the clock is forwarded by however long the tab was away.
+  const hasHydratedRef = useRef(false)
+  useEffect(() => {
+    if (hasHydratedRef.current) return
+    hasHydratedRef.current = true
+    const snapshot = readActiveWorkout()
+    if (!snapshot || snapshot.screen !== 'ACTIVE') return
+    setScreen('ACTIVE')
+    setOriginMode(snapshot.originMode as TrainOriginMode)
+    setActivePlanId(snapshot.activePlanId)
+    setActivePlanName(snapshot.activePlanName)
+    setActiveExercises((snapshot.activeExercises as ActiveExercise[]) ?? [])
+    setCardioEntries((snapshot.cardioEntries as CardioEntryInput[]) ?? [])
+    setStartedAt(snapshot.startedAt ? new Date(snapshot.startedAt) : null)
+    setEndedAt(snapshot.endedAt ? new Date(snapshot.endedAt) : null)
+    setIsWorkoutRunning(snapshot.isWorkoutRunning)
+    setElapsedSec(deriveElapsedSec(snapshot))
+  }, [])
+
+  // Persist a snapshot of the active workout so the mini bar and a later
+  // mount of TrainPage can resume from it. The snapshot is only written
+  // while screen === 'ACTIVE'; explicit transitions (finalize, discard,
+  // resetWorkflow) call `clearActiveWorkout` themselves.
+  useEffect(() => {
+    if (screen !== 'ACTIVE') return
+    const currentExerciseName =
+      activeExercises.find((e) => e.sets.some((s) => !s.checked))?.exerciseName ??
+      activeExercises[activeExercises.length - 1]?.exerciseName ??
+      null
+    writeActiveWorkout({
+      screen: 'ACTIVE',
+      originMode,
+      activePlanId,
+      activePlanName,
+      activeExercises: activeExercises as unknown[],
+      cardioEntries: cardioEntries.map((c) => ({
+        type: c.type,
+        durationSec: c.durationSec,
+        distanceMeters: c.distanceMeters,
+        notes: c.notes,
+      })),
+      startedAt: startedAt ? startedAt.toISOString() : null,
+      endedAt: endedAt ? endedAt.toISOString() : null,
+      elapsedSec,
+      isWorkoutRunning,
+      currentExerciseName,
+    })
+  }, [
+    screen,
+    originMode,
+    activePlanId,
+    activePlanName,
+    activeExercises,
+    cardioEntries,
+    startedAt,
+    endedAt,
+    elapsedSec,
+    isWorkoutRunning,
+  ])
+
+  // The mini bar can request a discard from outside this page. If the
+  // user confirmed there, reset the in-memory state so coming back to
+  // /train shows a clean dashboard.
+  useEffect(() => {
+    const handler = () => {
+      hasHydratedRef.current = true
+      setScreen('DASHBOARD')
+      setOriginMode('EMPTY')
+      setActivePlanName('Treinamento vazio')
+      setActiveExercises([])
+      setCardioEntries([])
+      setElapsedSec(0)
+      setIsWorkoutRunning(false)
+      setStartedAt(null)
+      setEndedAt(null)
+      interactionOrderByExerciseRef.current = {}
+      interactionOrderCounterRef.current = 0
+    }
+    window.addEventListener(ACTIVE_WORKOUT_DISCARD_EVENT, handler)
+    return () => window.removeEventListener(ACTIVE_WORKOUT_DISCARD_EVENT, handler)
+  }, [])
+
   useEffect(() => {
     if (screen !== 'ACTIVE') {
       return
@@ -741,6 +832,7 @@ export function TrainPage() {
     setPostDone(false)
     interactionOrderByExerciseRef.current = {}
     interactionOrderCounterRef.current = 0
+    clearActiveWorkout()
   }
 
   const beginEmptyTraining = () => {
@@ -793,6 +885,9 @@ export function TrainPage() {
     const clockMin = Math.round(elapsedSec / 60)
     setSummaryDurationMin(String(Math.max(1, clockMin, cardioMin)))
     setScreen('SUMMARY')
+    // Workout is no longer "active" — drop the snapshot so the mini bar
+    // disappears even before the user finishes the summary screen.
+    clearActiveWorkout()
   }
 
   const backToDashboardFromActive = () => {

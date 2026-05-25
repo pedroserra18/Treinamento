@@ -8,6 +8,7 @@ import { ThemeToggle } from '../common/ThemeToggle'
 import { BrandLogo } from '../common/BrandLogo'
 import { NotificationBell } from '../common/NotificationBell'
 import { StatusBar } from '../common/StatusBar'
+import { MiniActiveWorkoutBar } from '../common/MiniActiveWorkoutBar'
 import {
   getExerciseExplorerEventName,
   selectExerciseFromExplorer,
@@ -209,6 +210,10 @@ export function AppShell({ children }: AppShellProps) {
 
       {/* Status bar — globally visible on authenticated pages (shrinks on mobile). */}
       {isAuthenticated && <StatusBar />}
+
+      {/* Floating mini bar — shows the in-progress workout from any page so
+          the user can navigate around without finalising or losing it. */}
+      {isAuthenticated && <MiniActiveWorkoutBar />}
 
       {/* Bottom nav — celular e tablet (oculta no desktop) */}
       <nav className="fixed bottom-0 left-0 right-0 z-20 flex items-center justify-around border-t border-[var(--line)] bg-[var(--surface)]/95 px-2 pb-safe pt-2 backdrop-blur-md lg:hidden">
