@@ -890,18 +890,12 @@ export function TrainPage() {
     clearActiveWorkout()
   }
 
+  // "Voltar" no header do treino ativo agora apenas volta pra dashboard
+  // sem perder o treino. O snapshot continua em localStorage e o card
+  // "Treino em andamento" na dashboard (ou a mini barra em outras páginas)
+  // serve de atalho de volta.
   const backToDashboardFromActive = () => {
-    const hasProgress = elapsedSec > 0 || activeExercises.length > 0 || cardioEntries.length > 0
-    if (hasProgress) {
-      const confirmed = window.confirm(
-        'Deseja voltar e descartar este treino em andamento? Voce perdera os dados nao salvos.',
-      )
-      if (!confirmed) {
-        return
-      }
-    }
-
-    resetWorkflow()
+    setScreen('DASHBOARD')
   }
 
   const backToActiveTraining = () => {
@@ -2459,6 +2453,49 @@ export function TrainPage() {
           Inicie rápido, escolha uma rotina ou monte seu treino na hora.
         </p>
       </motion.header>
+
+      {/* ───── RESUME ACTIVE WORKOUT BANNER ──────────────────────── */}
+      {(activeExercises.length > 0 || elapsedSec > 0 || cardioEntries.length > 0) && (
+        <motion.article
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex flex-wrap items-center gap-3 rounded-2xl border border-emerald-500/50 bg-emerald-500/5 p-4"
+        >
+          <span className="relative inline-flex h-2.5 w-2.5 shrink-0">
+            {isWorkoutRunning && (
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-60" />
+            )}
+            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+              Treino em andamento
+            </p>
+            <p className="truncate text-sm font-semibold text-[var(--text)]">
+              {activePlanName} · <span className="font-mono tabular-nums">{formatClock(elapsedSec)}</span>
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setScreen('ACTIVE')}
+            className="rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white hover:bg-[var(--brand-strong)]"
+          >
+            Voltar ao treino
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (window.confirm('Descartar o treino em andamento? Você perderá os dados não salvos.')) {
+                resetWorkflow()
+              }
+            }}
+            aria-label="Descartar treino"
+            className="grid h-9 w-9 place-items-center rounded-lg border border-[var(--line)] text-[var(--muted)] hover:border-rose-500/60 hover:bg-rose-500/10 hover:text-rose-500"
+          >
+            <X size={14} />
+          </button>
+        </motion.article>
+      )}
 
       {/* ───── QUICK ACTIONS ─────────────────────────────────────── */}
       <motion.div
