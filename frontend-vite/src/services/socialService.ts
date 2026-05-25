@@ -18,6 +18,7 @@ export type WorkoutExerciseSummary = {
   primaryMuscleGroup: string
   sets: WorkoutSet[]
   totalVolumeKg: number
+  userNote?: string | null
 }
 
 export type WorkoutCardioSummary = {

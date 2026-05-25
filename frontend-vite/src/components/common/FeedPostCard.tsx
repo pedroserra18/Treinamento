@@ -283,6 +283,11 @@ function ExerciseDetailedCard({ ex }: { ex: WorkoutExerciseSummary }) {
           const fillPct = (setMagnitude(set, kind) / maxMagnitude) * 100
           return <SetRow key={set.setNumber} set={set} kind={kind} fillPct={fillPct} />
         })}
+        {ex.userNote ? (
+          <p className="mt-2 rounded-md border border-[var(--line)] bg-[var(--surface-hover)] px-2.5 py-1.5 text-[11.5px] italic leading-snug text-[var(--muted)]">
+            "{ex.userNote}"
+          </p>
+        ) : null}
       </div>
 
       <div className="flex flex-wrap items-center gap-2 px-3.5 pb-3 pt-2 sm:px-4">
@@ -783,20 +788,33 @@ export function FeedPostCard({
         )}
 
         {post.workoutSummary && exerciseCount > 0 && !expanded && (
-          <div className="flex flex-wrap gap-1.5">
-            {post.workoutSummary.exercises.slice(0, 6).map((ex) => (
-              <span
-                key={ex.name}
-                className="inline-flex items-center gap-1.5 rounded-full border border-[var(--line)] bg-[var(--surface-hover)] px-2.5 py-1 text-xs text-[var(--text)]"
-              >
-                <span className="font-medium">{ex.name}</span>
-                <span className="font-mono text-[10.5px] font-bold text-[var(--muted)]">{ex.sets.length}x</span>
-              </span>
-            ))}
-            {exerciseCount > 6 && (
-              <span className="inline-flex items-center rounded-full border border-[var(--line)] bg-[var(--surface-hover)] px-2.5 py-1 text-xs text-[var(--muted)]">
-                +{exerciseCount - 6}
-              </span>
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap gap-1.5">
+              {post.workoutSummary.exercises.slice(0, 6).map((ex) => (
+                <span
+                  key={ex.name}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[var(--line)] bg-[var(--surface-hover)] px-2.5 py-1 text-xs text-[var(--text)]"
+                >
+                  <span className="font-medium">{ex.name}</span>
+                  <span className="font-mono text-[10.5px] font-bold text-[var(--muted)]">{ex.sets.length}x</span>
+                </span>
+              ))}
+              {exerciseCount > 6 && (
+                <span className="inline-flex items-center rounded-full border border-[var(--line)] bg-[var(--surface-hover)] px-2.5 py-1 text-xs text-[var(--muted)]">
+                  +{exerciseCount - 6}
+                </span>
+              )}
+            </div>
+            {post.workoutSummary.exercises.some((ex) => ex.userNote) && (
+              <ul className="space-y-1 text-[11.5px] italic text-[var(--muted)]">
+                {post.workoutSummary.exercises
+                  .filter((ex) => ex.userNote)
+                  .map((ex) => (
+                    <li key={`enote-${ex.name}`}>
+                      <span className="font-semibold not-italic text-[var(--text)]">{ex.name}:</span> "{ex.userNote}"
+                    </li>
+                  ))}
+              </ul>
             )}
           </div>
         )}

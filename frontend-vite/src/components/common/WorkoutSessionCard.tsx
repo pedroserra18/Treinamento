@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react'
 import { ArrowRight, ChevronUp, Activity } from 'lucide-react'
 import type { WorkoutSessionHistory } from '../../types/workout'
 import { HistoryExerciseCard } from './HistoryExerciseCard'
-import { groupExerciseHistory } from '../../lib/workout-history-grouping'
+import { groupExerciseHistory, userNoteFromNotes } from '../../lib/workout-history-grouping'
 
 const CARDIO_PT: Record<string, string> = {
   WALK: 'Caminhada', RUN: 'Corrida', BIKE: 'Bicicleta', STAIRS: 'Escada',
@@ -76,14 +76,19 @@ export function WorkoutSessionCard({ session }: { session: WorkoutSessionHistory
 
     // Count unique exercises preserving execution order for the chip row.
     const seen = new Set<string>()
-    const chips: { id: string; name: string; setCount: number }[] = []
+    const chips: { id: string; name: string; setCount: number; userNote: string | null }[] = []
     for (const e of session.history) {
+      const note = userNoteFromNotes(e.notes)
+      const existingIdx = chips.findIndex((c) => c.id === e.exercise.id)
       if (seen.has(e.exercise.id)) {
-        chips[chips.findIndex((c) => c.id === e.exercise.id)].setCount += 1
+        chips[existingIdx].setCount += 1
+        if (!chips[existingIdx].userNote && note) {
+          chips[existingIdx].userNote = note
+        }
         continue
       }
       seen.add(e.exercise.id)
-      chips.push({ id: e.exercise.id, name: e.exercise.name, setCount: 1 })
+      chips.push({ id: e.exercise.id, name: e.exercise.name, setCount: 1, userNote: note })
     }
 
     return { totalVolume, chips }
@@ -122,20 +127,33 @@ export function WorkoutSessionCard({ session }: { session: WorkoutSessionHistory
 
         {/* EXERCISE CHIPS — collapsed view */}
         {summary.chips.length > 0 && !expanded && (
-          <div className="flex flex-wrap gap-1.5">
-            {summary.chips.slice(0, 6).map((c) => (
-              <span
-                key={c.id}
-                className="inline-flex items-center gap-1.5 rounded-full border border-[var(--line)] bg-[var(--surface-hover)] px-2.5 py-1 text-xs text-[var(--text)]"
-              >
-                <span className="font-medium">{c.name}</span>
-                <span className="font-mono text-[10.5px] font-bold text-[var(--muted)]">{c.setCount}x</span>
-              </span>
-            ))}
-            {summary.chips.length > 6 && (
-              <span className="inline-flex items-center rounded-full border border-[var(--line)] bg-[var(--surface-hover)] px-2.5 py-1 text-xs text-[var(--muted)]">
-                +{summary.chips.length - 6}
-              </span>
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap gap-1.5">
+              {summary.chips.slice(0, 6).map((c) => (
+                <span
+                  key={c.id}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[var(--line)] bg-[var(--surface-hover)] px-2.5 py-1 text-xs text-[var(--text)]"
+                >
+                  <span className="font-medium">{c.name}</span>
+                  <span className="font-mono text-[10.5px] font-bold text-[var(--muted)]">{c.setCount}x</span>
+                </span>
+              ))}
+              {summary.chips.length > 6 && (
+                <span className="inline-flex items-center rounded-full border border-[var(--line)] bg-[var(--surface-hover)] px-2.5 py-1 text-xs text-[var(--muted)]">
+                  +{summary.chips.length - 6}
+                </span>
+              )}
+            </div>
+            {summary.chips.some((c) => c.userNote) && (
+              <ul className="space-y-1 text-[11.5px] italic text-[var(--muted)]">
+                {summary.chips
+                  .filter((c) => c.userNote)
+                  .map((c) => (
+                    <li key={`enote-${c.id}`}>
+                      <span className="font-semibold not-italic text-[var(--text)]">{c.name}:</span> "{c.userNote}"
+                    </li>
+                  ))}
+              </ul>
             )}
           </div>
         )}

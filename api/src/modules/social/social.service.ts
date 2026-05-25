@@ -28,6 +28,7 @@ const POST_SELECT = {
           distanceMeters: true,
           perceivedExertion: true,
           executionOrder: true,
+          notes: true,
         },
         orderBy: [{ executionOrder: "asc" as const }, { setNumber: "asc" as const }],
       },
@@ -60,7 +61,19 @@ type HistoryRow = {
   distanceMeters: number | null;
   perceivedExertion: number | null;
   executionOrder: number;
+  notes: string | null;
 };
+
+// User-written exercise notes are persisted as a `[nota:...]` tag inside the
+// first set's `notes` (keeps the schema unchanged). Surface the clean value
+// once per exercise so the feed payload stays compact.
+function extractUserNote(notes: string | null): string | null {
+  if (!notes) return null;
+  const match = notes.match(/\[nota:([^\]]+)\]/);
+  if (!match) return null;
+  const value = match[1].trim();
+  return value.length > 0 ? value : null;
+}
 
 type CardioRow = {
   type: string;
@@ -83,6 +96,7 @@ function summariseSession(session: {
     totalVolumeKg: number;
     sets: Array<{ setNumber: number; reps: number | null; weightKg: number | null; durationSec: number | null; distanceMeters: number | null; perceivedExertion: number | null }>;
     executionOrder: number;
+    userNote: string | null;
   };
 
   const exerciseMap = new Map<string, ExerciseAgg>();
@@ -96,6 +110,7 @@ function summariseSession(session: {
         totalVolumeKg: 0,
         sets: [],
         executionOrder: h.executionOrder,
+        userNote: null,
       });
     }
     const agg = exerciseMap.get(h.exerciseId)!;
@@ -103,6 +118,9 @@ function summariseSession(session: {
       const vol = h.reps * h.weightKg;
       agg.totalVolumeKg += vol;
       totalVolumeKg += vol;
+    }
+    if (agg.userNote == null) {
+      agg.userNote = extractUserNote(h.notes);
     }
     agg.sets.push({
       setNumber: h.setNumber,
@@ -121,6 +139,7 @@ function summariseSession(session: {
       primaryMuscleGroup: e.primaryMuscleGroup,
       sets: e.sets.sort((a, b) => a.setNumber - b.setNumber),
       totalVolumeKg: Number(e.totalVolumeKg.toFixed(1)),
+      userNote: e.userNote,
     }));
 
   const cardio = (session.cardioEntries ?? []).map((c) => ({
