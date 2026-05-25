@@ -20,7 +20,11 @@ export type StoredActiveExercise = unknown
 
 export type ActiveWorkoutSnapshot = {
   version: 1
-  screen: 'ACTIVE' | 'SUMMARY'
+  // 'ACTIVE' = user is currently inside the live workout view on /train.
+  // 'DASHBOARD' = the workout is still alive in state but the user left
+  // the active view (e.g. clicked Voltar). The mini bar uses this to
+  // decide whether to render itself when on /train.
+  screen: 'ACTIVE' | 'DASHBOARD'
   originMode: 'EMPTY' | 'ROUTINE'
   activePlanId: string
   activePlanName: string

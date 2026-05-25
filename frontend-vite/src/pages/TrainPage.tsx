@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion'
 import { createPortal } from 'react-dom'
+import { useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import {
   Flame, Layers, Dumbbell, Plus, Play, Search, Pencil, Sparkles, MoreHorizontal,
@@ -445,38 +446,62 @@ export function TrainPage() {
   }, [isWorkoutRunning, screen])
 
   // Hydrate the active workout on mount. If the user navigated away from
-  // /train mid-session, the snapshot in localStorage is restored here and
-  // the clock is forwarded by however long the tab was away.
+  // /train mid-session, the data is restored here and the clock is
+  // forwarded by however long the tab was away. The screen is NOT
+  // auto-set to ACTIVE — clicking the "Treinar" nav should always land
+  // on the dashboard. The mini bar (or the resume location state below)
+  // is what jumps back into the live workout view.
   const hasHydratedRef = useRef(false)
+  const [hydrated, setHydrated] = useState(false)
   useEffect(() => {
     if (hasHydratedRef.current) return
     hasHydratedRef.current = true
     const snapshot = readActiveWorkout()
-    if (!snapshot || snapshot.screen !== 'ACTIVE') return
-    setScreen('ACTIVE')
-    setOriginMode(snapshot.originMode as TrainOriginMode)
-    setActivePlanId(snapshot.activePlanId)
-    setActivePlanName(snapshot.activePlanName)
-    setActiveExercises((snapshot.activeExercises as ActiveExercise[]) ?? [])
-    setCardioEntries((snapshot.cardioEntries as CardioEntryInput[]) ?? [])
-    setStartedAt(snapshot.startedAt ? new Date(snapshot.startedAt) : null)
-    setEndedAt(snapshot.endedAt ? new Date(snapshot.endedAt) : null)
-    setIsWorkoutRunning(snapshot.isWorkoutRunning)
-    setElapsedSec(deriveElapsedSec(snapshot))
+    if (snapshot) {
+      setOriginMode(snapshot.originMode as TrainOriginMode)
+      setActivePlanId(snapshot.activePlanId)
+      setActivePlanName(snapshot.activePlanName)
+      setActiveExercises((snapshot.activeExercises as ActiveExercise[]) ?? [])
+      setCardioEntries((snapshot.cardioEntries as CardioEntryInput[]) ?? [])
+      setStartedAt(snapshot.startedAt ? new Date(snapshot.startedAt) : null)
+      setEndedAt(snapshot.endedAt ? new Date(snapshot.endedAt) : null)
+      setIsWorkoutRunning(snapshot.isWorkoutRunning)
+      setElapsedSec(deriveElapsedSec(snapshot))
+    }
+    setHydrated(true)
   }, [])
 
-  // Persist a snapshot of the active workout so the mini bar and a later
-  // mount of TrainPage can resume from it. The snapshot is only written
-  // while screen === 'ACTIVE'; explicit transitions (finalize, discard,
-  // resetWorkflow) call `clearActiveWorkout` themselves.
+  // Jump back into the live workout view when the user clicks the mini
+  // bar (which navigates here with { state: { resume: true } }). Done as
+  // a separate effect so it works for both "TrainPage already mounted"
+  // and "TrainPage mounting now" cases. The state is cleared after read
+  // so a browser back/forward doesn't re-fire it.
+  const location = useLocation()
   useEffect(() => {
-    if (screen !== 'ACTIVE') return
+    const state = location.state as { resume?: boolean } | null
+    if (state?.resume) {
+      setScreen('ACTIVE')
+      window.history.replaceState(null, '', location.pathname + location.search)
+    }
+  }, [location.pathname, location.search, location.state])
+
+  // Persist a snapshot of the active workout whenever there's data so
+  // the mini bar (and a future mount of TrainPage) can resume it. The
+  // snapshot tracks the current view (ACTIVE vs DASHBOARD) so the mini
+  // bar knows when to hide itself on /train. Explicit transitions
+  // (finalize, discard, resetWorkflow) call `clearActiveWorkout` so
+  // the snapshot doesn't survive a fully completed/dropped session.
+  useEffect(() => {
+    if (!hydrated) return
+    const hasData = activeExercises.length > 0 || elapsedSec > 0 || cardioEntries.length > 0
+    if (!hasData) return
+    if (screen !== 'ACTIVE' && screen !== 'DASHBOARD') return
     const currentExerciseName =
       activeExercises.find((e) => e.sets.some((s) => !s.checked))?.exerciseName ??
       activeExercises[activeExercises.length - 1]?.exerciseName ??
       null
     writeActiveWorkout({
-      screen: 'ACTIVE',
+      screen,
       originMode,
       activePlanId,
       activePlanName,
@@ -494,6 +519,7 @@ export function TrainPage() {
       currentExerciseName,
     })
   }, [
+    hydrated,
     screen,
     originMode,
     activePlanId,
@@ -2453,49 +2479,6 @@ export function TrainPage() {
           Inicie rápido, escolha uma rotina ou monte seu treino na hora.
         </p>
       </motion.header>
-
-      {/* ───── RESUME ACTIVE WORKOUT BANNER ──────────────────────── */}
-      {(activeExercises.length > 0 || elapsedSec > 0 || cardioEntries.length > 0) && (
-        <motion.article
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex flex-wrap items-center gap-3 rounded-2xl border border-emerald-500/50 bg-emerald-500/5 p-4"
-        >
-          <span className="relative inline-flex h-2.5 w-2.5 shrink-0">
-            {isWorkoutRunning && (
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-60" />
-            )}
-            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
-              Treino em andamento
-            </p>
-            <p className="truncate text-sm font-semibold text-[var(--text)]">
-              {activePlanName} · <span className="font-mono tabular-nums">{formatClock(elapsedSec)}</span>
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setScreen('ACTIVE')}
-            className="rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white hover:bg-[var(--brand-strong)]"
-          >
-            Voltar ao treino
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (window.confirm('Descartar o treino em andamento? Você perderá os dados não salvos.')) {
-                resetWorkflow()
-              }
-            }}
-            aria-label="Descartar treino"
-            className="grid h-9 w-9 place-items-center rounded-lg border border-[var(--line)] text-[var(--muted)] hover:border-rose-500/60 hover:bg-rose-500/10 hover:text-rose-500"
-          >
-            <X size={14} />
-          </button>
-        </motion.article>
-      )}
 
       {/* ───── QUICK ACTIONS ─────────────────────────────────────── */}
       <motion.div

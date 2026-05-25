@@ -52,14 +52,15 @@ export function MiniActiveWorkoutBar() {
     return () => window.clearInterval(id)
   }, [snapshot?.isWorkoutRunning])
 
-  const isOnTrain = location.pathname === '/train'
+  const isInsideActiveView =
+    location.pathname === '/train' && snapshot?.screen === 'ACTIVE'
   const isOnAuthFlow =
     location.pathname.startsWith('/login') ||
     location.pathname.startsWith('/register') ||
     location.pathname.startsWith('/forgot-password') ||
     location.pathname.startsWith('/auth/google')
 
-  if (!snapshot || snapshot.screen !== 'ACTIVE' || isOnTrain || isOnAuthFlow) {
+  if (!snapshot || isInsideActiveView || isOnAuthFlow) {
     return null
   }
 
@@ -74,7 +75,10 @@ export function MiniActiveWorkoutBar() {
   }
 
   const handleResume = () => {
-    navigate('/train')
+    // Pass `resume` in location state so TrainPage knows the user wants
+    // to jump straight into the active workout view rather than landing
+    // on the dashboard (which is the default behaviour of the nav link).
+    navigate('/train', { state: { resume: true } })
   }
 
   return createPortal(
