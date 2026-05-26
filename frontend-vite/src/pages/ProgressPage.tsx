@@ -238,6 +238,204 @@ function buildHeatmap(items: WorkoutSessionHistory[]): { columns: HeatmapCell[][
   return { columns, months }
 }
 
+// ─── Volume per muscle group (30D) ────────────────────────────────────────
+
+function volumeByMuscleGroup30D(items: WorkoutSessionHistory[]): Array<{ group: string; volumeKg: number }> {
+  const cutoff = Date.now() - 30 * 86_400_000
+  const totals = new Map<string, number>()
+  for (const s of items) {
+    if (!s.endedAt) continue
+    if (new Date(s.endedAt).getTime() < cutoff) continue
+    for (const h of s.history) {
+      const w = h.weightKg ?? 0
+      const r = h.reps ?? 0
+      if (w <= 0 || r <= 0) continue
+      const group = h.exercise.primaryMuscleGroup || 'OUTROS'
+      totals.set(group, (totals.get(group) ?? 0) + w * r)
+    }
+  }
+  return Array.from(totals.entries())
+    .map(([group, volumeKg]) => ({ group, volumeKg: Math.round(volumeKg) }))
+    .sort((a, b) => b.volumeKg - a.volumeKg)
+}
+
+const MUSCLE_LABEL_PT: Record<string, string> = {
+  CHEST: 'Peito', BACK: 'Costas', SHOULDERS: 'Ombros', ARMS: 'Braços',
+  BICEPS: 'Bíceps', TRICEPS: 'Tríceps', LEGS: 'Pernas', QUADS: 'Quadríceps',
+  HAMSTRINGS: 'Posterior', GLUTES: 'Glúteos', CALVES: 'Panturrilhas',
+  ADDUCTORS: 'Adutores', CORE: 'Core', ABDOMEN: 'Abdômen', FOREARM: 'Antebraço',
+  FULL_BODY: 'Corpo todo',
+}
+
+function MuscleVolumeCard({ items }: { items: WorkoutSessionHistory[] }) {
+  const rows = useMemo(() => volumeByMuscleGroup30D(items), [items])
+  const total = rows.reduce((s, r) => s + r.volumeKg, 0)
+
+  if (total === 0) {
+    return (
+      <motion.section
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, delay: 0.1 }}
+        className="rounded-[16px] border border-[var(--line)] bg-[var(--surface)] p-5"
+      >
+        <h3 className="text-[14px] font-semibold text-[var(--text)]">Distribuição por grupo (30D)</h3>
+        <p className="mt-3 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-6 text-center text-[12px] text-[var(--muted)]">
+          Sem volume registrado nos últimos 30 dias.
+        </p>
+      </motion.section>
+    )
+  }
+
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, delay: 0.1 }}
+      className="rounded-[16px] border border-[var(--line)] bg-[var(--surface)] p-5"
+    >
+      <div className="mb-3 flex items-end justify-between gap-2">
+        <h3 className="text-[14px] font-semibold text-[var(--text)]">Distribuição por grupo</h3>
+        <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
+          ÚLTIMOS 30 DIAS · {total.toLocaleString('pt-BR')} KG
+        </span>
+      </div>
+      <div className="space-y-2">
+        {rows.map((row) => {
+          const pct = total === 0 ? 0 : Math.round((row.volumeKg / total) * 100)
+          const tone = TONE_STYLE[muscleTone(row.group)]
+          const label = MUSCLE_LABEL_PT[row.group] ?? row.group
+          return (
+            <div key={row.group} className="space-y-1">
+              <div className="flex items-baseline justify-between gap-2 font-mono text-[11px]">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-[6px] w-[6px] rounded-full" style={{ background: tone.dot }} />
+                  <b className="font-semibold text-[var(--text)]">{label}</b>
+                </span>
+                <span className="text-[var(--muted)]">
+                  {row.volumeKg.toLocaleString('pt-BR')} kg
+                  <span className="ml-2 inline-block w-9 text-right font-semibold text-[var(--text)]">{pct}%</span>
+                </span>
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-[var(--surface-hover)]">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${pct}%` }}
+                  transition={{ duration: 0.6, ease: 'easeOut' }}
+                  className="h-full rounded-full"
+                  style={{ background: tone.dot }}
+                />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </motion.section>
+  )
+}
+
+// ─── Recent PRs feed ──────────────────────────────────────────────────────
+
+type RecentPr = {
+  exerciseId: string
+  exerciseName: string
+  primaryMuscleGroup: string
+  loadKg: number
+  reps: number | null
+  date: Date
+}
+
+function listRecentPrs(progress: ExerciseProgressItem[], limit: number): RecentPr[] {
+  const prs: RecentPr[] = []
+  for (const item of progress) {
+    const sorted = [...item.sessions].sort(
+      (a, b) => new Date(a.completedAt).getTime() - new Date(b.completedAt).getTime(),
+    )
+    let runningMax = -Infinity
+    for (const s of sorted) {
+      const load = s.maxLoadKg ?? 0
+      if (load > runningMax && load > 0) {
+        prs.push({
+          exerciseId: item.exercise.id,
+          exerciseName: item.exercise.name,
+          primaryMuscleGroup: item.exercise.primaryMuscleGroup,
+          loadKg: load,
+          reps: s.maxReps,
+          date: new Date(s.completedAt),
+        })
+        runningMax = load
+      }
+    }
+  }
+  return prs.sort((a, b) => b.date.getTime() - a.date.getTime()).slice(0, limit)
+}
+
+function RecentPrsCard({ progress }: { progress: ExerciseProgressItem[] }) {
+  const prs = useMemo(() => listRecentPrs(progress, 8), [progress])
+
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, delay: 0.12 }}
+      className="rounded-[16px] border border-[var(--line)] bg-[var(--surface)] p-5"
+    >
+      <div className="mb-3 flex items-end justify-between gap-2">
+        <h3 className="text-[14px] font-semibold text-[var(--text)]">Últimos PRs</h3>
+        <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
+          {prs.length} REGISTROS
+        </span>
+      </div>
+      {prs.length === 0 ? (
+        <p className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-6 text-center text-[12px] text-[var(--muted)]">
+          Sem PRs ainda. Bata uma carga maior que qualquer sessão anterior e ela aparece aqui.
+        </p>
+      ) : (
+        <ul className="space-y-1.5">
+          {prs.map((pr, idx) => {
+            const tone = TONE_STYLE[muscleTone(pr.primaryMuscleGroup)]
+            const daysAgo = daysAgoFrom(pr.date)
+            return (
+              <li
+                key={`${pr.exerciseId}-${pr.date.toISOString()}-${idx}`}
+                className="flex items-center gap-3 rounded-[10px] border border-[#f1c84a]/40 bg-gradient-to-r from-[#fffaea] to-[var(--surface-hover)] px-3 py-2 dark:from-[#3d2e09]/40 dark:to-[var(--surface-hover)]"
+              >
+                <span
+                  className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-[12px] font-bold"
+                  style={{ background: '#f4c443', color: '#5a4209' }}
+                  aria-hidden
+                >
+                  ★
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[13px] font-semibold text-[var(--text)]">{pr.exerciseName}</p>
+                  <p className="mt-0.5 font-mono text-[10.5px] text-[var(--muted)]">
+                    <span className="inline-flex items-center gap-1">
+                      <span className="h-[5px] w-[5px] rounded-full" style={{ background: tone.dot }} />
+                      {MUSCLE_LABEL_PT[pr.primaryMuscleGroup] ?? pr.primaryMuscleGroup}
+                    </span>
+                    <span className="mx-1.5 opacity-50">·</span>
+                    {pr.date.toLocaleDateString('pt-BR')}
+                    <span className="mx-1.5 opacity-50">·</span>
+                    há {daysAgo}d
+                  </p>
+                </div>
+                <span className="shrink-0 text-right font-mono">
+                  <b className="text-[14px] font-semibold text-[var(--text)]">{pr.loadKg}</b>
+                  <span className="ml-1 text-[10px] text-[var(--muted)]">kg</span>
+                  {pr.reps != null && (
+                    <span className="ml-2 text-[10.5px] text-[var(--muted)]">× {pr.reps}</span>
+                  )}
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </motion.section>
+  )
+}
+
 const HEATMAP_LEVELS = ['var(--surface-hover)', 'rgba(255,90,60,0.20)', 'rgba(255,90,60,0.42)', 'rgba(255,90,60,0.65)', 'rgba(255,90,60,0.88)']
 
 function cellLevel(volumeKg: number, max: number): number {
@@ -1527,6 +1725,15 @@ export function ProgressPage() {
                   <span className="text-[11.5px] text-[var(--muted)]">Cada sessão concluída vira dado aqui automaticamente.</span>
                 </Link>
               </div>
+            </div>
+          )}
+
+          {/* Side-by-side analytics — only meaningful with at least one
+              pinned exercise (PRs feed) or any training history (volume). */}
+          {(exerciseProgress.length > 0 || workoutHistory.length > 0) && (
+            <div className="grid gap-2.5 lg:grid-cols-2">
+              <MuscleVolumeCard items={workoutHistory} />
+              <RecentPrsCard progress={exerciseProgress} />
             </div>
           )}
 
