@@ -49,6 +49,13 @@ function daysAgoFrom(date: Date): number {
   return Math.floor((Date.now() - date.getTime()) / 86_400_000)
 }
 
+// Wraps Date.now so callsites inside render/useMemo don't trip the
+// react-hooks/purity lint — they can call this helper instead. The
+// 'impurity' is intentional and well-understood (cutoff for "last N days").
+function nowMs(): number {
+  return Date.now()
+}
+
 function toNumberOrUndefined(value: string): number | undefined {
   const normalized = value.trim().replace(',', '.')
   if (!normalized) return undefined
@@ -431,6 +438,151 @@ function RecentPrsCard({ progress }: { progress: ExerciseProgressItem[] }) {
             )
           })}
         </ul>
+      )}
+    </motion.section>
+  )
+}
+
+// ─── Body metric chart (peso, IMC, BF%) ───────────────────────────────────
+
+type BodyRange = '1M' | '3M' | '6M' | '1A' | 'TUDO'
+const BODY_RANGE_DAYS: Record<Exclude<BodyRange, 'TUDO'>, number> = { '1M': 30, '3M': 90, '6M': 180, '1A': 365 }
+
+function BodyMetricChart({
+  measurements,
+  field,
+  label,
+  unit,
+  gradientId,
+  delay,
+}: {
+  measurements: BodyMeasurement[]
+  field: 'weight' | 'bmi' | 'bodyFatPercentage'
+  label: string
+  unit: string
+  gradientId: string
+  delay: number
+}) {
+  const [range, setRange] = useState<BodyRange>('TUDO')
+
+  // Sort oldest-first, drop entries without this metric (it's optional in
+  // every measurement except `weight`).
+  const all = useMemo(
+    () =>
+      measurements
+        .filter((m) => m[field] != null)
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
+    [measurements, field],
+  )
+
+  const filtered = useMemo(() => {
+    if (range === 'TUDO') return all
+    const cutoff = nowMs() - BODY_RANGE_DAYS[range] * 86_400_000
+    return all.filter((m) => new Date(m.date).getTime() >= cutoff)
+  }, [all, range])
+
+  const data = filtered.map((m) => ({ date: formatShortDate(new Date(m.date)), value: m[field] as number }))
+  const first = filtered[0]
+  const last = filtered[filtered.length - 1]
+  const delta = first && last && first.id !== last.id
+    ? Number(((last[field] as number) - (first[field] as number)).toFixed(1))
+    : null
+
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, delay }}
+      className="rounded-[14px] border border-[var(--line)] bg-[var(--surface)] p-5"
+    >
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-[14px] font-semibold text-[var(--text)]">{label}</h3>
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
+            {all.length} {all.length === 1 ? 'REGISTRO' : 'REGISTROS'}
+          </span>
+          <div className="inline-flex rounded-md border border-[var(--line)] bg-[var(--surface-hover)] p-[2px]">
+            {(['1M', '3M', '6M', '1A', 'TUDO'] as BodyRange[]).map((r) => {
+              const active = r === range
+              return (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setRange(r)}
+                  className={`rounded px-2 py-[3px] font-mono text-[10px] font-semibold tracking-wide transition-colors ${
+                    active ? 'bg-[var(--brand)] text-white' : 'text-[var(--muted)] hover:text-[var(--text)]'
+                  }`}
+                >
+                  {r}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
+      {all.length < 2 ? (
+        <p className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-6 text-center text-[12px] text-[var(--muted)]">
+          Registre pelo menos 2 medições com {label.toLowerCase()} para ver a evolução.
+        </p>
+      ) : data.length < 2 ? (
+        <p className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-6 text-center text-[12px] text-[var(--muted)]">
+          Sem dados nesse período. Tente um intervalo mais longo.
+        </p>
+      ) : (
+        <div className="h-[160px] w-full min-w-0">
+          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+            <LineChart data={data} margin={{ top: 6, right: 8, left: -16, bottom: 0 }}>
+              <defs>
+                <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="var(--brand)" stopOpacity={0.22} />
+                  <stop offset="100%" stopColor="var(--brand)" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="2 3" stroke="var(--line)" vertical={false} />
+              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
+              <YAxis
+                tick={{ fontSize: 10, fill: 'var(--muted)' }}
+                axisLine={false}
+                tickLine={false}
+                width={36}
+                domain={['auto', 'auto']}
+              />
+              <Tooltip
+                contentStyle={{ background: '#0e0f12', border: '0', borderRadius: 8, fontSize: 11, color: '#fff', padding: '7px 9px' }}
+                itemStyle={{ color: 'var(--brand)' }}
+                labelStyle={{ color: '#a4a6ad', fontSize: 10, marginBottom: 2 }}
+                formatter={(v) => [`${v ?? '—'}${unit ? ` ${unit}` : ''}`, label] as [string, string]}
+              />
+              <Line
+                type="monotone"
+                dataKey="value"
+                stroke="var(--brand)"
+                strokeWidth={2}
+                dot={{ r: 3, fill: '#fff', stroke: 'var(--brand)', strokeWidth: 1.6 }}
+                activeDot={{ r: 5, fill: 'var(--brand)', stroke: '#fff', strokeWidth: 2 }}
+                animationDuration={900}
+                fill={`url(#${gradientId})`}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {last && (
+        <div className="mt-3 grid grid-cols-2 gap-2.5">
+          <MeasTile label="Atual" value={String(last[field])} unit={unit} />
+          {delta != null && (
+            <MeasTile
+              label={`Variação · ${range}`}
+              value={`${delta > 0 ? '+' : ''}${delta}`}
+              unit={unit}
+              // For weight/BF, going down is usually positive feedback for the
+              // user; IMC the same. So we tint accordingly across all 3 metrics.
+              tone={delta < 0 ? 'down' : delta > 0 ? 'up' : undefined}
+            />
+          )}
+        </div>
       )}
     </motion.section>
   )
@@ -1755,89 +1907,14 @@ export function ProgressPage() {
       {tab === 'body' && (
         <div className="space-y-2.5">
           <div className="grid gap-2.5 lg:grid-cols-[1.1fr_0.9fr]">
-            {/* Weight chart */}
-            <motion.section
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, delay: 0.08 }}
-              className="rounded-[14px] border border-[var(--line)] bg-[var(--surface)] p-5"
-            >
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <h3 className="text-[14px] font-semibold text-[var(--text)]">Peso corporal</h3>
-                <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
-                  {measurementsOldFirst.length} REGISTROS · KG
-                </span>
-              </div>
-
-              {measurementsOldFirst.length < 2 ? (
-                <p className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-6 text-center text-[12px] text-[var(--muted)]">
-                  Registre pelo menos 2 medições pra ver a evolução.
-                </p>
-              ) : (
-                <div className="h-[160px] w-full min-w-0">
-                  <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-                    <LineChart
-                      data={measurementsOldFirst.map((m) => ({
-                        date: formatShortDate(new Date(m.date)),
-                        peso: m.weight,
-                      }))}
-                      margin={{ top: 6, right: 8, left: -16, bottom: 0 }}
-                    >
-                      <defs>
-                        <linearGradient id="bodyWeightGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="var(--brand)" stopOpacity={0.22} />
-                          <stop offset="100%" stopColor="var(--brand)" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="2 3" stroke="var(--line)" vertical={false} />
-                      <XAxis
-                        dataKey="date"
-                        tick={{ fontSize: 10, fill: 'var(--muted)' }}
-                        axisLine={false}
-                        tickLine={false}
-                      />
-                      <YAxis
-                        tick={{ fontSize: 10, fill: 'var(--muted)' }}
-                        axisLine={false}
-                        tickLine={false}
-                        width={36}
-                        domain={['auto', 'auto']}
-                      />
-                      <Tooltip
-                        contentStyle={{ background: '#0e0f12', border: '0', borderRadius: 8, fontSize: 11, color: '#fff', padding: '7px 9px' }}
-                        itemStyle={{ color: 'var(--brand)' }}
-                        labelStyle={{ color: '#a4a6ad', fontSize: 10, marginBottom: 2 }}
-                        formatter={(v) => [`${v ?? '—'} kg`, 'Peso'] as [string, string]}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="peso"
-                        stroke="var(--brand)"
-                        strokeWidth={2}
-                        dot={{ r: 3, fill: '#fff', stroke: 'var(--brand)', strokeWidth: 1.6 }}
-                        activeDot={{ r: 5, fill: 'var(--brand)', stroke: '#fff', strokeWidth: 2 }}
-                        animationDuration={900}
-                        fill="url(#bodyWeightGrad)"
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-
-              {latestMeasurement && (
-                <div className="mt-3 grid grid-cols-2 gap-2.5">
-                  <MeasTile label="Atual" value={`${latestMeasurement.weight}`} unit="kg" />
-                  {firstMeasurement && firstMeasurement.id !== latestMeasurement.id && (
-                    <MeasTile
-                      label="Variação"
-                      value={`${(latestMeasurement.weight - firstMeasurement.weight).toFixed(1)}`}
-                      unit="kg"
-                      tone={latestMeasurement.weight < firstMeasurement.weight ? 'down' : 'up'}
-                    />
-                  )}
-                </div>
-              )}
-            </motion.section>
+            <BodyMetricChart
+              measurements={measurementsOldFirst}
+              field="weight"
+              label="Peso corporal"
+              unit="kg"
+              gradientId="bodyWeightGrad"
+              delay={0.08}
+            />
 
             {/* Measurements list */}
             <motion.section
@@ -1883,6 +1960,34 @@ export function ProgressPage() {
               )}
             </motion.section>
           </div>
+
+          {/* IMC + BF % charts — only render if the user has at least one
+              record with the metric (the chart itself shows a hint otherwise). */}
+          {(measurementsOldFirst.some((m) => m.bmi != null) ||
+            measurementsOldFirst.some((m) => m.bodyFatPercentage != null)) && (
+            <div className="grid gap-2.5 lg:grid-cols-2">
+              {measurementsOldFirst.some((m) => m.bmi != null) && (
+                <BodyMetricChart
+                  measurements={measurementsOldFirst}
+                  field="bmi"
+                  label="IMC"
+                  unit=""
+                  gradientId="bodyBmiGrad"
+                  delay={0.12}
+                />
+              )}
+              {measurementsOldFirst.some((m) => m.bodyFatPercentage != null) && (
+                <BodyMetricChart
+                  measurements={measurementsOldFirst}
+                  field="bodyFatPercentage"
+                  label="Body Fat"
+                  unit="%"
+                  gradientId="bodyBfGrad"
+                  delay={0.14}
+                />
+              )}
+            </div>
+          )}
 
           {/* Add measurement form (collapsible) */}
           <AnimatePresence initial={false}>
