@@ -2,6 +2,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ImageViewer } from '../components/common/ImageViewer'
+import { Skeleton } from '../components/common/Skeleton'
 import { useScrollLock } from '../hooks/useScrollLock'
 import {
   AreaChart, Area, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
@@ -188,12 +189,14 @@ type LoadPoint = {
 type LoadTooltipProps = {
   active?: boolean
   payload?: Array<{ payload?: LoadPoint }>
+  metric?: 'load' | 'volume'
 }
 
-function LoadTooltip({ active, payload }: LoadTooltipProps) {
+function LoadTooltip({ active, payload, metric = 'load' }: LoadTooltipProps) {
   if (!active || !payload || payload.length === 0) return null
   const p = payload[0]?.payload
   if (!p) return null
+  const big = metric === 'load' ? p.load : p.volume
   return (
     <div
       className="rounded-lg border-0 bg-[#0e0f12] px-3 py-2 font-mono text-white shadow-[0_8px_20px_-8px_rgba(0,0,0,0.5)]"
@@ -201,10 +204,10 @@ function LoadTooltip({ active, payload }: LoadTooltipProps) {
     >
       <div className="flex items-baseline gap-1.5">
         <span className="text-[15px] font-semibold tracking-tight text-[var(--brand)]">
-          {p.load}
+          {big.toLocaleString('pt-BR')}
         </span>
         <span className="text-[10px] text-[#a4a6ad]">kg</span>
-        {p.isPr && (
+        {metric === 'load' && p.isPr && (
           <span
             className="ml-1 rounded-full px-1.5 py-[1px] text-[9px] font-semibold tracking-wider"
             style={{ background: '#f4c443', color: '#5a4209' }}
@@ -215,16 +218,31 @@ function LoadTooltip({ active, payload }: LoadTooltipProps) {
       </div>
       <div className="mt-1 flex items-center gap-2 text-[10px] tracking-wide text-[#a4a6ad]">
         <span>{p.date}</span>
-        {p.reps != null && (
+        {metric === 'load' ? (
           <>
-            <span className="opacity-40">·</span>
-            <span>{p.reps} reps</span>
+            {p.reps != null && (
+              <>
+                <span className="opacity-40">·</span>
+                <span>{p.reps} reps</span>
+              </>
+            )}
+            {p.volume > 0 && (
+              <>
+                <span className="opacity-40">·</span>
+                <span>{p.volume.toLocaleString('pt-BR')}kg vol</span>
+              </>
+            )}
           </>
-        )}
-        {p.volume > 0 && (
+        ) : (
           <>
             <span className="opacity-40">·</span>
-            <span>{p.volume.toLocaleString('pt-BR')}kg vol</span>
+            <span>carga {p.load}kg</span>
+            {p.reps != null && (
+              <>
+                <span className="opacity-40">·</span>
+                <span>{p.reps} reps</span>
+              </>
+            )}
           </>
         )}
       </div>
@@ -243,6 +261,7 @@ function ExerciseCard({
   const tone = muscleTone(item.exercise.primaryMuscleGroup)
   const style = TONE_STYLE[tone]
   const [range, setRange] = useState<RangeFilter>('3M')
+  const [metric, setMetric] = useState<'load' | 'volume'>('load')
 
   const sortedAsc = useMemo(
     () => [...item.sessions].sort((a, b) => new Date(a.completedAt).getTime() - new Date(b.completedAt).getTime()),
@@ -328,9 +347,9 @@ function ExerciseCard({
   //   range > 30   → ~10% of the spread (max with a floor of 2)
   const yDomain = useMemo<[number | string, number | string]>(() => {
     if (chartData.length === 0) return [0, 'auto']
-    const loads = chartData.map((d) => d.load)
-    const min = Math.min(...loads)
-    const max = Math.max(...loads)
+    const values = chartData.map((d) => (metric === 'load' ? d.load : d.volume))
+    const min = Math.min(...values)
+    const max = Math.max(...values)
     const dataRange = max - min
 
     let padding: number
@@ -345,7 +364,7 @@ function ExerciseCard({
     }
 
     return [Math.max(0, min - padding), max + padding]
-  }, [chartData])
+  }, [chartData, metric])
 
   // Mini sparkline path (62×22) — collapsed-card trend indicator.
   const sparkPath = useMemo(() => {
@@ -519,28 +538,50 @@ function ExerciseCard({
                 </p>
               ) : (
                 <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3.5 pb-2.5">
-                  <div className="mb-2 flex items-center justify-between">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                     <span className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
-                      Carga máxima (kg) · {chartData.length} {chartData.length === 1 ? 'dia' : 'dias'}
+                      {metric === 'load' ? 'Carga máxima (kg)' : 'Volume total (kg)'} · {chartData.length} {chartData.length === 1 ? 'dia' : 'dias'}
                     </span>
-                    <div className="inline-flex rounded-md border border-[var(--line)] bg-[var(--surface)] p-[2px]">
-                      {(['1M', '3M', '1A'] as RangeFilter[]).map((r) => {
-                        const active = r === range
-                        return (
-                          <button
-                            key={r}
-                            type="button"
-                            onClick={() => setRange(r)}
-                            className={`rounded px-2 py-[3px] font-mono text-[10px] font-semibold tracking-wide transition-colors ${
-                              active
-                                ? 'bg-[var(--brand)] text-white'
-                                : 'text-[var(--muted)] hover:text-[var(--text)]'
-                            }`}
-                          >
-                            {r}
-                          </button>
-                        )
-                      })}
+                    <div className="flex items-center gap-1.5">
+                      {/* Metric toggle (carga × volume) — same visual lang as the range filter */}
+                      <div className="inline-flex rounded-md border border-[var(--line)] bg-[var(--surface)] p-[2px]">
+                        {(['load', 'volume'] as const).map((m) => {
+                          const active = m === metric
+                          return (
+                            <button
+                              key={m}
+                              type="button"
+                              onClick={() => setMetric(m)}
+                              className={`rounded px-2 py-[3px] font-mono text-[10px] font-semibold tracking-wide transition-colors ${
+                                active
+                                  ? 'bg-[var(--brand)] text-white'
+                                  : 'text-[var(--muted)] hover:text-[var(--text)]'
+                              }`}
+                            >
+                              {m === 'load' ? 'Carga' : 'Volume'}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      <div className="inline-flex rounded-md border border-[var(--line)] bg-[var(--surface)] p-[2px]">
+                        {(['1M', '3M', '1A'] as RangeFilter[]).map((r) => {
+                          const active = r === range
+                          return (
+                            <button
+                              key={r}
+                              type="button"
+                              onClick={() => setRange(r)}
+                              className={`rounded px-2 py-[3px] font-mono text-[10px] font-semibold tracking-wide transition-colors ${
+                                active
+                                  ? 'bg-[var(--brand)] text-white'
+                                  : 'text-[var(--muted)] hover:text-[var(--text)]'
+                              }`}
+                            >
+                              {r}
+                            </button>
+                          )
+                        })}
+                      </div>
                     </div>
                   </div>
                   <div className="h-[200px] w-full min-w-0">
@@ -575,11 +616,11 @@ function ExerciseCard({
                         />
                         <Tooltip
                           cursor={{ stroke: 'var(--brand)', strokeWidth: 1, strokeDasharray: '3 3', opacity: 0.6 }}
-                          content={<LoadTooltip />}
+                          content={<LoadTooltip metric={metric} />}
                         />
                         <Area
                           type="monotone"
-                          dataKey="load"
+                          dataKey={metric}
                           stroke="var(--brand)"
                           strokeWidth={2.2}
                           fill={`url(#load-${item.exercise.id})`}
@@ -588,8 +629,9 @@ function ExerciseCard({
                           animationDuration={900}
                           isAnimationActive
                         />
-                        {/* Gold dot on the all-time PR session, if it's within range */}
-                        {prInfo.prSessionId && chartData.some((d) => d.isPr) && (
+                        {/* Gold dot on the all-time PR session — only meaningful on the load
+                            metric (volume PR is a different beast, not tracked yet). */}
+                        {metric === 'load' && prInfo.prSessionId && chartData.some((d) => d.isPr) && (
                           <ReferenceDot
                             x={chartData.find((d) => d.isPr)!.date}
                             y={chartData.find((d) => d.isPr)!.load}
@@ -1030,7 +1072,21 @@ export function ProgressPage() {
         <p className="rounded-xl border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-500">{error}</p>
       )}
       {loading && (
-        <p className="font-mono text-[11px] text-[var(--muted)]">Carregando progresso…</p>
+        <div className="space-y-3" aria-label="Carregando progresso">
+          <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 space-y-3">
+            <Skeleton className="h-5 w-1/3" />
+            <Skeleton className="h-3 w-2/3" />
+            <Skeleton className="h-[140px] w-full" />
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {[0, 1].map((i) => (
+              <div key={i} className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 space-y-2">
+                <Skeleton className="h-4 w-1/2" />
+                <Skeleton className="h-[60px] w-full" />
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* ───── EXERCISE PANEL ───── */}
@@ -1115,12 +1171,48 @@ export function ProgressPage() {
 
           {/* Exercise cards */}
           {exerciseProgress.length === 0 && !loading && (
-            <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-8 text-center">
-              <Pin size={28} className="mx-auto mb-3 text-[var(--muted)]" />
-              <p className="text-sm font-bold text-[var(--text)]">Nenhum exercício fixado ainda</p>
-              <p className="mt-1 text-xs text-[var(--muted)]">
-                Busque um exercício acima e fixe pra começar a acompanhar sua evolução.
-              </p>
+            <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-6 sm:p-8">
+              <div className="text-center">
+                <Pin size={28} className="mx-auto mb-3 text-[var(--muted)]" />
+                <p className="text-sm font-bold text-[var(--text)]">Nenhum exercício fixado ainda</p>
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  Escolha um caminho rápido pra começar a acompanhar sua evolução.
+                </p>
+              </div>
+              <div className="mt-5 grid gap-2.5 sm:grid-cols-3">
+                <button
+                  type="button"
+                  onClick={() => searchInputRef.current?.focus()}
+                  className="group flex flex-col items-start gap-1.5 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3.5 text-left transition-colors hover:border-[var(--brand)]/60 hover:bg-[var(--brand)]/5"
+                >
+                  <span className="grid h-7 w-7 place-items-center rounded-lg bg-[var(--brand)]/15 text-[var(--brand-strong)]">
+                    <Pin size={13} />
+                  </span>
+                  <span className="text-[13px] font-semibold text-[var(--text)]">Fixar exercício</span>
+                  <span className="text-[11.5px] text-[var(--muted)]">Acompanha carga, reps e PRs do exercício escolhido.</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setTab('body'); setShowAddForm(true) }}
+                  className="group flex flex-col items-start gap-1.5 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3.5 text-left transition-colors hover:border-[var(--brand)]/60 hover:bg-[var(--brand)]/5"
+                >
+                  <span className="grid h-7 w-7 place-items-center rounded-lg bg-[var(--brand)]/15 text-[var(--brand-strong)]">
+                    <ImageIcon size={13} />
+                  </span>
+                  <span className="text-[13px] font-semibold text-[var(--text)]">Registrar foto</span>
+                  <span className="text-[11.5px] text-[var(--muted)]">Tire fotos periódicas pra ver a evolução visual.</span>
+                </button>
+                <Link
+                  to="/train"
+                  className="group flex flex-col items-start gap-1.5 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3.5 text-left transition-colors hover:border-[var(--brand)]/60 hover:bg-[var(--brand)]/5"
+                >
+                  <span className="grid h-7 w-7 place-items-center rounded-lg bg-[var(--brand)]/15 text-[var(--brand-strong)]">
+                    <Dumbbell size={13} />
+                  </span>
+                  <span className="text-[13px] font-semibold text-[var(--text)]">Ir treinar</span>
+                  <span className="text-[11.5px] text-[var(--muted)]">Cada sessão concluída vira dado aqui automaticamente.</span>
+                </Link>
+              </div>
             </div>
           )}
 
