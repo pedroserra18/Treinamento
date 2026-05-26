@@ -168,6 +168,219 @@ function pctDelta(current: number, previous: number): number | null {
   return Math.round(((current - previous) / previous) * 100)
 }
 
+// ─── Year activity heatmap ────────────────────────────────────────────────
+
+type HeatmapCell = {
+  date: Date
+  isoKey: string
+  volumeKg: number
+  exerciseCount: number
+  sessionCount: number
+}
+
+// Builds a 53×7 grid (52 full weeks + the current partial week) of daily
+// training summaries for the last ~year. Cells beyond today are returned
+// empty so we can render a fixed-shape grid without conditional gaps.
+function buildHeatmap(items: WorkoutSessionHistory[]): { columns: HeatmapCell[][]; months: { label: string; columnIndex: number }[] } {
+  // Anchor to "today, start of day" so the rightmost column ends on today.
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  // Find the Sunday before/on (today - 52 weeks). 53 columns total.
+  const start = new Date(today)
+  start.setDate(start.getDate() - 52 * 7)
+  start.setDate(start.getDate() - start.getDay()) // back up to Sunday
+
+  // Pre-aggregate sessions by ISO day so we don't loop O(days × sessions).
+  type Bucket = { volumeKg: number; exerciseSet: Set<string>; sessionCount: number }
+  const byDay = new Map<string, Bucket>()
+  for (const s of items) {
+    if (!s.endedAt) continue
+    const d = new Date(s.endedAt)
+    d.setHours(0, 0, 0, 0)
+    const key = d.toISOString().slice(0, 10)
+    const bucket = byDay.get(key) ?? { volumeKg: 0, exerciseSet: new Set<string>(), sessionCount: 0 }
+    bucket.sessionCount += 1
+    bucket.volumeKg += calcVolumeKg(s)
+    for (const h of s.history) bucket.exerciseSet.add(h.exercise.id)
+    byDay.set(key, bucket)
+  }
+
+  const columns: HeatmapCell[][] = []
+  const months: { label: string; columnIndex: number }[] = []
+  const cursor = new Date(start)
+  let lastMonth = -1
+  for (let col = 0; col < 53; col += 1) {
+    const week: HeatmapCell[] = []
+    for (let row = 0; row < 7; row += 1) {
+      const key = cursor.toISOString().slice(0, 10)
+      const bucket = byDay.get(key)
+      week.push({
+        date: new Date(cursor),
+        isoKey: key,
+        volumeKg: bucket ? Math.round(bucket.volumeKg) : 0,
+        exerciseCount: bucket ? bucket.exerciseSet.size : 0,
+        sessionCount: bucket ? bucket.sessionCount : 0,
+      })
+      cursor.setDate(cursor.getDate() + 1)
+    }
+    const colMonth = week[0].date.getMonth()
+    if (colMonth !== lastMonth) {
+      months.push({
+        label: week[0].date.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', ''),
+        columnIndex: col,
+      })
+      lastMonth = colMonth
+    }
+    columns.push(week)
+  }
+
+  return { columns, months }
+}
+
+const HEATMAP_LEVELS = ['var(--surface-hover)', 'rgba(255,90,60,0.20)', 'rgba(255,90,60,0.42)', 'rgba(255,90,60,0.65)', 'rgba(255,90,60,0.88)']
+
+function cellLevel(volumeKg: number, max: number): number {
+  if (volumeKg <= 0) return 0
+  if (max <= 0) return 0
+  const ratio = volumeKg / max
+  if (ratio < 0.25) return 1
+  if (ratio < 0.5) return 2
+  if (ratio < 0.8) return 3
+  return 4
+}
+
+function YearActivityHeatmap({ items }: { items: WorkoutSessionHistory[] }) {
+  const { columns, months } = useMemo(() => buildHeatmap(items), [items])
+  // Avoids the "impure Date.now in render" lint — computed once per mount
+  // since the page is not long-lived enough for the date to roll over here.
+  const todayIso = useMemo(() => {
+    const d = new Date()
+    d.setHours(0, 0, 0, 0)
+    return d.toISOString().slice(0, 10)
+  }, [])
+  const maxVolume = useMemo(
+    () => columns.reduce((m, col) => col.reduce((mm, c) => Math.max(mm, c.volumeKg), m), 0),
+    [columns],
+  )
+  const [hovered, setHovered] = useState<HeatmapCell | null>(null)
+
+  const totalSessions = useMemo(
+    () => columns.reduce((s, col) => s + col.reduce((ss, c) => ss + c.sessionCount, 0), 0),
+    [columns],
+  )
+
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.32, delay: 0.06 }}
+      className="rounded-[16px] border border-[var(--line)] bg-[var(--surface)] p-4 sm:p-5"
+    >
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h3 className="text-[14px] font-semibold text-[var(--text)]">Atividade do ano</h3>
+          <p className="mt-0.5 font-mono text-[10.5px] uppercase tracking-[0.14em] text-[var(--muted)]">
+            {totalSessions} {totalSessions === 1 ? 'sessão' : 'sessões'} · {columns.length} semanas
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5 font-mono text-[10px] text-[var(--muted)]">
+          <span>Menos</span>
+          {HEATMAP_LEVELS.map((bg, i) => (
+            <span
+              key={i}
+              className="block h-2.5 w-2.5 rounded-[2px] border border-[var(--line)]"
+              style={{ background: bg }}
+            />
+          ))}
+          <span>Mais</span>
+        </div>
+      </div>
+
+      {/* Horizontal scroll on small screens so the full year stays legible. */}
+      <div className="-mx-1 overflow-x-auto pb-1">
+        <div className="inline-flex gap-[3px] px-1" onMouseLeave={() => setHovered(null)}>
+          {/* Days-of-week column (S T Q S labels every other row) */}
+          <div className="mr-1 hidden flex-col justify-between py-[14px] sm:flex">
+            {['', 'Seg', '', 'Qua', '', 'Sex', ''].map((label, i) => (
+              <span key={i} className="block h-2.5 font-mono text-[9px] leading-[10px] text-[var(--muted)]">
+                {label}
+              </span>
+            ))}
+          </div>
+
+          <div className="relative">
+            {/* Month labels row */}
+            <div className="relative h-3.5">
+              {months.map((m) => (
+                <span
+                  key={`${m.label}-${m.columnIndex}`}
+                  className="absolute top-0 font-mono text-[9.5px] uppercase tracking-wider text-[var(--muted)]"
+                  style={{ left: m.columnIndex * (10 + 3) }}
+                >
+                  {m.label}
+                </span>
+              ))}
+            </div>
+
+            <div className="flex gap-[3px]">
+              {columns.map((week, colIdx) => (
+                <div key={colIdx} className="flex flex-col gap-[3px]">
+                  {week.map((cell) => {
+                    const isFuture = cell.isoKey > todayIso
+                    const lvl = cellLevel(cell.volumeKg, maxVolume)
+                    return (
+                      <button
+                        key={cell.isoKey}
+                        type="button"
+                        disabled={isFuture}
+                        onMouseEnter={() => setHovered(cell)}
+                        onFocus={() => setHovered(cell)}
+                        className="block h-2.5 w-2.5 rounded-[2px] border transition-transform hover:scale-125 disabled:cursor-default disabled:opacity-40"
+                        style={{
+                          background: isFuture ? 'transparent' : HEATMAP_LEVELS[lvl],
+                          borderColor: isFuture ? 'transparent' : 'var(--line)',
+                        }}
+                        aria-label={`${cell.date.toLocaleDateString('pt-BR')} · ${cell.sessionCount} sessão`}
+                      />
+                    )
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Hover tooltip footer — keeps the layout stable instead of using a
+          floating tooltip that fights the horizontal scroll container. */}
+      <div className="mt-2 min-h-[18px] font-mono text-[11px] text-[var(--muted)]">
+        {hovered ? (
+          hovered.sessionCount > 0 ? (
+            <span>
+              <b className="text-[var(--text)]">
+                {hovered.date.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })}
+              </b>
+              {' · '}
+              {hovered.sessionCount} {hovered.sessionCount === 1 ? 'sessão' : 'sessões'}
+              {' · '}
+              {hovered.exerciseCount} exercícios
+              {' · '}
+              vol {hovered.volumeKg.toLocaleString('pt-BR')}kg
+            </span>
+          ) : (
+            <span>
+              {hovered.date.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })} · sem treino
+            </span>
+          )
+        ) : (
+          <span>Passe o mouse sobre um quadrado para ver o dia.</span>
+        )}
+      </div>
+    </motion.section>
+  )
+}
+
 // New PR within the current month per pinned exercise. A "PR" here is a
 // session whose maxLoadKg strictly exceeds the max of every earlier session
 // for that same exercise.
@@ -896,10 +1109,10 @@ export function ProgressPage() {
       const [progressData, bodyData, historyData] = await Promise.all([
         getExerciseProgress(authorizedFetch),
         listBodyMeasurements(authorizedFetch),
-        // History feeds the streak, deltas, sparklines and the heatmap, so we
-        // pull enough for ~8 weeks of context. Don't fail the whole page if
-        // this one errors out.
-        listWorkoutHistory(authorizedFetch, 1, 200).catch(() => ({ items: [], page: 1, pageSize: 200, total: 0 })),
+        // History feeds the streak, deltas, sparklines and the year heatmap,
+        // so we pull a year's worth. Don't fail the whole page if this one
+        // errors out.
+        listWorkoutHistory(authorizedFetch, 1, 365).catch(() => ({ items: [], page: 1, pageSize: 365, total: 0 })),
       ])
 
       setExerciseProgress(progressData.items)
@@ -1156,6 +1369,9 @@ export function ProgressPage() {
           </div>
         </div>
       </motion.section>
+
+      {/* ───── YEAR ACTIVITY HEATMAP ───── */}
+      {!loading && <YearActivityHeatmap items={workoutHistory} />}
 
       {/* ───── TABS ───── */}
       <motion.div
