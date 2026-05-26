@@ -103,6 +103,71 @@ function computeCardio7D(items: WorkoutSessionHistory[]): number {
   return Math.round(totalSec / 60)
 }
 
+// Aggregates the hero metric per rolling 7-day bucket, ending NOW. Index 0
+// is the oldest bucket, last index is the current 7d window. Used both for
+// the sparkline series and to derive "Δ vs semana passada".
+function bucketByWeek(
+  items: WorkoutSessionHistory[],
+  weeks: number,
+  reducer: (s: WorkoutSessionHistory) => number,
+): number[] {
+  const buckets = new Array<number>(weeks).fill(0)
+  const now = Date.now()
+  for (const s of items) {
+    if (!s.endedAt) continue
+    const age = now - new Date(s.endedAt).getTime()
+    if (age < 0) continue
+    const bucketFromEnd = Math.floor(age / (7 * 86_400_000))
+    if (bucketFromEnd >= weeks) continue
+    const idx = weeks - 1 - bucketFromEnd
+    buckets[idx] += reducer(s)
+  }
+  return buckets
+}
+
+function volumeByWeek(items: WorkoutSessionHistory[], weeks: number): number[] {
+  return bucketByWeek(items, weeks, (s) => calcVolumeKg(s))
+}
+
+function cardioMinutesByWeek(items: WorkoutSessionHistory[], weeks: number): number[] {
+  return bucketByWeek(items, weeks, (s) =>
+    Math.round((s.cardioEntries ?? []).reduce((sum, c) => sum + c.durationSec, 0) / 60),
+  )
+}
+
+// Same idea but per calendar month, ending on the CURRENT month. Used by
+// the "PRs no mês" hero stat — counting PRs week-by-week is too noisy.
+function prsByMonth(progress: ExerciseProgressItem[], months: number): number[] {
+  const buckets = new Array<number>(months).fill(0)
+  const now = new Date()
+  const currentKey = now.getFullYear() * 12 + now.getMonth()
+  for (const item of progress) {
+    const sorted = [...item.sessions].sort(
+      (a, b) => new Date(a.completedAt).getTime() - new Date(b.completedAt).getTime(),
+    )
+    let runningMax = -Infinity
+    for (const s of sorted) {
+      const load = s.maxLoadKg ?? 0
+      if (load > runningMax) {
+        const d = new Date(s.completedAt)
+        const key = d.getFullYear() * 12 + d.getMonth()
+        const diff = currentKey - key
+        if (diff >= 0 && diff < months) {
+          const idx = months - 1 - diff
+          buckets[idx] += 1
+        }
+        runningMax = load
+      }
+    }
+  }
+  return buckets
+}
+
+function pctDelta(current: number, previous: number): number | null {
+  if (previous === 0) return current === 0 ? 0 : null
+  return Math.round(((current - previous) / previous) * 100)
+}
+
 // New PR within the current month per pinned exercise. A "PR" here is a
 // session whose maxLoadKg strictly exceeds the max of every earlier session
 // for that same exercise.
@@ -831,9 +896,10 @@ export function ProgressPage() {
       const [progressData, bodyData, historyData] = await Promise.all([
         getExerciseProgress(authorizedFetch),
         listBodyMeasurements(authorizedFetch),
-        // History feeds the streak + last-session badge. Don't fail the whole
-        // page if this one errors out.
-        listWorkoutHistory(authorizedFetch, 1, 50).catch(() => ({ items: [], page: 1, pageSize: 50, total: 0 })),
+        // History feeds the streak, deltas, sparklines and the heatmap, so we
+        // pull enough for ~8 weeks of context. Don't fail the whole page if
+        // this one errors out.
+        listWorkoutHistory(authorizedFetch, 1, 200).catch(() => ({ items: [], page: 1, pageSize: 200, total: 0 })),
       ])
 
       setExerciseProgress(progressData.items)
@@ -892,6 +958,15 @@ export function ProgressPage() {
   const streak = useMemo(() => computeStreak(workoutHistory), [workoutHistory])
   const cardio7d = useMemo(() => computeCardio7D(workoutHistory), [workoutHistory])
   const lastSession = useMemo(() => lastSessionDate(exerciseProgress, workoutHistory), [exerciseProgress, workoutHistory])
+
+  // Weekly buckets + deltas for the hero. 8 weeks covers ~2 months which is
+  // a good sparkline length without making the deltas misleading.
+  const volumeWeeks = useMemo(() => volumeByWeek(workoutHistory, 8), [workoutHistory])
+  const cardioWeeks = useMemo(() => cardioMinutesByWeek(workoutHistory, 8), [workoutHistory])
+  const prsMonths = useMemo(() => prsByMonth(exerciseProgress, 6), [exerciseProgress])
+  const volumeDelta = pctDelta(volumeWeeks[7] ?? 0, volumeWeeks[6] ?? 0)
+  const cardioDelta = pctDelta(cardioWeeks[7] ?? 0, cardioWeeks[6] ?? 0)
+  const prsDelta = pctDelta(prsMonths[5] ?? 0, prsMonths[4] ?? 0)
 
   // Body panel derived data — measurements sorted oldest-first for chart,
   // newest-first for the deltas/photo timeline.
@@ -1051,9 +1126,32 @@ export function ProgressPage() {
           </div>
 
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-5 sm:text-right">
-            <HeroStat label="Volume 7D" value={volume7d.toLocaleString('pt-BR')} unit="kg" tone="brand" />
-            <HeroStat label="Cardio 7D" value={String(cardio7d)} unit="min" tone="default" />
-            <HeroStat label="PRs no mês" value={String(prsThisMonth)} tone="default" />
+            <HeroStat
+              label="Volume 7D"
+              value={volume7d.toLocaleString('pt-BR')}
+              unit="kg"
+              tone="brand"
+              delta={volumeDelta}
+              deltaLabel="vs 7 dias anteriores"
+              sparkline={volumeWeeks}
+            />
+            <HeroStat
+              label="Cardio 7D"
+              value={String(cardio7d)}
+              unit="min"
+              tone="default"
+              delta={cardioDelta}
+              deltaLabel="vs 7 dias anteriores"
+              sparkline={cardioWeeks}
+            />
+            <HeroStat
+              label="PRs no mês"
+              value={String(prsThisMonth)}
+              tone="default"
+              delta={prsDelta}
+              deltaLabel="vs mês anterior"
+              sparkline={prsMonths}
+            />
             <HeroStat label="Sequência" value={String(streak)} unit="dias" tone="default" />
           </div>
         </div>
@@ -1592,16 +1690,55 @@ export function ProgressPage() {
 
 // ─── Small subcomponents (declared after the page to keep the layout) ─────
 
+function HeroSparkline({ values, color }: { values: number[]; color: string }) {
+  if (values.length < 2) return null
+  const W = 72, H = 22
+  const max = Math.max(...values, 1)
+  const min = Math.min(...values, 0)
+  const range = Math.max(1, max - min)
+  const step = W / Math.max(1, values.length - 1)
+  const points = values
+    .map((v, i) => ({
+      x: i * step,
+      y: H - 2 - ((v - min) / range) * (H - 4),
+    }))
+  const d = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ')
+  const area = `${d} L ${W} ${H} L 0 ${H} Z`
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-[22px] w-[72px]" aria-hidden>
+      <path d={area} fill={color} fillOpacity={0.18} stroke="none" />
+      <path d={d} fill="none" stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 function HeroStat({
-  label, value, unit, tone,
+  label, value, unit, tone, delta, deltaLabel, sparkline,
 }: {
   label: string
   value: string
   unit?: string
   tone: 'brand' | 'default'
+  delta?: number | null
+  deltaLabel?: string
+  sparkline?: number[]
 }) {
+  const sparkColor = tone === 'brand' ? 'var(--brand)' : 'var(--muted)'
+  const deltaIsUp = delta != null && delta > 0
+  const deltaIsDown = delta != null && delta < 0
+  const deltaClass =
+    delta == null
+      ? 'text-[var(--muted)]'
+      : deltaIsUp
+        ? 'text-emerald-600 dark:text-emerald-400'
+        : deltaIsDown
+          ? 'text-red-500'
+          : 'text-[var(--muted)]'
+  const deltaText =
+    delta == null ? '—' : delta === 0 ? '±0%' : `${deltaIsUp ? '▲ +' : '▼ '}${Math.abs(delta)}%`
+
   return (
-    <div className="text-right">
+    <div className="sm:text-right">
       <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
         {label}
       </p>
@@ -1613,6 +1750,16 @@ function HeroStat({
         {value}
         {unit && <span className="ml-1 font-mono text-[11px] font-medium text-[var(--muted)]">{unit}</span>}
       </p>
+      {(sparkline || delta != null) && (
+        <div className="mt-1.5 flex items-center justify-start gap-1.5 sm:justify-end">
+          {sparkline && <HeroSparkline values={sparkline} color={sparkColor} />}
+          {(delta != null || deltaLabel) && (
+            <span className={`font-mono text-[10px] font-semibold ${deltaClass}`} title={deltaLabel}>
+              {deltaText}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   )
 }
