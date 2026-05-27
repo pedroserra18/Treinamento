@@ -34,7 +34,7 @@ import {
   Activity, ArrowLeft, ChevronDown, Dumbbell, GripVertical, Image as ImageIcon, Pin, Plus, Search,
   Trash2, TrendingUp, X as XIcon,
 } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 
 // ─── Formatters ───────────────────────────────────────────────────────────
 
@@ -1417,7 +1417,25 @@ function TabSwitcher({
 export function ProgressPage() {
   const { authorizedFetch } = useAuth()
 
-  const [tab, setTab] = useState<'exercise' | 'body'>('exercise')
+  // Tab lives in the URL (`?tab=body`) so sharing a deep link lands on the
+  // right panel and a hard refresh preserves where the user was.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const urlTab = searchParams.get('tab')
+  const tab: 'exercise' | 'body' = urlTab === 'body' ? 'body' : 'exercise'
+  const setTab = useCallback(
+    (next: 'exercise' | 'body') => {
+      setSearchParams(
+        (prev) => {
+          const params = new URLSearchParams(prev)
+          if (next === 'exercise') params.delete('tab')
+          else params.set('tab', next)
+          return params
+        },
+        { replace: true },
+      )
+    },
+    [setSearchParams],
+  )
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -2260,7 +2278,7 @@ export function ProgressPage() {
               className="rounded-[14px] border border-[var(--line)] bg-[var(--surface)] p-5"
             >
               <h3 className="mb-3 text-[14px] font-semibold text-[var(--text)]">Histórico corporal</h3>
-              <div className="grid gap-2.5 sm:grid-cols-2">
+              <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {measurementsNewFirst.map((m) => (
                   <article key={m.id} className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3">
                     <button
