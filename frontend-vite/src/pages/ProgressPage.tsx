@@ -186,17 +186,21 @@ type HeatmapCell = {
 // Builds a 53×7 grid (52 full weeks + the current partial week) of daily
 // training summaries for the last ~year. Cells beyond today are returned
 // empty so we can render a fixed-shape grid without conditional gaps.
-function buildHeatmap(days: ProgressSummaryDay[]): { columns: HeatmapCell[][]; months: { label: string; columnIndex: number }[] } {
-  // Anchor to "today, start of day" so the rightmost column ends on today.
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-
-  // Find the Sunday before/on (today - 52 weeks). 53 columns total.
-  const start = new Date(today)
-  start.setDate(start.getDate() - 52 * 7)
+function buildHeatmap(days: ProgressSummaryDay[], year: number): { columns: HeatmapCell[][]; months: { label: string; columnIndex: number }[] } {
+  // Calendar-year grid: starts on the Sunday before Jan 1 and runs until
+  // the Saturday after Dec 31, so the entire year fits cleanly in 53
+  // columns with no awkward leading/trailing partial weeks.
+  const start = new Date(year, 0, 1)
+  start.setHours(0, 0, 0, 0)
   start.setDate(start.getDate() - start.getDay()) // back up to Sunday
 
-  // Server already aggregated per day — just index by ISO key for O(1) lookup.
+  const end = new Date(year, 11, 31)
+  end.setHours(0, 0, 0, 0)
+  end.setDate(end.getDate() + (6 - end.getDay())) // forward to Saturday
+
+  const totalDays = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1
+  const totalColumns = Math.ceil(totalDays / 7)
+
   const byDay = new Map<string, ProgressSummaryDay>()
   for (const d of days) byDay.set(d.date, d)
 
@@ -204,7 +208,7 @@ function buildHeatmap(days: ProgressSummaryDay[]): { columns: HeatmapCell[][]; m
   const months: { label: string; columnIndex: number }[] = []
   const cursor = new Date(start)
   let lastMonth = -1
-  for (let col = 0; col < 53; col += 1) {
+  for (let col = 0; col < totalColumns; col += 1) {
     const week: HeatmapCell[] = []
     for (let row = 0; row < 7; row += 1) {
       const key = cursor.toISOString().slice(0, 10)
@@ -218,8 +222,11 @@ function buildHeatmap(days: ProgressSummaryDay[]): { columns: HeatmapCell[][]; m
       })
       cursor.setDate(cursor.getDate() + 1)
     }
+    // Month label anchors on the first row of the column when the month
+    // first appears, and we skip columns that only belong to the prior year.
     const colMonth = week[0].date.getMonth()
-    if (colMonth !== lastMonth) {
+    const colYear = week[0].date.getFullYear()
+    if (colYear === year && colMonth !== lastMonth) {
       months.push({
         label: week[0].date.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', ''),
         columnIndex: col,
@@ -347,8 +354,41 @@ function listRecentPrs(progress: ExerciseProgressItem[], limit: number): RecentP
   return prs.sort((a, b) => b.date.getTime() - a.date.getTime()).slice(0, limit)
 }
 
+// Builds the full sequence of PRs (load + delta) for one exercise so we
+// can expand a single row in the recent-PRs feed into its full history.
+type PrTimelineEntry = { date: Date; loadKg: number; reps: number | null; deltaKg: number | null }
+function listAllPrsForExercise(item: ExerciseProgressItem): PrTimelineEntry[] {
+  const sorted = [...item.sessions].sort(
+    (a, b) => new Date(a.completedAt).getTime() - new Date(b.completedAt).getTime(),
+  )
+  const entries: PrTimelineEntry[] = []
+  let prev = 0
+  for (const s of sorted) {
+    const load = s.maxLoadKg ?? 0
+    if (load > prev && load > 0) {
+      entries.push({
+        date: new Date(s.completedAt),
+        loadKg: load,
+        reps: s.maxReps,
+        deltaKg: prev > 0 ? Number((load - prev).toFixed(1)) : null,
+      })
+      prev = load
+    }
+  }
+  return entries.reverse() // newest first
+}
+
 function RecentPrsCard({ progress }: { progress: ExerciseProgressItem[] }) {
   const prs = useMemo(() => listRecentPrs(progress, 8), [progress])
+  const [expandedExerciseId, setExpandedExerciseId] = useState<string | null>(null)
+  const expandedProgress = useMemo(
+    () => (expandedExerciseId ? progress.find((p) => p.exercise.id === expandedExerciseId) ?? null : null),
+    [expandedExerciseId, progress],
+  )
+  const expandedTimeline = useMemo(
+    () => (expandedProgress ? listAllPrsForExercise(expandedProgress) : []),
+    [expandedProgress],
+  )
 
   return (
     <motion.section
@@ -372,38 +412,78 @@ function RecentPrsCard({ progress }: { progress: ExerciseProgressItem[] }) {
           {prs.map((pr, idx) => {
             const tone = TONE_STYLE[muscleTone(pr.primaryMuscleGroup)]
             const daysAgo = daysAgoFrom(pr.date)
+            const isExpanded = expandedExerciseId === pr.exerciseId
             return (
-              <li
-                key={`${pr.exerciseId}-${pr.date.toISOString()}-${idx}`}
-                className="flex items-center gap-3 rounded-[10px] border border-[#f1c84a]/40 bg-gradient-to-r from-[#fffaea] to-[var(--surface-hover)] px-3 py-2 dark:from-[#3d2e09]/40 dark:to-[var(--surface-hover)]"
-              >
-                <span
-                  className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-[12px] font-bold"
-                  style={{ background: '#f4c443', color: '#5a4209' }}
-                  aria-hidden
+              <li key={`${pr.exerciseId}-${pr.date.toISOString()}-${idx}`}>
+                <button
+                  type="button"
+                  onClick={() => setExpandedExerciseId(isExpanded ? null : pr.exerciseId)}
+                  aria-expanded={isExpanded}
+                  className={`flex w-full items-center gap-3 rounded-[10px] border border-[#f1c84a]/40 bg-gradient-to-r from-[#fffaea] to-[var(--surface-hover)] px-3 py-2 text-left transition-colors hover:from-[#fff5d6] dark:from-[#3d2e09]/40 dark:to-[var(--surface-hover)] ${
+                    isExpanded ? 'ring-2 ring-[#f1c84a]/60' : ''
+                  }`}
                 >
-                  ★
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] font-semibold text-[var(--text)]">{pr.exerciseName}</p>
-                  <p className="mt-0.5 font-mono text-[10.5px] text-[var(--muted)]">
-                    <span className="inline-flex items-center gap-1">
-                      <span className="h-[5px] w-[5px] rounded-full" style={{ background: tone.dot }} />
-                      {MUSCLE_LABEL_PT[pr.primaryMuscleGroup] ?? pr.primaryMuscleGroup}
-                    </span>
-                    <span className="mx-1.5 opacity-50">·</span>
-                    {pr.date.toLocaleDateString('pt-BR')}
-                    <span className="mx-1.5 opacity-50">·</span>
-                    há {daysAgo}d
-                  </p>
-                </div>
-                <span className="shrink-0 text-right font-mono">
-                  <b className="text-[14px] font-semibold text-[var(--text)]">{pr.loadKg}</b>
-                  <span className="ml-1 text-[10px] text-[var(--muted)]">kg</span>
-                  {pr.reps != null && (
-                    <span className="ml-2 text-[10.5px] text-[var(--muted)]">× {pr.reps}</span>
+                  <span
+                    className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-[12px] font-bold"
+                    style={{ background: '#f4c443', color: '#5a4209' }}
+                    aria-hidden
+                  >
+                    ★
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[13px] font-semibold text-[var(--text)]">{pr.exerciseName}</p>
+                    <p className="mt-0.5 font-mono text-[10.5px] text-[var(--muted)]">
+                      <span className="inline-flex items-center gap-1">
+                        <span className="h-[5px] w-[5px] rounded-full" style={{ background: tone.dot }} />
+                        {MUSCLE_LABEL_PT[pr.primaryMuscleGroup] ?? pr.primaryMuscleGroup}
+                      </span>
+                      <span className="mx-1.5 opacity-50">·</span>
+                      {pr.date.toLocaleDateString('pt-BR')}
+                      <span className="mx-1.5 opacity-50">·</span>
+                      há {daysAgo}d
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-right font-mono">
+                    <b className="text-[14px] font-semibold text-[var(--text)]">{pr.loadKg}</b>
+                    <span className="ml-1 text-[10px] text-[var(--muted)]">kg</span>
+                    {pr.reps != null && (
+                      <span className="ml-2 text-[10.5px] text-[var(--muted)]">× {pr.reps}</span>
+                    )}
+                  </span>
+                  <ChevronDown
+                    size={14}
+                    className={`shrink-0 text-[var(--muted)] transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                  />
+                </button>
+                <AnimatePresence initial={false}>
+                  {isExpanded && (
+                    <motion.div
+                      key="timeline"
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+                      className="overflow-hidden"
+                    >
+                      <ol className="mt-2 space-y-1 border-l-2 border-[#f1c84a]/40 pl-3">
+                        {expandedTimeline.map((entry, i) => (
+                          <li key={`${entry.date.toISOString()}-${i}`} className="flex items-baseline gap-2 font-mono text-[11px] text-[var(--muted)]">
+                            <b className="text-[var(--text)]">{entry.loadKg}<span className="ml-0.5 text-[9.5px] text-[var(--muted)]">kg</span></b>
+                            {entry.reps != null && <span className="text-[10px]">× {entry.reps}</span>}
+                            <span className="opacity-50">·</span>
+                            <span>{entry.date.toLocaleDateString('pt-BR')}</span>
+                            {entry.deltaKg != null && entry.deltaKg > 0 && (
+                              <span className="text-emerald-600 dark:text-emerald-400">▲ +{entry.deltaKg}kg</span>
+                            )}
+                            {i === expandedTimeline.length - 1 && (
+                              <span className="text-[9.5px] uppercase tracking-wider opacity-70">primeiro PR</span>
+                            )}
+                          </li>
+                        ))}
+                      </ol>
+                    </motion.div>
                   )}
-                </span>
+                </AnimatePresence>
               </li>
             )
           })}
@@ -570,10 +650,16 @@ function cellLevel(volumeKg: number, max: number): number {
   return 4
 }
 
-function YearActivityHeatmap({ days }: { days: ProgressSummaryDay[] }) {
-  const { columns, months } = useMemo(() => buildHeatmap(days), [days])
-  // Avoids the "impure Date.now in render" lint — computed once per mount
-  // since the page is not long-lived enough for the date to roll over here.
+function YearActivityHeatmap({
+  days, year, availableYears, onYearChange, loading,
+}: {
+  days: ProgressSummaryDay[]
+  year: number
+  availableYears: number[]
+  onYearChange: (year: number) => void
+  loading?: boolean
+}) {
+  const { columns, months } = useMemo(() => buildHeatmap(days, year), [days, year])
   const todayIso = useMemo(() => {
     const d = new Date()
     d.setHours(0, 0, 0, 0)
@@ -599,21 +685,44 @@ function YearActivityHeatmap({ days }: { days: ProgressSummaryDay[] }) {
     >
       <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h3 className="text-[14px] font-semibold text-[var(--text)]">Atividade do ano</h3>
+          <h3 className="text-[14px] font-semibold text-[var(--text)]">
+            Atividade · {year}
+            {loading && <span className="ml-2 font-mono text-[10px] text-[var(--muted)]">carregando…</span>}
+          </h3>
           <p className="mt-0.5 font-mono text-[10.5px] uppercase tracking-[0.14em] text-[var(--muted)]">
-            {totalSessions} {totalSessions === 1 ? 'sessão' : 'sessões'} · {columns.length} semanas
+            {totalSessions} {totalSessions === 1 ? 'sessão' : 'sessões'}
           </p>
         </div>
-        <div className="flex items-center gap-1.5 font-mono text-[10px] text-[var(--muted)]">
-          <span>Menos</span>
-          {HEATMAP_LEVELS.map((bg, i) => (
-            <span
-              key={i}
-              className="block h-2.5 w-2.5 rounded-[2px] border border-[var(--line)]"
-              style={{ background: bg }}
-            />
-          ))}
-          <span>Mais</span>
+        <div className="flex items-center gap-2">
+          {/* Year pills — small enough to fit alongside the legend on lg. */}
+          <div className="inline-flex rounded-md border border-[var(--line)] bg-[var(--surface-hover)] p-[2px]">
+            {availableYears.map((y) => {
+              const active = y === year
+              return (
+                <button
+                  key={y}
+                  type="button"
+                  onClick={() => onYearChange(y)}
+                  className={`rounded px-2 py-[3px] font-mono text-[10.5px] font-semibold tracking-wide transition-colors ${
+                    active ? 'bg-[var(--brand)] text-white' : 'text-[var(--muted)] hover:text-[var(--text)]'
+                  }`}
+                >
+                  {y}
+                </button>
+              )
+            })}
+          </div>
+          <div className="hidden items-center gap-1.5 font-mono text-[10px] text-[var(--muted)] sm:flex">
+            <span>Menos</span>
+            {HEATMAP_LEVELS.map((bg, i) => (
+              <span
+                key={i}
+                className="block h-2.5 w-2.5 rounded-[2px] border border-[var(--line)]"
+                style={{ background: bg }}
+              />
+            ))}
+            <span>Mais</span>
+          </div>
         </div>
       </div>
 
@@ -1459,6 +1568,10 @@ export function ProgressPage() {
 
   // Optional fetch — only used to feed the hero stats. Failures are tolerated.
   const [summary, setSummary] = useState<ProgressSummaryResponse | null>(null)
+  // Year shown in the activity heatmap. Defaults to current year and can
+  // be swapped via the selector — triggers a small refetch of `/summary`.
+  const [heatmapYear, setHeatmapYear] = useState<number>(() => new Date().getFullYear())
+  const [refetchingSummary, setRefetchingSummary] = useState(false)
 
   const [measurements, setMeasurements] = useState<BodyMeasurement[]>([])
   const [selectedPhoto, setSelectedPhoto] = useState<{ url: string; date: string } | null>(null)
@@ -1516,6 +1629,30 @@ export function ProgressPage() {
   }, [authorizedFetch])
 
   useEffect(() => { void loadAll() }, [loadAll])
+
+  // Year selector triggers a focused refetch of just the summary, not the
+  // whole page payload. Skips the first run (current year matches loadAll's
+  // default) so we don't double-fetch on mount.
+  const firstYearRunRef = useRef(true)
+  useEffect(() => {
+    if (firstYearRunRef.current) {
+      firstYearRunRef.current = false
+      return
+    }
+    let cancelled = false
+    setRefetchingSummary(true)
+    getProgressSummary(authorizedFetch, heatmapYear)
+      .then((data) => {
+        if (!cancelled) setSummary(data)
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Falha ao carregar ano')
+      })
+      .finally(() => {
+        if (!cancelled) setRefetchingSummary(false)
+      })
+    return () => { cancelled = true }
+  }, [heatmapYear, authorizedFetch])
 
   // Debounced exercise search.
   useEffect(() => {
@@ -1780,7 +1917,21 @@ export function ProgressPage() {
       </motion.section>
 
       {/* ───── YEAR ACTIVITY HEATMAP ───── */}
-      {!loading && <YearActivityHeatmap days={summaryDays} />}
+      {!loading && (
+        <YearActivityHeatmap
+          days={summaryDays}
+          year={heatmapYear}
+          // 3 years is enough context for someone training for a while; the
+          // selector stays a single line on mobile and pings the endpoint
+          // (which already 60s-caches) when the user switches.
+          availableYears={(() => {
+            const current = new Date().getFullYear()
+            return [current - 2, current - 1, current]
+          })()}
+          onYearChange={setHeatmapYear}
+          loading={refetchingSummary}
+        />
+      )}
 
       {/* ───── TABS ───── */}
       <motion.div
