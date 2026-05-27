@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { createPortal } from 'react-dom'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { useScrollLock } from '../hooks/useScrollLock'
 import {
   Flame, Layers, Dumbbell, Plus, Play, Search, Pencil, Sparkles, MoreHorizontal,
   Activity, X,
@@ -384,15 +385,16 @@ function SetTypePickerSheet({
   onRemove: () => void
   onClose: () => void
 }) {
+  // Same scroll-lock pattern used by the profile photo viewer — locks both
+  // <html> and <body> so the page underneath cannot scroll while the
+  // picker is up, and restores the previous overflow on close.
+  useScrollLock(open)
+
   useEffect(() => {
     if (!open) return
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', handler)
-    document.body.style.overflow = 'hidden'
-    return () => {
-      window.removeEventListener('keydown', handler)
-      document.body.style.overflow = ''
-    }
+    return () => window.removeEventListener('keydown', handler)
   }, [open, onClose])
 
   if (!open) return null
@@ -631,9 +633,6 @@ export function TrainPage() {
   const [prByExerciseId, setPrByExerciseId] = useState<Record<string, number | null>>({})
   // Which set's type-picker bottom sheet is open right now. `null` when closed.
   const [openTypePicker, setOpenTypePicker] = useState<{ exerciseIndex: number; setIndex: number } | null>(null)
-  // Per-exercise toggle for the advanced RIR/RPE row. Default hidden to keep
-  // the mobile layout clean — Hevy-style — but opt-in via a small toggle.
-  const [showAdvancedByExercise, setShowAdvancedByExercise] = useState<Record<string, boolean>>({})
   const [prCelebration, setPrCelebration] = useState<{
     id: number
     exerciseName: string
@@ -2786,9 +2785,10 @@ export function TrainPage() {
                     ) : null /* normal/warmup/failure is rendered by the compact
                               row above; RIR/RPE moved to the per-exercise expander. */}
 
-                    {/* Advanced row (RIR + RPE), opt-in via the per-exercise
-                        toggle below. Hidden by default to keep mobile clean. */}
-                    {!isComplex && showAdvancedByExercise[exercise.exerciseId] && (
+                    {/* RIR + RPE sub-row — always visible for normal sets so
+                        the user keeps the same input surface as before, just
+                        on a compact second line under the main grid. */}
+                    {!isComplex && (
                       <div className="mt-1.5 grid grid-cols-2 gap-1.5 px-1">
                         {!(isTime || isDistance) && (
                           <label className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wide text-[var(--muted)]">
@@ -2802,7 +2802,7 @@ export function TrainPage() {
                                   rir: event.target.value.replace(/[^\d]/g, ''),
                                 })
                               }
-                              className="ml-auto w-12 rounded border border-[var(--line)] bg-transparent px-1.5 py-0.5 text-center text-[12px] font-semibold tabular-nums"
+                              className="ml-auto w-14 rounded border border-[var(--line)] bg-transparent px-1.5 py-0.5 text-center text-[12px] font-semibold tabular-nums"
                             />
                           </label>
                         )}
@@ -2818,7 +2818,7 @@ export function TrainPage() {
                                 rpe: event.target.value.replace(/[^\d]/g, '').slice(0, 2),
                               })
                             }
-                            className="ml-auto w-12 rounded border border-[var(--line)] bg-transparent px-1.5 py-0.5 text-center text-[12px] font-semibold tabular-nums"
+                            className="ml-auto w-14 rounded border border-[var(--line)] bg-transparent px-1.5 py-0.5 text-center text-[12px] font-semibold tabular-nums"
                           />
                         </label>
                       </div>
@@ -2828,27 +2828,13 @@ export function TrainPage() {
                   })()
                 ))}
 
-                <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => addSet(exerciseIndex)}
-                    className="rounded-lg border border-[var(--line)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
-                  >
-                    + Adicionar série
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setShowAdvancedByExercise((current) => ({
-                        ...current,
-                        [exercise.exerciseId]: !current[exercise.exerciseId],
-                      }))
-                    }
-                    className="ml-auto text-[11px] font-medium text-[var(--muted)] hover:text-[var(--text)]"
-                  >
-                    {showAdvancedByExercise[exercise.exerciseId] ? 'Ocultar RIR/RPE' : 'Mostrar RIR/RPE'}
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => addSet(exerciseIndex)}
+                  className="mt-1 inline-flex items-center rounded-lg border border-[var(--line)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
+                >
+                  + Adicionar série
+                </button>
               </div>
               </div>
             )
