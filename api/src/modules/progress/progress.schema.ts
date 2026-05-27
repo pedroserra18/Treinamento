@@ -23,6 +23,15 @@ export const exerciseParamsSchema = z
   })
   .strict();
 
+// Year window for /progress/summary. Defaults to the current year so the
+// page renders the heatmap/sparklines without a parameter and the cache key
+// stays stable across the day.
+export const progressSummaryQuerySchema = z
+  .object({
+    year: z.coerce.number().int().min(2000).max(2100).optional()
+  })
+  .strict();
+
 export const bodyMeasurementParamsSchema = z
   .object({
     measurementId: z.string().trim().min(1).max(128)
@@ -80,6 +89,7 @@ export const createBodyMeasurementBodySchema = z
 
 export type PinnedExerciseBody = z.infer<typeof pinnedExerciseBodySchema>;
 export type ReorderPinnedExercisesBody = z.infer<typeof reorderPinnedExercisesBodySchema>;
+export type ProgressSummaryQuery = z.infer<typeof progressSummaryQuerySchema>;
 export type ExerciseParams = z.infer<typeof exerciseParamsSchema>;
 export type BodyMeasurementParams = z.infer<typeof bodyMeasurementParamsSchema>;
 export type ListBodyMeasurementsQuery = z.infer<typeof listBodyMeasurementsQuerySchema>;

@@ -61,6 +61,25 @@ export type BodyMeasurementHistoryResponse = {
   items: BodyMeasurement[]
 }
 
+export type ProgressSummaryDay = {
+  date: string // YYYY-MM-DD
+  volumeKg: number
+  sessionCount: number
+  exerciseCount: number
+  cardioSec: number
+}
+
+export type ProgressSummaryMuscleVolume = {
+  group: string
+  volumeKg: number
+}
+
+export type ProgressSummaryResponse = {
+  year: number
+  days: ProgressSummaryDay[]
+  muscleVolume30D: ProgressSummaryMuscleVolume[]
+}
+
 export type CreateBodyMeasurementInput = {
   date: string
   photoUrl: string

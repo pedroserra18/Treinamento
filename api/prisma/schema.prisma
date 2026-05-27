@@ -405,6 +405,10 @@ model WorkoutSession {
   post        WorkoutPost?
 
   @@index([userId, scheduledAt])
+  // Hot path for /progress/summary?year=N — range-scans completed sessions
+  // of a given user by endedAt. Without this it falls back to a seq scan
+  // once a user has hundreds of sessions.
+  @@index([userId, endedAt])
   @@index([workoutPlanId, status])
   @@index([status, startedAt])
   @@map("workout_sessions")

@@ -9,11 +9,13 @@ import {
   exerciseParamsSchema,
   listBodyMeasurementsQuerySchema,
   pinnedExerciseBodySchema,
+  progressSummaryQuerySchema,
   reorderPinnedExercisesBodySchema
 } from "./progress.schema";
 import {
   addPinnedExerciseController,
   createBodyMeasurementController,
+  getProgressSummaryController,
   listBodyMeasurementsController,
   listExerciseProgressController,
   listPinnedExercisesController,
@@ -60,6 +62,14 @@ router.get(
   requireAuth,
   requireCompletedOnboarding,
   asyncHandler(async (req, res) => listExerciseProgressController(req, res))
+);
+
+router.get(
+  "/progress/summary",
+  requireAuth,
+  requireCompletedOnboarding,
+  validateRequest({ query: progressSummaryQuerySchema }),
+  asyncHandler(async (req, res) => getProgressSummaryController(req, res))
 );
 
 router.get(

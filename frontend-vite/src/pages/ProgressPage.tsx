@@ -10,12 +10,13 @@ import {
 } from 'recharts'
 import { useAuth } from '../hooks/useAuth'
 import { optimizeImageFileToDataUrl } from '../lib/image-processing'
-import { listWorkoutHistory, searchExercisesForPlan } from '../services/workoutService'
+import { searchExercisesForPlan } from '../services/workoutService'
 import {
   addPinnedExercise,
   createBodyMeasurement,
   deleteBodyMeasurement,
   getExerciseProgress,
+  getProgressSummary,
   listBodyMeasurements,
   removePinnedExercise,
   reorderPinnedExercises,
@@ -25,8 +26,10 @@ import type {
   CreateBodyMeasurementInput,
   ExerciseProgressItem,
   ExerciseProgressSession,
+  ProgressSummaryDay,
+  ProgressSummaryResponse,
 } from '../types/progress'
-import type { ExerciseOption, WorkoutSessionHistory } from '../types/workout'
+import type { ExerciseOption } from '../types/workout'
 import {
   Activity, ArrowLeft, ChevronDown, Dumbbell, GripVertical, Image as ImageIcon, Pin, Plus, Search,
   Trash2, TrendingUp, X as XIcon,
@@ -90,57 +93,51 @@ const TONE_STYLE: Record<MuscleTone, { bg: string; border: string; fg: string; d
 }
 
 // ─── Hero stats computations ──────────────────────────────────────────────
+// All hero/heatmap math now reads from the server-aggregated day list. This
+// keeps the network footprint small (~365 lightweight rows max regardless of
+// how active the user is) and the client never re-aggregates raw history.
 
-function calcVolumeKg(session: WorkoutSessionHistory): number {
-  return session.history.reduce((acc, e) => acc + (e.weightKg ?? 0) * (e.reps ?? 0), 0)
+function computeVolume7D(days: ProgressSummaryDay[]): number {
+  const cutoff = nowMs() - 7 * 86_400_000
+  return days
+    .filter((d) => new Date(d.date).getTime() >= cutoff)
+    .reduce((acc, d) => acc + d.volumeKg, 0)
 }
 
-function computeVolume7D(items: WorkoutSessionHistory[]): number {
-  const cutoff = Date.now() - 7 * 86_400_000
-  return items
-    .filter((s) => s.endedAt && new Date(s.endedAt).getTime() >= cutoff)
-    .reduce((acc, s) => acc + calcVolumeKg(s), 0)
-}
-
-// Minutos de cardio nos últimos 7 dias (soma das durações dos CardioEntry).
-function computeCardio7D(items: WorkoutSessionHistory[]): number {
-  const cutoff = Date.now() - 7 * 86_400_000
-  const totalSec = items
-    .filter((s) => s.endedAt && new Date(s.endedAt).getTime() >= cutoff)
-    .reduce((acc, s) => acc + (s.cardioEntries ?? []).reduce((sum, c) => sum + c.durationSec, 0), 0)
+function computeCardio7D(days: ProgressSummaryDay[]): number {
+  const cutoff = nowMs() - 7 * 86_400_000
+  const totalSec = days
+    .filter((d) => new Date(d.date).getTime() >= cutoff)
+    .reduce((acc, d) => acc + d.cardioSec, 0)
   return Math.round(totalSec / 60)
 }
 
 // Aggregates the hero metric per rolling 7-day bucket, ending NOW. Index 0
-// is the oldest bucket, last index is the current 7d window. Used both for
-// the sparkline series and to derive "Δ vs semana passada".
+// is the oldest bucket, last index is the current 7d window.
 function bucketByWeek(
-  items: WorkoutSessionHistory[],
+  days: ProgressSummaryDay[],
   weeks: number,
-  reducer: (s: WorkoutSessionHistory) => number,
+  reducer: (d: ProgressSummaryDay) => number,
 ): number[] {
   const buckets = new Array<number>(weeks).fill(0)
-  const now = Date.now()
-  for (const s of items) {
-    if (!s.endedAt) continue
-    const age = now - new Date(s.endedAt).getTime()
+  const now = nowMs()
+  for (const d of days) {
+    const age = now - new Date(d.date).getTime()
     if (age < 0) continue
     const bucketFromEnd = Math.floor(age / (7 * 86_400_000))
     if (bucketFromEnd >= weeks) continue
     const idx = weeks - 1 - bucketFromEnd
-    buckets[idx] += reducer(s)
+    buckets[idx] += reducer(d)
   }
   return buckets
 }
 
-function volumeByWeek(items: WorkoutSessionHistory[], weeks: number): number[] {
-  return bucketByWeek(items, weeks, (s) => calcVolumeKg(s))
+function volumeByWeek(days: ProgressSummaryDay[], weeks: number): number[] {
+  return bucketByWeek(days, weeks, (d) => d.volumeKg)
 }
 
-function cardioMinutesByWeek(items: WorkoutSessionHistory[], weeks: number): number[] {
-  return bucketByWeek(items, weeks, (s) =>
-    Math.round((s.cardioEntries ?? []).reduce((sum, c) => sum + c.durationSec, 0) / 60),
-  )
+function cardioMinutesByWeek(days: ProgressSummaryDay[], weeks: number): number[] {
+  return bucketByWeek(days, weeks, (d) => Math.round(d.cardioSec / 60))
 }
 
 // Same idea but per calendar month, ending on the CURRENT month. Used by
@@ -189,7 +186,7 @@ type HeatmapCell = {
 // Builds a 53×7 grid (52 full weeks + the current partial week) of daily
 // training summaries for the last ~year. Cells beyond today are returned
 // empty so we can render a fixed-shape grid without conditional gaps.
-function buildHeatmap(items: WorkoutSessionHistory[]): { columns: HeatmapCell[][]; months: { label: string; columnIndex: number }[] } {
+function buildHeatmap(days: ProgressSummaryDay[]): { columns: HeatmapCell[][]; months: { label: string; columnIndex: number }[] } {
   // Anchor to "today, start of day" so the rightmost column ends on today.
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -199,20 +196,9 @@ function buildHeatmap(items: WorkoutSessionHistory[]): { columns: HeatmapCell[][
   start.setDate(start.getDate() - 52 * 7)
   start.setDate(start.getDate() - start.getDay()) // back up to Sunday
 
-  // Pre-aggregate sessions by ISO day so we don't loop O(days × sessions).
-  type Bucket = { volumeKg: number; exerciseSet: Set<string>; sessionCount: number }
-  const byDay = new Map<string, Bucket>()
-  for (const s of items) {
-    if (!s.endedAt) continue
-    const d = new Date(s.endedAt)
-    d.setHours(0, 0, 0, 0)
-    const key = d.toISOString().slice(0, 10)
-    const bucket = byDay.get(key) ?? { volumeKg: 0, exerciseSet: new Set<string>(), sessionCount: 0 }
-    bucket.sessionCount += 1
-    bucket.volumeKg += calcVolumeKg(s)
-    for (const h of s.history) bucket.exerciseSet.add(h.exercise.id)
-    byDay.set(key, bucket)
-  }
+  // Server already aggregated per day — just index by ISO key for O(1) lookup.
+  const byDay = new Map<string, ProgressSummaryDay>()
+  for (const d of days) byDay.set(d.date, d)
 
   const columns: HeatmapCell[][] = []
   const months: { label: string; columnIndex: number }[] = []
@@ -226,8 +212,8 @@ function buildHeatmap(items: WorkoutSessionHistory[]): { columns: HeatmapCell[][
       week.push({
         date: new Date(cursor),
         isoKey: key,
-        volumeKg: bucket ? Math.round(bucket.volumeKg) : 0,
-        exerciseCount: bucket ? bucket.exerciseSet.size : 0,
+        volumeKg: bucket ? bucket.volumeKg : 0,
+        exerciseCount: bucket ? bucket.exerciseCount : 0,
         sessionCount: bucket ? bucket.sessionCount : 0,
       })
       cursor.setDate(cursor.getDate() + 1)
@@ -247,25 +233,9 @@ function buildHeatmap(items: WorkoutSessionHistory[]): { columns: HeatmapCell[][
 }
 
 // ─── Volume per muscle group (30D) ────────────────────────────────────────
-
-function volumeByMuscleGroup30D(items: WorkoutSessionHistory[]): Array<{ group: string; volumeKg: number }> {
-  const cutoff = Date.now() - 30 * 86_400_000
-  const totals = new Map<string, number>()
-  for (const s of items) {
-    if (!s.endedAt) continue
-    if (new Date(s.endedAt).getTime() < cutoff) continue
-    for (const h of s.history) {
-      const w = h.weightKg ?? 0
-      const r = h.reps ?? 0
-      if (w <= 0 || r <= 0) continue
-      const group = h.exercise.primaryMuscleGroup || 'OUTROS'
-      totals.set(group, (totals.get(group) ?? 0) + w * r)
-    }
-  }
-  return Array.from(totals.entries())
-    .map(([group, volumeKg]) => ({ group, volumeKg: Math.round(volumeKg) }))
-    .sort((a, b) => b.volumeKg - a.volumeKg)
-}
+// The breakdown is computed server-side and shipped in /progress/summary,
+// so the page just renders. Pre-aggregation matters at scale because the
+// alternative was downloading every set the user ever performed.
 
 const MUSCLE_LABEL_PT: Record<string, string> = {
   CHEST: 'Peito', BACK: 'Costas', SHOULDERS: 'Ombros', ARMS: 'Braços',
@@ -275,8 +245,7 @@ const MUSCLE_LABEL_PT: Record<string, string> = {
   FULL_BODY: 'Corpo todo',
 }
 
-function MuscleVolumeCard({ items }: { items: WorkoutSessionHistory[] }) {
-  const rows = useMemo(() => volumeByMuscleGroup30D(items), [items])
+function MuscleVolumeCard({ rows }: { rows: Array<{ group: string; volumeKg: number }> }) {
   const total = rows.reduce((s, r) => s + r.volumeKg, 0)
 
   if (total === 0) {
@@ -601,8 +570,8 @@ function cellLevel(volumeKg: number, max: number): number {
   return 4
 }
 
-function YearActivityHeatmap({ items }: { items: WorkoutSessionHistory[] }) {
-  const { columns, months } = useMemo(() => buildHeatmap(items), [items])
+function YearActivityHeatmap({ days }: { days: ProgressSummaryDay[] }) {
+  const { columns, months } = useMemo(() => buildHeatmap(days), [days])
   // Avoids the "impure Date.now in render" lint — computed once per mount
   // since the page is not long-lived enough for the date to roll over here.
   const todayIso = useMemo(() => {
@@ -758,24 +727,20 @@ function computePRsThisMonth(progress: ExerciseProgressItem[]): number {
   return count
 }
 
-function computeStreak(items: WorkoutSessionHistory[]): number {
-  const days = new Set<string>()
-  for (const s of items) {
-    if (!s.endedAt) continue
-    days.add(s.endedAt.slice(0, 10))
-  }
+function computeStreak(days: ProgressSummaryDay[]): number {
+  const set = new Set(days.filter((d) => d.sessionCount > 0).map((d) => d.date))
   let count = 0
   const cursor = new Date()
   cursor.setHours(0, 0, 0, 0)
-  if (!days.has(cursor.toISOString().slice(0, 10))) cursor.setDate(cursor.getDate() - 1)
-  while (days.has(cursor.toISOString().slice(0, 10))) {
+  if (!set.has(cursor.toISOString().slice(0, 10))) cursor.setDate(cursor.getDate() - 1)
+  while (set.has(cursor.toISOString().slice(0, 10))) {
     count++
     cursor.setDate(cursor.getDate() - 1)
   }
   return count
 }
 
-function lastSessionDate(progress: ExerciseProgressItem[], history: WorkoutSessionHistory[]): Date | null {
+function lastSessionDate(progress: ExerciseProgressItem[], days: ProgressSummaryDay[]): Date | null {
   let latest = 0
   for (const item of progress) {
     for (const s of item.sessions) {
@@ -783,9 +748,9 @@ function lastSessionDate(progress: ExerciseProgressItem[], history: WorkoutSessi
       if (t > latest) latest = t
     }
   }
-  for (const s of history) {
-    if (!s.endedAt) continue
-    const t = new Date(s.endedAt).getTime()
+  for (const d of days) {
+    if (d.sessionCount === 0) continue
+    const t = new Date(d.date).getTime()
     if (t > latest) latest = t
   }
   return latest > 0 ? new Date(latest) : null
@@ -1451,7 +1416,7 @@ export function ProgressPage() {
   const [searchFocused, setSearchFocused] = useState(false)
 
   // Optional fetch — only used to feed the hero stats. Failures are tolerated.
-  const [workoutHistory, setWorkoutHistory] = useState<WorkoutSessionHistory[]>([])
+  const [summary, setSummary] = useState<ProgressSummaryResponse | null>(null)
 
   const [measurements, setMeasurements] = useState<BodyMeasurement[]>([])
   const [selectedPhoto, setSelectedPhoto] = useState<{ url: string; date: string } | null>(null)
@@ -1482,19 +1447,21 @@ export function ProgressPage() {
       setLoading(true)
       setError(null)
 
-      const [progressData, bodyData, historyData] = await Promise.all([
+      const [progressData, bodyData, summaryData] = await Promise.all([
         getExerciseProgress(authorizedFetch),
         listBodyMeasurements(authorizedFetch),
-        // History feeds the streak, deltas, sparklines and the year heatmap,
-        // so we pull a year's worth. Don't fail the whole page if this one
-        // errors out.
-        listWorkoutHistory(authorizedFetch, 1, 365).catch(() => ({ items: [], page: 1, pageSize: 365, total: 0 })),
+        // Server-side daily aggregates feed the heatmap, sparklines, deltas
+        // and the muscle distribution. Single small payload regardless of
+        // how active the user is — scales linearly with days, not sessions.
+        getProgressSummary(authorizedFetch).catch(
+          () => ({ year: new Date().getFullYear(), days: [], muscleVolume30D: [] }) as ProgressSummaryResponse,
+        ),
       ])
 
       setExerciseProgress(progressData.items)
       setMaxPinned(progressData.maxPinned)
       setMeasurements(bodyData.items)
-      setWorkoutHistory(historyData.items)
+      setSummary(summaryData)
 
       setOpenedPinnedExerciseId((current) =>
         current && progressData.items.some((item) => item.exercise.id === current) ? current : null,
@@ -1542,16 +1509,20 @@ export function ProgressPage() {
     }
   }, [measurementPhotoPreview])
 
-  const volume7d = useMemo(() => Math.round(computeVolume7D(workoutHistory)), [workoutHistory])
+  // All time-series math reads from the pre-aggregated `summary.days`.
+  const summaryDays = useMemo(() => summary?.days ?? [], [summary])
+  const muscleVolume30D = useMemo(() => summary?.muscleVolume30D ?? [], [summary])
+
+  const volume7d = useMemo(() => Math.round(computeVolume7D(summaryDays)), [summaryDays])
   const prsThisMonth = useMemo(() => computePRsThisMonth(exerciseProgress), [exerciseProgress])
-  const streak = useMemo(() => computeStreak(workoutHistory), [workoutHistory])
-  const cardio7d = useMemo(() => computeCardio7D(workoutHistory), [workoutHistory])
-  const lastSession = useMemo(() => lastSessionDate(exerciseProgress, workoutHistory), [exerciseProgress, workoutHistory])
+  const streak = useMemo(() => computeStreak(summaryDays), [summaryDays])
+  const cardio7d = useMemo(() => computeCardio7D(summaryDays), [summaryDays])
+  const lastSession = useMemo(() => lastSessionDate(exerciseProgress, summaryDays), [exerciseProgress, summaryDays])
 
   // Weekly buckets + deltas for the hero. 8 weeks covers ~2 months which is
   // a good sparkline length without making the deltas misleading.
-  const volumeWeeks = useMemo(() => volumeByWeek(workoutHistory, 8), [workoutHistory])
-  const cardioWeeks = useMemo(() => cardioMinutesByWeek(workoutHistory, 8), [workoutHistory])
+  const volumeWeeks = useMemo(() => volumeByWeek(summaryDays, 8), [summaryDays])
+  const cardioWeeks = useMemo(() => cardioMinutesByWeek(summaryDays, 8), [summaryDays])
   const prsMonths = useMemo(() => prsByMonth(exerciseProgress, 6), [exerciseProgress])
   const volumeDelta = pctDelta(volumeWeeks[7] ?? 0, volumeWeeks[6] ?? 0)
   const cardioDelta = pctDelta(cardioWeeks[7] ?? 0, cardioWeeks[6] ?? 0)
@@ -1762,7 +1733,7 @@ export function ProgressPage() {
       </motion.section>
 
       {/* ───── YEAR ACTIVITY HEATMAP ───── */}
-      {!loading && <YearActivityHeatmap items={workoutHistory} />}
+      {!loading && <YearActivityHeatmap days={summaryDays} />}
 
       {/* ───── TABS ───── */}
       <motion.div
@@ -1923,9 +1894,9 @@ export function ProgressPage() {
 
           {/* Side-by-side analytics — only meaningful with at least one
               pinned exercise (PRs feed) or any training history (volume). */}
-          {(exerciseProgress.length > 0 || workoutHistory.length > 0) && (
+          {(exerciseProgress.length > 0 || summaryDays.length > 0) && (
             <div className="grid gap-2.5 lg:grid-cols-2">
-              <MuscleVolumeCard items={workoutHistory} />
+              <MuscleVolumeCard rows={muscleVolume30D} />
               <RecentPrsCard progress={exerciseProgress} />
             </div>
           )}

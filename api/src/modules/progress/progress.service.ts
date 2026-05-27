@@ -6,6 +6,7 @@ import {
   ExerciseParams,
   ListBodyMeasurementsQuery,
   PinnedExerciseBody,
+  ProgressSummaryQuery,
   ReorderPinnedExercisesBody
 } from "./progress.schema";
 
@@ -188,6 +189,95 @@ export async function reorderPinnedExercises(userId: string, payload: ReorderPin
   });
 
   return { success: true };
+}
+
+// Aggregated daily summary for the Progress page. Returns only what the
+// page renders (heatmap + sparklines + deltas + muscle-volume 30D) so a
+// single, small response replaces the multi-MB raw-history fetch that
+// the page used to do. Server-side aggregation keeps the network footprint
+// independent of how active the user is.
+export async function getProgressSummary(userId: string, query: ProgressSummaryQuery) {
+  const now = new Date();
+  const year = query.year ?? now.getFullYear();
+  const yearStart = new Date(Date.UTC(year, 0, 1));
+  const yearEnd = new Date(Date.UTC(year + 1, 0, 1));
+
+  // 30-day muscle volume window is anchored on NOW, not the year edge,
+  // so the "Distribuição por grupo" card stays accurate regardless of
+  // which year the heatmap selector is on.
+  const cutoff30dMs = now.getTime() - 30 * 86_400_000;
+
+  const sessions = await prisma.workoutSession.findMany({
+    where: {
+      userId,
+      status: "COMPLETED",
+      endedAt: { gte: yearStart, lt: yearEnd }
+    },
+    select: {
+      endedAt: true,
+      history: {
+        select: {
+          reps: true,
+          weightKg: true,
+          exerciseId: true,
+          exercise: { select: { primaryMuscleGroup: true } }
+        }
+      },
+      cardioEntries: { select: { durationSec: true } }
+    }
+  });
+
+  type DayBucket = {
+    volumeKg: number;
+    sessionCount: number;
+    exerciseSet: Set<string>;
+    cardioSec: number;
+  };
+  const byDay = new Map<string, DayBucket>();
+  const muscleVolume = new Map<string, number>();
+
+  for (const s of sessions) {
+    if (!s.endedAt) continue;
+    const dateKey = s.endedAt.toISOString().slice(0, 10);
+    const bucket =
+      byDay.get(dateKey) ??
+      { volumeKg: 0, sessionCount: 0, exerciseSet: new Set<string>(), cardioSec: 0 };
+    bucket.sessionCount += 1;
+
+    let sessionVolume = 0;
+    const isWithin30D = s.endedAt.getTime() >= cutoff30dMs;
+    for (const h of s.history) {
+      const w = h.weightKg ?? 0;
+      const r = h.reps ?? 0;
+      const v = w > 0 && r > 0 ? w * r : 0;
+      sessionVolume += v;
+      bucket.exerciseSet.add(h.exerciseId);
+      if (isWithin30D && v > 0) {
+        const group = h.exercise.primaryMuscleGroup || "OUTROS";
+        muscleVolume.set(group, (muscleVolume.get(group) ?? 0) + v);
+      }
+    }
+
+    bucket.volumeKg += sessionVolume;
+    for (const c of s.cardioEntries) bucket.cardioSec += c.durationSec;
+    byDay.set(dateKey, bucket);
+  }
+
+  const days = Array.from(byDay.entries())
+    .map(([date, b]) => ({
+      date,
+      volumeKg: Math.round(b.volumeKg),
+      sessionCount: b.sessionCount,
+      exerciseCount: b.exerciseSet.size,
+      cardioSec: b.cardioSec
+    }))
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+  const muscleVolume30D = Array.from(muscleVolume.entries())
+    .map(([group, volumeKg]) => ({ group, volumeKg: Math.round(volumeKg) }))
+    .sort((a, b) => b.volumeKg - a.volumeKg);
+
+  return { year, days, muscleVolume30D };
 }
 
 export async function listExerciseProgress(userId: string) {

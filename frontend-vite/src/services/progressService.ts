@@ -4,6 +4,7 @@ import type {
   CreateBodyMeasurementInput,
   ExerciseProgressResponse,
   PinnedExercise,
+  ProgressSummaryResponse,
 } from '../types/progress'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1'
@@ -81,6 +82,21 @@ export async function removePinnedExercise(
   if (!response.ok) {
     throw new Error(payload.errorMessage ?? 'Falha ao remover exercicio fixado')
   }
+}
+
+export async function getProgressSummary(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  year?: number,
+): Promise<ProgressSummaryResponse> {
+  const params = year ? `?year=${year}` : ''
+  const response = await authorizedFetch(`${API_URL}/progress/summary${params}`)
+  const payload = await parsePayload<ProgressSummaryResponse>(response)
+
+  if (!response.ok || !payload.data) {
+    throw new Error(payload.errorMessage ?? 'Falha ao carregar resumo de progresso')
+  }
+
+  return payload.data
 }
 
 export async function getExerciseProgress(

@@ -137,10 +137,11 @@ export const completeWorkoutBodySchema = z
 export const listWorkoutHistoryQuerySchema = z
   .object({
     page: z.coerce.number().int().min(1).default(1),
-    // 365 lets the Progress page render a full year heatmap in a single
-    // request. Most users sit under 250 sessions/year so this is rarely
-    // a real ceiling — still bounded to avoid an accidental scan.
-    pageSize: z.coerce.number().int().min(1).max(365).default(10)
+    // 50 is the practical cap for a session-level list (each item carries
+    // full history + cardio entries). The Progress page used to need 365
+    // here for its heatmap, but now reads from /progress/summary which
+    // returns server-side daily aggregates instead.
+    pageSize: z.coerce.number().int().min(1).max(50).default(10)
   })
   .strict();
 

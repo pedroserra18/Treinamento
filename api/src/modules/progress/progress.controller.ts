@@ -3,6 +3,7 @@ import {
   removeBodyMeasurement,
   addPinnedExercise,
   createBodyMeasurement,
+  getProgressSummary,
   listBodyMeasurements,
   listExerciseProgress,
   listPinnedExercises,
@@ -15,6 +16,7 @@ import {
   ExerciseParams,
   ListBodyMeasurementsQuery,
   PinnedExerciseBody,
+  ProgressSummaryQuery,
   ReorderPinnedExercisesBody
 } from "./progress.schema";
 
@@ -61,6 +63,22 @@ export async function removePinnedExerciseController(req: Request, res: Response
   const params = req.params as unknown as ExerciseParams;
   const data = await removePinnedExercise(userId, params);
 
+  res.status(200).json({
+    data,
+    meta: {
+      requestId: req.context.requestId
+    }
+  });
+}
+
+export async function getProgressSummaryController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const query = req.query as unknown as ProgressSummaryQuery;
+  const data = await getProgressSummary(userId, query);
+
+  // Short cache window: the page is read-heavy and a 60s window absorbs
+  // immediate refreshes (tab switch, re-mount) without showing stale data.
+  res.setHeader("Cache-Control", "private, max-age=60");
   res.status(200).json({
     data,
     meta: {
