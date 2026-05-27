@@ -31,7 +31,7 @@ import type {
 } from '../types/progress'
 import type { ExerciseOption } from '../types/workout'
 import {
-  Activity, ArrowLeft, ChevronDown, Dumbbell, GripVertical, Image as ImageIcon, Pin, Plus, Search,
+  Activity, ArrowLeft, ChevronDown, Download, Dumbbell, GripVertical, Image as ImageIcon, Pin, Plus, Search, Share2,
   Trash2, TrendingUp, X as XIcon,
 } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -1751,6 +1751,61 @@ export function ProgressPage() {
     }
   }
 
+  const handleExportCsv = () => {
+    // Two tables in one CSV: training summary (daily) + body measurements.
+    // A single file keeps the export self-contained — easy to drop into a
+    // sheet without juggling multiple downloads.
+    const escape = (v: unknown): string => {
+      if (v == null) return ''
+      const s = String(v)
+      return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    }
+    const lines: string[] = []
+    lines.push('# Treinos por dia')
+    lines.push('data,volume_kg,sessoes,exercicios,cardio_min')
+    for (const d of summaryDays) {
+      lines.push(
+        [d.date, d.volumeKg, d.sessionCount, d.exerciseCount, Math.round(d.cardioSec / 60)]
+          .map(escape)
+          .join(','),
+      )
+    }
+    lines.push('')
+    lines.push('# Medidas corporais')
+    lines.push('data,peso_kg,peito_cm,ombros_cm,bracos_cm,antebracos_cm,cintura_cm,quadril_cm,coxas_cm,panturrilhas_cm,pescoco_cm,imc,bf_pct')
+    for (const m of measurementsOldFirst) {
+      lines.push(
+        [
+          m.date.slice(0, 10),
+          m.weight,
+          m.chest,
+          m.shoulders,
+          m.arms,
+          m.forearms,
+          m.waist,
+          m.hips,
+          m.thighs,
+          m.calves,
+          m.neck,
+          m.bmi,
+          m.bodyFatPercentage,
+        ]
+          .map(escape)
+          .join(','),
+      )
+    }
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `serraathlo-progresso-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
   const handleReorderPinned = async (orderedIds: string[]) => {
     // Optimistic reorder so the drop feels instant — server confirms in the
     // background and reloadAll re-syncs if it diverges.
@@ -1879,6 +1934,16 @@ export function ProgressPage() {
             <p className="mt-2 max-w-xl text-[14px] leading-relaxed text-[var(--muted)]">
               Fixe exercícios principais, acompanhe carga, repetições e volume — e registre sua evolução corporal com fotos e medidas.
             </p>
+            {(summaryDays.length > 0 || measurements.length > 0) && (
+              <button
+                type="button"
+                onClick={handleExportCsv}
+                className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] px-3 text-[12px] font-medium text-[var(--text)] hover:bg-[var(--surface)]"
+              >
+                <Download size={12} />
+                Exportar CSV
+              </button>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-5 sm:text-right">
@@ -2926,6 +2991,55 @@ function PhotoCompareView({
   onPickA: (id: string) => void
   onPickB: (id: string) => void
 }) {
+  const shareRef = useRef<HTMLDivElement>(null)
+  const [sharing, setSharing] = useState(false)
+  const [shareError, setShareError] = useState<string | null>(null)
+
+  const handleShare = async () => {
+    if (!shareRef.current || !a || !b) return
+    setSharing(true)
+    setShareError(null)
+    try {
+      // Lazy-load html2canvas — it's ~150KB and the page already pays for it
+      // elsewhere, but importing here keeps the initial bundle smaller for
+      // users who never share.
+      const html2canvas = (await import('html2canvas')).default
+      const canvas = await html2canvas(shareRef.current, {
+        backgroundColor: '#0a0a0a',
+        scale: 2,
+        useCORS: true,
+        logging: false,
+      })
+      const blob: Blob | null = await new Promise((resolve) =>
+        canvas.toBlob((b) => resolve(b), 'image/png', 0.95),
+      )
+      if (!blob) throw new Error('Falha ao gerar imagem')
+
+      // Prefer the native Web Share API on mobile, fall back to a plain
+      // download elsewhere. Both feel native to the platform.
+      const file = new File([blob], `comparacao-${a.date.slice(0, 10)}-vs-${b.date.slice(0, 10)}.png`, { type: 'image/png' })
+      const nav = navigator as Navigator & { canShare?: (data: ShareData) => boolean; share?: (data: ShareData) => Promise<void> }
+      if (nav.canShare?.({ files: [file] }) && nav.share) {
+        await nav.share({ files: [file], title: 'Comparação de evolução' })
+      } else {
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = file.name
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        URL.revokeObjectURL(url)
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Falha ao compartilhar'
+      // User cancelling the Web Share dialog throws AbortError — ignore.
+      if (!/abort/i.test(msg)) setShareError(msg)
+    } finally {
+      setSharing(false)
+    }
+  }
+
   // Compute deltas for every metric present in both A and B.
   const rows = useMemo(() => {
     if (!a || !b) return []
@@ -2988,6 +3102,19 @@ function PhotoCompareView({
 
       {a && b && (
         <>
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => void handleShare()}
+              disabled={sharing}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--brand)] bg-[var(--brand)] px-3 text-[12px] font-medium text-white hover:bg-[var(--brand-strong)] disabled:opacity-50"
+            >
+              <Share2 size={12} />
+              {sharing ? 'Gerando…' : 'Compartilhar'}
+            </button>
+          </div>
+          {shareError && <p className="text-[11px] text-red-500">{shareError}</p>}
+
           {/* Photos stack on phones so the images stay legible; side-by-side
               from sm+ where the screen has room for both. */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -3051,6 +3178,54 @@ function PhotoCompareView({
               </div>
             </div>
           )}
+
+          {/* Off-screen 9:16 share template captured by html2canvas. Kept in
+              the DOM (not display:none) so its computed styles + image
+              rendering are stable across browsers. */}
+          <div
+            ref={shareRef}
+            aria-hidden
+            className="pointer-events-none fixed -left-[9999px] top-0"
+            style={{ width: 1080, height: 1920, background: '#0a0a0a', color: '#fff', fontFamily: 'sans-serif', padding: '64px 56px', display: 'flex', flexDirection: 'column' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 56 }}>
+              <span style={{ fontSize: 30, fontWeight: 800, color: '#ff5a3c', letterSpacing: '0.18em' }}>SERRAATHLO</span>
+              <span style={{ fontSize: 22, color: '#a4a6ad', letterSpacing: '0.18em', textTransform: 'uppercase' }}>Comparação</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 28, marginBottom: 56 }}>
+              {[a, b].map((m, idx) => (
+                <div key={m.id} style={{ display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                    <span style={{ fontSize: 36, fontWeight: 800 }}>{idx === 0 ? 'ANTES' : 'DEPOIS'}</span>
+                    <span style={{ fontSize: 22, color: '#a4a6ad' }}>{new Date(m.date).toLocaleDateString('pt-BR')}</span>
+                  </div>
+                  <img
+                    src={m.photoUrl}
+                    alt=""
+                    crossOrigin="anonymous"
+                    style={{ width: '100%', aspectRatio: '3 / 4', objectFit: 'cover', borderRadius: 18, border: '2px solid #ff5a3c33' }}
+                  />
+                </div>
+              ))}
+            </div>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 18 }}>
+              <span style={{ fontSize: 24, color: '#a4a6ad', letterSpacing: '0.16em', textTransform: 'uppercase' }}>Variação</span>
+              {rows.slice(0, 8).map(({ key, label, unit, av, bv, delta }) => (
+                <div key={key} style={{ display: 'flex', alignItems: 'baseline', gap: 18, fontSize: 26 }}>
+                  <span style={{ flex: 1, color: '#fff', fontWeight: 600 }}>{label}</span>
+                  <span style={{ color: '#a4a6ad' }}>{av}{unit} → <b style={{ color: '#fff' }}>{bv}{unit}</b></span>
+                  <span style={{
+                    width: 130,
+                    textAlign: 'right',
+                    fontWeight: 700,
+                    color: delta === 0 ? '#a4a6ad' : delta > 0 ? '#ff5a3c' : '#34d399',
+                  }}>
+                    {delta === 0 ? '±0' : `${delta > 0 ? '+' : ''}${delta}`}{unit}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
         </>
       )}
     </div>
