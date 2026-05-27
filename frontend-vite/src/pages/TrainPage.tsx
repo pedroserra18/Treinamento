@@ -11,7 +11,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPost, sharePlan, type PostPrivacy } from '../services/socialService'
 import { WorkoutsPage } from './WorkoutsPage'
 import { WorkoutRecommendationsPage } from './WorkoutRecommendationsPage'
-import { SetTypeSelector } from '../components/common/SetTypeSelector'
 import { type SetType, type DropEntry } from '../components/common/setTypeOptions'
 import {
   getExerciseExplorerSelectionEventName,
@@ -333,6 +332,150 @@ function PrCelebrationBanner({
   )
 }
 
+// Visual identity of each set type for the compact series row — letter,
+// colour, label. The series number itself takes the role of the picker
+// button (Hevy-style) so tapping it surfaces the bottom sheet below.
+const SET_TYPE_GLYPH: Record<SetType, { letter: string | null; label: string; color: string; bg: string }> = {
+  normal:  { letter: null,  label: 'Série Normal',       color: 'var(--text)',  bg: 'transparent' },
+  warmup:  { letter: 'W',   label: 'Série de Aquecimento', color: '#b58400', bg: '#fff6d6' },
+  failure: { letter: 'F',   label: 'Série Falhada',     color: '#b14242', bg: '#ffe1d6' },
+  drop:    { letter: 'D',   label: 'Série Drop',        color: '#2c63b8', bg: '#dbe7ff' },
+  cluster: { letter: 'C',   label: 'Cluster Set',       color: '#5b3aa3', bg: '#e8dcff' },
+}
+
+function SetTypeBadge({
+  index, setType, onClick, checked,
+}: {
+  index: number
+  setType: SetType
+  onClick: () => void
+  checked: boolean
+}) {
+  const meta = SET_TYPE_GLYPH[setType]
+  const display = meta.letter ?? String(index + 1)
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={`Série ${index + 1} — ${meta.label}. Toque para mudar o tipo.`}
+      className={`grid h-8 w-8 place-items-center rounded-md text-[13px] font-extrabold transition-colors ${
+        checked ? 'opacity-90' : ''
+      }`}
+      style={{
+        color: setType === 'normal' ? 'var(--text)' : meta.color,
+        background: setType === 'normal' ? 'var(--surface-hover)' : meta.bg,
+        border: '1px solid var(--line)',
+      }}
+    >
+      {display}
+    </button>
+  )
+}
+
+// Bottom sheet to pick the set type (or remove the set). Mobile-first
+// but works on desktop too — a centered modal feels right at any width.
+function SetTypePickerSheet({
+  open, current, allowedTypes, onSelect, onRemove, onClose,
+}: {
+  open: boolean
+  current: SetType
+  allowedTypes?: SetType[]
+  onSelect: (type: SetType) => void
+  onRemove: () => void
+  onClose: () => void
+}) {
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handler)
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', handler)
+      document.body.style.overflow = ''
+    }
+  }, [open, onClose])
+
+  if (!open) return null
+
+  const visibleTypes = (allowedTypes ?? (Object.keys(SET_TYPE_GLYPH) as SetType[])).filter((t) =>
+    SET_TYPE_GLYPH[t] !== undefined,
+  )
+
+  return createPortal(
+    <AnimatePresence>
+      <motion.div
+        key="sheet-backdrop"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.18 }}
+        onClick={onClose}
+        className="fixed inset-0 z-[70] flex items-end justify-center bg-black/55 backdrop-blur-sm sm:items-center"
+        role="dialog"
+        aria-modal="true"
+      >
+        <motion.div
+          key="sheet"
+          initial={{ y: 60, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 40, opacity: 0 }}
+          transition={{ type: 'spring', stiffness: 340, damping: 28 }}
+          onClick={(e) => e.stopPropagation()}
+          className="w-full max-w-md overflow-hidden rounded-t-2xl border border-b-0 border-[var(--line)] bg-[var(--surface)] pb-4 shadow-2xl sm:mb-0 sm:rounded-2xl sm:border-b"
+        >
+          <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-[var(--line)] sm:hidden" />
+          <h3 className="px-4 pb-2 pt-3 text-center text-[13px] font-bold text-[var(--text)] sm:text-[14px]">
+            Selecionar Tipo de Série
+          </h3>
+          <ul className="border-t border-[var(--line)]">
+            {visibleTypes.map((type) => {
+              const meta = SET_TYPE_GLYPH[type]
+              const display = meta.letter ?? '1'
+              const isCurrent = type === current
+              return (
+                <li key={type}>
+                  <button
+                    type="button"
+                    onClick={() => { onSelect(type); onClose() }}
+                    className={`flex w-full items-center gap-3 border-b border-[var(--line)] px-4 py-3 text-left transition-colors hover:bg-[var(--surface-hover)] ${
+                      isCurrent ? 'bg-[var(--surface-hover)]' : ''
+                    }`}
+                  >
+                    <span
+                      className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-[13px] font-extrabold"
+                      style={{
+                        color: type === 'normal' ? 'var(--text)' : meta.color,
+                        background: type === 'normal' ? 'var(--surface-hover)' : meta.bg,
+                      }}
+                    >
+                      {display}
+                    </span>
+                    <span className="flex-1 text-[14px] font-medium text-[var(--text)]">{meta.label}</span>
+                    {isCurrent && <span className="text-[var(--brand)]">●</span>}
+                  </button>
+                </li>
+              )
+            })}
+            <li>
+              <button
+                type="button"
+                onClick={() => { onRemove(); onClose() }}
+                className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-rose-500/10"
+              >
+                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-[15px] font-extrabold text-rose-500">
+                  ×
+                </span>
+                <span className="flex-1 text-[14px] font-medium text-rose-500">Remover Série</span>
+              </button>
+            </li>
+          </ul>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>,
+    document.body,
+  )
+}
+
 // Seção de cardio do treino ativo: lista os cardios adicionados e um mini-form
 // (tipo + minutos + distância opcional em km) para acrescentar mais.
 function CardioSection({ entries, onAdd, onRemove }: {
@@ -486,6 +629,11 @@ export function TrainPage() {
   // opens. We mutate this on every confirmed PR so the next set of the
   // same exercise doesn't double-celebrate.
   const [prByExerciseId, setPrByExerciseId] = useState<Record<string, number | null>>({})
+  // Which set's type-picker bottom sheet is open right now. `null` when closed.
+  const [openTypePicker, setOpenTypePicker] = useState<{ exerciseIndex: number; setIndex: number } | null>(null)
+  // Per-exercise toggle for the advanced RIR/RPE row. Default hidden to keep
+  // the mobile layout clean — Hevy-style — but opt-in via a small toggle.
+  const [showAdvancedByExercise, setShowAdvancedByExercise] = useState<Record<string, boolean>>({})
   const [prCelebration, setPrCelebration] = useState<{
     id: number
     exerciseName: string
@@ -2135,10 +2283,34 @@ export function TrainPage() {
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h1 className="text-2xl font-black text-[var(--text)]">Treino ativo: {activePlanName}</h1>
+              <h1 className="text-xl font-black text-[var(--text)] sm:text-2xl">Treino ativo: {activePlanName}</h1>
               <p className="mt-1 text-sm text-[var(--muted)]">Cronometro geral e descanso por exercicio.</p>
             </div>
-            <p className="text-3xl font-black text-[var(--text)]">{formatClock(elapsedSec)}</p>
+            <p className="text-3xl font-black text-[var(--text)] tabular-nums">{formatClock(elapsedSec)}</p>
+          </div>
+
+          {/* Compact Duração / Volume / Séries summary — mirrors Hevy's
+              top header. Recomputed from totals on every render which is
+              cheap since the helper already memoises. */}
+          <div className="mt-4 grid grid-cols-3 gap-3 border-t border-dashed border-[var(--line)] pt-3 text-center sm:text-left">
+            <div>
+              <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Duração</p>
+              <p className="mt-0.5 text-[15px] font-extrabold text-[var(--brand-strong)] tabular-nums sm:text-base">
+                {formatClock(elapsedSec)}
+              </p>
+            </div>
+            <div>
+              <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Volume</p>
+              <p className="mt-0.5 text-[15px] font-extrabold text-[var(--text)] tabular-nums sm:text-base">
+                {Math.round(totals.totalVolumeKg).toLocaleString('pt-BR')} <span className="text-[10px] font-mono text-[var(--muted)]">kg</span>
+              </p>
+            </div>
+            <div>
+              <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Séries</p>
+              <p className="mt-0.5 text-[15px] font-extrabold text-[var(--text)] tabular-nums sm:text-base">
+                {totals.totalSeries}
+              </p>
+            </div>
           </div>
 
           <div className="mt-3 flex flex-wrap gap-2">
@@ -2307,6 +2479,25 @@ export function TrainPage() {
               </label>
 
               <div className="mt-3 space-y-2">
+                {/* Column header — rendered once above the sets list, Hevy style.
+                    Compact label row that anchors the per-set grid below. */}
+                {exercise.sets.length > 0 && (
+                  <div
+                    className="grid items-center gap-1.5 px-1 pb-1 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--muted)] sm:gap-2"
+                    style={{
+                      gridTemplateColumns: showLoadInput
+                        ? '36px minmax(60px,1fr) 64px 64px 32px'
+                        : '36px minmax(60px,1fr) 96px 32px',
+                    }}
+                  >
+                    <span>Série</span>
+                    <span>Anterior</span>
+                    {showLoadInput && <span className="text-center">kg</span>}
+                    <span className="text-center">reps</span>
+                    <span className="text-center">✓</span>
+                  </div>
+                )}
+
                 {exercise.sets.map((setInput, setIndex) => (
                   (() => {
                     const lastSet = lastPerformanceByExercise[exercise.exerciseId]?.[setIndex + 1]
@@ -2336,47 +2527,131 @@ export function TrainPage() {
                         ? String(lastSet.rpe)
                         : 'rpe'
 
+                    // Previous-session label that goes in the Anterior column.
+                    // Falls back to em-dash when there's no prior data.
+                    const previousLabel = (() => {
+                      if (!lastSet) return '—'
+                      if (isTime && lastSet.durationSec != null) return `${lastSet.durationSec}s`
+                      if (isDistance && lastSet.distanceMeters != null) return `${lastSet.distanceMeters}m`
+                      const reps = lastSet.reps
+                      const weight = lastSet.weightKg
+                      if (weight != null && weight > 0 && reps != null) return `${weight}kg × ${reps}`
+                      if (reps != null) return `${reps} reps`
+                      return '—'
+                    })()
+                    const isComplex = setInput.setType === 'drop' || setInput.setType === 'cluster'
+                    const allowedTypes: SetType[] | undefined = isTime || isDistance ? ['normal', 'warmup', 'failure'] : undefined
+
                     return (
                   <div
                     key={`${exercise.exerciseId}-${setIndex}`}
-                    className={`space-y-2 rounded-xl border p-3 transition-colors ${
+                    className={`rounded-xl border transition-colors ${
                       setInput.checked
                         ? 'border-green-500/50 bg-green-500/5'
                         : 'border-[var(--line)]'
-                    }`}
+                    } ${isComplex ? 'space-y-2 p-3' : 'px-2 py-1.5'}`}
                   >
-                    {/* Header: check + label + type selector + remove */}
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => completeSet(exerciseIndex, setIndex)}
-                        title={setInput.checked ? 'Clique para desmarcar' : 'Concluir série (preenche com última sessão)'}
-                        className={`h-7 w-7 shrink-0 rounded-full border-2 flex items-center justify-center text-sm font-bold transition-colors ${
-                          setInput.checked
-                            ? 'border-green-500 bg-green-500 text-white'
-                            : 'border-[var(--line)] bg-transparent text-[var(--muted)] hover:border-green-500/60 hover:text-green-400'
-                        }`}
+                    {!isComplex ? (
+                      /* COMPACT ROW (normal/warmup/failure) — Hevy-style:
+                         [Badge] [Anterior]  [KG input]  [Reps input]  [✓] */
+                      <div
+                        className="grid items-center gap-1.5 sm:gap-2"
+                        style={{
+                          gridTemplateColumns: showLoadInput
+                            ? '36px minmax(60px,1fr) 64px 64px 32px'
+                            : '36px minmax(60px,1fr) 96px 32px',
+                        }}
                       >
-                        ✓
-                      </button>
-                      <span className="shrink-0 text-xs font-bold text-[var(--muted)]">
-                        Serie {setIndex + 1}
-                      </span>
-                      <SetTypeSelector
-                        value={setInput.setType}
-                        onChange={(val) => patchSet(exerciseIndex, setIndex, { setType: val })}
-                        allowedTypes={
-                          isTime || isDistance ? ['normal', 'warmup', 'failure'] : undefined
-                        }
+                        <SetTypeBadge
+                          index={setIndex}
+                          setType={setInput.setType}
+                          checked={setInput.checked}
+                          onClick={() => setOpenTypePicker({ exerciseIndex, setIndex })}
+                        />
+                        <span className="truncate font-mono text-[12px] text-[var(--muted)]">
+                          {previousLabel}
+                        </span>
+                        {showLoadInput && (
+                          <input
+                            value={setInput.weightKg}
+                            placeholder={weightPlaceholder}
+                            inputMode="decimal"
+                            aria-label="Peso em kg"
+                            onChange={(event) =>
+                              patchSet(exerciseIndex, setIndex, {
+                                weightKg: event.target.value.replace(/[^\d.]/g, ''),
+                              })
+                            }
+                            className="w-full rounded-md border border-[var(--line)] bg-transparent px-1.5 py-1 text-center text-[13px] font-semibold tabular-nums"
+                          />
+                        )}
+                        <input
+                          value={setInput.reps}
+                          placeholder={repsPlaceholder}
+                          inputMode={isDistance ? 'decimal' : 'numeric'}
+                          aria-label={repsLabel}
+                          onChange={(event) =>
+                            patchSet(exerciseIndex, setIndex, {
+                              reps: event.target.value.replace(isDistance ? /[^\d.]/g : /[^\d]/g, ''),
+                            })
+                          }
+                          className="w-full rounded-md border border-[var(--line)] bg-transparent px-1.5 py-1 text-center text-[13px] font-semibold tabular-nums"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => completeSet(exerciseIndex, setIndex)}
+                          title={setInput.checked ? 'Clique para desmarcar' : 'Concluir série'}
+                          aria-label={setInput.checked ? 'Desmarcar série' : 'Concluir série'}
+                          className={`h-7 w-7 shrink-0 justify-self-center rounded-md border-2 flex items-center justify-center text-[13px] font-bold transition-colors ${
+                            setInput.checked
+                              ? 'border-green-500 bg-green-500 text-white'
+                              : 'border-[var(--line)] bg-transparent text-[var(--muted)] hover:border-green-500/60 hover:text-green-400'
+                          }`}
+                        >
+                          ✓
+                        </button>
+                      </div>
+                    ) : (
+                      /* COMPLEX ROW (drop/cluster) — slim header with badge,
+                         label, check button — then the detailed inputs below
+                         (kept as-is from the previous design). */
+                      <div className="flex flex-wrap items-center gap-2">
+                        <SetTypeBadge
+                          index={setIndex}
+                          setType={setInput.setType}
+                          checked={setInput.checked}
+                          onClick={() => setOpenTypePicker({ exerciseIndex, setIndex })}
+                        />
+                        <span className="text-xs font-bold text-[var(--muted)]">
+                          Série {setIndex + 1} · {SET_TYPE_GLYPH[setInput.setType].label}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => completeSet(exerciseIndex, setIndex)}
+                          aria-label={setInput.checked ? 'Desmarcar série' : 'Concluir série'}
+                          className={`ml-auto h-7 w-7 shrink-0 rounded-md border-2 flex items-center justify-center text-[13px] font-bold transition-colors ${
+                            setInput.checked
+                              ? 'border-green-500 bg-green-500 text-white'
+                              : 'border-[var(--line)] bg-transparent text-[var(--muted)] hover:border-green-500/60 hover:text-green-400'
+                          }`}
+                        >
+                          ✓
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Picker bottom sheet for THIS specific set — only mounted
+                        when this is the open one to avoid a portal per set. */}
+                    {openTypePicker?.exerciseIndex === exerciseIndex && openTypePicker?.setIndex === setIndex && (
+                      <SetTypePickerSheet
+                        open
+                        current={setInput.setType}
+                        allowedTypes={allowedTypes}
+                        onSelect={(val) => patchSet(exerciseIndex, setIndex, { setType: val })}
+                        onRemove={() => removeSet(exerciseIndex, setIndex)}
+                        onClose={() => setOpenTypePicker(null)}
                       />
-                      <button
-                        type="button"
-                        onClick={() => removeSet(exerciseIndex, setIndex)}
-                        className="ml-auto rounded-lg border border-red-500/60 px-2 py-1 text-xs font-semibold text-red-300"
-                      >
-                        Remover
-                      </button>
-                    </div>
+                    )}
 
                     {setInput.setType === 'drop' ? (
                       /* Drop set inputs */
@@ -2508,97 +2783,72 @@ export function TrainPage() {
                           />
                         </label>
                       </div>
-                    ) : (
-                      /* Normal / Warmup / Failure inputs */
-                      (() => {
-                        // RIR is reps-specific; RPE works for any tracking type so
-                        // it stays visible even for time/distance exercises.
-                        const hideRir = isTime || isDistance
-                        const cols = (showLoadInput ? 1 : 0) + 1 + (hideRir ? 0 : 1) + 1
-                        const gridClass =
-                          cols >= 4
-                            ? 'sm:grid-cols-4'
-                            : cols === 3
-                              ? 'sm:grid-cols-3'
-                              : cols === 2
-                                ? 'sm:grid-cols-2'
-                                : 'sm:grid-cols-1'
-                        return (
-                          <div className={`grid gap-2 ${gridClass}`}>
-                            {showLoadInput ? (
-                              <label className="text-[11px] uppercase text-[var(--muted)]">
-                                Peso (kg)
-                                <input
-                                  value={setInput.weightKg}
-                                  placeholder={weightPlaceholder}
-                                  onChange={(event) =>
-                                    patchSet(exerciseIndex, setIndex, {
-                                      weightKg: event.target.value.replace(/[^\d.]/g, ''),
-                                    })
-                                  }
-                                  className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
-                                />
-                              </label>
-                            ) : null}
-                            <label className="text-[11px] uppercase text-[var(--muted)]">
-                              {repsLabel}
-                              <input
-                                value={setInput.reps}
-                                placeholder={repsPlaceholder}
-                                onChange={(event) =>
-                                  patchSet(exerciseIndex, setIndex, {
-                                    reps: event.target.value.replace(isDistance ? /[^\d.]/g : /[^\d]/g, ''),
-                                  })
-                                }
-                                className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
-                              />
-                            </label>
-                            {hideRir ? null : (
-                              <label className="text-[11px] uppercase text-[var(--muted)]">
-                                RIR
-                                <input
-                                  value={setInput.rir}
-                                  placeholder={rirPlaceholder}
-                                  onChange={(event) =>
-                                    patchSet(exerciseIndex, setIndex, {
-                                      rir: event.target.value.replace(/[^\d]/g, ''),
-                                    })
-                                  }
-                                  className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
-                                />
-                              </label>
-                            )}
-                            <label className="text-[11px] uppercase text-[var(--muted)]">
-                              RPE
-                              <input
-                                value={setInput.rpe}
-                                placeholder={rpePlaceholder}
-                                inputMode="numeric"
-                                maxLength={2}
-                                onChange={(event) =>
-                                  patchSet(exerciseIndex, setIndex, {
-                                    rpe: event.target.value.replace(/[^\d]/g, '').slice(0, 2),
-                                  })
-                                }
-                                className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
-                              />
-                            </label>
-                          </div>
-                        )
-                      })()
+                    ) : null /* normal/warmup/failure is rendered by the compact
+                              row above; RIR/RPE moved to the per-exercise expander. */}
+
+                    {/* Advanced row (RIR + RPE), opt-in via the per-exercise
+                        toggle below. Hidden by default to keep mobile clean. */}
+                    {!isComplex && showAdvancedByExercise[exercise.exerciseId] && (
+                      <div className="mt-1.5 grid grid-cols-2 gap-1.5 px-1">
+                        {!(isTime || isDistance) && (
+                          <label className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wide text-[var(--muted)]">
+                            RIR
+                            <input
+                              value={setInput.rir}
+                              placeholder={rirPlaceholder}
+                              inputMode="numeric"
+                              onChange={(event) =>
+                                patchSet(exerciseIndex, setIndex, {
+                                  rir: event.target.value.replace(/[^\d]/g, ''),
+                                })
+                              }
+                              className="ml-auto w-12 rounded border border-[var(--line)] bg-transparent px-1.5 py-0.5 text-center text-[12px] font-semibold tabular-nums"
+                            />
+                          </label>
+                        )}
+                        <label className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wide text-[var(--muted)]">
+                          RPE
+                          <input
+                            value={setInput.rpe}
+                            placeholder={rpePlaceholder}
+                            inputMode="numeric"
+                            maxLength={2}
+                            onChange={(event) =>
+                              patchSet(exerciseIndex, setIndex, {
+                                rpe: event.target.value.replace(/[^\d]/g, '').slice(0, 2),
+                              })
+                            }
+                            className="ml-auto w-12 rounded border border-[var(--line)] bg-transparent px-1.5 py-0.5 text-center text-[12px] font-semibold tabular-nums"
+                          />
+                        </label>
+                      </div>
                     )}
                   </div>
                     )
                   })()
                 ))}
 
-                <button
-                  type="button"
-                  onClick={() => addSet(exerciseIndex)}
-                  className="rounded-lg border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--text)]"
-                >
-                  Adicionar serie
-                </button>
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => addSet(exerciseIndex)}
+                    className="rounded-lg border border-[var(--line)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
+                  >
+                    + Adicionar série
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setShowAdvancedByExercise((current) => ({
+                        ...current,
+                        [exercise.exerciseId]: !current[exercise.exerciseId],
+                      }))
+                    }
+                    className="ml-auto text-[11px] font-medium text-[var(--muted)] hover:text-[var(--text)]"
+                  >
+                    {showAdvancedByExercise[exercise.exerciseId] ? 'Ocultar RIR/RPE' : 'Mostrar RIR/RPE'}
+                  </button>
+                </div>
               </div>
               </div>
             )
