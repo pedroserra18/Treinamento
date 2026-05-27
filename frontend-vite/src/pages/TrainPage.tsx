@@ -2478,33 +2478,22 @@ export function TrainPage() {
               </label>
 
               <div className="mt-3 space-y-2">
-                {/* Column header — rendered once above the sets list. All on
-                    one row: Série, Anterior, KG, Reps, RIR, RPE, ✓ (RIR is
-                    hidden for time/distance-tracked exercises where it has
-                    no meaning). */}
+                {/* Column header — flex layout so the Anterior cell fills the
+                    mobile row but caps at ~140px on desktop, with an invisible
+                    spacer eating the leftover space so inputs stay clustered
+                    on the right instead of drifting next to Anterior. */}
                 {exercise.sets.length > 0 && (() => {
                   const isTimeOrDist = exercise.trackingType === 'TIME' || exercise.trackingType === 'DISTANCE'
-                  const cols = [
-                    '32px',                  // Série
-                    'minmax(60px,1fr)',      // Anterior
-                    showLoadInput ? '52px' : null, // KG
-                    '52px',                  // Reps
-                    !isTimeOrDist ? '44px' : null, // RIR
-                    '44px',                  // RPE
-                    '30px',                  // ✓
-                  ].filter(Boolean).join(' ')
                   return (
-                    <div
-                      className="grid items-center gap-1 px-1 pb-1 font-mono text-[9.5px] font-semibold uppercase tracking-[0.08em] text-[var(--muted)] sm:gap-1.5"
-                      style={{ gridTemplateColumns: cols }}
-                    >
-                      <span>Série</span>
-                      <span>Anterior</span>
-                      {showLoadInput && <span className="text-center">kg</span>}
-                      <span className="text-center">reps</span>
-                      {!isTimeOrDist && <span className="text-center">rir</span>}
-                      <span className="text-center">rpe</span>
-                      <span className="text-center">✓</span>
+                    <div className="flex items-center gap-1 px-1 pb-1 font-mono text-[9.5px] font-semibold uppercase tracking-[0.08em] text-[var(--muted)] sm:gap-1.5">
+                      <span className="w-8 shrink-0">Série</span>
+                      <span className="min-w-0 flex-1 truncate sm:flex-none sm:basis-[140px]">Anterior</span>
+                      <span aria-hidden className="hidden flex-1 sm:block" />
+                      {showLoadInput && <span className="w-[52px] shrink-0 text-center sm:w-[64px]">kg</span>}
+                      <span className="w-[52px] shrink-0 text-center sm:w-[64px]">reps</span>
+                      {!isTimeOrDist && <span className="w-[44px] shrink-0 text-center sm:w-[48px]">rir</span>}
+                      <span className="w-[44px] shrink-0 text-center sm:w-[48px]">rpe</span>
+                      <span className="w-7 shrink-0 text-center">✓</span>
                     </div>
                   )
                 })()}
@@ -2564,35 +2553,26 @@ export function TrainPage() {
                   >
                     {!isComplex ? (
                       /* COMPACT ROW (normal/warmup/failure):
-                         [Badge] [Anterior] [KG] [Reps] [RIR] [RPE] [✓]
-                         All in one grid line. Tight on small phones but
-                         readable; the inputs are center-aligned with
-                         tabular-nums so digits don't dance. */
+                         [Badge] [Anterior] [spacer] [KG] [Reps] [RIR] [RPE] [✓]
+                         Flex layout — Anterior fills the row on mobile but
+                         caps at 140px on desktop. The hidden spacer (flex-1
+                         on sm+) eats the leftover width so the input cluster
+                         stays glued to the right edge instead of leaving an
+                         awkward gap next to Anterior. */
                       (() => {
                         const isTimeOrDist = isTime || isDistance
-                        const cols = [
-                          '32px',
-                          'minmax(60px,1fr)',
-                          showLoadInput ? '52px' : null,
-                          '52px',
-                          !isTimeOrDist ? '44px' : null,
-                          '44px',
-                          '30px',
-                        ].filter(Boolean).join(' ')
                         return (
-                          <div
-                            className="grid items-center gap-1 sm:gap-1.5"
-                            style={{ gridTemplateColumns: cols }}
-                          >
+                          <div className="flex items-center gap-1 sm:gap-1.5">
                             <SetTypeBadge
                               index={setIndex}
                               setType={setInput.setType}
                               checked={setInput.checked}
                               onClick={() => setOpenTypePicker({ exerciseIndex, setIndex })}
                             />
-                            <span className="truncate font-mono text-[11.5px] text-[var(--muted)]">
+                            <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-[var(--muted)] sm:flex-none sm:basis-[140px]">
                               {previousLabel}
                             </span>
+                            <span aria-hidden className="hidden flex-1 sm:block" />
                             {showLoadInput && (
                               <input
                                 value={setInput.weightKg}
@@ -2604,7 +2584,7 @@ export function TrainPage() {
                                     weightKg: event.target.value.replace(/[^\d.]/g, ''),
                                   })
                                 }
-                                className="w-full rounded-md border border-[var(--line)] bg-transparent px-1 py-1 text-center text-[12.5px] font-semibold tabular-nums"
+                                className="w-[52px] shrink-0 rounded-md border border-[var(--line)] bg-transparent px-1 py-1 text-center text-[12.5px] font-semibold tabular-nums sm:w-[64px]"
                               />
                             )}
                             <input
@@ -2617,7 +2597,7 @@ export function TrainPage() {
                                   reps: event.target.value.replace(isDistance ? /[^\d.]/g : /[^\d]/g, ''),
                                 })
                               }
-                              className="w-full rounded-md border border-[var(--line)] bg-transparent px-1 py-1 text-center text-[12.5px] font-semibold tabular-nums"
+                              className="w-[52px] shrink-0 rounded-md border border-[var(--line)] bg-transparent px-1 py-1 text-center text-[12.5px] font-semibold tabular-nums sm:w-[64px]"
                             />
                             {!isTimeOrDist && (
                               <input
@@ -2630,7 +2610,7 @@ export function TrainPage() {
                                     rir: event.target.value.replace(/[^\d]/g, ''),
                                   })
                                 }
-                                className="w-full rounded-md border border-[var(--line)] bg-transparent px-0.5 py-1 text-center text-[12px] font-semibold tabular-nums"
+                                className="w-[44px] shrink-0 rounded-md border border-[var(--line)] bg-transparent px-0.5 py-1 text-center text-[12px] font-semibold tabular-nums sm:w-[48px]"
                               />
                             )}
                             <input
@@ -2644,14 +2624,14 @@ export function TrainPage() {
                                   rpe: event.target.value.replace(/[^\d]/g, '').slice(0, 2),
                                 })
                               }
-                              className="w-full rounded-md border border-[var(--line)] bg-transparent px-0.5 py-1 text-center text-[12px] font-semibold tabular-nums"
+                              className="w-[44px] shrink-0 rounded-md border border-[var(--line)] bg-transparent px-0.5 py-1 text-center text-[12px] font-semibold tabular-nums sm:w-[48px]"
                             />
                             <button
                               type="button"
                               onClick={() => completeSet(exerciseIndex, setIndex)}
                               title={setInput.checked ? 'Clique para desmarcar' : 'Concluir série'}
                               aria-label={setInput.checked ? 'Desmarcar série' : 'Concluir série'}
-                              className={`h-7 w-7 shrink-0 justify-self-center rounded-md border-2 flex items-center justify-center text-[12.5px] font-bold transition-colors ${
+                              className={`h-7 w-7 shrink-0 rounded-md border-2 flex items-center justify-center text-[12.5px] font-bold transition-colors ${
                                 setInput.checked
                                   ? 'border-green-500 bg-green-500 text-white'
                                   : 'border-[var(--line)] bg-transparent text-[var(--muted)] hover:border-green-500/60 hover:text-green-400'
