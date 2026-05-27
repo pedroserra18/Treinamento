@@ -254,11 +254,19 @@ function PrCelebrationBanner({
   celebration: { id: number; exerciseName: string; loadKg: number; previousKg: number | null } | null
   onDismiss: () => void
 }) {
+  // Keep onDismiss in a ref so re-renders of the parent (the 1s workout
+  // timer ticks every second) don't reset the auto-dismiss timeout. Only
+  // celebration.id is a real signal to (re)start the timer.
+  const dismissRef = useRef(onDismiss)
   useEffect(() => {
-    if (!celebration) return
-    const id = window.setTimeout(onDismiss, 3600)
+    dismissRef.current = onDismiss
+  }, [onDismiss])
+  const celebrationId = celebration?.id ?? null
+  useEffect(() => {
+    if (celebrationId == null) return
+    const id = window.setTimeout(() => dismissRef.current(), 4000)
     return () => window.clearTimeout(id)
-  }, [celebration, onDismiss])
+  }, [celebrationId])
 
   return createPortal(
     <AnimatePresence>
