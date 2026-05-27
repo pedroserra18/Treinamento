@@ -1071,6 +1071,50 @@ function extractRirFromNotes(notes: string | null): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+// Per-exercise all-time personal records. Returns the max weight ever
+// lifted for each requested exercise — the active workout screen calls
+// this once when entering the session to celebrate when the user beats
+// it. groupBy keeps this an indexed aggregate at DB level so it stays
+// cheap even with thousands of history rows per exercise.
+export async function listExercisePersonalRecords(userId: string, exerciseIds: string[]) {
+  const normalizedIds = Array.from(new Set(exerciseIds));
+  if (normalizedIds.length === 0) {
+    return { items: [] };
+  }
+
+  const rows = await prisma.workoutHistory.groupBy({
+    by: ["exerciseId"],
+    where: {
+      userId,
+      exerciseId: { in: normalizedIds },
+      workoutSession: {
+        userId,
+        status: "COMPLETED"
+      }
+    },
+    _max: {
+      weightKg: true,
+      reps: true
+    }
+  });
+
+  const byExerciseId = new Map<string, { maxLoadKg: number | null; maxReps: number | null }>();
+  for (const r of rows) {
+    byExerciseId.set(r.exerciseId, {
+      maxLoadKg: r._max.weightKg,
+      maxReps: r._max.reps
+    });
+  }
+
+  return {
+    items: normalizedIds.map((exerciseId) => ({
+      exerciseId,
+      maxLoadKg: byExerciseId.get(exerciseId)?.maxLoadKg ?? null,
+      maxReps: byExerciseId.get(exerciseId)?.maxReps ?? null
+    }))
+  };
+}
+
 export async function listLatestExerciseHistory(userId: string, exerciseIds: string[]) {
   const normalizedIds = Array.from(new Set(exerciseIds));
 

@@ -236,6 +236,12 @@ export const latestExerciseHistoryBodySchema = z
   })
   .strict();
 
+export const personalRecordsBodySchema = z
+  .object({
+    exerciseIds: z.array(z.string().cuid()).min(1).max(120)
+  })
+  .strict();
+
 export type StartWorkoutBody = z.infer<typeof startWorkoutBodySchema>;
 export type WorkoutPlanParams = z.infer<typeof workoutPlanParamsSchema>;
 export type PlanExerciseParams = z.infer<typeof planExerciseParamsSchema>;
@@ -256,3 +262,4 @@ export type HistorySessionParams = z.infer<typeof historySessionParamsSchema>;
 export type UpdateWorkoutDurationBody = z.infer<typeof updateWorkoutDurationBodySchema>;
 export type CreateManualHistoryBody = z.infer<typeof createManualHistoryBodySchema>;
 export type LatestExerciseHistoryBody = z.infer<typeof latestExerciseHistoryBodySchema>;
+export type PersonalRecordsBody = z.infer<typeof personalRecordsBodySchema>;

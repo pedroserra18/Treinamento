@@ -14,6 +14,7 @@ import {
   historySessionParamsSchema,
   latestExerciseHistoryBodySchema,
   listWorkoutHistoryQuerySchema,
+  personalRecordsBodySchema,
   planCardioParamsSchema,
   planExerciseParamsSchema,
   recommendationTemplateQuerySchema,
@@ -42,6 +43,7 @@ import {
   listWorkoutHistoryController,
   latestExerciseHistoryController,
   listWorkoutPlansController,
+  personalRecordsController,
   recommendationTemplatesController,
   reorderPlanExercisesController,
   searchExercisesController,
@@ -202,6 +204,14 @@ router.post(
   requireCompletedOnboarding,
   validateRequest({ body: latestExerciseHistoryBodySchema }),
   asyncHandler(async (req, res) => latestExerciseHistoryController(req, res))
+);
+
+router.post(
+  "/workouts/exercises/personal-records",
+  requireAuth,
+  requireCompletedOnboarding,
+  validateRequest({ body: personalRecordsBodySchema }),
+  asyncHandler(async (req, res) => personalRecordsController(req, res))
 );
 
 router.patch(

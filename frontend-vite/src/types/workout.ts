@@ -168,3 +168,13 @@ export type LatestExercisePerformanceItem = {
 export type LatestExercisePerformanceResponse = {
   items: LatestExercisePerformanceItem[]
 }
+
+export type ExercisePersonalRecord = {
+  exerciseId: string
+  maxLoadKg: number | null
+  maxReps: number | null
+}
+
+export type ExercisePersonalRecordsResponse = {
+  items: ExercisePersonalRecord[]
+}

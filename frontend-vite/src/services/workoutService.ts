@@ -1,6 +1,7 @@
 import type {
   CardioType,
   ExerciseOption,
+  ExercisePersonalRecordsResponse,
   LatestExercisePerformanceResponse,
   RecommendationTemplateResponse,
   WorkoutHistoryResponse,
@@ -756,6 +757,34 @@ export async function createManualHistory(
   if (!response.ok) {
     throw new Error(payload.errorMessage ?? 'Falha ao registrar historico manual')
   }
+}
+
+// Returns the all-time max load + reps per exercise. Used by the active
+// workout screen to detect when the user just hit a new PR. The endpoint
+// is a single SQL aggregate so it stays cheap even at scale.
+export async function getExercisePersonalRecords(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  exerciseIds: string[],
+): Promise<ExercisePersonalRecordsResponse> {
+  const normalizedIds = Array.from(new Set(exerciseIds)).filter(Boolean)
+  if (normalizedIds.length === 0) {
+    return { items: [] }
+  }
+
+  const response = await authorizedFetch(`${API_URL}/workouts/exercises/personal-records`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ exerciseIds: normalizedIds }),
+  })
+
+  const payload = await parsePayload<ExercisePersonalRecordsResponse>(response)
+
+  if (!response.ok || !payload.data) {
+    // Fail soft: missing PR data shouldn't block the workout session.
+    return { items: [] }
+  }
+
+  return payload.data
 }
 
 export async function getLatestExercisePerformance(
