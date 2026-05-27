@@ -2478,24 +2478,36 @@ export function TrainPage() {
               </label>
 
               <div className="mt-3 space-y-2">
-                {/* Column header — rendered once above the sets list, Hevy style.
-                    Compact label row that anchors the per-set grid below. */}
-                {exercise.sets.length > 0 && (
-                  <div
-                    className="grid items-center gap-1.5 px-1 pb-1 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--muted)] sm:gap-2"
-                    style={{
-                      gridTemplateColumns: showLoadInput
-                        ? '36px minmax(60px,1fr) 64px 64px 32px'
-                        : '36px minmax(60px,1fr) 96px 32px',
-                    }}
-                  >
-                    <span>Série</span>
-                    <span>Anterior</span>
-                    {showLoadInput && <span className="text-center">kg</span>}
-                    <span className="text-center">reps</span>
-                    <span className="text-center">✓</span>
-                  </div>
-                )}
+                {/* Column header — rendered once above the sets list. All on
+                    one row: Série, Anterior, KG, Reps, RIR, RPE, ✓ (RIR is
+                    hidden for time/distance-tracked exercises where it has
+                    no meaning). */}
+                {exercise.sets.length > 0 && (() => {
+                  const isTimeOrDist = exercise.trackingType === 'TIME' || exercise.trackingType === 'DISTANCE'
+                  const cols = [
+                    '32px',                  // Série
+                    'minmax(60px,1fr)',      // Anterior
+                    showLoadInput ? '52px' : null, // KG
+                    '52px',                  // Reps
+                    !isTimeOrDist ? '44px' : null, // RIR
+                    '44px',                  // RPE
+                    '30px',                  // ✓
+                  ].filter(Boolean).join(' ')
+                  return (
+                    <div
+                      className="grid items-center gap-1 px-1 pb-1 font-mono text-[9.5px] font-semibold uppercase tracking-[0.08em] text-[var(--muted)] sm:gap-1.5"
+                      style={{ gridTemplateColumns: cols }}
+                    >
+                      <span>Série</span>
+                      <span>Anterior</span>
+                      {showLoadInput && <span className="text-center">kg</span>}
+                      <span className="text-center">reps</span>
+                      {!isTimeOrDist && <span className="text-center">rir</span>}
+                      <span className="text-center">rpe</span>
+                      <span className="text-center">✓</span>
+                    </div>
+                  )
+                })()}
 
                 {exercise.sets.map((setInput, setIndex) => (
                   (() => {
@@ -2551,65 +2563,105 @@ export function TrainPage() {
                     } ${isComplex ? 'space-y-2 p-3' : 'px-2 py-1.5'}`}
                   >
                     {!isComplex ? (
-                      /* COMPACT ROW (normal/warmup/failure) — Hevy-style:
-                         [Badge] [Anterior]  [KG input]  [Reps input]  [✓] */
-                      <div
-                        className="grid items-center gap-1.5 sm:gap-2"
-                        style={{
-                          gridTemplateColumns: showLoadInput
-                            ? '36px minmax(60px,1fr) 64px 64px 32px'
-                            : '36px minmax(60px,1fr) 96px 32px',
-                        }}
-                      >
-                        <SetTypeBadge
-                          index={setIndex}
-                          setType={setInput.setType}
-                          checked={setInput.checked}
-                          onClick={() => setOpenTypePicker({ exerciseIndex, setIndex })}
-                        />
-                        <span className="truncate font-mono text-[12px] text-[var(--muted)]">
-                          {previousLabel}
-                        </span>
-                        {showLoadInput && (
-                          <input
-                            value={setInput.weightKg}
-                            placeholder={weightPlaceholder}
-                            inputMode="decimal"
-                            aria-label="Peso em kg"
-                            onChange={(event) =>
-                              patchSet(exerciseIndex, setIndex, {
-                                weightKg: event.target.value.replace(/[^\d.]/g, ''),
-                              })
-                            }
-                            className="w-full rounded-md border border-[var(--line)] bg-transparent px-1.5 py-1 text-center text-[13px] font-semibold tabular-nums"
-                          />
-                        )}
-                        <input
-                          value={setInput.reps}
-                          placeholder={repsPlaceholder}
-                          inputMode={isDistance ? 'decimal' : 'numeric'}
-                          aria-label={repsLabel}
-                          onChange={(event) =>
-                            patchSet(exerciseIndex, setIndex, {
-                              reps: event.target.value.replace(isDistance ? /[^\d.]/g : /[^\d]/g, ''),
-                            })
-                          }
-                          className="w-full rounded-md border border-[var(--line)] bg-transparent px-1.5 py-1 text-center text-[13px] font-semibold tabular-nums"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => completeSet(exerciseIndex, setIndex)}
-                          title={setInput.checked ? 'Clique para desmarcar' : 'Concluir série'}
-                          aria-label={setInput.checked ? 'Desmarcar série' : 'Concluir série'}
-                          className={`h-7 w-7 shrink-0 justify-self-center rounded-md border-2 flex items-center justify-center text-[13px] font-bold transition-colors ${
-                            setInput.checked
-                              ? 'border-green-500 bg-green-500 text-white'
-                              : 'border-[var(--line)] bg-transparent text-[var(--muted)] hover:border-green-500/60 hover:text-green-400'
-                          }`}
-                        >
-                          ✓
-                        </button>
-                      </div>
+                      /* COMPACT ROW (normal/warmup/failure):
+                         [Badge] [Anterior] [KG] [Reps] [RIR] [RPE] [✓]
+                         All in one grid line. Tight on small phones but
+                         readable; the inputs are center-aligned with
+                         tabular-nums so digits don't dance. */
+                      (() => {
+                        const isTimeOrDist = isTime || isDistance
+                        const cols = [
+                          '32px',
+                          'minmax(60px,1fr)',
+                          showLoadInput ? '52px' : null,
+                          '52px',
+                          !isTimeOrDist ? '44px' : null,
+                          '44px',
+                          '30px',
+                        ].filter(Boolean).join(' ')
+                        return (
+                          <div
+                            className="grid items-center gap-1 sm:gap-1.5"
+                            style={{ gridTemplateColumns: cols }}
+                          >
+                            <SetTypeBadge
+                              index={setIndex}
+                              setType={setInput.setType}
+                              checked={setInput.checked}
+                              onClick={() => setOpenTypePicker({ exerciseIndex, setIndex })}
+                            />
+                            <span className="truncate font-mono text-[11.5px] text-[var(--muted)]">
+                              {previousLabel}
+                            </span>
+                            {showLoadInput && (
+                              <input
+                                value={setInput.weightKg}
+                                placeholder={weightPlaceholder}
+                                inputMode="decimal"
+                                aria-label="Peso em kg"
+                                onChange={(event) =>
+                                  patchSet(exerciseIndex, setIndex, {
+                                    weightKg: event.target.value.replace(/[^\d.]/g, ''),
+                                  })
+                                }
+                                className="w-full rounded-md border border-[var(--line)] bg-transparent px-1 py-1 text-center text-[12.5px] font-semibold tabular-nums"
+                              />
+                            )}
+                            <input
+                              value={setInput.reps}
+                              placeholder={repsPlaceholder}
+                              inputMode={isDistance ? 'decimal' : 'numeric'}
+                              aria-label={repsLabel}
+                              onChange={(event) =>
+                                patchSet(exerciseIndex, setIndex, {
+                                  reps: event.target.value.replace(isDistance ? /[^\d.]/g : /[^\d]/g, ''),
+                                })
+                              }
+                              className="w-full rounded-md border border-[var(--line)] bg-transparent px-1 py-1 text-center text-[12.5px] font-semibold tabular-nums"
+                            />
+                            {!isTimeOrDist && (
+                              <input
+                                value={setInput.rir}
+                                placeholder={rirPlaceholder}
+                                inputMode="numeric"
+                                aria-label="RIR"
+                                onChange={(event) =>
+                                  patchSet(exerciseIndex, setIndex, {
+                                    rir: event.target.value.replace(/[^\d]/g, ''),
+                                  })
+                                }
+                                className="w-full rounded-md border border-[var(--line)] bg-transparent px-0.5 py-1 text-center text-[12px] font-semibold tabular-nums"
+                              />
+                            )}
+                            <input
+                              value={setInput.rpe}
+                              placeholder={rpePlaceholder}
+                              inputMode="numeric"
+                              maxLength={2}
+                              aria-label="RPE"
+                              onChange={(event) =>
+                                patchSet(exerciseIndex, setIndex, {
+                                  rpe: event.target.value.replace(/[^\d]/g, '').slice(0, 2),
+                                })
+                              }
+                              className="w-full rounded-md border border-[var(--line)] bg-transparent px-0.5 py-1 text-center text-[12px] font-semibold tabular-nums"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => completeSet(exerciseIndex, setIndex)}
+                              title={setInput.checked ? 'Clique para desmarcar' : 'Concluir série'}
+                              aria-label={setInput.checked ? 'Desmarcar série' : 'Concluir série'}
+                              className={`h-7 w-7 shrink-0 justify-self-center rounded-md border-2 flex items-center justify-center text-[12.5px] font-bold transition-colors ${
+                                setInput.checked
+                                  ? 'border-green-500 bg-green-500 text-white'
+                                  : 'border-[var(--line)] bg-transparent text-[var(--muted)] hover:border-green-500/60 hover:text-green-400'
+                              }`}
+                            >
+                              ✓
+                            </button>
+                          </div>
+                        )
+                      })()
                     ) : (
                       /* COMPLEX ROW (drop/cluster) — slim header with badge,
                          label, check button — then the detailed inputs below
@@ -2785,44 +2837,6 @@ export function TrainPage() {
                     ) : null /* normal/warmup/failure is rendered by the compact
                               row above; RIR/RPE moved to the per-exercise expander. */}
 
-                    {/* RIR + RPE sub-row — always visible for normal sets so
-                        the user keeps the same input surface as before, just
-                        on a compact second line under the main grid. */}
-                    {!isComplex && (
-                      <div className="mt-1.5 grid grid-cols-2 gap-1.5 px-1">
-                        {!(isTime || isDistance) && (
-                          <label className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wide text-[var(--muted)]">
-                            RIR
-                            <input
-                              value={setInput.rir}
-                              placeholder={rirPlaceholder}
-                              inputMode="numeric"
-                              onChange={(event) =>
-                                patchSet(exerciseIndex, setIndex, {
-                                  rir: event.target.value.replace(/[^\d]/g, ''),
-                                })
-                              }
-                              className="ml-auto w-14 rounded border border-[var(--line)] bg-transparent px-1.5 py-0.5 text-center text-[12px] font-semibold tabular-nums"
-                            />
-                          </label>
-                        )}
-                        <label className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wide text-[var(--muted)]">
-                          RPE
-                          <input
-                            value={setInput.rpe}
-                            placeholder={rpePlaceholder}
-                            inputMode="numeric"
-                            maxLength={2}
-                            onChange={(event) =>
-                              patchSet(exerciseIndex, setIndex, {
-                                rpe: event.target.value.replace(/[^\d]/g, '').slice(0, 2),
-                              })
-                            }
-                            className="ml-auto w-14 rounded border border-[var(--line)] bg-transparent px-1.5 py-0.5 text-center text-[12px] font-semibold tabular-nums"
-                          />
-                        </label>
-                      </div>
-                    )}
                   </div>
                     )
                   })()
