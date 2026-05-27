@@ -617,7 +617,18 @@ function YearActivityHeatmap({ days }: { days: ProgressSummaryDay[] }) {
         </div>
       </div>
 
-      {/* Horizontal scroll on small screens so the full year stays legible. */}
+      {/* Horizontal scroll on small screens so the full year stays legible.
+          Fades at both edges hint at scrollability (more discoverable on
+          mobile, less visual clutter than a scrollbar). */}
+      <div className="relative">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 left-0 z-10 w-6 bg-gradient-to-r from-[var(--surface)] to-transparent"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 right-0 z-10 w-6 bg-gradient-to-l from-[var(--surface)] to-transparent"
+        />
       <div className="-mx-1 overflow-x-auto pb-1">
         <div className="inline-flex gap-[3px] px-1" onMouseLeave={() => setHovered(null)}>
           {/* Days-of-week column (S T Q S labels every other row) */}
@@ -670,6 +681,7 @@ function YearActivityHeatmap({ days }: { days: ProgressSummaryDay[] }) {
             </div>
           </div>
         </div>
+      </div>
       </div>
 
       {/* Hover tooltip footer — keeps the layout stable instead of using a
@@ -1071,23 +1083,25 @@ function ExerciseCard({
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onToggle() }}
-            className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-[12px] font-medium transition-colors ${
+            aria-label={open ? 'Ocultar progresso' : 'Ver progresso'}
+            className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] font-medium transition-colors sm:px-3 ${
               open
                 ? 'border-[var(--line)] bg-[var(--surface)] text-[var(--text)] hover:bg-[var(--surface-hover)]'
                 : 'border-[var(--brand)] bg-[var(--brand)] text-white hover:bg-[var(--brand-strong)]'
             }`}
           >
             {open ? <Plus size={12} className="rotate-45" /> : <TrendingUp size={12} />}
-            {open ? 'Ocultar progresso' : 'Ver progresso'}
+            <span className="hidden sm:inline">{open ? 'Ocultar progresso' : 'Ver progresso'}</span>
           </button>
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onRemove() }}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--line)] bg-transparent px-3 text-[12px] font-medium text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+            aria-label="Remover dos fixados"
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--line)] bg-transparent px-2.5 text-[12px] font-medium text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text)] sm:px-3"
             title="Remover dos fixados"
           >
             <Trash2 size={12} />
-            Remover
+            <span className="hidden sm:inline">Remover</span>
           </button>
           <span
             className={`grid h-[18px] w-[18px] place-items-center text-[var(--muted)] transition-transform ${
@@ -1960,6 +1974,33 @@ export function ProgressPage() {
       {/* ───── BODY PANEL ───── */}
       {tab === 'body' && (
         <div className="space-y-2.5">
+          {measurements.length === 0 && !loading ? (
+            <motion.section
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-6 sm:p-10"
+            >
+              <div className="mx-auto max-w-md text-center">
+                <span className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-[var(--brand)]/15 text-[var(--brand-strong)]">
+                  <ImageIcon size={22} />
+                </span>
+                <h3 className="text-base font-bold text-[var(--text)]">Comece sua linha do tempo corporal</h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-[var(--muted)]">
+                  Tire uma foto periódica e registre peso/medidas. Em 4–8 semanas você consegue ver a evolução visualmente e comparar fotos lado a lado.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowAddForm(true)}
+                  className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-lg border border-[var(--brand)] bg-[var(--brand)] px-4 text-[13px] font-medium text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] hover:bg-[var(--brand-strong)]"
+                >
+                  <Plus size={13} />
+                  Registrar primeira foto
+                </button>
+              </div>
+            </motion.section>
+          ) : null}
+
+          {measurements.length > 0 && (
           <div className="grid gap-2.5 lg:grid-cols-[1.1fr_0.9fr]">
             <BodyMetricChart
               measurements={measurementsOldFirst}
@@ -2014,6 +2055,7 @@ export function ProgressPage() {
               )}
             </motion.section>
           </div>
+          )}
 
           {/* IMC + BF % charts — only render if the user has at least one
               record with the metric (the chart itself shows a hint otherwise). */}
@@ -2690,8 +2732,9 @@ function PhotoCompareView({
 
       {a && b && (
         <>
-          {/* Photos side-by-side */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* Photos stack on phones so the images stay legible; side-by-side
+              from sm+ where the screen has room for both. */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {[a, b].map((m, idx) => (
               <div key={m.id} className="space-y-1.5">
                 <div className="flex items-center justify-between font-mono text-[10.5px] text-[var(--muted)]">
@@ -2701,7 +2744,7 @@ function PhotoCompareView({
                 <img
                   src={m.photoUrl}
                   alt={`Foto ${idx === 0 ? 'A' : 'B'}`}
-                  className="w-full rounded-lg border border-[var(--line)] object-cover"
+                  className="mx-auto w-full max-w-sm rounded-lg border border-[var(--line)] object-cover sm:max-w-none"
                   style={{ aspectRatio: '3 / 4' }}
                 />
               </div>
