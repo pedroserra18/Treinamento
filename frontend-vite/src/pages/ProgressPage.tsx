@@ -1439,6 +1439,7 @@ export function ProgressPage() {
   const [showMoreMeasures, setShowMoreMeasures] = useState(false)
   const [savingMeasurement, setSavingMeasurement] = useState(false)
   const [deletingMeasurementId, setDeletingMeasurementId] = useState<string | null>(null)
+  const [galleryMode, setGalleryMode] = useState<'closed' | 'grid' | 'compare'>('closed')
 
   const [form, setForm] = useState({
     date: new Date().toISOString().slice(0, 10),
@@ -2093,11 +2094,31 @@ export function ProgressPage() {
             transition={{ duration: 0.3, delay: 0.14 }}
             className="rounded-[14px] border border-[var(--line)] bg-[var(--surface)] p-5"
           >
-            <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-[14px] font-semibold text-[var(--text)]">Linha do tempo de fotos</h3>
-              <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
-                {measurements.length} REGISTROS
-              </span>
+              <div className="flex items-center gap-2">
+                {measurements.length >= 2 && (
+                  <button
+                    type="button"
+                    onClick={() => setGalleryMode('compare')}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] px-3 text-[12px] font-medium text-[var(--text)] hover:bg-[var(--surface)]"
+                  >
+                    Comparar
+                  </button>
+                )}
+                {measurements.length > 3 && (
+                  <button
+                    type="button"
+                    onClick={() => setGalleryMode('grid')}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] px-3 text-[12px] font-medium text-[var(--text)] hover:bg-[var(--surface)]"
+                  >
+                    Ver todas
+                  </button>
+                )}
+                <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
+                  {measurements.length} REGISTROS
+                </span>
+              </div>
             </div>
 
             <div className="grid grid-cols-3 gap-2">
@@ -2210,6 +2231,15 @@ export function ProgressPage() {
           measurement={selectedMeasurement}
           onClose={() => setSelectedMeasurement(null)}
           onOpenPhoto={() => setSelectedPhoto({ url: selectedMeasurement.photoUrl, date: selectedMeasurement.date })}
+        />
+      )}
+
+      {galleryMode !== 'closed' && (
+        <PhotoGalleryModal
+          measurements={measurementsNewFirst}
+          initialMode={galleryMode}
+          onClose={() => setGalleryMode('closed')}
+          onOpenPhoto={(m) => setSelectedPhoto({ url: m.photoUrl, date: m.date })}
         />
       )}
     </section>
@@ -2433,5 +2463,244 @@ function MeasurementDetailsModal({
       </motion.div>
     </div>,
     document.body,
+  )
+}
+
+// ─── Photo gallery + compare modal ────────────────────────────────────────
+
+function PhotoGalleryModal({
+  measurements, initialMode, onClose, onOpenPhoto,
+}: {
+  measurements: BodyMeasurement[]
+  initialMode: 'grid' | 'compare'
+  onClose: () => void
+  onOpenPhoto: (m: BodyMeasurement) => void
+}) {
+  useScrollLock(true)
+  const [mode, setMode] = useState<'grid' | 'compare'>(initialMode)
+  // For compare mode: default A = oldest, B = newest, so the diff reads
+  // top-down as the natural "before → after".
+  const [aId, setAId] = useState<string>(measurements[measurements.length - 1]?.id ?? '')
+  const [bId, setBId] = useState<string>(measurements[0]?.id ?? '')
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const a = useMemo(() => measurements.find((m) => m.id === aId) ?? null, [measurements, aId])
+  const b = useMemo(() => measurements.find((m) => m.id === bId) ?? null, [measurements, bId])
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ opacity: 0, y: 16, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 16, scale: 0.96 }}
+        transition={{ type: 'spring', stiffness: 240, damping: 22 }}
+        className="flex w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] shadow-2xl"
+        style={{ maxHeight: 'min(92vh, 800px)' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between gap-2 border-b border-[var(--line)] px-4 py-3 sm:px-5">
+          <div className="inline-flex rounded-[10px] border border-[var(--line)] bg-[var(--surface-hover)] p-[3px]">
+            {(['grid', 'compare'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMode(m)}
+                className={`rounded-md px-3 py-1.5 text-[12px] font-semibold transition-colors ${
+                  mode === m ? 'bg-[var(--brand)] text-white' : 'text-[var(--muted)] hover:text-[var(--text)]'
+                }`}
+              >
+                {m === 'grid' ? 'Todas as fotos' : 'Comparar'}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--line)] px-2.5 text-[12px] font-medium text-[var(--text)] hover:bg-[var(--surface-hover)]"
+          >
+            <XIcon size={13} />
+            Fechar
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="overflow-y-auto overscroll-contain p-4 sm:p-5">
+          {mode === 'grid' ? (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+              {measurements.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => onOpenPhoto(m)}
+                  className="group relative aspect-[3/4] overflow-hidden rounded-[10px] border border-[var(--line)] bg-[var(--surface-hover)] transition-transform hover:-translate-y-0.5"
+                >
+                  <img
+                    src={m.photoUrl}
+                    alt={`Foto corporal em ${new Date(m.date).toLocaleDateString('pt-BR')}`}
+                    className="absolute inset-0 h-full w-full object-cover transition-transform group-hover:scale-[1.02]"
+                  />
+                  <span className="absolute left-1.5 top-1.5 rounded-md border border-[var(--line)] bg-[var(--surface)] px-1.5 py-[2px] font-mono text-[9.5px] font-semibold text-[var(--text)]">
+                    {new Date(m.date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }).toUpperCase().replace('.', '')}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <PhotoCompareView a={a} b={b} measurements={measurements} onPickA={setAId} onPickB={setBId} />
+          )}
+        </div>
+      </motion.div>
+    </div>,
+    document.body,
+  )
+}
+
+function PhotoCompareView({
+  a, b, measurements, onPickA, onPickB,
+}: {
+  a: BodyMeasurement | null
+  b: BodyMeasurement | null
+  measurements: BodyMeasurement[]
+  onPickA: (id: string) => void
+  onPickB: (id: string) => void
+}) {
+  // Compute deltas for every metric present in both A and B.
+  const rows = useMemo(() => {
+    if (!a || !b) return []
+    const fields: Array<{ key: keyof BodyMeasurement; label: string; unit: string }> = [
+      { key: 'weight', label: 'Peso', unit: 'kg' },
+      { key: 'bmi', label: 'IMC', unit: '' },
+      { key: 'bodyFatPercentage', label: 'Body Fat', unit: '%' },
+      { key: 'chest', label: 'Peitoral', unit: 'cm' },
+      { key: 'shoulders', label: 'Ombros', unit: 'cm' },
+      { key: 'arms', label: 'Braços', unit: 'cm' },
+      { key: 'forearms', label: 'Antebraços', unit: 'cm' },
+      { key: 'waist', label: 'Cintura', unit: 'cm' },
+      { key: 'hips', label: 'Quadril', unit: 'cm' },
+      { key: 'thighs', label: 'Coxas', unit: 'cm' },
+      { key: 'calves', label: 'Panturrilhas', unit: 'cm' },
+      { key: 'neck', label: 'Pescoço', unit: 'cm' },
+    ]
+    return fields
+      .map(({ key, label, unit }) => {
+        const av = a[key] as number | null
+        const bv = b[key] as number | null
+        if (av == null || bv == null) return null
+        const delta = Number((bv - av).toFixed(1))
+        return { key, label, unit, av, bv, delta }
+      })
+      .filter((r): r is NonNullable<typeof r> => r !== null)
+  }, [a, b])
+
+  return (
+    <div className="space-y-4">
+      {/* Date pickers */}
+      <div className="grid gap-2 sm:grid-cols-2">
+        <FormField label="Antes (A)">
+          <select
+            value={a?.id ?? ''}
+            onChange={(e) => onPickA(e.target.value)}
+            className="w-full rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] px-2.5 py-1.5 text-sm"
+          >
+            {measurements.map((m) => (
+              <option key={m.id} value={m.id}>
+                {new Date(m.date).toLocaleDateString('pt-BR')}
+              </option>
+            ))}
+          </select>
+        </FormField>
+        <FormField label="Depois (B)">
+          <select
+            value={b?.id ?? ''}
+            onChange={(e) => onPickB(e.target.value)}
+            className="w-full rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] px-2.5 py-1.5 text-sm"
+          >
+            {measurements.map((m) => (
+              <option key={m.id} value={m.id}>
+                {new Date(m.date).toLocaleDateString('pt-BR')}
+              </option>
+            ))}
+          </select>
+        </FormField>
+      </div>
+
+      {a && b && (
+        <>
+          {/* Photos side-by-side */}
+          <div className="grid grid-cols-2 gap-3">
+            {[a, b].map((m, idx) => (
+              <div key={m.id} className="space-y-1.5">
+                <div className="flex items-center justify-between font-mono text-[10.5px] text-[var(--muted)]">
+                  <b className="font-semibold text-[var(--text)]">{idx === 0 ? 'A' : 'B'}</b>
+                  <span>{new Date(m.date).toLocaleDateString('pt-BR')}</span>
+                </div>
+                <img
+                  src={m.photoUrl}
+                  alt={`Foto ${idx === 0 ? 'A' : 'B'}`}
+                  className="w-full rounded-lg border border-[var(--line)] object-cover"
+                  style={{ aspectRatio: '3 / 4' }}
+                />
+              </div>
+            ))}
+          </div>
+
+          {/* Metric deltas */}
+          {rows.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
+                Variação A → B
+              </p>
+              <div className="grid gap-1.5 sm:grid-cols-2">
+                {rows.map(({ key, label, unit, av, bv, delta }) => {
+                  // Coloured the same way as MeasRow: downward usually positive.
+                  const positive = delta > 0
+                  const negative = delta < 0
+                  return (
+                    <div
+                      key={key}
+                      className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-[10px] border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2"
+                    >
+                      <span className="text-[13px] font-medium text-[var(--text)]">{label}</span>
+                      <span className="font-mono text-[11.5px] text-[var(--muted)]">
+                        {av}
+                        {unit && <span className="ml-0.5 text-[10px]">{unit}</span>}
+                        <span className="opacity-50"> → </span>
+                        <b className="font-semibold text-[var(--text)]">{bv}</b>
+                        {unit && <span className="ml-0.5 text-[10px]">{unit}</span>}
+                      </span>
+                      <span
+                        className={`font-mono text-[10.5px] font-semibold ${
+                          delta === 0
+                            ? 'text-[var(--muted)]'
+                            : positive
+                              ? 'text-red-500'
+                              : negative
+                                ? 'text-emerald-600'
+                                : 'text-[var(--muted)]'
+                        }`}
+                      >
+                        {delta === 0 ? '±0' : `${positive ? '+' : ''}${delta}`}
+                        {unit && <span className="ml-0.5 opacity-70">{unit}</span>}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
   )
 }
