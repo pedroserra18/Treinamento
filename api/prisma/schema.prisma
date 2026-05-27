@@ -277,12 +277,14 @@ model PinnedExercise {
   id         String   @id @default(cuid())
   userId     String
   exerciseId String
+  orderIndex Int      @default(0)
   createdAt  DateTime @default(now())
 
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   exercise Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
 
   @@unique([userId, exerciseId])
+  @@index([userId, orderIndex])
   @@index([userId, createdAt])
   @@index([exerciseId])
   @@map("pinned_exercises")

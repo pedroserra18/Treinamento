@@ -6,14 +6,16 @@ import {
   listBodyMeasurements,
   listExerciseProgress,
   listPinnedExercises,
-  removePinnedExercise
+  removePinnedExercise,
+  reorderPinnedExercises
 } from "./progress.service";
 import {
   BodyMeasurementParams,
   CreateBodyMeasurementBody,
   ExerciseParams,
   ListBodyMeasurementsQuery,
-  PinnedExerciseBody
+  PinnedExerciseBody,
+  ReorderPinnedExercisesBody
 } from "./progress.schema";
 
 export async function listPinnedExercisesController(req: Request, res: Response): Promise<void> {
@@ -34,6 +36,19 @@ export async function addPinnedExerciseController(req: Request, res: Response): 
   const data = await addPinnedExercise(userId, payload);
 
   res.status(201).json({
+    data,
+    meta: {
+      requestId: req.context.requestId
+    }
+  });
+}
+
+export async function reorderPinnedExercisesController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const payload = req.body as ReorderPinnedExercisesBody;
+  const data = await reorderPinnedExercises(userId, payload);
+
+  res.status(200).json({
     data,
     meta: {
       requestId: req.context.requestId

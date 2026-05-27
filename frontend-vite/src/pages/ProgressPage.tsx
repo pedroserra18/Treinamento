@@ -18,6 +18,7 @@ import {
   getExerciseProgress,
   listBodyMeasurements,
   removePinnedExercise,
+  reorderPinnedExercises,
 } from '../services/progressService'
 import type {
   BodyMeasurement,
@@ -27,7 +28,7 @@ import type {
 } from '../types/progress'
 import type { ExerciseOption, WorkoutSessionHistory } from '../types/workout'
 import {
-  Activity, ArrowLeft, ChevronDown, Dumbbell, Image as ImageIcon, Pin, Plus, Search,
+  Activity, ArrowLeft, ChevronDown, Dumbbell, GripVertical, Image as ImageIcon, Pin, Plus, Search,
   Trash2, TrendingUp, X as XIcon,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -879,12 +880,19 @@ function LoadTooltip({ active, payload, metric = 'load' }: LoadTooltipProps) {
 }
 
 function ExerciseCard({
-  item, open, onToggle, onRemove,
+  item, open, onToggle, onRemove, dragHandleProps, isDragging, isDropTarget,
 }: {
   item: ExerciseProgressItem
   open: boolean
   onToggle: () => void
   onRemove: () => void
+  dragHandleProps?: {
+    draggable: boolean
+    onDragStart: (e: React.DragEvent) => void
+    onDragEnd: () => void
+  }
+  isDragging?: boolean
+  isDropTarget?: boolean
 }) {
   const tone = muscleTone(item.exercise.primaryMuscleGroup)
   const style = TONE_STYLE[tone]
@@ -1030,17 +1038,32 @@ function ExerciseCard({
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: 'easeOut' }}
-      className={`overflow-hidden rounded-2xl border bg-[var(--surface)] transition-shadow ${
-        open
-          ? 'border-[var(--brand)]/30 shadow-[0_18px_32px_-22px_rgba(40,15,5,0.30)]'
-          : 'border-[var(--line)] hover:border-[var(--brand)]/30 hover:shadow-[0_14px_26px_-22px_rgba(40,15,5,0.25)]'
+      className={`overflow-hidden rounded-2xl border bg-[var(--surface)] transition-all ${
+        isDragging
+          ? 'border-[var(--brand)] opacity-50'
+          : isDropTarget
+            ? 'border-[var(--brand)] shadow-[0_0_0_2px_var(--brand)] translate-y-[-2px]'
+            : open
+              ? 'border-[var(--brand)]/30 shadow-[0_18px_32px_-22px_rgba(40,15,5,0.30)]'
+              : 'border-[var(--line)] hover:border-[var(--brand)]/30 hover:shadow-[0_14px_26px_-22px_rgba(40,15,5,0.25)]'
       }`}
     >
       <header
         className="grid cursor-pointer items-center gap-3 px-4 py-3.5 sm:grid-cols-[1fr_auto]"
         onClick={onToggle}
       >
-        <div className="flex min-w-0 items-center gap-3.5">
+        <div className="flex min-w-0 items-center gap-2.5">
+          {dragHandleProps && (
+            <span
+              {...dragHandleProps}
+              onClick={(e) => e.stopPropagation()}
+              className="grid h-7 w-5 shrink-0 cursor-grab place-items-center text-[var(--muted)] hover:text-[var(--text)] active:cursor-grabbing"
+              title="Arrastar para reordenar"
+              aria-label="Arrastar para reordenar"
+            >
+              <GripVertical size={14} />
+            </span>
+          )}
           <span
             className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[10px] border"
             style={{ background: style.bg, borderColor: style.border, color: style.fg }}
@@ -1440,6 +1463,8 @@ export function ProgressPage() {
   const [savingMeasurement, setSavingMeasurement] = useState(false)
   const [deletingMeasurementId, setDeletingMeasurementId] = useState<string | null>(null)
   const [galleryMode, setGalleryMode] = useState<'closed' | 'grid' | 'compare'>('closed')
+  const [draggingExerciseId, setDraggingExerciseId] = useState<string | null>(null)
+  const [dropTargetExerciseId, setDropTargetExerciseId] = useState<string | null>(null)
 
   const [form, setForm] = useState({
     date: new Date().toISOString().slice(0, 10),
@@ -1571,6 +1596,21 @@ export function ProgressPage() {
       await loadAll()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao fixar exercício')
+    }
+  }
+
+  const handleReorderPinned = async (orderedIds: string[]) => {
+    // Optimistic reorder so the drop feels instant — server confirms in the
+    // background and reloadAll re-syncs if it diverges.
+    setExerciseProgress((current) => {
+      const byId = new Map(current.map((i) => [i.exercise.id, i]))
+      return orderedIds.map((id) => byId.get(id)).filter((x): x is ExerciseProgressItem => !!x)
+    })
+    try {
+      await reorderPinnedExercises(authorizedFetch, orderedIds)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao reordenar exercícios')
+      await loadAll()
     }
   }
 
@@ -1891,15 +1931,57 @@ export function ProgressPage() {
           )}
 
           {exerciseProgress.map((item) => (
-            <ExerciseCard
+            <div
               key={item.exercise.id}
+              onDragOver={(e) => {
+                if (draggingExerciseId && draggingExerciseId !== item.exercise.id) {
+                  e.preventDefault()
+                  setDropTargetExerciseId(item.exercise.id)
+                }
+              }}
+              onDragLeave={(e) => {
+                // Only clear if we're really leaving the card (not entering a child).
+                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                  setDropTargetExerciseId((current) => (current === item.exercise.id ? null : current))
+                }
+              }}
+              onDrop={(e) => {
+                e.preventDefault()
+                if (!draggingExerciseId || draggingExerciseId === item.exercise.id) return
+                const fromIdx = exerciseProgress.findIndex((p) => p.exercise.id === draggingExerciseId)
+                const toIdx = exerciseProgress.findIndex((p) => p.exercise.id === item.exercise.id)
+                if (fromIdx < 0 || toIdx < 0) return
+                const reordered = [...exerciseProgress]
+                const [moved] = reordered.splice(fromIdx, 1)
+                reordered.splice(toIdx, 0, moved)
+                setDropTargetExerciseId(null)
+                void handleReorderPinned(reordered.map((p) => p.exercise.id))
+              }}
+            >
+            <ExerciseCard
               item={item}
               open={openedPinnedExerciseId === item.exercise.id}
+              isDragging={draggingExerciseId === item.exercise.id}
+              isDropTarget={dropTargetExerciseId === item.exercise.id}
+              dragHandleProps={{
+                draggable: true,
+                onDragStart: (e: React.DragEvent) => {
+                  setDraggingExerciseId(item.exercise.id)
+                  e.dataTransfer.effectAllowed = 'move'
+                  // Firefox requires data to be set or it cancels the drag.
+                  try { e.dataTransfer.setData('text/plain', item.exercise.id) } catch { /* noop */ }
+                },
+                onDragEnd: () => {
+                  setDraggingExerciseId(null)
+                  setDropTargetExerciseId(null)
+                },
+              }}
               onToggle={() =>
                 setOpenedPinnedExerciseId((current) => (current === item.exercise.id ? null : item.exercise.id))
               }
               onRemove={() => void handleUnpinExercise(item.exercise.id)}
             />
+            </div>
           ))}
         </div>
       )}

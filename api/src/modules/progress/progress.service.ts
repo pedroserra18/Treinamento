@@ -5,7 +5,8 @@ import {
   CreateBodyMeasurementBody,
   ExerciseParams,
   ListBodyMeasurementsQuery,
-  PinnedExerciseBody
+  PinnedExerciseBody,
+  ReorderPinnedExercisesBody
 } from "./progress.schema";
 
 const PINNED_EXERCISE_LIMIT = 5;
@@ -16,6 +17,9 @@ type ProgressDelegate = {
     findUnique: (args: unknown) => Promise<Record<string, unknown> | null>;
     count: (args: unknown) => Promise<number>;
     create: (args: unknown) => Promise<Record<string, unknown>>;
+    update: (args: unknown) => Promise<Record<string, unknown>>;
+    updateMany: (args: unknown) => Promise<{ count: number }>;
+    aggregate: (args: unknown) => Promise<{ _max: { orderIndex: number | null } }>;
     deleteMany: (args: unknown) => Promise<{ count: number }>;
   };
   bodyMeasurement: {
@@ -49,7 +53,7 @@ async function assertExerciseAvailableToUser(exerciseId: string, userId: string)
 export async function listPinnedExercises(userId: string) {
   return progressPrisma.pinnedExercise.findMany({
     where: { userId },
-    orderBy: [{ createdAt: "asc" }],
+    orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
     include: {
       exercise: {
         select: {
@@ -101,10 +105,19 @@ export async function addPinnedExercise(userId: string, payload: PinnedExerciseB
     });
   }
 
+  // New pins go to the end of the list so existing manual ordering is
+  // never disturbed by adding another exercise.
+  const aggregate = await progressPrisma.pinnedExercise.aggregate({
+    where: { userId },
+    _max: { orderIndex: true }
+  });
+  const nextOrderIndex = (aggregate._max.orderIndex ?? -1) + 1;
+
   return progressPrisma.pinnedExercise.create({
     data: {
       userId,
-      exerciseId: payload.exerciseId
+      exerciseId: payload.exerciseId,
+      orderIndex: nextOrderIndex
     },
     include: {
       exercise: {
@@ -142,10 +155,45 @@ export async function removePinnedExercise(userId: string, params: ExerciseParam
   return { success: true };
 }
 
+export async function reorderPinnedExercises(userId: string, payload: ReorderPinnedExercisesBody) {
+  const ids = payload.orderedExerciseIds;
+  // Validate every id belongs to the user — silently dropping unknown ids
+  // would let a client reorder less than all pins and leave the rest stuck.
+  const existing = (await progressPrisma.pinnedExercise.findMany({
+    where: { userId },
+    select: { exerciseId: true }
+  })) as Array<{ exerciseId: string }>;
+  const existingSet = new Set(existing.map((e) => e.exerciseId));
+
+  for (const id of ids) {
+    if (!existingSet.has(id)) {
+      throw new AppError("Pinned exercise not found in order list", {
+        statusCode: 400,
+        code: "PINNED_EXERCISE_REORDER_INVALID",
+        details: { exerciseId: id }
+      });
+    }
+  }
+
+  // Interactive transaction so the reorder is atomic — half-written orders
+  // would leave the list inconsistent if the request errors mid-way.
+  await prisma.$transaction(async (tx) => {
+    const txAny = tx as unknown as ProgressDelegate;
+    for (let index = 0; index < ids.length; index += 1) {
+      await txAny.pinnedExercise.updateMany({
+        where: { userId, exerciseId: ids[index] },
+        data: { orderIndex: index }
+      });
+    }
+  });
+
+  return { success: true };
+}
+
 export async function listExerciseProgress(userId: string) {
   const pinned = (await progressPrisma.pinnedExercise.findMany({
     where: { userId },
-    orderBy: [{ createdAt: "asc" }],
+    orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
     include: {
       exercise: {
         select: {

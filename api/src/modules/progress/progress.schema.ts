@@ -11,6 +11,12 @@ export const pinnedExerciseBodySchema = z
   })
   .strict();
 
+export const reorderPinnedExercisesBodySchema = z
+  .object({
+    orderedExerciseIds: z.array(z.string().cuid()).min(1).max(20)
+  })
+  .strict();
+
 export const exerciseParamsSchema = z
   .object({
     exerciseId: z.string().cuid()
@@ -73,6 +79,7 @@ export const createBodyMeasurementBodySchema = z
   .strict();
 
 export type PinnedExerciseBody = z.infer<typeof pinnedExerciseBodySchema>;
+export type ReorderPinnedExercisesBody = z.infer<typeof reorderPinnedExercisesBodySchema>;
 export type ExerciseParams = z.infer<typeof exerciseParamsSchema>;
 export type BodyMeasurementParams = z.infer<typeof bodyMeasurementParamsSchema>;
 export type ListBodyMeasurementsQuery = z.infer<typeof listBodyMeasurementsQuerySchema>;

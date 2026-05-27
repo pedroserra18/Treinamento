@@ -8,7 +8,8 @@ import {
   createBodyMeasurementBodySchema,
   exerciseParamsSchema,
   listBodyMeasurementsQuerySchema,
-  pinnedExerciseBodySchema
+  pinnedExerciseBodySchema,
+  reorderPinnedExercisesBodySchema
 } from "./progress.schema";
 import {
   addPinnedExerciseController,
@@ -17,7 +18,8 @@ import {
   listExerciseProgressController,
   listPinnedExercisesController,
   removeBodyMeasurementController,
-  removePinnedExerciseController
+  removePinnedExerciseController,
+  reorderPinnedExercisesController
 } from "./progress.controller";
 
 const router = Router();
@@ -35,6 +37,14 @@ router.post(
   requireCompletedOnboarding,
   validateRequest({ body: pinnedExerciseBodySchema }),
   asyncHandler(async (req, res) => addPinnedExerciseController(req, res))
+);
+
+router.patch(
+  "/progress/pinned-exercises/reorder",
+  requireAuth,
+  requireCompletedOnboarding,
+  validateRequest({ body: reorderPinnedExercisesBodySchema }),
+  asyncHandler(async (req, res) => reorderPinnedExercisesController(req, res))
 );
 
 router.delete(

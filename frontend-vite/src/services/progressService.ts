@@ -51,6 +51,23 @@ export async function addPinnedExercise(
   return payload.data
 }
 
+export async function reorderPinnedExercises(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  orderedExerciseIds: string[],
+): Promise<void> {
+  const response = await authorizedFetch(`${API_URL}/progress/pinned-exercises/reorder`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ orderedExerciseIds }),
+  })
+
+  const payload = await parsePayload(response)
+
+  if (!response.ok) {
+    throw new Error(payload.errorMessage ?? 'Falha ao reordenar exercicios fixados')
+  }
+}
+
 export async function removePinnedExercise(
   authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
   exerciseId: string,
