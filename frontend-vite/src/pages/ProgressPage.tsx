@@ -857,7 +857,7 @@ function LoadTooltip({ active, payload, metric = 'load' }: LoadTooltipProps) {
 }
 
 function ExerciseCard({
-  item, open, onToggle, onRemove, dragHandleProps, isDragging, isDropTarget,
+  item, open, onToggle, onRemove, dragHandleProps, isDragging, isDropTarget, onMove,
 }: {
   item: ExerciseProgressItem
   open: boolean
@@ -870,6 +870,7 @@ function ExerciseCard({
   }
   isDragging?: boolean
   isDropTarget?: boolean
+  onMove?: (direction: 'up' | 'down') => void
 }) {
   const tone = muscleTone(item.exercise.primaryMuscleGroup)
   const style = TONE_STYLE[tone]
@@ -1033,10 +1034,19 @@ function ExerciseCard({
           {dragHandleProps && (
             <span
               {...dragHandleProps}
+              tabIndex={0}
               onClick={(e) => e.stopPropagation()}
-              className="grid h-7 w-5 shrink-0 cursor-grab place-items-center text-[var(--muted)] hover:text-[var(--text)] active:cursor-grabbing"
-              title="Arrastar para reordenar"
-              aria-label="Arrastar para reordenar"
+              onKeyDown={(e) => {
+                // Keyboard reorder: Shift+ArrowUp/Down moves the card up/down,
+                // covering the mouse-only gap in native HTML5 DnD.
+                if (e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+                  e.preventDefault()
+                  onMove?.(e.key === 'ArrowUp' ? 'up' : 'down')
+                }
+              }}
+              className="grid h-7 w-5 shrink-0 cursor-grab place-items-center rounded text-[var(--muted)] outline-none transition-opacity hover:text-[var(--text)] focus-visible:ring-2 focus-visible:ring-[var(--brand)]/40 active:cursor-grabbing sm:opacity-40 sm:hover:opacity-100"
+              title="Arrastar para reordenar (Shift+↑/↓ no teclado)"
+              aria-label="Arrastar para reordenar. Use Shift mais setas para mover."
             >
               <GripVertical size={14} />
             </span>
@@ -1589,7 +1599,9 @@ export function ProgressPage() {
 
   const handlePinExercise = async (exerciseId: string) => {
     if (exerciseProgress.length >= maxPinned) {
-      window.alert(`Você pode fixar no máximo ${maxPinned} exercícios.`)
+      // Inline error (instead of window.alert which breaks the page flow)
+      // — the existing top-of-page error banner picks this up.
+      setError(`Você pode fixar no máximo ${maxPinned} exercícios. Remova um antes de adicionar outro.`)
       return
     }
     try {
@@ -1736,6 +1748,7 @@ export function ProgressPage() {
             <HeroStat
               label="Volume 7D"
               value={volume7d.toLocaleString('pt-BR')}
+              numericValue={volume7d}
               unit="kg"
               tone="brand"
               delta={volumeDelta}
@@ -1745,6 +1758,7 @@ export function ProgressPage() {
             <HeroStat
               label="Cardio 7D"
               value={String(cardio7d)}
+              numericValue={cardio7d}
               unit="min"
               tone="default"
               delta={cardioDelta}
@@ -1754,12 +1768,13 @@ export function ProgressPage() {
             <HeroStat
               label="PRs no mês"
               value={String(prsThisMonth)}
+              numericValue={prsThisMonth}
               tone="default"
               delta={prsDelta}
               deltaLabel="vs mês anterior"
               sparkline={prsMonths}
             />
-            <HeroStat label="Sequência" value={String(streak)} unit="dias" tone="default" />
+            <HeroStat label="Sequência" value={String(streak)} numericValue={streak} unit="dias" tone="default" />
           </div>
         </div>
       </motion.section>
@@ -1966,6 +1981,14 @@ export function ProgressPage() {
               open={openedPinnedExerciseId === item.exercise.id}
               isDragging={draggingExerciseId === item.exercise.id}
               isDropTarget={dropTargetExerciseId === item.exercise.id}
+              onMove={(direction) => {
+                const idx = exerciseProgress.findIndex((p) => p.exercise.id === item.exercise.id)
+                const targetIdx = direction === 'up' ? idx - 1 : idx + 1
+                if (idx < 0 || targetIdx < 0 || targetIdx >= exerciseProgress.length) return
+                const reordered = [...exerciseProgress]
+                ;[reordered[idx], reordered[targetIdx]] = [reordered[targetIdx], reordered[idx]]
+                void handleReorderPinned(reordered.map((p) => p.exercise.id))
+              }}
               dragHandleProps={{
                 draggable: true,
                 onDragStart: (e: React.DragEvent) => {
@@ -2125,14 +2148,12 @@ export function ProgressPage() {
                         className="w-full rounded-lg border border-[var(--line)] bg-transparent px-2.5 py-1.5 text-sm"
                       />
                     </FormField>
-                    <FormField label="Peso (kg) *">
-                      <input
-                        inputMode="decimal"
-                        value={form.weight}
-                        onChange={(e) => setForm((c) => ({ ...c, weight: e.target.value }))}
-                        className="w-full rounded-lg border border-[var(--line)] bg-transparent px-2.5 py-1.5 text-sm"
-                      />
-                    </FormField>
+                    <UnitInput
+                      label="Peso *"
+                      value={form.weight}
+                      unit="kg"
+                      onChange={(next) => setForm((c) => ({ ...c, weight: next }))}
+                    />
                     <FormField label="Foto *">
                       <input
                         type="file"
@@ -2170,19 +2191,18 @@ export function ProgressPage() {
                   {showMoreMeasures && (
                     <div className="mt-3 grid gap-2.5 sm:grid-cols-3">
                       {([
-                        ['chest', 'Peitoral'], ['shoulders', 'Ombros'], ['arms', 'Braços'],
-                        ['forearms', 'Antebraços'], ['waist', 'Cintura'], ['hips', 'Quadril'],
-                        ['thighs', 'Coxas'], ['calves', 'Panturrilhas'], ['neck', 'Pescoço'],
-                        ['bmi', 'IMC'], ['bodyFatPercentage', 'BF %'],
-                      ] as Array<[keyof typeof form, string]>).map(([field, label]) => (
-                        <FormField key={field} label={label}>
-                          <input
-                            inputMode="decimal"
-                            value={form[field]}
-                            onChange={(e) => setForm((c) => ({ ...c, [field]: e.target.value }))}
-                            className="w-full rounded-lg border border-[var(--line)] bg-transparent px-2.5 py-1.5 text-sm"
-                          />
-                        </FormField>
+                        ['chest', 'Peitoral', 'cm'], ['shoulders', 'Ombros', 'cm'], ['arms', 'Braços', 'cm'],
+                        ['forearms', 'Antebraços', 'cm'], ['waist', 'Cintura', 'cm'], ['hips', 'Quadril', 'cm'],
+                        ['thighs', 'Coxas', 'cm'], ['calves', 'Panturrilhas', 'cm'], ['neck', 'Pescoço', 'cm'],
+                        ['bmi', 'IMC', ''], ['bodyFatPercentage', 'BF', '%'],
+                      ] as Array<[keyof typeof form, string, string]>).map(([field, label, unit]) => (
+                        <UnitInput
+                          key={field}
+                          label={label}
+                          value={form[field]}
+                          unit={unit}
+                          onChange={(next) => setForm((c) => ({ ...c, [field]: next }))}
+                        />
                       ))}
                     </div>
                   )}
@@ -2361,6 +2381,32 @@ export function ProgressPage() {
 
 // ─── Small subcomponents (declared after the page to keep the layout) ─────
 
+// Animates `value` from 0 → target over ~600ms. The hero numbers feel
+// dead when they pop in immediately on mount; the easing makes the page
+// feel responsive without leaning on a third-party animation lib.
+function useCountUp(target: number, durationMs = 600): number {
+  const [display, setDisplay] = useState(0)
+
+  useEffect(() => {
+    let cancelled = false
+    const from = 0
+    const start = performance.now()
+    const tick = (now: number) => {
+      if (cancelled) return
+      const elapsed = now - start
+      const t = Math.min(1, elapsed / durationMs)
+      const eased = 1 - Math.pow(1 - t, 3) // easeOutCubic
+      setDisplay(from + (target - from) * eased)
+      if (t < 1) requestAnimationFrame(tick)
+      else setDisplay(target)
+    }
+    requestAnimationFrame(tick)
+    return () => { cancelled = true }
+  }, [target, durationMs])
+
+  return display
+}
+
 function HeroSparkline({ values, color }: { values: number[]; color: string }) {
   if (values.length < 2) return null
   const W = 72, H = 22
@@ -2384,7 +2430,7 @@ function HeroSparkline({ values, color }: { values: number[]; color: string }) {
 }
 
 function HeroStat({
-  label, value, unit, tone, delta, deltaLabel, sparkline,
+  label, value, unit, tone, delta, deltaLabel, sparkline, numericValue,
 }: {
   label: string
   value: string
@@ -2393,7 +2439,18 @@ function HeroStat({
   delta?: number | null
   deltaLabel?: string
   sparkline?: number[]
+  // Optional numeric value for the count-up animation; falls back to the
+  // formatted string when not provided (zero animation, no risk).
+  numericValue?: number
 }) {
+  // Count-up only fires when we have a numeric target. Display value swaps
+  // to the formatted string once the animation finishes (or right away if
+  // numericValue isn't given).
+  const animated = useCountUp(numericValue ?? 0)
+  const isAnimating = numericValue != null && animated < numericValue
+  const displayValue = numericValue != null
+    ? Math.round(animated).toLocaleString('pt-BR')
+    : value
   const sparkColor = tone === 'brand' ? 'var(--brand)' : 'var(--muted)'
   const deltaIsUp = delta != null && delta > 0
   const deltaIsDown = delta != null && delta < 0
@@ -2414,11 +2471,11 @@ function HeroStat({
         {label}
       </p>
       <p
-        className={`mt-1 text-[22px] font-semibold leading-none tracking-tight ${
+        className={`mt-1 text-[22px] font-semibold leading-none tracking-tight tabular-nums ${
           tone === 'brand' ? 'text-[var(--brand-strong)]' : 'text-[var(--text)]'
         }`}
       >
-        {value}
+        {isAnimating ? displayValue : value}
         {unit && <span className="ml-1 font-mono text-[11px] font-medium text-[var(--muted)]">{unit}</span>}
       </p>
       {(sparkline || delta != null) && (
@@ -2496,6 +2553,36 @@ function FormField({ label, children }: { label: string; children: React.ReactNo
         {label}
       </span>
       {children}
+    </label>
+  )
+}
+
+// Decimal input with the unit (`kg`, `cm`, `%`) glued to its right edge —
+// reads cleaner than the unit-as-suffix-in-label that the form was using.
+function UnitInput({
+  label, value, unit, onChange,
+}: {
+  label: string
+  value: string
+  unit: string
+  onChange: (next: string) => void
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block font-mono text-[10.5px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
+        {label}
+      </span>
+      <div className="relative">
+        <input
+          inputMode="decimal"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full rounded-lg border border-[var(--line)] bg-transparent px-2.5 py-1.5 pr-8 text-sm"
+        />
+        <span className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center font-mono text-[10.5px] text-[var(--muted)]">
+          {unit}
+        </span>
+      </div>
     </label>
   )
 }
