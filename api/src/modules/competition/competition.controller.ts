@@ -19,18 +19,21 @@ import {
   postChatMessage,
   postCompetitionEntry,
   setMemberRole,
-  startCompetition
+  startCompetition,
+  toggleReaction
 } from "./competition.service";
 import type {
   ChatParams,
   CompetitionParams,
   CreateCompetitionBody,
+  EntryParams,
   InviteMemberBody,
   InviteTokenParams,
   ListChatQuery,
   MemberParams,
   PostChatBody,
-  PostEntryBody
+  PostEntryBody,
+  ReactionBody
 } from "./competition.schema";
 
 function send(res: Response, status: number, data: unknown) {
@@ -170,6 +173,13 @@ export async function deleteChatController(req: Request, res: Response): Promise
   const userId = req.context.userId as string;
   const params = req.params as unknown as ChatParams;
   const data = await deleteChatMessage(userId, params.competitionId, params.messageId);
+  send(res, 200, data);
+}
+
+export async function toggleReactionController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as EntryParams;
+  const data = await toggleReaction(userId, params.competitionId, params.entryId, req.body as ReactionBody);
   send(res, 200, data);
 }
 

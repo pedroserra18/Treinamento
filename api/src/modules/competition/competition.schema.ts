@@ -31,6 +31,19 @@ export const inviteTokenParamsSchema = z
   .object({ token: z.string().min(8).max(64) })
   .strict();
 
+export const entryParamsSchema = z
+  .object({
+    competitionId: z.string().cuid(),
+    entryId: z.string().cuid()
+  })
+  .strict();
+
+export const reactionBodySchema = z
+  .object({
+    kind: z.enum(["CLAP", "FIRE", "STRONG", "PRAY"])
+  })
+  .strict();
+
 export const chatParamsSchema = z
   .object({
     competitionId: z.string().cuid(),
@@ -72,6 +85,8 @@ export type CreateCompetitionBody = z.infer<typeof createCompetitionBodySchema>;
 export type InviteMemberBody = z.infer<typeof inviteMemberBodySchema>;
 export type InviteTokenParams = z.infer<typeof inviteTokenParamsSchema>;
 export type PostEntryBody = z.infer<typeof postEntryBodySchema>;
+export type EntryParams = z.infer<typeof entryParamsSchema>;
+export type ReactionBody = z.infer<typeof reactionBodySchema>;
 export type ChatParams = z.infer<typeof chatParamsSchema>;
 export type PostChatBody = z.infer<typeof postChatBodySchema>;
 export type ListChatQuery = z.infer<typeof listChatQuerySchema>;

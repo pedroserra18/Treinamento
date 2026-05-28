@@ -211,6 +211,7 @@ model User {
   competitionInvitesReceived CompetitionInvite[] @relation("CompetitionInviteReceiver")
   competitionEntries      CompetitionEntry[]
   competitionMessages     CompetitionMessage[]
+  competitionReactions    CompetitionEntryReaction[]
 
   @@index([status, isDeleted])
   @@index([role])
@@ -801,6 +802,30 @@ model CompetitionInvite {
   @@map("competition_invites")
 }
 
+enum CompetitionReactionKind {
+  CLAP   // 👏
+  FIRE   // 🔥
+  STRONG // 💪
+  PRAY   // 🙏
+}
+
+model CompetitionEntryReaction {
+  id        String                  @id @default(cuid())
+  entryId   String
+  userId    String
+  kind      CompetitionReactionKind
+  createdAt DateTime                @default(now())
+
+  entry CompetitionEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  user  User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // One reaction kind per user per entry. Re-acting with same kind = noop;
+  // changing kind happens via delete + insert at the service layer.
+  @@unique([entryId, userId, kind])
+  @@index([entryId])
+  @@map("competition_entry_reactions")
+}
+
 model CompetitionMessage {
   id            String   @id @default(cuid())
   competitionId String
@@ -843,6 +868,7 @@ model CompetitionEntry {
   competition    Competition     @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   workoutSession WorkoutSession? @relation(fields: [workoutSessionId], references: [id], onDelete: SetNull)
+  reactions      CompetitionEntryReaction[]
 
   @@unique([competitionId, userId, day, kind])
   @@index([competitionId, userId])

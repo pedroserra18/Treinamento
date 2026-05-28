@@ -81,6 +81,14 @@ export type CompetitionChatMessage = {
   user: CompetitionUserSummary
 }
 
+export type CompetitionReactionKind = 'CLAP' | 'FIRE' | 'STRONG' | 'PRAY'
+
+export type CompetitionReactionSummary = {
+  kind: CompetitionReactionKind
+  count: number
+  mine: boolean
+}
+
 export type CompetitionFeedItem = {
   id: string
   day: string
@@ -89,6 +97,7 @@ export type CompetitionFeedItem = {
   createdAt: string
   user: CompetitionUserSummary
   workout: CompetitionEntryWorkoutSummary | null
+  reactions: CompetitionReactionSummary[]
 }
 
 export type CompetitionInvite = {

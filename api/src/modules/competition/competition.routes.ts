@@ -6,12 +6,14 @@ import {
   chatParamsSchema,
   competitionParamsSchema,
   createCompetitionBodySchema,
+  entryParamsSchema,
   inviteMemberBodySchema,
   inviteTokenParamsSchema,
   listChatQuerySchema,
   memberParamsSchema,
   postChatBodySchema,
-  postEntryBodySchema
+  postEntryBodySchema,
+  reactionBodySchema
 } from "./competition.schema";
 import {
   acceptInviteController,
@@ -34,7 +36,8 @@ import {
   postChatController,
   postEntryController,
   promoteMemberController,
-  startCompetitionController
+  startCompetitionController,
+  toggleReactionController
 } from "./competition.controller";
 
 const router = Router();
@@ -127,6 +130,13 @@ router.post(
   requireAuth,
   validateRequest({ params: competitionParamsSchema }),
   asyncHandler(async (req, res) => startCompetitionController(req, res))
+);
+
+router.post(
+  "/competitions/:competitionId/entries/:entryId/reactions",
+  requireAuth,
+  validateRequest({ params: entryParamsSchema, body: reactionBodySchema }),
+  asyncHandler(async (req, res) => toggleReactionController(req, res))
 );
 
 router.get(

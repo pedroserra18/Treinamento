@@ -5,6 +5,7 @@ import type {
   CompetitionFeedItem,
   CompetitionInvite,
   CompetitionInvitePreview,
+  CompetitionReactionKind,
   CompetitionStandings,
   CompetitionType,
   CompetitionUserSummary,
@@ -275,6 +276,29 @@ export async function kickMember(
   if (!response.ok) {
     throw new Error(payload.errorMessage ?? 'Falha ao remover membro')
   }
+}
+
+// Toggles a reaction kind for the calling user on a feed entry. Returns
+// whether it was added or removed so the client can patch optimistically.
+export async function toggleReaction(
+  authorizedFetch: AuthorizedFetch,
+  competitionId: string,
+  entryId: string,
+  kind: CompetitionReactionKind,
+): Promise<{ action: 'added' | 'removed'; kind: CompetitionReactionKind }> {
+  const response = await authorizedFetch(
+    `${API_URL}/competitions/${competitionId}/entries/${entryId}/reactions`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind }),
+    },
+  )
+  const payload = await parsePayload<{ action: 'added' | 'removed'; kind: CompetitionReactionKind }>(response)
+  if (!response.ok || !payload.data) {
+    throw new Error(payload.errorMessage ?? 'Falha ao reagir')
+  }
+  return payload.data
 }
 
 export async function listChatMessages(

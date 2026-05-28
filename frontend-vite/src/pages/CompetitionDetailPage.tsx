@@ -14,11 +14,14 @@ import {
   listInvitableFriends,
   promoteMember,
   startCompetition,
+  toggleReaction,
 } from '../services/competitionService'
 import type {
   Competition,
   CompetitionFeedItem,
   CompetitionMember as Member,
+  CompetitionReactionKind,
+  CompetitionReactionSummary,
   CompetitionStandings,
   CompetitionType,
   CompetitionUserSummary,
@@ -240,6 +243,45 @@ export function CompetitionDetailPage() {
     } finally {
       setMemberBusy(false)
       setMemberMenuFor(null)
+    }
+  }
+
+  // Optimistically toggle the reaction so the UI feels instant. The
+  // backend returns whether it was added or removed, but our optimistic
+  // patch already matches that — the polling refresh will reconcile if
+  // there's any drift.
+  const handleReact = async (entryId: string, kind: CompetitionReactionKind) => {
+    setFeed((curr) =>
+      curr.map((item) => {
+        if (item.id !== entryId) return item
+        const existing = item.reactions.find((r) => r.kind === kind)
+        if (existing) {
+          if (existing.mine) {
+            // Toggle off: decrement and unmark
+            const nextCount = existing.count - 1
+            const filteredReactions = nextCount > 0
+              ? item.reactions.map((r) => (r.kind === kind ? { ...r, count: nextCount, mine: false } : r))
+              : item.reactions.filter((r) => r.kind !== kind)
+            return { ...item, reactions: filteredReactions }
+          }
+          // Toggle on: increment and mark mine
+          return {
+            ...item,
+            reactions: item.reactions.map((r) =>
+              r.kind === kind ? { ...r, count: r.count + 1, mine: true } : r,
+            ),
+          }
+        }
+        // First reaction of this kind on this entry
+        return { ...item, reactions: [...item.reactions, { kind, count: 1, mine: true }] }
+      }),
+    )
+    try {
+      await toggleReaction(authorizedFetch, competitionId, entryId, kind)
+    } catch (err) {
+      // Roll back optimistic update on failure by refetching
+      void refreshDynamic(comp?.status ?? 'ACTIVE')
+      setError(err instanceof Error ? err.message : 'Falha ao reagir')
     }
   }
 
@@ -474,7 +516,11 @@ export function CompetitionDetailPage() {
       {/* Feed — "Provas" tab on mobile */}
       {(comp.status === 'ACTIVE' || comp.status === 'COMPLETED') && (
         <div className={mobileTab !== 'provas' ? 'hidden lg:block' : ''}>
-          <CompetitionFeed items={feed} onZoom={(item) => setPhotoZoom(item)} />
+          <CompetitionFeed
+            items={feed}
+            onZoom={(item) => setPhotoZoom(item)}
+            onReact={(entryId, kind) => void handleReact(entryId, kind)}
+          />
         </div>
       )}
 
@@ -541,6 +587,37 @@ export function CompetitionDetailPage() {
                   </p>
                 </div>
               )}
+              {/* Reactions inside the modal — same bar as the grid tile but
+                  centered. Reading from photoZoom keeps the source of truth
+                  on the feed state managed by the parent. */}
+              <div className="mt-3 flex justify-center">
+                <ReactionsBar
+                  reactions={photoZoom.reactions}
+                  onReact={(kind) => {
+                    void handleReact(photoZoom.id, kind)
+                    // Sync the zoom view's local copy so the click feels live.
+                    setPhotoZoom((curr) => {
+                      if (!curr) return null
+                      const existing = curr.reactions.find((r) => r.kind === kind)
+                      if (existing) {
+                        if (existing.mine) {
+                          const nextCount = existing.count - 1
+                          const filtered = nextCount > 0
+                            ? curr.reactions.map((r) => (r.kind === kind ? { ...r, count: nextCount, mine: false } : r))
+                            : curr.reactions.filter((r) => r.kind !== kind)
+                          return { ...curr, reactions: filtered }
+                        }
+                        return {
+                          ...curr,
+                          reactions: curr.reactions.map((r) => r.kind === kind ? { ...r, count: r.count + 1, mine: true } : r),
+                        }
+                      }
+                      return { ...curr, reactions: [...curr.reactions, { kind, count: 1, mine: true }] }
+                    })
+                  }}
+                  compact
+                />
+              </div>
             </div>
           </div>
         )
@@ -990,11 +1067,61 @@ function Leaderboard({
   )
 }
 
+const REACTION_KINDS: Array<{ key: CompetitionReactionKind; emoji: string; label: string }> = [
+  { key: 'CLAP', emoji: '👏', label: 'Aplaudir' },
+  { key: 'FIRE', emoji: '🔥', label: 'Brabo' },
+  { key: 'STRONG', emoji: '💪', label: 'Forte' },
+  { key: 'PRAY', emoji: '🙏', label: 'Respeito' },
+]
+
+// Aggregated reactions bar rendered under the proof in the zoom modal.
+// Inline mini-bar on grid tiles uses a more compact variant.
+function ReactionsBar({
+  reactions, onReact, compact,
+}: {
+  reactions: CompetitionReactionSummary[]
+  onReact: (kind: CompetitionReactionKind) => void
+  compact?: boolean
+}) {
+  // Index existing reactions by kind for fast lookup so each button can
+  // show its own count + mine state.
+  const byKind = new Map(reactions.map((r) => [r.kind, r]))
+  return (
+    <div className={`flex flex-wrap items-center gap-1.5 ${compact ? '' : 'mt-2'}`}>
+      {REACTION_KINDS.map(({ key, emoji, label }) => {
+        const summary = byKind.get(key)
+        const count = summary?.count ?? 0
+        const mine = summary?.mine ?? false
+        return (
+          <button
+            key={key}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onReact(key)
+            }}
+            aria-label={`${label} (${count})`}
+            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold transition-colors ${
+              mine
+                ? 'border-[var(--brand)] bg-[var(--brand)]/15 text-[var(--brand-strong)]'
+                : 'border-[var(--line)] bg-[var(--surface-hover)] text-[var(--muted)] hover:bg-[var(--surface)]'
+            }`}
+          >
+            <span aria-hidden>{emoji}</span>
+            {count > 0 && <span className="font-mono tabular-nums">{count}</span>}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 function CompetitionFeed({
-  items, onZoom,
+  items, onZoom, onReact,
 }: {
   items: CompetitionFeedItem[]
   onZoom: (item: CompetitionFeedItem) => void
+  onReact: (entryId: string, kind: CompetitionReactionKind) => void
 }) {
   return (
     <section className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 sm:p-5">
@@ -1013,7 +1140,12 @@ function CompetitionFeed({
       ) : (
         <div className="mt-3 grid grid-cols-3 gap-1.5 sm:gap-2 lg:grid-cols-4">
           {items.map((item) => (
-            <FeedGridTile key={item.id} item={item} onZoom={() => onZoom(item)} />
+            <FeedGridTile
+              key={item.id}
+              item={item}
+              onZoom={() => onZoom(item)}
+              onReact={(kind) => onReact(item.id, kind)}
+            />
           ))}
         </div>
       )}
@@ -1022,54 +1154,67 @@ function CompetitionFeed({
 }
 
 function FeedGridTile({
-  item, onZoom,
+  item, onZoom, onReact,
 }: {
   item: CompetitionFeedItem
   onZoom: () => void
+  onReact: (kind: CompetitionReactionKind) => void
 }) {
   const displayName = item.user.name ?? `@${item.user.handle}`
   const dayShort = new Date(item.day).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+  const totalReactions = item.reactions.reduce((sum, r) => sum + r.count, 0)
   return (
-    <button
-      type="button"
-      onClick={onZoom}
-      className="group relative aspect-square overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] transition-transform hover:-translate-y-0.5"
-      aria-label={`Prova de ${displayName} em ${dayShort}`}
-    >
-      <img
-        src={item.photoUrl}
-        alt={`prova ${displayName}`}
-        className="absolute inset-0 h-full w-full object-cover transition-transform group-hover:scale-105"
-        loading="lazy"
-      />
-      {/* Top-left: kind badge */}
-      <span
-        className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-md bg-black/55 px-1.5 py-0.5 text-[9.5px] font-bold text-white backdrop-blur-sm"
-        aria-hidden
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        onClick={onZoom}
+        className="group relative aspect-square overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] transition-transform hover:-translate-y-0.5"
+        aria-label={`Prova de ${displayName} em ${dayShort}`}
       >
-        {item.kind === 'TRAINING' ? <Dumbbell size={9} /> : <Activity size={9} />}
-        {item.kind === 'TRAINING' ? 'TR' : 'CA'}
-      </span>
-      {/* Bottom gradient overlay with user + date */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/40 to-transparent px-2 pt-6 pb-1.5"
-      >
-        <div className="flex items-center gap-1.5">
-          {item.user.avatarUrl ? (
-            <img src={item.user.avatarUrl} alt="" className="h-5 w-5 rounded-full object-cover ring-1 ring-white/30" />
-          ) : (
-            <div className="grid h-5 w-5 place-items-center rounded-full bg-white/20 text-[9px] font-bold text-white">
-              {displayName.slice(0, 1).toUpperCase()}
-            </div>
-          )}
-          <p className="min-w-0 flex-1 truncate text-[10.5px] font-semibold text-white">
-            {displayName}
-          </p>
-          <span className="font-mono text-[9px] text-white/80">{dayShort}</span>
+        <img
+          src={item.photoUrl}
+          alt={`prova ${displayName}`}
+          className="absolute inset-0 h-full w-full object-cover transition-transform group-hover:scale-105"
+          loading="lazy"
+        />
+        {/* Top-left: kind badge */}
+        <span
+          className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-md bg-black/55 px-1.5 py-0.5 text-[9.5px] font-bold text-white backdrop-blur-sm"
+          aria-hidden
+        >
+          {item.kind === 'TRAINING' ? <Dumbbell size={9} /> : <Activity size={9} />}
+          {item.kind === 'TRAINING' ? 'TR' : 'CA'}
+        </span>
+        {/* Top-right: aggregate reaction count when there are any */}
+        {totalReactions > 0 && (
+          <span className="absolute right-1.5 top-1.5 inline-flex items-center gap-0.5 rounded-md bg-black/55 px-1.5 py-0.5 font-mono text-[10px] font-bold text-white backdrop-blur-sm">
+            {item.reactions.slice(0, 3).map((r) => REACTION_KINDS.find((k) => k.key === r.kind)?.emoji).join('')}
+            <span className="ml-0.5 tabular-nums">{totalReactions}</span>
+          </span>
+        )}
+        {/* Bottom gradient overlay with user + date */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/40 to-transparent px-2 pt-6 pb-1.5"
+        >
+          <div className="flex items-center gap-1.5">
+            {item.user.avatarUrl ? (
+              <img src={item.user.avatarUrl} alt="" className="h-5 w-5 rounded-full object-cover ring-1 ring-white/30" />
+            ) : (
+              <div className="grid h-5 w-5 place-items-center rounded-full bg-white/20 text-[9px] font-bold text-white">
+                {displayName.slice(0, 1).toUpperCase()}
+              </div>
+            )}
+            <p className="min-w-0 flex-1 truncate text-[10.5px] font-semibold text-white">
+              {displayName}
+            </p>
+            <span className="font-mono text-[9px] text-white/80">{dayShort}</span>
+          </div>
         </div>
-      </div>
-    </button>
+      </button>
+      {/* Reactions bar OUTSIDE the photo button so taps don't both open zoom + react */}
+      <ReactionsBar reactions={item.reactions} onReact={onReact} compact />
+    </div>
   )
 }
 

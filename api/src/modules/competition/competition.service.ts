@@ -7,8 +7,10 @@ import type {
   InviteMemberBody,
   ListChatQuery,
   PostChatBody,
-  PostEntryBody
+  PostEntryBody,
+  ReactionBody
 } from "./competition.schema";
+import type { CompetitionReactionKind } from "@prisma/client";
 import { checkProfanity } from "./profanity-filter";
 
 const CHAT_RATE_LIMIT_SEC = 2;
@@ -1049,6 +1051,10 @@ export async function getCompetitionFeed(userId: string, competitionId: string, 
     }
   });
 
+  // Reactions are loaded in one batch keyed by entry id so we avoid an
+  // N+1 query per feed item.
+  const reactionsByEntry = await loadReactionSummary(entries.map((e) => e.id), userId);
+
   const items = entries.map((e) => {
     let totalVolumeKg = 0;
     const exerciseSet = new Set<string>();
@@ -1075,11 +1081,92 @@ export async function getCompetitionFeed(userId: string, competitionId: string, 
             totalVolumeKg: Math.round(totalVolumeKg),
             cardioSec
           }
-        : null
+        : null,
+      reactions: reactionsByEntry.get(e.id) ?? []
     };
   });
 
   return { items };
+}
+
+// ─── Reactions on entries ────────────────────────────────────────────────
+
+async function assertEntryInCompetition(competitionId: string, entryId: string): Promise<void> {
+  const entry = await prisma.competitionEntry.findUnique({
+    where: { id: entryId },
+    select: { competitionId: true }
+  });
+  if (!entry || entry.competitionId !== competitionId) {
+    throw new AppError("Prova não encontrada", { statusCode: 404, code: "COMPETITION_ENTRY_NOT_FOUND" });
+  }
+}
+
+// Toggles a reaction on/off. If the user already reacted with the same
+// kind, removes it. Otherwise inserts. Different reaction kinds from the
+// same user on the same entry can coexist (you can clap AND fire-emoji
+// the same proof) — matches the multi-reaction pattern of Slack/Discord.
+export async function toggleReaction(userId: string, competitionId: string, entryId: string, payload: ReactionBody) {
+  await assertActiveMembership(userId, competitionId);
+  await assertEntryInCompetition(competitionId, entryId);
+
+  const existing = await prisma.competitionEntryReaction.findUnique({
+    where: { entryId_userId_kind: { entryId, userId, kind: payload.kind } },
+    select: { id: true }
+  });
+
+  if (existing) {
+    await prisma.competitionEntryReaction.delete({ where: { id: existing.id } });
+    return { action: "removed" as const, kind: payload.kind };
+  }
+
+  await prisma.competitionEntryReaction.create({
+    data: { entryId, userId, kind: payload.kind }
+  });
+  return { action: "added" as const, kind: payload.kind };
+}
+
+export type ReactionSummary = {
+  kind: CompetitionReactionKind;
+  count: number;
+  mine: boolean;
+};
+
+// Aggregated reaction counts per entry id, with a flag for which kinds
+// the calling user already reacted with. Called from the feed endpoint
+// so we don't have to expose a separate "list reactions" route.
+async function loadReactionSummary(
+  entryIds: string[],
+  currentUserId: string
+): Promise<Map<string, ReactionSummary[]>> {
+  if (entryIds.length === 0) return new Map();
+
+  const rows = await prisma.competitionEntryReaction.findMany({
+    where: { entryId: { in: entryIds } },
+    select: { entryId: true, kind: true, userId: true }
+  });
+
+  const map = new Map<string, Map<CompetitionReactionKind, { count: number; mine: boolean }>>();
+  for (const r of rows) {
+    let perEntry = map.get(r.entryId);
+    if (!perEntry) {
+      perEntry = new Map();
+      map.set(r.entryId, perEntry);
+    }
+    const current = perEntry.get(r.kind) ?? { count: 0, mine: false };
+    current.count += 1;
+    if (r.userId === currentUserId) current.mine = true;
+    perEntry.set(r.kind, current);
+  }
+
+  const result = new Map<string, ReactionSummary[]>();
+  for (const [entryId, perEntry] of map.entries()) {
+    const items: ReactionSummary[] = [];
+    for (const [kind, value] of perEntry.entries()) {
+      items.push({ kind, count: value.count, mine: value.mine });
+    }
+    result.set(entryId, items);
+  }
+  return result;
 }
 
 // ─── Chat ────────────────────────────────────────────────────────────────
