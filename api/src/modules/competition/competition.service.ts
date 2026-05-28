@@ -489,6 +489,182 @@ export async function listMyCompetitions(userId: string) {
   return { items };
 }
 
+// Mutual followers (= friends in this app's vocabulary) that aren't yet
+// in the competition and don't have a pending invite. Drives the friend
+// picker modal on the detail page. Three small queries (intersect in JS)
+// keep this scalable even for users with thousands of follows.
+export async function listInvitableFriends(userId: string, competitionId: string) {
+  const competition = await prisma.competition.findUnique({
+    where: { id: competitionId },
+    select: {
+      ownerUserId: true,
+      status: true,
+      members: { select: { userId: true, role: true, abandonedAt: true } },
+      invites: { where: { status: "PENDING" }, select: { invitedUserId: true } }
+    }
+  });
+
+  if (!competition) {
+    throw new AppError("Competição não encontrada", { statusCode: 404, code: "COMPETITION_NOT_FOUND" });
+  }
+
+  const me = competition.members.find((m) => m.userId === userId);
+  if (!me || me.role !== "ADMIN" || me.abandonedAt) {
+    throw new AppError("Apenas admins podem ver a lista de convite", {
+      statusCode: 403,
+      code: "COMPETITION_NOT_ADMIN"
+    });
+  }
+
+  const excluded = new Set<string>();
+  for (const m of competition.members) {
+    if (!m.abandonedAt) excluded.add(m.userId);
+  }
+  for (const i of competition.invites) {
+    if (i.invitedUserId) excluded.add(i.invitedUserId);
+  }
+
+  const [following, followers] = await Promise.all([
+    prisma.follow.findMany({ where: { followerId: userId }, select: { followingId: true } }),
+    prisma.follow.findMany({ where: { followingId: userId }, select: { followerId: true } })
+  ]);
+
+  const followingSet = new Set(following.map((f) => f.followingId));
+  const mutualIds = followers
+    .map((f) => f.followerId)
+    .filter((id) => followingSet.has(id) && !excluded.has(id));
+
+  if (mutualIds.length === 0) {
+    return { items: [] };
+  }
+
+  const users = await prisma.user.findMany({
+    where: { id: { in: mutualIds }, isDeleted: false },
+    select: { id: true, name: true, handle: true, avatarUrl: true },
+    orderBy: [{ name: "asc" }, { handle: "asc" }]
+  });
+
+  return { items: users };
+}
+
+// Promote or demote a member. Owner never loses ADMIN role. Only existing
+// admins can promote. Demoting yourself is allowed (but if you're the
+// last admin we block it to avoid leaving the room without a moderator).
+export async function setMemberRole(
+  userId: string,
+  competitionId: string,
+  targetUserId: string,
+  role: "ADMIN" | "MEMBER"
+) {
+  const competition = await prisma.competition.findUnique({
+    where: { id: competitionId },
+    include: { members: { select: { id: true, userId: true, role: true, abandonedAt: true } } }
+  });
+
+  if (!competition) {
+    throw new AppError("Competição não encontrada", { statusCode: 404, code: "COMPETITION_NOT_FOUND" });
+  }
+
+  const me = competition.members.find((m) => m.userId === userId);
+  if (!me || me.role !== "ADMIN" || me.abandonedAt) {
+    throw new AppError("Apenas admins podem mudar permissões", {
+      statusCode: 403,
+      code: "COMPETITION_NOT_ADMIN"
+    });
+  }
+
+  const target = competition.members.find((m) => m.userId === targetUserId);
+  if (!target) {
+    throw new AppError("Membro não encontrado", { statusCode: 404, code: "COMPETITION_MEMBER_NOT_FOUND" });
+  }
+  if (target.abandonedAt) {
+    throw new AppError("Esse membro abandonou o desafio", {
+      statusCode: 400,
+      code: "COMPETITION_MEMBER_ABANDONED"
+    });
+  }
+
+  // Owner is always admin — both protections (can't demote, can't promote
+  // again since they already are admin).
+  if (targetUserId === competition.ownerUserId && role === "MEMBER") {
+    throw new AppError("O criador da sala não pode ser rebaixado", {
+      statusCode: 400,
+      code: "COMPETITION_CANT_DEMOTE_OWNER"
+    });
+  }
+
+  if (target.role === role) {
+    return { success: true };
+  }
+
+  // Don't leave the room without any admin.
+  if (role === "MEMBER") {
+    const otherAdmins = competition.members.filter(
+      (m) => m.userId !== targetUserId && m.role === "ADMIN" && !m.abandonedAt
+    );
+    if (otherAdmins.length === 0) {
+      throw new AppError("A sala precisa ter pelo menos um admin ativo", {
+        statusCode: 400,
+        code: "COMPETITION_LAST_ADMIN"
+      });
+    }
+  }
+
+  await prisma.competitionMember.update({ where: { id: target.id }, data: { role } });
+  return { success: true };
+}
+
+// Removes a member (soft-abandon). Same effect as leaveCompetition from the
+// member's side — entries stay in the feed, leaderboard ignores them.
+// Owner can't be kicked.
+export async function kickMember(userId: string, competitionId: string, targetUserId: string) {
+  if (userId === targetUserId) {
+    throw new AppError("Use 'sair do desafio' para sair", {
+      statusCode: 400,
+      code: "COMPETITION_KICK_SELF"
+    });
+  }
+
+  const competition = await prisma.competition.findUnique({
+    where: { id: competitionId },
+    include: { members: { select: { id: true, userId: true, role: true, abandonedAt: true } } }
+  });
+
+  if (!competition) {
+    throw new AppError("Competição não encontrada", { statusCode: 404, code: "COMPETITION_NOT_FOUND" });
+  }
+
+  const me = competition.members.find((m) => m.userId === userId);
+  if (!me || me.role !== "ADMIN" || me.abandonedAt) {
+    throw new AppError("Apenas admins podem remover membros", {
+      statusCode: 403,
+      code: "COMPETITION_NOT_ADMIN"
+    });
+  }
+
+  if (targetUserId === competition.ownerUserId) {
+    throw new AppError("O criador da sala não pode ser removido", {
+      statusCode: 400,
+      code: "COMPETITION_CANT_KICK_OWNER"
+    });
+  }
+
+  const target = competition.members.find((m) => m.userId === targetUserId);
+  if (!target) {
+    throw new AppError("Membro não encontrado", { statusCode: 404, code: "COMPETITION_MEMBER_NOT_FOUND" });
+  }
+  if (target.abandonedAt) {
+    return { success: true };
+  }
+
+  await prisma.competitionMember.update({
+    where: { id: target.id },
+    data: { abandonedAt: new Date(), role: "MEMBER" }
+  });
+
+  return { success: true };
+}
+
 // Posts a daily entry (proof of training/cardio). Validates kind matches
 // the competition type, ensures the photo isn't a duplicate of one this
 // user already used in this competition, and uniquely enforces one entry

@@ -6,6 +6,7 @@ import type {
   CompetitionInvitePreview,
   CompetitionStandings,
   CompetitionType,
+  CompetitionUserSummary,
 } from '../types/competition'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1'
@@ -215,6 +216,63 @@ export async function postCompetitionEntry(
   const payload = await parsePayload(response)
   if (!response.ok) {
     throw new Error(payload.errorMessage ?? 'Falha ao registrar prova do desafio')
+  }
+}
+
+export async function listInvitableFriends(
+  authorizedFetch: AuthorizedFetch,
+  competitionId: string,
+): Promise<{ items: CompetitionUserSummary[] }> {
+  const response = await authorizedFetch(`${API_URL}/competitions/${competitionId}/invitable-friends`)
+  const payload = await parsePayload<{ items: CompetitionUserSummary[] }>(response)
+  if (!response.ok || !payload.data) {
+    throw new Error(payload.errorMessage ?? 'Falha ao carregar amigos')
+  }
+  return payload.data
+}
+
+export async function promoteMember(
+  authorizedFetch: AuthorizedFetch,
+  competitionId: string,
+  userId: string,
+): Promise<void> {
+  const response = await authorizedFetch(
+    `${API_URL}/competitions/${competitionId}/members/${userId}/admin`,
+    { method: 'POST' },
+  )
+  const payload = await parsePayload(response)
+  if (!response.ok) {
+    throw new Error(payload.errorMessage ?? 'Falha ao promover membro')
+  }
+}
+
+export async function demoteMember(
+  authorizedFetch: AuthorizedFetch,
+  competitionId: string,
+  userId: string,
+): Promise<void> {
+  const response = await authorizedFetch(
+    `${API_URL}/competitions/${competitionId}/members/${userId}/admin`,
+    { method: 'DELETE' },
+  )
+  const payload = await parsePayload(response)
+  if (!response.ok) {
+    throw new Error(payload.errorMessage ?? 'Falha ao remover admin')
+  }
+}
+
+export async function kickMember(
+  authorizedFetch: AuthorizedFetch,
+  competitionId: string,
+  userId: string,
+): Promise<void> {
+  const response = await authorizedFetch(
+    `${API_URL}/competitions/${competitionId}/members/${userId}`,
+    { method: 'DELETE' },
+  )
+  const payload = await parsePayload(response)
+  if (!response.ok) {
+    throw new Error(payload.errorMessage ?? 'Falha ao remover membro')
   }
 }
 

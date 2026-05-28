@@ -4,6 +4,13 @@ export const competitionParamsSchema = z
   .object({ competitionId: z.string().cuid() })
   .strict();
 
+export const memberParamsSchema = z
+  .object({
+    competitionId: z.string().cuid(),
+    userId: z.string().cuid()
+  })
+  .strict();
+
 export const createCompetitionBodySchema = z
   .object({
     name: z.string().trim().min(2).max(80).optional(),
@@ -40,6 +47,7 @@ export const postEntryBodySchema = z
   .strict();
 
 export type CompetitionParams = z.infer<typeof competitionParamsSchema>;
+export type MemberParams = z.infer<typeof memberParamsSchema>;
 export type CreateCompetitionBody = z.infer<typeof createCompetitionBodySchema>;
 export type InviteMemberBody = z.infer<typeof inviteMemberBodySchema>;
 export type InviteTokenParams = z.infer<typeof inviteTokenParamsSchema>;

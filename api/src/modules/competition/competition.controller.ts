@@ -9,10 +9,13 @@ import {
   getMyActiveCompetition,
   getStandings,
   inviteMember,
+  kickMember,
   leaveCompetition,
+  listInvitableFriends,
   listMyCompetitions,
   listMyInvites,
   postCompetitionEntry,
+  setMemberRole,
   startCompetition
 } from "./competition.service";
 import type {
@@ -20,6 +23,7 @@ import type {
   CreateCompetitionBody,
   InviteMemberBody,
   InviteTokenParams,
+  MemberParams,
   PostEntryBody
 } from "./competition.schema";
 
@@ -110,6 +114,34 @@ export async function getFeedController(req: Request, res: Response): Promise<vo
   const userId = req.context.userId as string;
   const params = req.params as unknown as CompetitionParams;
   const data = await getCompetitionFeed(userId, params.competitionId);
+  send(res, 200, data);
+}
+
+export async function listInvitableFriendsController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as CompetitionParams;
+  const data = await listInvitableFriends(userId, params.competitionId);
+  send(res, 200, data);
+}
+
+export async function promoteMemberController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as MemberParams;
+  const data = await setMemberRole(userId, params.competitionId, params.userId, "ADMIN");
+  send(res, 200, data);
+}
+
+export async function demoteMemberController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as MemberParams;
+  const data = await setMemberRole(userId, params.competitionId, params.userId, "MEMBER");
+  send(res, 200, data);
+}
+
+export async function kickMemberController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as MemberParams;
+  const data = await kickMember(userId, params.competitionId, params.userId);
   send(res, 200, data);
 }
 

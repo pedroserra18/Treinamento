@@ -7,22 +7,27 @@ import {
   createCompetitionBodySchema,
   inviteMemberBodySchema,
   inviteTokenParamsSchema,
+  memberParamsSchema,
   postEntryBodySchema
 } from "./competition.schema";
 import {
   acceptInviteController,
   createCompetitionController,
   declineInviteController,
+  demoteMemberController,
   getActiveCompetitionController,
   getCompetitionController,
   getFeedController,
   getInvitePreviewController,
   getStandingsController,
   inviteMemberController,
+  kickMemberController,
   leaveCompetitionController,
+  listInvitableFriendsController,
   listMyCompetitionsController,
   listMyInvitesController,
   postEntryController,
+  promoteMemberController,
   startCompetitionController
 } from "./competition.controller";
 
@@ -116,6 +121,34 @@ router.post(
   requireAuth,
   validateRequest({ params: competitionParamsSchema }),
   asyncHandler(async (req, res) => startCompetitionController(req, res))
+);
+
+router.get(
+  "/competitions/:competitionId/invitable-friends",
+  requireAuth,
+  validateRequest({ params: competitionParamsSchema }),
+  asyncHandler(async (req, res) => listInvitableFriendsController(req, res))
+);
+
+router.post(
+  "/competitions/:competitionId/members/:userId/admin",
+  requireAuth,
+  validateRequest({ params: memberParamsSchema }),
+  asyncHandler(async (req, res) => promoteMemberController(req, res))
+);
+
+router.delete(
+  "/competitions/:competitionId/members/:userId/admin",
+  requireAuth,
+  validateRequest({ params: memberParamsSchema }),
+  asyncHandler(async (req, res) => demoteMemberController(req, res))
+);
+
+router.delete(
+  "/competitions/:competitionId/members/:userId",
+  requireAuth,
+  validateRequest({ params: memberParamsSchema }),
+  asyncHandler(async (req, res) => kickMemberController(req, res))
 );
 
 router.post(

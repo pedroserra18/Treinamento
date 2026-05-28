@@ -1,21 +1,27 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { Activity, ArrowLeft, Copy, Crown, Dumbbell, Image as ImageIcon, Link2, LogOut, Play, Trophy, Users } from 'lucide-react'
+import { Activity, ArrowLeft, Copy, Crown, Dumbbell, Image as ImageIcon, Link2, LogOut, MoreVertical, Play, Trophy, UserMinus, UserPlus, Users, X as XIcon } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import {
+  demoteMember,
   getCompetition,
   getCompetitionFeed,
   getStandings,
   inviteMember,
+  kickMember,
   leaveCompetition,
+  listInvitableFriends,
+  promoteMember,
   startCompetition,
 } from '../services/competitionService'
 import type {
   Competition,
   CompetitionFeedItem,
+  CompetitionMember as Member,
   CompetitionStandings,
   CompetitionType,
+  CompetitionUserSummary,
 } from '../types/competition'
 import { Skeleton } from '../components/common/Skeleton'
 
@@ -44,6 +50,9 @@ export function CompetitionDetailPage() {
   const [copied, setCopied] = useState(false)
   const [starting, setStarting] = useState(false)
   const [photoZoom, setPhotoZoom] = useState<CompetitionFeedItem | null>(null)
+  const [showFriendPicker, setShowFriendPicker] = useState(false)
+  const [memberMenuFor, setMemberMenuFor] = useState<string | null>(null)
+  const [memberBusy, setMemberBusy] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -120,6 +129,55 @@ export function CompetitionDetailPage() {
       navigate('/desafios')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao sair')
+    }
+  }
+
+  const handlePromote = async (memberId: string) => {
+    if (!comp) return
+    setMemberBusy(true)
+    setError(null)
+    try {
+      await promoteMember(authorizedFetch, comp.id, memberId)
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao promover')
+    } finally {
+      setMemberBusy(false)
+      setMemberMenuFor(null)
+    }
+  }
+
+  const handleDemote = async (memberId: string) => {
+    if (!comp) return
+    setMemberBusy(true)
+    setError(null)
+    try {
+      await demoteMember(authorizedFetch, comp.id, memberId)
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao rebaixar')
+    } finally {
+      setMemberBusy(false)
+      setMemberMenuFor(null)
+    }
+  }
+
+  const handleKick = async (memberId: string, displayName: string) => {
+    if (!comp) return
+    if (!window.confirm(`Remover ${displayName} do desafio?`)) {
+      setMemberMenuFor(null)
+      return
+    }
+    setMemberBusy(true)
+    setError(null)
+    try {
+      await kickMember(authorizedFetch, comp.id, memberId)
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao remover membro')
+    } finally {
+      setMemberBusy(false)
+      setMemberMenuFor(null)
     }
   }
 
@@ -247,8 +305,16 @@ export function CompetitionDetailPage() {
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => void handleShareLink()}
+              onClick={() => setShowFriendPicker(true)}
               className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white hover:bg-[var(--brand-strong)]"
+            >
+              <UserPlus size={13} />
+              Convidar amigo
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleShareLink()}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
             >
               <Link2 size={13} />
               Compartilhar link
@@ -281,31 +347,19 @@ export function CompetitionDetailPage() {
         </h2>
         <ul className="mt-3 space-y-2">
           {comp.members.map((m) => (
-            <li key={m.id} className="flex items-center gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3">
-              {m.user.avatarUrl ? (
-                <img
-                  src={m.user.avatarUrl}
-                  alt={m.user.name ?? m.user.handle}
-                  className="h-10 w-10 shrink-0 rounded-full object-cover"
-                />
-              ) : (
-                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--surface)] text-sm font-bold text-[var(--text)]">
-                  {(m.user.name ?? m.user.handle).slice(0, 1).toUpperCase()}
-                </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-[var(--text)]">
-                  {m.user.name ?? `@${m.user.handle}`}
-                </p>
-                <p className="mt-0.5 font-mono text-[10.5px] text-[var(--muted)]">@{m.user.handle}</p>
-              </div>
-              {m.role === 'ADMIN' && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
-                  <Crown size={10} />
-                  Admin
-                </span>
-              )}
-            </li>
+            <MemberRow
+              key={m.id}
+              member={m}
+              isOwner={comp.ownerUserId === m.userId}
+              canModerate={isAdmin && (comp.status === 'LOBBY' || comp.status === 'ACTIVE')}
+              isMe={m.userId === user?.id}
+              menuOpen={memberMenuFor === m.userId}
+              busy={memberBusy}
+              onOpenMenu={() => setMemberMenuFor((curr) => (curr === m.userId ? null : m.userId))}
+              onPromote={() => void handlePromote(m.userId)}
+              onDemote={() => void handleDemote(m.userId)}
+              onKick={() => void handleKick(m.userId, m.user.name ?? `@${m.user.handle}`)}
+            />
           ))}
         </ul>
       </section>
@@ -318,6 +372,17 @@ export function CompetitionDetailPage() {
       {/* Feed */}
       {(comp.status === 'ACTIVE' || comp.status === 'COMPLETED') && (
         <CompetitionFeed items={feed} onZoom={(item) => setPhotoZoom(item)} />
+      )}
+
+      {showFriendPicker && comp && (
+        <FriendPickerModal
+          competitionId={comp.id}
+          onClose={() => setShowFriendPicker(false)}
+          onInvited={() => {
+            setShowFriendPicker(false)
+            void load()
+          }}
+        />
       )}
 
       {photoZoom && (
@@ -544,5 +609,282 @@ function CompetitionFeed({
         </ul>
       )}
     </section>
+  )
+}
+
+function MemberRow({
+  member, isOwner, canModerate, isMe, menuOpen, busy, onOpenMenu, onPromote, onDemote, onKick,
+}: {
+  member: Member
+  isOwner: boolean
+  canModerate: boolean
+  isMe: boolean
+  menuOpen: boolean
+  busy: boolean
+  onOpenMenu: () => void
+  onPromote: () => void
+  onDemote: () => void
+  onKick: () => void
+}) {
+  const displayName = member.user.name ?? `@${member.user.handle}`
+  const isAdmin = member.role === 'ADMIN'
+  // Owner is always admin. Can't kick self via this menu (use Leave instead).
+  // Can't kick the owner. Demote requires another active admin available
+  // — the backend also enforces this, but we hide the option when the user
+  // is the only admin to avoid showing a button that always errors.
+  const showPromote = canModerate && !isAdmin && !member.abandonedAt
+  const showDemote = canModerate && isAdmin && !isOwner && !member.abandonedAt
+  const showKick = canModerate && !isOwner && !isMe && !member.abandonedAt
+  const hasAnyAction = showPromote || showDemote || showKick
+
+  return (
+    <li className="relative flex items-center gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3">
+      {member.user.avatarUrl ? (
+        <img
+          src={member.user.avatarUrl}
+          alt={displayName}
+          className={`h-10 w-10 shrink-0 rounded-full object-cover ${member.abandonedAt ? 'opacity-40 grayscale' : ''}`}
+        />
+      ) : (
+        <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--surface)] text-sm font-bold text-[var(--text)] ${member.abandonedAt ? 'opacity-40' : ''}`}>
+          {(member.user.name ?? member.user.handle).slice(0, 1).toUpperCase()}
+        </div>
+      )}
+      <div className="min-w-0 flex-1">
+        <p className={`truncate text-sm font-semibold ${member.abandonedAt ? 'text-[var(--muted)] line-through' : 'text-[var(--text)]'}`}>
+          {displayName}
+        </p>
+        <p className="mt-0.5 font-mono text-[10.5px] text-[var(--muted)]">
+          @{member.user.handle}
+          {member.abandonedAt && ' · saiu'}
+        </p>
+      </div>
+
+      {isAdmin && !member.abandonedAt && (
+        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+          <Crown size={10} />
+          Admin
+        </span>
+      )}
+
+      {hasAnyAction && (
+        <div className="relative">
+          <button
+            type="button"
+            onClick={onOpenMenu}
+            disabled={busy}
+            className="grid h-8 w-8 place-items-center rounded-md border border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface)] hover:text-[var(--text)] disabled:opacity-50"
+            aria-label="Ações do membro"
+          >
+            <MoreVertical size={14} />
+          </button>
+          {menuOpen && (
+            <div className="absolute right-0 top-9 z-30 w-44 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface)] shadow-xl">
+              {showPromote && (
+                <button
+                  type="button"
+                  onClick={onPromote}
+                  disabled={busy}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-[var(--text)] hover:bg-[var(--surface-hover)]"
+                >
+                  <Crown size={12} className="text-amber-500" />
+                  Promover a admin
+                </button>
+              )}
+              {showDemote && (
+                <button
+                  type="button"
+                  onClick={onDemote}
+                  disabled={busy}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-[var(--text)] hover:bg-[var(--surface-hover)]"
+                >
+                  <UserMinus size={12} className="text-[var(--muted)]" />
+                  Remover admin
+                </button>
+              )}
+              {showKick && (
+                <button
+                  type="button"
+                  onClick={onKick}
+                  disabled={busy}
+                  className="flex w-full items-center gap-2 border-t border-[var(--line)] px-3 py-2 text-left text-xs font-medium text-rose-500 hover:bg-rose-500/10"
+                >
+                  <UserMinus size={12} />
+                  Remover do desafio
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </li>
+  )
+}
+
+function FriendPickerModal({
+  competitionId, onClose, onInvited,
+}: {
+  competitionId: string
+  onClose: () => void
+  onInvited: () => void
+}) {
+  const { authorizedFetch } = useAuth()
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [friends, setFriends] = useState<CompetitionUserSummary[]>([])
+  const [inviting, setInviting] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+
+  // Lock background scroll while the picker is up (same pattern as the
+  // set-type sheet, profile photo viewer, etc.).
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    listInvitableFriends(authorizedFetch, competitionId)
+      .then((data) => {
+        if (cancelled) return
+        setFriends(data.items)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setError(err instanceof Error ? err.message : 'Falha ao carregar amigos')
+      })
+      .finally(() => {
+        if (cancelled) return
+        setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [authorizedFetch, competitionId])
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return friends
+    return friends.filter(
+      (f) => (f.name ?? '').toLowerCase().includes(q) || f.handle.toLowerCase().includes(q),
+    )
+  }, [friends, search])
+
+  const handleInvite = async (friendId: string) => {
+    setInviting(friendId)
+    setError(null)
+    try {
+      await inviteMember(authorizedFetch, competitionId, { invitedUserId: friendId })
+      // Successful — remove from list and close if it was the only one left.
+      setFriends((curr) => curr.filter((f) => f.id !== friendId))
+      onInvited()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao convidar')
+    } finally {
+      setInviting(null)
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+    >
+      <motion.div
+        initial={{ y: 40, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        onClick={(e) => e.stopPropagation()}
+        className="flex w-full max-w-md flex-col overflow-hidden rounded-t-2xl border border-b-0 border-[var(--line)] bg-[var(--surface)] sm:rounded-2xl sm:border-b"
+        style={{ maxHeight: 'min(85vh, 720px)' }}
+      >
+        <div className="flex items-center justify-between gap-2 border-b border-[var(--line)] px-4 py-3">
+          <h3 className="text-base font-extrabold text-[var(--text)]">Convidar amigo</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid h-8 w-8 place-items-center rounded-md text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+            aria-label="Fechar"
+          >
+            <XIcon size={14} />
+          </button>
+        </div>
+
+        <div className="border-b border-[var(--line)] px-4 py-2">
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar por nome ou @handle"
+            className="w-full rounded-lg border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
+          />
+          <p className="mt-1 text-[10.5px] text-[var(--muted)]">
+            Apenas amigos (segue mútuo) aparecem aqui.
+          </p>
+        </div>
+
+        {error && (
+          <p className="mx-4 mt-2 rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-1.5 text-xs text-red-500">
+            {error}
+          </p>
+        )}
+
+        <div className="flex-1 overflow-y-auto p-2">
+          {loading ? (
+            <p className="px-3 py-4 text-center text-xs text-[var(--muted)]">Carregando…</p>
+          ) : filtered.length === 0 ? (
+            <p className="px-3 py-6 text-center text-xs text-[var(--muted)]">
+              {friends.length === 0
+                ? 'Sem amigos disponíveis. Seus amigos precisam ter aceitado o seu seguir.'
+                : 'Nenhum amigo bate com a busca.'}
+            </p>
+          ) : (
+            <ul className="space-y-1.5">
+              {filtered.map((f) => {
+                const isInviting = inviting === f.id
+                return (
+                  <li
+                    key={f.id}
+                    className="flex items-center gap-3 rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] p-2.5"
+                  >
+                    {f.avatarUrl ? (
+                      <img
+                        src={f.avatarUrl}
+                        alt={f.name ?? f.handle}
+                        className="h-9 w-9 shrink-0 rounded-full object-cover"
+                      />
+                    ) : (
+                      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--surface)] text-xs font-bold text-[var(--text)]">
+                        {(f.name ?? f.handle).slice(0, 1).toUpperCase()}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-[var(--text)]">
+                        {f.name ?? `@${f.handle}`}
+                      </p>
+                      <p className="mt-0.5 font-mono text-[10.5px] text-[var(--muted)]">@{f.handle}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleInvite(f.id)}
+                      disabled={isInviting}
+                      className="rounded-lg bg-[var(--brand)] px-3 py-1.5 text-xs font-bold text-white hover:bg-[var(--brand-strong)] disabled:opacity-50"
+                    >
+                      {isInviting ? 'Enviando…' : 'Convidar'}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+      </motion.div>
+    </div>
   )
 }
