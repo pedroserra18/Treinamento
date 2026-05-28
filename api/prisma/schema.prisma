@@ -762,8 +762,18 @@ model CompetitionMember {
   user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // Two memberships for the same user in the same comp would break the
-  // leaderboard. Application enforces "only one ACTIVE/LOBBY comp per user"
-  // at the service layer (transaction + check), scoped to non-abandoned.
+  // leaderboard. The "only one LOBBY/ACTIVE comp per user" rule is
+  // enforced at the service layer using a Postgres SERIALIZABLE
+  // transaction that re-checks user activity inside the same atomic
+  // unit as the membership insert. Concurrent attempts hit Postgres's
+  // serialization conflict detector and one aborts with code 40001,
+  // which the service maps to a 409 with COMPETITION_ALREADY_IN_ANOTHER.
+  //
+  // A partial unique index would be cleaner here but Postgres doesn't
+  // allow EXISTS subqueries inside partial-index WHERE clauses, and the
+  // "is this competition still LOBBY/ACTIVE?" check needs a join.
+  // The Serializable approach is equivalent at this scale without the
+  // extra denormalization complexity.
   @@unique([competitionId, userId])
   @@index([userId, abandonedAt])
   @@map("competition_members")

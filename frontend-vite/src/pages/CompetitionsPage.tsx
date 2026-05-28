@@ -141,6 +141,11 @@ export function CompetitionsPage() {
           <h2 className="text-[13px] font-bold uppercase tracking-wider text-[var(--brand-strong)]">
             Convites pendentes ({invites.length})
           </h2>
+          {activeCompetition && (
+            <p className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11.5px] font-semibold text-amber-600 dark:text-amber-400">
+              Você já está em "{activeCompetition.name ?? 'um desafio'}". Saia dele primeiro para aceitar outro convite.
+            </p>
+          )}
           <ul className="mt-3 space-y-2">
             {invites.map((inv) => (
               <li
@@ -171,7 +176,9 @@ export function CompetitionsPage() {
                   <button
                     type="button"
                     onClick={() => void handleAcceptInvite(inv.token)}
-                    className="rounded-lg bg-[var(--brand)] px-3 py-1.5 text-xs font-bold text-white hover:bg-[var(--brand-strong)]"
+                    disabled={!!activeCompetition}
+                    title={activeCompetition ? 'Saia do desafio atual primeiro' : undefined}
+                    className="rounded-lg bg-[var(--brand)] px-3 py-1.5 text-xs font-bold text-white hover:bg-[var(--brand-strong)] disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Aceitar
                   </button>
@@ -191,7 +198,12 @@ export function CompetitionsPage() {
 
       {/* Active competition */}
       {!loading && activeCompetition && (
-        <CompetitionCard competition={activeCompetition} onOpen={() => navigate(`/desafios/${activeCompetition.id}`)} />
+        <>
+          <CompetitionCard competition={activeCompetition} onOpen={() => navigate(`/desafios/${activeCompetition.id}`)} />
+          <p className="px-2 text-center text-[11px] text-[var(--muted)]">
+            Você só pode participar de 1 desafio por vez. Saia ou espere o fim para entrar em outro.
+          </p>
+        </>
       )}
 
       {/* Create button */}

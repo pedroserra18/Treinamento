@@ -3,8 +3,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Trophy, Users, Clock } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
-import { acceptInvite, declineInvite, getInvitePreview } from '../services/competitionService'
-import type { CompetitionInvitePreview, CompetitionType } from '../types/competition'
+import { acceptInvite, declineInvite, getInvitePreview, getMyActiveCompetition } from '../services/competitionService'
+import type { Competition, CompetitionInvitePreview, CompetitionType } from '../types/competition'
 import { Skeleton } from '../components/common/Skeleton'
 
 const TYPE_DESCRIPTION: Record<CompetitionType, string> = {
@@ -20,20 +20,30 @@ export function CompetitionInvitePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [preview, setPreview] = useState<CompetitionInvitePreview | null>(null)
+  const [activeCompetition, setActiveCompetition] = useState<Competition | null>(null)
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const data = await getInvitePreview(authorizedFetch, token)
+      // Pull preview + current active comp in parallel so the page can
+      // tell the user up-front "you can't accept yet" without a wasted
+      // attempt that just bounces off the backend.
+      const [data, comp] = await Promise.all([
+        getInvitePreview(authorizedFetch, token),
+        isAuthenticated
+          ? getMyActiveCompetition(authorizedFetch).catch(() => null)
+          : Promise.resolve(null),
+      ])
       setPreview(data)
+      setActiveCompetition(comp)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Convite não encontrado')
     } finally {
       setLoading(false)
     }
-  }, [authorizedFetch, token])
+  }, [authorizedFetch, token, isAuthenticated])
 
   useEffect(() => {
     if (token) void load()
@@ -134,6 +144,25 @@ export function CompetitionInvitePage() {
         </p>
       )}
 
+      {/* "Already in another comp" warning — surfaces the conflict before
+          the user clicks Accept and gets a wasteful 409. */}
+      {activeCompetition && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-3 text-center text-xs text-amber-600 dark:text-amber-400">
+          <p className="font-semibold">
+            Você já está em outro desafio: "{activeCompetition.name ?? 'Sem nome'}"
+          </p>
+          <p className="mt-0.5">
+            Só pode participar de 1 desafio por vez. Saia do atual ou espere ele acabar para aceitar este.
+          </p>
+          <Link
+            to={`/desafios/${activeCompetition.id}`}
+            className="mt-2 inline-block rounded-lg border border-amber-500/50 px-3 py-1 text-[11px] font-bold uppercase tracking-wider hover:bg-amber-500/10"
+          >
+            Ver desafio atual
+          </Link>
+        </div>
+      )}
+
       {error && (
         <p className="rounded-xl border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-500">{error}</p>
       )}
@@ -142,8 +171,8 @@ export function CompetitionInvitePage() {
         <button
           type="button"
           onClick={() => void handleAccept()}
-          disabled={busy || preview.competition.status !== 'LOBBY'}
-          className="rounded-xl bg-[var(--brand)] px-5 py-2.5 text-sm font-bold text-white hover:bg-[var(--brand-strong)] disabled:opacity-50"
+          disabled={busy || preview.competition.status !== 'LOBBY' || !!activeCompetition}
+          className="rounded-xl bg-[var(--brand)] px-5 py-2.5 text-sm font-bold text-white hover:bg-[var(--brand-strong)] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isAuthenticated ? (busy ? 'Aceitando…' : 'Aceitar desafio') : 'Entrar e aceitar'}
         </button>

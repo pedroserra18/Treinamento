@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/prisma";
 import { AppError } from "../../shared/errors/app-error";
 import { createNotification } from "../notification/notification.service";
@@ -16,6 +17,22 @@ const MAX_MEMBERS = 10;
 const INVITE_EXPIRY_DAYS = 7;
 const LOBBY_START_DEADLINE_DAYS = 3;
 
+// Postgres throws 40001 (serialization_failure) when two Serializable
+// transactions conflict — for us, that happens when two simultaneous
+// "create/accept" requests race for the same user's single-slot
+// guarantee. We re-throw as a friendly 409 so the client UI shows the
+// right message.
+function isSerializationFailure(err: unknown): boolean {
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    return err.code === "P2034";
+  }
+  if (typeof err === "object" && err !== null) {
+    const e = err as { code?: string; meta?: { code?: string } };
+    if (e.code === "40001" || e.meta?.code === "40001") return true;
+  }
+  return false;
+}
+
 const COMPETITION_INCLUDE = {
   owner: { select: { id: true, name: true, handle: true, avatarUrl: true } },
   members: {
@@ -31,8 +48,14 @@ const COMPETITION_INCLUDE = {
 // Used by create + join paths to enforce the "1 active per user" rule.
 // Service-level check is fine for now (low contention); for higher scale,
 // add a partial unique index on competition_members via raw SQL migration.
-async function assertUserHasNoActiveCompetition(userId: string): Promise<void> {
-  const existing = await prisma.competitionMember.findFirst({
+// Accepts an optional transaction client so callers can perform the check
+// + the membership insert inside the same atomic unit. Without this, a
+// user could double-tap accept and end up in two rooms before the check
+// fires for the second request — small window but real at high traffic.
+type TxClient = Prisma.TransactionClient | typeof prisma;
+
+async function assertUserHasNoActiveCompetition(userId: string, db: TxClient = prisma): Promise<void> {
+  const existing = await db.competitionMember.findFirst({
     where: {
       userId,
       abandonedAt: null, // soft-abandoned members no longer hold the slot
@@ -42,7 +65,7 @@ async function assertUserHasNoActiveCompetition(userId: string): Promise<void> {
   });
 
   if (existing) {
-    throw new AppError("Você já está em uma competição ativa", {
+    throw new AppError("Você já está em uma competição ativa. Saia dela primeiro ou espere ela acabar.", {
       statusCode: 409,
       code: "COMPETITION_ALREADY_IN_ANOTHER",
       details: { competitionId: existing.competition.id, name: existing.competition.name }
@@ -77,29 +100,44 @@ async function assertMutualFollow(inviterId: string, targetUserId: string): Prom
 }
 
 export async function createCompetition(userId: string, payload: CreateCompetitionBody) {
-  await assertUserHasNoActiveCompetition(userId);
+  // Same Serializable transaction pattern as acceptInvite — the check
+  // lives inside the tx so two simultaneous creates can't race.
+  try {
+    return await prisma.$transaction(
+    async (tx) => {
+      await assertUserHasNoActiveCompetition(userId, tx);
 
-  return prisma.$transaction(async (tx) => {
-    const startDeadline = new Date(Date.now() + LOBBY_START_DEADLINE_DAYS * 86_400_000);
-    const competition = await tx.competition.create({
-      data: {
-        ownerUserId: userId,
-        name: payload.name ?? null,
-        type: payload.type,
-        durationDays: payload.durationDays,
-        startDeadline
-      }
-    });
+      const startDeadline = new Date(Date.now() + LOBBY_START_DEADLINE_DAYS * 86_400_000);
+      const competition = await tx.competition.create({
+        data: {
+          ownerUserId: userId,
+          name: payload.name ?? null,
+          type: payload.type,
+          durationDays: payload.durationDays,
+          startDeadline
+        }
+      });
 
-    await tx.competitionMember.create({
-      data: { competitionId: competition.id, userId, role: "ADMIN" }
-    });
+      await tx.competitionMember.create({
+        data: { competitionId: competition.id, userId, role: "ADMIN" }
+      });
 
-    return tx.competition.findUniqueOrThrow({
-      where: { id: competition.id },
-      include: COMPETITION_INCLUDE
-    });
-  });
+      return tx.competition.findUniqueOrThrow({
+        where: { id: competition.id },
+        include: COMPETITION_INCLUDE
+      });
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+  );
+  } catch (err) {
+    if (isSerializationFailure(err)) {
+      throw new AppError("Você já está em uma competição ativa. Saia dela primeiro ou espere ela acabar.", {
+        statusCode: 409,
+        code: "COMPETITION_ALREADY_IN_ANOTHER"
+      });
+    }
+    throw err;
+  }
 }
 
 export async function getMyActiveCompetition(userId: string) {
@@ -355,20 +393,37 @@ export async function acceptInvite(userId: string, token: string) {
     });
   }
 
-  await assertUserHasNoActiveCompetition(userId);
+  // Atomic check + insert with Serializable isolation so two simultaneous
+  // accepts on the same account can't both succeed. Postgres re-checks on
+  // commit and aborts the loser with a serialization error which we catch.
+  let result;
+  try {
+    result = await prisma.$transaction(
+    async (tx) => {
+      await assertUserHasNoActiveCompetition(userId, tx);
 
-  const result = await prisma.$transaction(async (tx) => {
-    const member = await tx.competitionMember.create({
-      data: { competitionId: invite.competitionId, userId, role: "MEMBER" }
-    });
+      const member = await tx.competitionMember.create({
+        data: { competitionId: invite.competitionId, userId, role: "MEMBER" }
+      });
 
-    await tx.competitionInvite.update({
-      where: { id: invite.id },
-      data: { status: "ACCEPTED", respondedAt: new Date() }
-    });
+      await tx.competitionInvite.update({
+        where: { id: invite.id },
+        data: { status: "ACCEPTED", respondedAt: new Date() }
+      });
 
-    return member;
-  });
+      return member;
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+  );
+  } catch (err) {
+    if (isSerializationFailure(err)) {
+      throw new AppError("Você já está em uma competição ativa. Saia dela primeiro ou espere ela acabar.", {
+        statusCode: 409,
+        code: "COMPETITION_ALREADY_IN_ANOTHER"
+      });
+    }
+    throw err;
+  }
 
   // Notify the admins (best-effort).
   try {
