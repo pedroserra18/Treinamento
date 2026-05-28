@@ -16,7 +16,7 @@ import { SkeletonCard } from '../components/common/Skeleton'
 import { createPortal } from 'react-dom'
 import {
   ChevronLeft, ChevronRight, Pencil, Dumbbell, X as XIcon,
-  TrendingUp, Settings as SettingsIcon, LogOut, Users, LifeBuoy, FileText,
+  TrendingUp, Trophy, Settings as SettingsIcon, LogOut, Users, LifeBuoy, FileText,
 } from 'lucide-react'
 
 const PAGE_SIZE = 12 // workouts fetched per scroll batch
@@ -574,6 +574,11 @@ export function ProfilePage() {
         <Link to="/progress" className="flex items-center gap-3 border-b border-[var(--line)] px-4 py-3 text-[14px] text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]">
           <TrendingUp size={16} className="text-[var(--muted)]" />
           <span className="flex-1">Progresso</span>
+          <ChevronRight size={16} className="text-[var(--muted)]" />
+        </Link>
+        <Link to="/desafios" className="flex items-center gap-3 border-b border-[var(--line)] px-4 py-3 text-[14px] text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]">
+          <Trophy size={16} className="text-[var(--muted)]" />
+          <span className="flex-1">Desafios</span>
           <ChevronRight size={16} className="text-[var(--muted)]" />
         </Link>
         <Link to="/settings" className="flex items-center gap-3 px-4 py-3 text-[14px] text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]">

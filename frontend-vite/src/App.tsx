@@ -27,6 +27,9 @@ import { AdminSupportPage } from './pages/AdminSupportPage'
 import { AdminSupportTicketPage } from './pages/AdminSupportTicketPage'
 import { AdminSupportTemplatesPage } from './pages/AdminSupportTemplatesPage'
 import { ExerciseDetailPage } from './pages/ExerciseDetailPage'
+import { CompetitionsPage } from './pages/CompetitionsPage'
+import { CompetitionDetailPage } from './pages/CompetitionDetailPage'
+import { CompetitionInvitePage } from './pages/CompetitionInvitePage'
 
 function AnimatedRoutes() {
   const location = useLocation()
@@ -146,6 +149,26 @@ function AnimatedRoutes() {
             element={
               <ProtectedRoute>
                 <FeedPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/desafios"
+            element={
+              <ProtectedRoute>
+                <CompetitionsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/desafios/convite/:token"
+            element={<CompetitionInvitePage />}
+          />
+          <Route
+            path="/desafios/:competitionId"
+            element={
+              <ProtectedRoute>
+                <CompetitionDetailPage />
               </ProtectedRoute>
             }
           />
