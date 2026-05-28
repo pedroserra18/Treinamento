@@ -106,7 +106,14 @@ const envSchema = z.object({
   OTEL_SERVICE_NAME: z.string().default("acad-api"),
 
   OPENAI_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
-  OPENAI_MODEL: z.preprocess(emptyToUndefined, z.string().optional())
+  OPENAI_MODEL: z.preprocess(emptyToUndefined, z.string().optional()),
+
+  // Object storage (Supabase Storage). Optional in dev — the upload endpoint
+  // returns 503 with a clear message when these are missing so the feature
+  // degrades gracefully instead of crashing the API on boot.
+  SUPABASE_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
+  SUPABASE_SERVICE_ROLE_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  SUPABASE_STORAGE_BUCKET: z.preprocess(emptyToUndefined, z.string().optional())
 });
 
 const parsedEnv = envSchema.safeParse(process.env);
@@ -185,6 +192,10 @@ export const env = {
   resendApiKey: data.RESEND_API_KEY,
   resendFromEmail: data.RESEND_FROM_EMAIL,
   emailVerificationTtlMin: data.EMAIL_VERIFICATION_TTL_MIN,
+
+  supabaseUrl: data.SUPABASE_URL,
+  supabaseServiceRoleKey: data.SUPABASE_SERVICE_ROLE_KEY,
+  supabaseStorageBucket: data.SUPABASE_STORAGE_BUCKET,
 
   logLevel: data.LOG_LEVEL,
   enforceHttps,

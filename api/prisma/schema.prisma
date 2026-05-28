@@ -205,6 +205,11 @@ model User {
   supportTickets    SupportTicket[]
   supportMessages   SupportMessage[]
   supportTemplates  SupportTemplate[]
+  competitionsOwned       Competition[]       @relation("CompetitionOwner")
+  competitionMemberships  CompetitionMember[]
+  competitionInvitesSent  CompetitionInvite[] @relation("CompetitionInviteSender")
+  competitionInvitesReceived CompetitionInvite[] @relation("CompetitionInviteReceiver")
+  competitionEntries      CompetitionEntry[]
 
   @@index([status, isDeleted])
   @@index([role])
@@ -403,6 +408,7 @@ model WorkoutSession {
   history     WorkoutHistory[]
   cardioEntries CardioEntry[]
   post        WorkoutPost?
+  competitionEntries CompetitionEntry[]
 
   @@index([userId, scheduledAt])
   // Hot path for /progress/summary?year=N — range-scans completed sessions
@@ -672,4 +678,131 @@ model SupportTemplate {
   createdBy User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
 
   @@map("support_templates")
+}
+
+// ─── Competition (challenge) ────────────────────────────────────────────────
+
+enum CompetitionType {
+  TRAINING
+  CARDIO
+  BOTH
+}
+
+enum CompetitionStatus {
+  LOBBY
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum CompetitionRole {
+  ADMIN
+  MEMBER
+}
+
+enum CompetitionInviteStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+  CANCELLED
+}
+
+enum CompetitionEntryKind {
+  TRAINING
+  CARDIO
+}
+
+model Competition {
+  id           String            @id @default(cuid())
+  ownerUserId  String
+  name         String?
+  type         CompetitionType
+  durationDays Int
+  status       CompetitionStatus @default(LOBBY)
+  startedAt    DateTime?
+  endsAt       DateTime?
+  winnerUserId String?
+  // External invite token used by share links. Generated once per competition
+  // and rotatable by the owner if leaked.
+  inviteToken  String            @unique @default(cuid())
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  owner   User                @relation("CompetitionOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  members CompetitionMember[]
+  invites CompetitionInvite[]
+  entries CompetitionEntry[]
+
+  // Hot path: "is this user already in any LOBBY/ACTIVE competition?" — the
+  // partial unique on members below relies on the joined query staying cheap.
+  @@index([ownerUserId])
+  @@index([status, endsAt])
+  @@map("competitions")
+}
+
+model CompetitionMember {
+  id            String          @id @default(cuid())
+  competitionId String
+  userId        String
+  role          CompetitionRole @default(MEMBER)
+  joinedAt      DateTime        @default(now())
+
+  competition Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Two memberships for the same user in the same comp would break the
+  // leaderboard. Application enforces "only one ACTIVE/LOBBY comp per user"
+  // at the service layer (transaction + check) — see joinCompetition.
+  @@unique([competitionId, userId])
+  @@index([userId])
+  @@map("competition_members")
+}
+
+model CompetitionInvite {
+  id              String                  @id @default(cuid())
+  competitionId   String
+  invitedByUserId String
+  // Null when the invite is link-only (external share). When set, the
+  // invite is targeted and shows up in the recipient's notification feed.
+  invitedUserId   String?
+  token           String                  @unique @default(cuid())
+  status          CompetitionInviteStatus @default(PENDING)
+  expiresAt       DateTime
+  createdAt       DateTime                @default(now())
+  respondedAt     DateTime?
+
+  competition Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  invitedBy   User        @relation("CompetitionInviteSender",   fields: [invitedByUserId], references: [id], onDelete: Cascade)
+  invitedUser User?       @relation("CompetitionInviteReceiver", fields: [invitedUserId],   references: [id], onDelete: Cascade)
+
+  @@index([invitedUserId, status])
+  @@index([competitionId, status])
+  @@map("competition_invites")
+}
+
+model CompetitionEntry {
+  id               String                @id @default(cuid())
+  competitionId    String
+  userId           String
+  // Day key (UTC date). Combined with `kind` it's the uniqueness boundary:
+  // one TRAINING + one CARDIO per day for BOTH-type competitions, single
+  // entry per day for TRAINING-only / CARDIO-only.
+  day              DateTime              @db.Date
+  kind             CompetitionEntryKind
+  workoutSessionId String?
+  photoUrl         String
+  // Storage path, retained so we can drop the underlying object if the
+  // entry/competition is deleted (best-effort GC).
+  photoPath        String?
+  createdAt        DateTime              @default(now())
+
+  competition    Competition     @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workoutSession WorkoutSession? @relation(fields: [workoutSessionId], references: [id], onDelete: SetNull)
+
+  @@unique([competitionId, userId, day, kind])
+  @@index([competitionId, userId])
+  @@index([userId, createdAt])
+  @@map("competition_entries")
 }
