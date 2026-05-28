@@ -23,6 +23,7 @@ import {
   declineInviteController,
   deleteChatController,
   deleteEntryCommentController,
+  deleteEntryController,
   demoteMemberController,
   getActiveCompetitionController,
   getCompetitionController,
@@ -142,6 +143,13 @@ router.post(
   requireAuth,
   validateRequest({ params: entryParamsSchema, body: reactionBodySchema }),
   asyncHandler(async (req, res) => toggleReactionController(req, res))
+);
+
+router.delete(
+  "/competitions/:competitionId/entries/:entryId",
+  requireAuth,
+  validateRequest({ params: entryParamsSchema }),
+  asyncHandler(async (req, res) => deleteEntryController(req, res))
 );
 
 router.get(

@@ -4,6 +4,7 @@ import { motion } from 'framer-motion'
 import { Activity, AlertCircle, ArrowLeft, CheckCircle2, Copy, Crown, Dumbbell, Flame, Image as ImageIcon, Link2, LogOut, MessageCircle, MoreVertical, Play, Send, Trash2, Trophy, UserMinus, UserPlus, Users, X as XIcon } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import {
+  deleteCompetitionEntry,
   deleteEntryComment,
   demoteMember,
   getCompetition,
@@ -289,6 +290,26 @@ export function CompetitionDetailPage() {
     }
   }
 
+  // Admin-only proof removal. Used from the photo zoom modal so the admin
+  // can moderate without leaving the entry view. We optimistically remove
+  // from feed and refresh standings (deleted entries change the score).
+  const handleDeleteEntry = async (entry: CompetitionFeedItem) => {
+    if (!comp) return
+    const name = entry.user.name ?? `@${entry.user.handle}`
+    if (!window.confirm(`Apagar a prova de ${name}? Essa ação não pode ser desfeita.`)) return
+    setFeed((curr) => curr.filter((it) => it.id !== entry.id))
+    setPhotoZoom(null)
+    try {
+      await deleteCompetitionEntry(authorizedFetch, comp.id, entry.id)
+      // Standings change when an entry is removed — refetch the dynamic bits.
+      void refreshDynamic(comp.status)
+    } catch (err) {
+      // Roll back the optimistic removal by reloading.
+      void load()
+      setError(err instanceof Error ? err.message : 'Falha ao remover prova')
+    }
+  }
+
   // Patch commentsCount on both the feed list and the open zoom modal when
   // the thread component reports an add/delete. Keeps the grid badge in
   // sync without re-fetching the whole feed for one comment.
@@ -535,9 +556,16 @@ export function CompetitionDetailPage() {
         </div>
       )}
 
-      {/* Feed — "Provas" tab on mobile */}
+      {/* Daily summary + Feed — "Provas" tab on mobile */}
       {(comp.status === 'ACTIVE' || comp.status === 'COMPLETED') && (
-        <div className={mobileTab !== 'provas' ? 'hidden lg:block' : ''}>
+        <div className={`space-y-3 ${mobileTab !== 'provas' ? 'hidden lg:block lg:space-y-3' : ''}`}>
+          {comp.status === 'ACTIVE' && (
+            <DailySummaryCard
+              feed={feed}
+              totalMembers={comp.members.filter((m) => !m.abandonedAt).length}
+              type={comp.type}
+            />
+          )}
           <CompetitionFeed
             items={feed}
             onZoom={(item) => setPhotoZoom(item)}
@@ -545,6 +573,11 @@ export function CompetitionDetailPage() {
           />
         </div>
       )}
+
+      {/* Rules — always available, on "Geral" tab in mobile */}
+      <div className={mobileTab !== 'geral' && (comp.status === 'ACTIVE' || comp.status === 'COMPLETED') ? 'hidden lg:block' : ''}>
+        <RulesCollapsible type={comp.type} />
+      </div>
 
       {/* Chat — "Chat" tab on mobile, always visible on desktop */}
       {(comp.status === 'ACTIVE' || comp.status === 'COMPLETED') && myMembership && !myMembership.abandonedAt && (
@@ -647,6 +680,16 @@ export function CompetitionDetailPage() {
                 canModerate={isAdmin}
                 onChange={(delta) => adjustCommentsCount(photoZoom.id, delta)}
               />
+              {isAdmin && comp.status === 'ACTIVE' && (
+                <button
+                  type="button"
+                  onClick={() => void handleDeleteEntry(photoZoom)}
+                  className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-rose-500/40 px-3 py-1 text-[11px] font-semibold text-rose-400 hover:bg-rose-500/15"
+                >
+                  <Trash2 size={11} />
+                  Remover prova (admin)
+                </button>
+              )}
             </div>
           </div>
         )
@@ -1142,6 +1185,98 @@ function ReactionsBar({
         )
       })}
     </div>
+  )
+}
+
+// Tiny "pulse of the day" card on top of the feed. Computed from the
+// feed list — for a 10-person room with at most 2 proofs/day, the feed
+// page (cap 30) trivially contains every "today" entry, so we don't
+// need a separate endpoint.
+function DailySummaryCard({
+  feed, totalMembers, type,
+}: {
+  feed: CompetitionFeedItem[]
+  totalMembers: number
+  type: CompetitionType
+}) {
+  const todayKey = new Date().toISOString().slice(0, 10)
+  const todays = feed.filter((e) => new Date(e.day).toISOString().slice(0, 10) === todayKey)
+  const usersToday = new Set(todays.map((e) => e.user.id))
+  // Max possible proofs per day in this room (BOTH = 2 per member, otherwise 1)
+  const maxPerMember = type === 'BOTH' ? 2 : 1
+  const maxTotal = totalMembers * maxPerMember
+  const pct = maxTotal === 0 ? 0 : Math.round((todays.length / maxTotal) * 100)
+  return (
+    <section className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 sm:p-5">
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="inline-flex items-center gap-2 text-[13px] font-bold uppercase tracking-wider text-[var(--text)]">
+          <CheckCircle2 size={14} className="text-[var(--brand)]" />
+          Hoje
+        </h2>
+        <span className="font-mono text-[11px] text-[var(--muted)]">
+          {todays.length}/{maxTotal} provas · {usersToday.size}/{totalMembers} membros
+        </span>
+      </div>
+      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[var(--surface-hover)]">
+        <div
+          className="h-full rounded-full bg-[var(--brand)] transition-all"
+          style={{ width: `${pct}%` }}
+          aria-hidden
+        />
+      </div>
+      <p className="mt-2 text-[11.5px] text-[var(--muted)]">
+        {pct >= 100
+          ? 'Sala fechada hoje: todo mundo postou! 🔥'
+          : `${pct}% das provas do dia já foram registradas.`}
+      </p>
+    </section>
+  )
+}
+
+// Collapsible "Como funciona" — keeps the page short by default but
+// surfaces the scoring rules when a user wants to understand the
+// tiebreakers (we saw confused questions like "porque ele tá em primeiro
+// se temos os mesmos dias?" — this answers it once instead of every time).
+function RulesCollapsible({ type }: { type: CompetitionType }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <section className="rounded-2xl border border-[var(--line)] bg-[var(--surface)]">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-3 p-4 text-left sm:p-5"
+        aria-expanded={open}
+      >
+        <span className="inline-flex items-center gap-2 text-[13px] font-bold uppercase tracking-wider text-[var(--text)]">
+          <AlertCircle size={14} className="text-[var(--brand)]" />
+          Como funciona
+        </span>
+        <span className={`text-[var(--muted)] transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden>
+          ›
+        </span>
+      </button>
+      {open && (
+        <div className="space-y-2 border-t border-[var(--line)] p-4 text-[12px] text-[var(--muted)] sm:p-5">
+          <p>
+            <strong className="text-[var(--text)]">Provas:</strong>{' '}
+            {type === 'BOTH'
+              ? '1 treino + 1 cardio por dia (até 2 pontos/dia).'
+              : type === 'TRAINING'
+                ? '1 treino por dia (1 ponto/dia).'
+                : '1 cardio por dia (1 ponto/dia).'}
+          </p>
+          <p>
+            <strong className="text-[var(--text)]">Ranking:</strong> mais dias ativos vence. Em caso de empate: mais pontos &gt; mais tempo treinado &gt; mais peso movido.
+          </p>
+          <p>
+            <strong className="text-[var(--text)]">Foto:</strong> obrigatória e fresca — a mesma imagem não pode reaparecer em outro dia (vale a mesma foto pra treino + cardio do mesmo treino).
+          </p>
+          <p>
+            <strong className="text-[var(--text)]">Streak:</strong> dias consecutivos com pelo menos uma prova. Quebra se você pular um dia.
+          </p>
+        </div>
+      )}
+    </section>
   )
 }
 

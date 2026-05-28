@@ -302,6 +302,22 @@ export async function toggleReaction(
   return payload.data
 }
 
+// Admin-only: hard-delete a proof entry. Cascades reactions + comments.
+export async function deleteCompetitionEntry(
+  authorizedFetch: AuthorizedFetch,
+  competitionId: string,
+  entryId: string,
+): Promise<void> {
+  const response = await authorizedFetch(
+    `${API_URL}/competitions/${competitionId}/entries/${entryId}`,
+    { method: 'DELETE' },
+  )
+  const payload = await parsePayload(response)
+  if (!response.ok) {
+    throw new Error(payload.errorMessage ?? 'Falha ao remover prova')
+  }
+}
+
 export async function listEntryComments(
   authorizedFetch: AuthorizedFetch,
   competitionId: string,

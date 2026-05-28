@@ -1174,6 +1174,36 @@ async function loadReactionSummary(
   return result;
 }
 
+// Admin moderation: hard-delete a proof entry. Cascade drops attached
+// reactions and comments. The underlying storage object is left as
+// orphaned for now — Supabase TTL / a future GC pass cleans it up.
+// Only ACTIVE admins of the room can do this. Author can NOT delete
+// their own entry to discourage gaming the leaderboard (they post
+// proof, see how others reacted, then delete to redo).
+export async function deleteCompetitionEntry(userId: string, competitionId: string, entryId: string) {
+  const me = await prisma.competitionMember.findUnique({
+    where: { competitionId_userId: { competitionId, userId } },
+    select: { role: true, abandonedAt: true }
+  });
+  if (!me || me.role !== "ADMIN" || me.abandonedAt) {
+    throw new AppError("Apenas admins podem remover provas", {
+      statusCode: 403,
+      code: "COMPETITION_NOT_ADMIN"
+    });
+  }
+
+  const entry = await prisma.competitionEntry.findUnique({
+    where: { id: entryId },
+    select: { id: true, competitionId: true }
+  });
+  if (!entry || entry.competitionId !== competitionId) {
+    throw new AppError("Prova não encontrada", { statusCode: 404, code: "COMPETITION_ENTRY_NOT_FOUND" });
+  }
+
+  await prisma.competitionEntry.delete({ where: { id: entryId } });
+  return { success: true };
+}
+
 // ─── Entry comments ─────────────────────────────────────────────────────
 
 async function loadCommentCounts(entryIds: string[]): Promise<Map<string, number>> {

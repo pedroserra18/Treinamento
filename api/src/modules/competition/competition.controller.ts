@@ -4,6 +4,7 @@ import {
   createCompetition,
   declineInvite,
   deleteChatMessage,
+  deleteCompetitionEntry,
   deleteEntryComment,
   getCompetitionById,
   getCompetitionFeed,
@@ -211,6 +212,13 @@ export async function deleteEntryCommentController(req: Request, res: Response):
   const userId = req.context.userId as string;
   const params = req.params as unknown as EntryCommentParams;
   const data = await deleteEntryComment(userId, params.competitionId, params.entryId, params.commentId);
+  send(res, 200, data);
+}
+
+export async function deleteEntryController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as EntryParams;
+  const data = await deleteCompetitionEntry(userId, params.competitionId, params.entryId);
   send(res, 200, data);
 }
 
