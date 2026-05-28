@@ -852,8 +852,10 @@ export async function getStandings(userId: string, competitionId: string) {
           userId: true,
           day: true,
           kind: true,
+          workoutSessionId: true,
           workoutSession: {
             select: {
+              durationSec: true,
               history: { select: { reps: true, weightKg: true } }
             }
           }
@@ -879,34 +881,75 @@ export async function getStandings(userId: string, competitionId: string) {
     userId: string;
     user: { id: string; name: string | null; handle: string; avatarUrl: string | null };
     role: "ADMIN" | "MEMBER";
+    // Distinct calendar days the user posted any proof.
     daysActive: number;
+    // Total proofs posted = sum across days of (kinds posted). For TRAINING-
+    // only or CARDIO-only rooms this equals daysActive. For BOTH rooms it
+    // can reach 2 × daysActive when the user logged both kinds every day.
+    points: number;
+    // Sum of distinct workout-session durations. We dedupe by session id
+    // so a single workout that produced both TRAINING and CARDIO entries
+    // only counts its time once.
+    totalDurationSec: number;
+    // Kept as a secondary stat. Same dedupe logic — sessions referenced by
+    // two entries (training + cardio of the same workout) only contribute
+    // their volume once.
     volumeKg: number;
   };
 
   const rows = competition.members.map<Row>((m) => {
     const days = new Set<string>();
-    let volume = 0;
+    const sessions = new Map<
+      string,
+      { durationSec: number; volume: number }
+    >();
+    let points = 0;
     for (const e of competition.entries) {
       if (e.userId !== m.userId) continue;
       days.add(e.day.toISOString().slice(0, 10));
-      if (e.workoutSession) {
+      points += 1;
+      // Aggregate per session. If a session is referenced by both a
+      // TRAINING and a CARDIO entry, we end up with one entry in the map
+      // — no double-counting of duration or volume.
+      if (e.workoutSessionId && e.workoutSession && !sessions.has(e.workoutSessionId)) {
+        let vol = 0;
         for (const h of e.workoutSession.history) {
-          if (h.weightKg && h.reps) volume += h.weightKg * h.reps;
+          if (h.weightKg && h.reps) vol += h.weightKg * h.reps;
         }
+        sessions.set(e.workoutSessionId, {
+          durationSec: e.workoutSession.durationSec ?? 0,
+          volume: vol
+        });
       }
+    }
+    let totalDurationSec = 0;
+    let volume = 0;
+    for (const s of sessions.values()) {
+      totalDurationSec += s.durationSec;
+      volume += s.volume;
     }
     return {
       userId: m.userId,
       user: m.user,
       role: m.role,
       daysActive: days.size,
+      points,
+      totalDurationSec,
       volumeKg: Math.round(volume)
     };
   });
 
-  // Sort by daysActive DESC, volumeKg DESC (tiebreaker). Stable order
-  // after that doesn't matter — any equal rows tie cleanly.
-  rows.sort((a, b) => b.daysActive - a.daysActive || b.volumeKg - a.volumeKg);
+  // Tiebreaker chain: days → points → time → volume.
+  // 1) Most distinct days wins (consistency).
+  // 2) Tied days → most points (intensity / both per day in BOTH rooms).
+  // 3) Tied points → most accumulated training time.
+  // 4) Tied time → most weight moved. Stable order from here.
+  rows.sort((a, b) =>
+    b.daysActive - a.daysActive ||
+    b.points - a.points ||
+    b.totalDurationSec - a.totalDurationSec ||
+    b.volumeKg - a.volumeKg
+  );
 
   return {
     competitionId: competition.id,

@@ -44,6 +44,12 @@ export type CompetitionStandingRow = {
   user: CompetitionUserSummary
   role: CompetitionRole
   daysActive: number
+  // Total proofs posted (1 per kind per day). In BOTH rooms, the max per
+  // day is 2 (training + cardio); in single-kind rooms it's 1.
+  points: number
+  // Sum of distinct workout-session durations (sec). Sessions referenced
+  // by 2 entries on the same workout only count once.
+  totalDurationSec: number
   volumeKg: number
 }
 

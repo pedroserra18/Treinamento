@@ -640,7 +640,10 @@ function PersonalStatusCard({
           </p>
           {myRow && (
             <p className="mt-0.5 font-mono text-xs text-[var(--muted)]">
-              {myRow.daysActive} {myRow.daysActive === 1 ? 'dia' : 'dias'} treinado · volume {myRow.volumeKg.toLocaleString('pt-BR')} kg
+              {myRow.daysActive} {myRow.daysActive === 1 ? 'dia' : 'dias'} ·{' '}
+              <b className="text-[var(--brand-strong)]">{myRow.points} pts</b> ·{' '}
+              {formatDurationCompact(myRow.totalDurationSec)}
+              {myRow.volumeKg > 0 && <> · {myRow.volumeKg.toLocaleString('pt-BR')} kg</>}
             </p>
           )}
         </div>
@@ -661,6 +664,10 @@ function PersonalStatusCard({
                   <span className="inline-flex items-center gap-1">
                     <Flame size={10} />
                     {myRow.daysActive} {myRow.daysActive === 1 ? 'dia' : 'dias'}
+                  </span>
+                  <span className="opacity-50">·</span>
+                  <span className="font-bold text-[var(--brand-strong)]">
+                    {myRow.points} pts
                   </span>
                   <span className="opacity-50">·</span>
                 </>
@@ -784,6 +791,18 @@ function ActiveCountdown({ endsAt }: { endsAt: string }) {
   )
 }
 
+// Formats seconds as compact "1h 23min" / "23min" / "45s". Used for the
+// training-time tiebreaker shown on the leaderboard / status card.
+function formatDurationCompact(sec: number): string {
+  if (!sec || sec <= 0) return '—'
+  if (sec < 60) return `${Math.round(sec)}s`
+  const totalMin = Math.round(sec / 60)
+  if (totalMin < 60) return `${totalMin}min`
+  const h = Math.floor(totalMin / 60)
+  const m = totalMin % 60
+  return m > 0 ? `${h}h${m}min` : `${h}h`
+}
+
 function Leaderboard({
   standings, winnerUserId,
 }: {
@@ -792,10 +811,15 @@ function Leaderboard({
 }) {
   return (
     <section className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 sm:p-5">
-      <h2 className="inline-flex items-center gap-2 text-[13px] font-bold uppercase tracking-wider text-[var(--text)]">
-        <Trophy size={14} className="text-[var(--brand)]" />
-        Ranking
-      </h2>
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <h2 className="inline-flex items-center gap-2 text-[13px] font-bold uppercase tracking-wider text-[var(--text)]">
+          <Trophy size={14} className="text-[var(--brand)]" />
+          Ranking
+        </h2>
+        <p className="font-mono text-[9.5px] uppercase tracking-[0.12em] text-[var(--muted)]">
+          desempate: dias › pontos › tempo › volume
+        </p>
+      </div>
       <ol className="mt-3 space-y-1.5">
         {standings.rows.map((row, idx) => {
           const isWinner = winnerUserId === row.userId
@@ -838,12 +862,29 @@ function Leaderboard({
                   {isWinner && <span className="ml-1.5 text-xs">🏆</span>}
                 </p>
                 <p className="mt-0.5 font-mono text-[10.5px] text-[var(--muted)]">
-                  vol {row.volumeKg.toLocaleString('pt-BR')}kg
+                  ⏱ {formatDurationCompact(row.totalDurationSec)}
+                  {row.volumeKg > 0 && (
+                    <> · 🏋 {row.volumeKg.toLocaleString('pt-BR')} kg</>
+                  )}
                 </p>
               </div>
-              <div className="text-right">
-                <p className="font-mono text-lg font-extrabold text-[var(--text)] tabular-nums">{row.daysActive}</p>
-                <p className="font-mono text-[10px] text-[var(--muted)]">dias</p>
+              {/* Primary: days. Secondary: points pill below. Same column so
+                  the eye scans rank → metric → name → tail in one sweep. */}
+              <div className="shrink-0 text-right">
+                <div className="flex items-baseline justify-end gap-2">
+                  <span className="font-mono text-lg font-extrabold tabular-nums text-[var(--text)]">
+                    {row.daysActive}
+                  </span>
+                  <span className="font-mono text-[10px] text-[var(--muted)]">dias</span>
+                </div>
+                <div className="mt-0.5 inline-flex items-baseline gap-1 rounded-full bg-[var(--brand)]/10 px-1.5 py-0.5">
+                  <span className="font-mono text-[11px] font-extrabold tabular-nums text-[var(--brand-strong)]">
+                    {row.points}
+                  </span>
+                  <span className="font-mono text-[9px] uppercase tracking-wider text-[var(--brand-strong)]">
+                    pts
+                  </span>
+                </div>
               </div>
             </li>
           )
