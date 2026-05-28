@@ -1,7 +1,10 @@
 import type {
   Competition,
+  CompetitionEntryKind,
+  CompetitionFeedItem,
   CompetitionInvite,
   CompetitionInvitePreview,
+  CompetitionStandings,
   CompetitionType,
 } from '../types/competition'
 
@@ -133,6 +136,85 @@ export async function declineInvite(
   const payload = await parsePayload(response)
   if (!response.ok) {
     throw new Error(payload.errorMessage ?? 'Falha ao recusar convite')
+  }
+}
+
+export async function startCompetition(
+  authorizedFetch: AuthorizedFetch,
+  competitionId: string,
+): Promise<Competition> {
+  const response = await authorizedFetch(`${API_URL}/competitions/${competitionId}/start`, {
+    method: 'POST',
+  })
+  const payload = await parsePayload<Competition>(response)
+  if (!response.ok || !payload.data) {
+    throw new Error(payload.errorMessage ?? 'Falha ao iniciar desafio')
+  }
+  return payload.data
+}
+
+export async function getStandings(
+  authorizedFetch: AuthorizedFetch,
+  competitionId: string,
+): Promise<CompetitionStandings> {
+  const response = await authorizedFetch(`${API_URL}/competitions/${competitionId}/standings`)
+  const payload = await parsePayload<CompetitionStandings>(response)
+  if (!response.ok || !payload.data) {
+    throw new Error(payload.errorMessage ?? 'Falha ao carregar ranking')
+  }
+  return payload.data
+}
+
+export async function getCompetitionFeed(
+  authorizedFetch: AuthorizedFetch,
+  competitionId: string,
+): Promise<{ items: CompetitionFeedItem[] }> {
+  const response = await authorizedFetch(`${API_URL}/competitions/${competitionId}/feed`)
+  const payload = await parsePayload<{ items: CompetitionFeedItem[] }>(response)
+  if (!response.ok || !payload.data) {
+    throw new Error(payload.errorMessage ?? 'Falha ao carregar feed')
+  }
+  return payload.data
+}
+
+// Upload a base64 data URL to Supabase Storage via the backend. Returns
+// the resolved public URL + storage path. We do the upload separately
+// from the entry POST so the entry endpoint stays a cheap insert.
+export async function uploadCompetitionPhoto(
+  authorizedFetch: AuthorizedFetch,
+  dataUrl: string,
+): Promise<{ photoUrl: string; photoPath: string }> {
+  const response = await authorizedFetch(`${API_URL}/uploads/competition-photo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dataUrl }),
+  })
+  const payload = await parsePayload<{ photoUrl: string; photoPath: string }>(response)
+  if (!response.ok || !payload.data) {
+    throw new Error(payload.errorMessage ?? 'Falha ao subir foto')
+  }
+  return payload.data
+}
+
+export async function postCompetitionEntry(
+  authorizedFetch: AuthorizedFetch,
+  competitionId: string,
+  input: {
+    kind: CompetitionEntryKind
+    photoUrl: string
+    photoPath?: string
+    photoHash: string
+    workoutSessionId?: string
+  },
+): Promise<void> {
+  const response = await authorizedFetch(`${API_URL}/competitions/${competitionId}/entries`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  const payload = await parsePayload(response)
+  if (!response.ok) {
+    throw new Error(payload.errorMessage ?? 'Falha ao registrar prova do desafio')
   }
 }
 

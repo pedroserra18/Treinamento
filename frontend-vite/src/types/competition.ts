@@ -15,6 +15,7 @@ export type CompetitionMember = {
   userId: string
   role: CompetitionRole
   joinedAt: string
+  abandonedAt: string | null
   user: CompetitionUserSummary
 }
 
@@ -25,6 +26,7 @@ export type Competition = {
   type: CompetitionType
   durationDays: number
   status: CompetitionStatus
+  startDeadline: string | null
   startedAt: string | null
   endsAt: string | null
   winnerUserId: string | null
@@ -33,6 +35,35 @@ export type Competition = {
   owner: CompetitionUserSummary
   members: CompetitionMember[]
   _count: { entries: number }
+}
+
+export type CompetitionEntryKind = 'TRAINING' | 'CARDIO'
+
+export type CompetitionStandingRow = {
+  userId: string
+  user: CompetitionUserSummary
+  role: CompetitionRole
+  daysActive: number
+  volumeKg: number
+}
+
+export type CompetitionStandings = {
+  competitionId: string
+  status: CompetitionStatus
+  durationDays: number
+  startedAt: string | null
+  endsAt: string | null
+  type: CompetitionType
+  rows: CompetitionStandingRow[]
+}
+
+export type CompetitionFeedItem = {
+  id: string
+  day: string
+  kind: CompetitionEntryKind
+  photoUrl: string
+  createdAt: string
+  user: CompetitionUserSummary
 }
 
 export type CompetitionInvite = {

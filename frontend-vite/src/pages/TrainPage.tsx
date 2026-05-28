@@ -45,6 +45,13 @@ import {
   readActiveWorkout,
   writeActiveWorkout,
 } from '../lib/active-workout-storage'
+import {
+  getMyActiveCompetition,
+  postCompetitionEntry,
+  uploadCompetitionPhoto,
+} from '../services/competitionService'
+import type { Competition, CompetitionEntryKind } from '../types/competition'
+import { sha256OfDataUrl } from '../lib/photo-hash'
 
 type TrainScreen = 'DASHBOARD' | 'ACTIVE' | 'SUMMARY' | 'EDIT' | 'RECOMMENDATIONS' | 'NEW_ROUTINE'
 type TrainOriginMode = 'EMPTY' | 'ROUTINE'
@@ -330,6 +337,77 @@ function PrCelebrationBanner({
       )}
     </AnimatePresence>,
     document.body,
+  )
+}
+
+// "Enviar para desafio" CTA shown on the workout summary when the user
+// has an active competition. If the user is in a BOTH-type room, they
+// pick which counter to log (training vs cardio). Photo is required —
+// the button is disabled with a hint otherwise.
+function SendToCompetitionCta({
+  competition, hasPhoto, savedSessionId, status, error, onSend,
+}: {
+  competition: Competition
+  hasPhoto: boolean
+  savedSessionId: string | null
+  status: 'idle' | 'sending' | 'sent' | 'error'
+  error: string | null
+  onSend: (kind: CompetitionEntryKind) => void
+}) {
+  const disabled = !hasPhoto || !savedSessionId || status === 'sending' || status === 'sent'
+
+  return (
+    <div className="rounded-2xl border border-amber-400/50 bg-gradient-to-br from-amber-50 to-[var(--surface)] p-4 sm:p-5 dark:from-amber-500/5">
+      <div className="flex flex-wrap items-start gap-3">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-amber-400 text-base font-extrabold text-amber-900">
+          🏆
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[12px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+            Desafio em andamento
+          </p>
+          <p className="text-sm font-semibold text-[var(--text)]">{competition.name ?? 'Seu desafio'}</p>
+          {!hasPhoto && (
+            <p className="mt-1 text-[11px] text-[var(--muted)]">
+              Adicione uma foto na seção acima pra registrar a prova do dia.
+            </p>
+          )}
+          {status === 'sent' && (
+            <p className="mt-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+              ✓ Prova enviada! Cai no feed da sala.
+            </p>
+          )}
+          {status === 'error' && error && (
+            <p className="mt-1 text-[11px] text-red-500">{error}</p>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {/* BOTH-type rooms expose two buttons — TRAINING-only / CARDIO-only
+            rooms just need one. */}
+        {competition.type !== 'CARDIO' && (
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onSend('TRAINING')}
+            className="rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white hover:bg-[var(--brand-strong)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {status === 'sending' ? 'Enviando…' : status === 'sent' ? 'Enviado' : competition.type === 'BOTH' ? 'Contar como treino' : 'Enviar para o desafio'}
+          </button>
+        )}
+        {competition.type !== 'TRAINING' && (
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onSend('CARDIO')}
+            className="rounded-xl border border-[var(--brand)] bg-transparent px-4 py-2 text-sm font-bold text-[var(--brand-strong)] hover:bg-[var(--brand)]/10 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {competition.type === 'BOTH' ? 'Contar como cardio' : 'Enviar para o desafio'}
+          </button>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -648,6 +726,12 @@ export function TrainPage() {
   const [postPrivacy, setPostPrivacy] = useState<PostPrivacy>(defaultPrivacy)
   const [postCaption, setPostCaption] = useState('')
   const [savedSessionId, setSavedSessionId] = useState<string | null>(null)
+  // Active competition (if any) — used by the "Enviar para desafio" button
+  // on the summary. Only fetched when the user lands on SUMMARY, so the
+  // active-workout flow isn't affected.
+  const [activeCompetition, setActiveCompetition] = useState<Competition | null>(null)
+  const [competitionSendStatus, setCompetitionSendStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
+  const [competitionSendError, setCompetitionSendError] = useState<string | null>(null)
   const [posting, setPosting] = useState(false)
   const [postDone, setPostDone] = useState(false)
   // Editor de imagem de compartilhamento (estilo Strava).
@@ -1707,6 +1791,17 @@ export function TrainPage() {
 
       setSavedSessionId(started.id)
 
+      // Fetch the active competition silently so the "Enviar para desafio"
+      // button knows whether to render. Failure is non-blocking.
+      try {
+        const comp = await getMyActiveCompetition(authorizedFetch)
+        if (comp && comp.status === 'ACTIVE') {
+          setActiveCompetition(comp)
+        }
+      } catch {
+        // ignore
+      }
+
       if (summaryImageFile) {
         try {
           await saveWorkoutSessionImage(started.id, summaryImageFile)
@@ -1936,6 +2031,44 @@ export function TrainPage() {
           ) : (
             <div className="space-y-3">
               <p className="text-sm font-semibold text-green-400">Treino salvo com sucesso!</p>
+
+              {/* Send to competition (only if user has an active comp + photo) */}
+              {activeCompetition && (
+                <SendToCompetitionCta
+                  competition={activeCompetition}
+                  hasPhoto={!!summaryImageFile}
+                  savedSessionId={savedSessionId}
+                  status={competitionSendStatus}
+                  error={competitionSendError}
+                  onSend={async (kind) => {
+                    if (!summaryImageFile || !savedSessionId) return
+                    setCompetitionSendStatus('sending')
+                    setCompetitionSendError(null)
+                    try {
+                      // Optimise + convert to data URL once so we both
+                      // upload to Storage AND hash the same bytes.
+                      const dataUrl = await optimizeImageFileToDataUrl(summaryImageFile, {
+                        maxEdge: 1200,
+                        quality: 0.84,
+                        maxOutputBytes: 1_400_000,
+                      })
+                      const hash = await sha256OfDataUrl(dataUrl)
+                      const { photoUrl, photoPath } = await uploadCompetitionPhoto(authorizedFetch, dataUrl)
+                      await postCompetitionEntry(authorizedFetch, activeCompetition.id, {
+                        kind,
+                        photoUrl,
+                        photoPath,
+                        photoHash: hash,
+                        workoutSessionId: savedSessionId,
+                      })
+                      setCompetitionSendStatus('sent')
+                    } catch (err) {
+                      setCompetitionSendStatus('error')
+                      setCompetitionSendError(err instanceof Error ? err.message : 'Falha ao enviar')
+                    }
+                  }}
+                />
+              )}
               <button
                 type="button"
                 disabled={loadingShare || !savedSessionId}

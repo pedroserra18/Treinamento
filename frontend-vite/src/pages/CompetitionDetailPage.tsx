@@ -1,20 +1,35 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowLeft, Copy, Crown, Link2, LogOut, Trophy, Users } from 'lucide-react'
+import { Activity, ArrowLeft, Copy, Crown, Dumbbell, Image as ImageIcon, Link2, LogOut, Play, Trophy, Users } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import {
   getCompetition,
+  getCompetitionFeed,
+  getStandings,
   inviteMember,
   leaveCompetition,
+  startCompetition,
 } from '../services/competitionService'
-import type { Competition, CompetitionType } from '../types/competition'
+import type {
+  Competition,
+  CompetitionFeedItem,
+  CompetitionStandings,
+  CompetitionType,
+} from '../types/competition'
 import { Skeleton } from '../components/common/Skeleton'
 
 const TYPE_LABEL: Record<CompetitionType, string> = {
   TRAINING: 'Treino',
   CARDIO: 'Cardio',
   BOTH: 'Treino + Cardio',
+}
+
+// Wraps Date.now so callsites inside render don't trip react-hooks/purity.
+// Same pattern used elsewhere (ProgressPage). The "impurity" is intentional —
+// the countdown is supposed to reflect current wall time.
+function nowMs(): number {
+  return Date.now()
 }
 
 export function CompetitionDetailPage() {
@@ -24,7 +39,11 @@ export function CompetitionDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [comp, setComp] = useState<Competition | null>(null)
+  const [standings, setStandings] = useState<CompetitionStandings | null>(null)
+  const [feed, setFeed] = useState<CompetitionFeedItem[]>([])
   const [copied, setCopied] = useState(false)
+  const [starting, setStarting] = useState(false)
+  const [photoZoom, setPhotoZoom] = useState<CompetitionFeedItem | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -32,6 +51,15 @@ export function CompetitionDetailPage() {
     try {
       const data = await getCompetition(authorizedFetch, competitionId)
       setComp(data)
+      // Standings + feed only matter once the room has started.
+      if (data.status === 'ACTIVE' || data.status === 'COMPLETED') {
+        const [s, f] = await Promise.all([
+          getStandings(authorizedFetch, competitionId).catch(() => null),
+          getCompetitionFeed(authorizedFetch, competitionId).catch(() => ({ items: [] })),
+        ])
+        if (s) setStandings(s)
+        setFeed(f.items)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao carregar competição')
     } finally {
@@ -92,6 +120,23 @@ export function CompetitionDetailPage() {
       navigate('/desafios')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao sair')
+    }
+  }
+
+  const handleStart = async () => {
+    if (!comp) return
+    if (!window.confirm('Iniciar o desafio agora? Depois disso a categoria e a duração ficam travadas.')) return
+    setStarting(true)
+    setError(null)
+    try {
+      const updated = await startCompetition(authorizedFetch, comp.id)
+      setComp(updated)
+      // Reload standings/feed immediately so the new ACTIVE view renders.
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao iniciar')
+    } finally {
+      setStarting(false)
     }
   }
 
@@ -174,6 +219,22 @@ export function CompetitionDetailPage() {
         </div>
       </motion.header>
 
+      {/* Countdown / start CTA — lobby only */}
+      {comp.status === 'LOBBY' && (
+        <LobbyCountdown
+          startDeadline={comp.startDeadline}
+          isAdmin={isAdmin}
+          starting={starting}
+          enoughMembers={comp.members.filter((m) => !m.abandonedAt).length >= 2}
+          onStart={() => void handleStart()}
+        />
+      )}
+
+      {/* Active countdown — until the room ends. */}
+      {comp.status === 'ACTIVE' && comp.endsAt && (
+        <ActiveCountdown endsAt={comp.endsAt} />
+      )}
+
       {/* Invite + share */}
       {comp.status === 'LOBBY' && isAdmin && (
         <section className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 sm:p-5">
@@ -249,11 +310,30 @@ export function CompetitionDetailPage() {
         </ul>
       </section>
 
-      {/* Soft note — leaderboard + posting in next PR */}
-      {comp.status === 'ACTIVE' && (
-        <section className="rounded-2xl border border-dashed border-[var(--line)] bg-[var(--surface)] p-4 text-center text-xs text-[var(--muted)]">
-          Ranking e posts de prova chegam no próximo update. Por enquanto a sala está rodando — fique de olho.
-        </section>
+      {/* Leaderboard */}
+      {(comp.status === 'ACTIVE' || comp.status === 'COMPLETED') && standings && (
+        <Leaderboard standings={standings} winnerUserId={comp.winnerUserId} />
+      )}
+
+      {/* Feed */}
+      {(comp.status === 'ACTIVE' || comp.status === 'COMPLETED') && (
+        <CompetitionFeed items={feed} onZoom={(item) => setPhotoZoom(item)} />
+      )}
+
+      {photoZoom && (
+        <div
+          className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setPhotoZoom(null)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <img
+            src={photoZoom.photoUrl}
+            alt={`Prova de ${photoZoom.user.name ?? photoZoom.user.handle}`}
+            className="max-h-[88vh] max-w-full rounded-xl object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
       )}
 
       {/* Leave */}
@@ -267,6 +347,202 @@ export function CompetitionDetailPage() {
           {isOwner && comp.status === 'LOBBY' ? 'Cancelar desafio' : 'Sair do desafio'}
         </button>
       </div>
+    </section>
+  )
+}
+
+// ─── Subcomponents ────────────────────────────────────────────────────────
+
+function daysHoursMinutes(diffMs: number): string {
+  if (diffMs <= 0) return 'expirado'
+  const totalMin = Math.floor(diffMs / 60_000)
+  const d = Math.floor(totalMin / 1440)
+  const h = Math.floor((totalMin % 1440) / 60)
+  const m = totalMin % 60
+  if (d > 0) return `${d}d ${h}h`
+  if (h > 0) return `${h}h ${m}min`
+  return `${m}min`
+}
+
+function LobbyCountdown({
+  startDeadline, isAdmin, starting, enoughMembers, onStart,
+}: {
+  startDeadline: string | null
+  isAdmin: boolean
+  starting: boolean
+  enoughMembers: boolean
+  onStart: () => void
+}) {
+  // Re-render once per minute so the countdown ticks without a tight loop.
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((t) => t + 1), 60_000)
+    return () => window.clearInterval(id)
+  }, [])
+
+  const remaining = startDeadline ? new Date(startDeadline).getTime() - nowMs() : null
+
+  return (
+    <section className="rounded-2xl border border-amber-400/40 bg-amber-50 p-4 sm:p-5 dark:bg-amber-500/5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="font-mono text-[11px] font-bold uppercase tracking-[0.16em] text-amber-600 dark:text-amber-400">
+            No lobby — esperando começar
+          </p>
+          <p className="mt-1 text-sm text-[var(--text)]">
+            {remaining != null && remaining > 0 ? (
+              <>
+                Cancela automaticamente em <b className="font-bold">{daysHoursMinutes(remaining)}</b> se ninguém iniciar.
+              </>
+            ) : (
+              <>O prazo de início expirou — o desafio será cancelado.</>
+            )}
+          </p>
+        </div>
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={onStart}
+            disabled={starting || !enoughMembers || (remaining ?? 0) <= 0}
+            title={!enoughMembers ? 'Precisa de ao menos 2 participantes' : undefined}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] hover:bg-[var(--brand-strong)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Play size={13} fill="currentColor" />
+            {starting ? 'Iniciando…' : 'Iniciar agora'}
+          </button>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function ActiveCountdown({ endsAt }: { endsAt: string }) {
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((t) => t + 1), 60_000)
+    return () => window.clearInterval(id)
+  }, [])
+
+  const remaining = new Date(endsAt).getTime() - nowMs()
+
+  return (
+    <section className="rounded-2xl border border-emerald-500/40 bg-emerald-50 p-3 dark:bg-emerald-500/5">
+      <p className="text-center text-sm font-bold text-emerald-700 dark:text-emerald-300">
+        Termina em <span className="font-mono tabular-nums">{daysHoursMinutes(remaining)}</span>
+      </p>
+    </section>
+  )
+}
+
+function Leaderboard({
+  standings, winnerUserId,
+}: {
+  standings: CompetitionStandings
+  winnerUserId: string | null
+}) {
+  return (
+    <section className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 sm:p-5">
+      <h2 className="inline-flex items-center gap-2 text-[13px] font-bold uppercase tracking-wider text-[var(--text)]">
+        <Trophy size={14} className="text-[var(--brand)]" />
+        Ranking
+      </h2>
+      <ol className="mt-3 space-y-1.5">
+        {standings.rows.map((row, idx) => {
+          const isWinner = winnerUserId === row.userId
+          return (
+            <li
+              key={row.userId}
+              className={`flex items-center gap-3 rounded-xl border p-3 ${
+                isWinner
+                  ? 'border-[#f1c84a] bg-gradient-to-r from-[#fffaea] to-[var(--surface-hover)] dark:from-[#3d2e09]/40'
+                  : 'border-[var(--line)] bg-[var(--surface-hover)]'
+              }`}
+            >
+              <span
+                className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-xs font-extrabold ${
+                  idx === 0
+                    ? 'bg-[#f4c443] text-[#5a4209]'
+                    : idx === 1
+                      ? 'bg-[#d4d4d4] text-[#3a3a3a]'
+                      : idx === 2
+                        ? 'bg-[#cd7f32] text-white'
+                        : 'bg-[var(--surface)] text-[var(--muted)]'
+                }`}
+              >
+                {idx + 1}
+              </span>
+              {row.user.avatarUrl ? (
+                <img
+                  src={row.user.avatarUrl}
+                  alt={row.user.name ?? row.user.handle}
+                  className="h-9 w-9 shrink-0 rounded-full object-cover"
+                />
+              ) : (
+                <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--surface)] text-sm font-bold text-[var(--text)]">
+                  {(row.user.name ?? row.user.handle).slice(0, 1).toUpperCase()}
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-[var(--text)]">
+                  {row.user.name ?? `@${row.user.handle}`}
+                  {isWinner && <span className="ml-1.5 text-xs">🏆</span>}
+                </p>
+                <p className="mt-0.5 font-mono text-[10.5px] text-[var(--muted)]">
+                  vol {row.volumeKg.toLocaleString('pt-BR')}kg
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="font-mono text-lg font-extrabold text-[var(--text)] tabular-nums">{row.daysActive}</p>
+                <p className="font-mono text-[10px] text-[var(--muted)]">dias</p>
+              </div>
+            </li>
+          )
+        })}
+      </ol>
+    </section>
+  )
+}
+
+function CompetitionFeed({
+  items, onZoom,
+}: {
+  items: CompetitionFeedItem[]
+  onZoom: (item: CompetitionFeedItem) => void
+}) {
+  return (
+    <section className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 sm:p-5">
+      <h2 className="inline-flex items-center gap-2 text-[13px] font-bold uppercase tracking-wider text-[var(--text)]">
+        <ImageIcon size={14} className="text-[var(--brand)]" />
+        Feed de provas
+      </h2>
+      {items.length === 0 ? (
+        <p className="mt-3 rounded-xl border border-dashed border-[var(--line)] px-3 py-6 text-center text-xs text-[var(--muted)]">
+          Sem provas ainda. Quando alguém terminar um treino, a foto vai aparecer aqui.
+        </p>
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {items.map((item) => (
+            <li key={item.id} className="flex items-center gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3">
+              <button
+                type="button"
+                onClick={() => onZoom(item)}
+                className="h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-[var(--line)]"
+              >
+                <img src={item.photoUrl} alt="prova" className="h-full w-full object-cover" />
+              </button>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-[var(--text)]">
+                  {item.user.name ?? `@${item.user.handle}`}
+                </p>
+                <p className="mt-0.5 inline-flex items-center gap-1 font-mono text-[10.5px] text-[var(--muted)]">
+                  {item.kind === 'TRAINING' ? <Dumbbell size={10} /> : <Activity size={10} />}
+                  {item.kind === 'TRAINING' ? 'Treino' : 'Cardio'} · {new Date(item.day).toLocaleDateString('pt-BR')}
+                </p>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   )
 }
