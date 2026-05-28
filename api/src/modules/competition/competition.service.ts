@@ -718,9 +718,19 @@ export async function postCompetitionEntry(userId: string, competitionId: string
     throw new AppError("Esse desafio é só de cardio", { statusCode: 400, code: "COMPETITION_KIND_MISMATCH" });
   }
 
-  // Block reusing a photo this user already used in this competition.
+  // Block reusing a photo this user already used in this competition,
+  // EXCEPT when both entries come from the same workout session — that
+  // lets a single workout where the user did exercises AND cardio count
+  // as both proofs with the same picture.
   const dupeByHash = await prisma.competitionEntry.findFirst({
-    where: { competitionId, userId, photoHash: payload.photoHash },
+    where: {
+      competitionId,
+      userId,
+      photoHash: payload.photoHash,
+      ...(payload.workoutSessionId
+        ? { workoutSessionId: { not: payload.workoutSessionId } }
+        : {})
+    },
     select: { id: true, day: true }
   });
   if (dupeByHash) {
