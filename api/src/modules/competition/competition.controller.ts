@@ -4,18 +4,23 @@ import {
   createCompetition,
   declineInvite,
   getCompetitionById,
+  getCompetitionFeed,
   getInvitePreview,
   getMyActiveCompetition,
+  getStandings,
   inviteMember,
   leaveCompetition,
   listMyCompetitions,
-  listMyInvites
+  listMyInvites,
+  postCompetitionEntry,
+  startCompetition
 } from "./competition.service";
 import type {
   CompetitionParams,
   CreateCompetitionBody,
   InviteMemberBody,
-  InviteTokenParams
+  InviteTokenParams,
+  PostEntryBody
 } from "./competition.schema";
 
 function send(res: Response, status: number, data: unknown) {
@@ -77,6 +82,34 @@ export async function declineInviteController(req: Request, res: Response): Prom
   const userId = req.context.userId as string;
   const params = req.params as unknown as InviteTokenParams;
   const data = await declineInvite(userId, params.token);
+  send(res, 200, data);
+}
+
+export async function startCompetitionController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as CompetitionParams;
+  const data = await startCompetition(userId, params.competitionId);
+  send(res, 200, data);
+}
+
+export async function postEntryController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as CompetitionParams;
+  const data = await postCompetitionEntry(userId, params.competitionId, req.body as PostEntryBody);
+  send(res, 201, data);
+}
+
+export async function getStandingsController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as CompetitionParams;
+  const data = await getStandings(userId, params.competitionId);
+  send(res, 200, data);
+}
+
+export async function getFeedController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as CompetitionParams;
+  const data = await getCompetitionFeed(userId, params.competitionId);
   send(res, 200, data);
 }
 

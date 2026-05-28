@@ -1,10 +1,11 @@
 import { prisma } from "../../config/prisma";
 import { AppError } from "../../shared/errors/app-error";
 import { createNotification } from "../notification/notification.service";
-import type { CreateCompetitionBody, InviteMemberBody } from "./competition.schema";
+import type { CreateCompetitionBody, InviteMemberBody, PostEntryBody } from "./competition.schema";
 
 const MAX_MEMBERS = 10;
 const INVITE_EXPIRY_DAYS = 7;
+const LOBBY_START_DEADLINE_DAYS = 3;
 
 const COMPETITION_INCLUDE = {
   owner: { select: { id: true, name: true, handle: true, avatarUrl: true } },
@@ -25,6 +26,7 @@ async function assertUserHasNoActiveCompetition(userId: string): Promise<void> {
   const existing = await prisma.competitionMember.findFirst({
     where: {
       userId,
+      abandonedAt: null, // soft-abandoned members no longer hold the slot
       competition: { status: { in: ["LOBBY", "ACTIVE"] } }
     },
     select: { id: true, competition: { select: { id: true, name: true } } }
@@ -69,12 +71,14 @@ export async function createCompetition(userId: string, payload: CreateCompetiti
   await assertUserHasNoActiveCompetition(userId);
 
   return prisma.$transaction(async (tx) => {
+    const startDeadline = new Date(Date.now() + LOBBY_START_DEADLINE_DAYS * 86_400_000);
     const competition = await tx.competition.create({
       data: {
         ownerUserId: userId,
         name: payload.name ?? null,
         type: payload.type,
-        durationDays: payload.durationDays
+        durationDays: payload.durationDays,
+        startDeadline
       }
     });
 
@@ -90,14 +94,80 @@ export async function createCompetition(userId: string, payload: CreateCompetiti
 }
 
 export async function getMyActiveCompetition(userId: string) {
+  await reconcileExpiredCompetitions(userId);
   const membership = await prisma.competitionMember.findFirst({
-    where: { userId, competition: { status: { in: ["LOBBY", "ACTIVE"] } } },
+    where: {
+      userId,
+      abandonedAt: null,
+      competition: { status: { in: ["LOBBY", "ACTIVE"] } }
+    },
     include: {
       competition: { include: COMPETITION_INCLUDE }
     }
   });
 
   return membership?.competition ?? null;
+}
+
+// Admin transitions LOBBY → ACTIVE. Locks in type/durationDays (immutable
+// after this) and computes endsAt = startedAt + durationDays. Once active,
+// member roster is frozen — invites stop being accepted.
+export async function startCompetition(userId: string, competitionId: string) {
+  const competition = await prisma.competition.findUnique({
+    where: { id: competitionId },
+    include: { members: { select: { userId: true, role: true, abandonedAt: true } } }
+  });
+
+  if (!competition) {
+    throw new AppError("Competição não encontrada", { statusCode: 404, code: "COMPETITION_NOT_FOUND" });
+  }
+
+  const me = competition.members.find((m) => m.userId === userId);
+  if (!me || me.role !== "ADMIN" || me.abandonedAt) {
+    throw new AppError("Apenas admins podem iniciar o desafio", { statusCode: 403, code: "COMPETITION_NOT_ADMIN" });
+  }
+
+  if (competition.status !== "LOBBY") {
+    throw new AppError("Esse desafio não está mais no lobby", { statusCode: 400, code: "COMPETITION_NOT_IN_LOBBY" });
+  }
+
+  const activeMembers = competition.members.filter((m) => !m.abandonedAt);
+  if (activeMembers.length < 2) {
+    throw new AppError("Pelo menos 2 participantes ativos são necessários para iniciar", {
+      statusCode: 400,
+      code: "COMPETITION_TOO_FEW_MEMBERS"
+    });
+  }
+
+  const now = new Date();
+  const endsAt = new Date(now.getTime() + competition.durationDays * 86_400_000);
+
+  const updated = await prisma.competition.update({
+    where: { id: competitionId },
+    data: { status: "ACTIVE", startedAt: now, endsAt },
+    include: COMPETITION_INCLUDE
+  });
+
+  // Notify everyone except the admin who started it.
+  try {
+    await Promise.all(
+      activeMembers
+        .filter((m) => m.userId !== userId)
+        .map((m) =>
+          createNotification({
+            userId: m.userId,
+            type: "COMPETITION_STARTED",
+            title: "O desafio começou!",
+            body: `${competition.name ?? "Seu desafio"} está rodando. Vá treinar.`,
+            metadata: { competitionId }
+          })
+        )
+    );
+  } catch {
+    // ignore
+  }
+
+  return updated;
 }
 
 export async function getCompetitionById(userId: string, competitionId: string) {
@@ -336,15 +406,23 @@ export async function declineInvite(userId: string, token: string) {
 export async function leaveCompetition(userId: string, competitionId: string) {
   const membership = await prisma.competitionMember.findUnique({
     where: { competitionId_userId: { competitionId, userId } },
-    include: { competition: { select: { ownerUserId: true, status: true } } }
+    include: {
+      competition: {
+        select: { ownerUserId: true, status: true, members: { orderBy: { joinedAt: "asc" } } }
+      }
+    }
   });
 
   if (!membership) {
     throw new AppError("Você não faz parte dessa competição", { statusCode: 404, code: "COMPETITION_NOT_A_MEMBER" });
   }
 
+  if (membership.abandonedAt) {
+    return { success: true, cancelled: false };
+  }
+
+  // Owner in LOBBY → cancel the whole room.
   if (membership.competition.ownerUserId === userId && membership.competition.status === "LOBBY") {
-    // Owner leaving while in lobby = cancel the competition entirely.
     await prisma.competition.update({
       where: { id: competitionId },
       data: { status: "CANCELLED" }
@@ -352,9 +430,38 @@ export async function leaveCompetition(userId: string, competitionId: string) {
     return { success: true, cancelled: true };
   }
 
-  await prisma.competitionMember.delete({
-    where: { competitionId_userId: { competitionId, userId } }
+  // Soft-abandon (always — entries stay, leaderboard ignores).
+  await prisma.competitionMember.update({
+    where: { id: membership.id },
+    data: { abandonedAt: new Date(), role: "MEMBER" } // demoted just in case
   });
+
+  // If the owner abandons during ACTIVE, promote the oldest non-abandoned
+  // non-owner member to admin so the room still has a moderator. We don't
+  // change ownerUserId because it's audit data (who created the room).
+  if (membership.competition.ownerUserId === userId && membership.competition.status === "ACTIVE") {
+    const successor = membership.competition.members.find(
+      (m) => m.userId !== userId && !m.abandonedAt
+    );
+    if (successor && successor.role !== "ADMIN") {
+      await prisma.competitionMember.update({
+        where: { id: successor.id },
+        data: { role: "ADMIN" }
+      });
+    }
+  }
+
+  // If everyone abandoned, cancel the room (nothing to compete with).
+  const remaining = await prisma.competitionMember.count({
+    where: { competitionId, abandonedAt: null }
+  });
+  if (remaining === 0) {
+    await prisma.competition.update({
+      where: { id: competitionId },
+      data: { status: "CANCELLED" }
+    });
+    return { success: true, cancelled: true };
+  }
 
   return { success: true, cancelled: false };
 }
@@ -363,6 +470,7 @@ export async function leaveCompetition(userId: string, competitionId: string) {
 // LOBBY/ACTIVE first then completed/cancelled by recency. Used by the
 // /desafios index page to show "atual" and "histórico" together.
 export async function listMyCompetitions(userId: string) {
+  await reconcileExpiredCompetitions(userId);
   const memberships = await prisma.competitionMember.findMany({
     where: { userId },
     include: { competition: { include: COMPETITION_INCLUDE } },
@@ -379,6 +487,281 @@ export async function listMyCompetitions(userId: string) {
     });
 
   return { items };
+}
+
+// Posts a daily entry (proof of training/cardio). Validates kind matches
+// the competition type, ensures the photo isn't a duplicate of one this
+// user already used in this competition, and uniquely enforces one entry
+// per (user, day, kind) via the unique constraint at the DB level.
+export async function postCompetitionEntry(userId: string, competitionId: string, payload: PostEntryBody) {
+  const competition = await prisma.competition.findUnique({
+    where: { id: competitionId },
+    select: {
+      id: true,
+      type: true,
+      status: true,
+      endsAt: true,
+      members: { select: { userId: true, abandonedAt: true } }
+    }
+  });
+
+  if (!competition) {
+    throw new AppError("Competição não encontrada", { statusCode: 404, code: "COMPETITION_NOT_FOUND" });
+  }
+
+  const me = competition.members.find((m) => m.userId === userId);
+  if (!me) {
+    throw new AppError("Você não faz parte desse desafio", { statusCode: 403, code: "COMPETITION_NOT_A_MEMBER" });
+  }
+  if (me.abandonedAt) {
+    throw new AppError("Você abandonou esse desafio", { statusCode: 400, code: "COMPETITION_ABANDONED" });
+  }
+
+  if (competition.status !== "ACTIVE") {
+    throw new AppError("Esse desafio não está em andamento", { statusCode: 400, code: "COMPETITION_NOT_ACTIVE" });
+  }
+
+  if (competition.endsAt && competition.endsAt < new Date()) {
+    throw new AppError("Esse desafio já encerrou", { statusCode: 400, code: "COMPETITION_ENDED" });
+  }
+
+  // Kind validation against competition type.
+  if (competition.type === "TRAINING" && payload.kind !== "TRAINING") {
+    throw new AppError("Esse desafio é só de treino", { statusCode: 400, code: "COMPETITION_KIND_MISMATCH" });
+  }
+  if (competition.type === "CARDIO" && payload.kind !== "CARDIO") {
+    throw new AppError("Esse desafio é só de cardio", { statusCode: 400, code: "COMPETITION_KIND_MISMATCH" });
+  }
+
+  // Block reusing a photo this user already used in this competition.
+  const dupeByHash = await prisma.competitionEntry.findFirst({
+    where: { competitionId, userId, photoHash: payload.photoHash },
+    select: { id: true, day: true }
+  });
+  if (dupeByHash) {
+    throw new AppError("Essa foto já foi usada como prova em outro dia. Tire uma foto nova.", {
+      statusCode: 400,
+      code: "COMPETITION_PHOTO_REUSED"
+    });
+  }
+
+  // Day key — UTC midnight of the entry day. This is also the partition
+  // for the unique(competitionId, userId, day, kind) constraint.
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+
+  try {
+    const entry = await prisma.competitionEntry.create({
+      data: {
+        competitionId,
+        userId,
+        day: today,
+        kind: payload.kind,
+        workoutSessionId: payload.workoutSessionId ?? null,
+        photoUrl: payload.photoUrl,
+        photoPath: payload.photoPath ?? null,
+        photoHash: payload.photoHash
+      }
+    });
+    return entry;
+  } catch (err) {
+    // Prisma unique violation = already posted this kind today.
+    if (err && typeof err === "object" && "code" in err && (err as { code: string }).code === "P2002") {
+      throw new AppError("Você já postou esse tipo de prova hoje", {
+        statusCode: 409,
+        code: "COMPETITION_ENTRY_DUPLICATE_DAY"
+      });
+    }
+    throw err;
+  }
+}
+
+// Standings: per-member count of distinct days with at least one entry,
+// plus total workout volume as the tiebreaker. Excludes abandoned members
+// but their entries stay in the feed.
+export async function getStandings(userId: string, competitionId: string) {
+  const competition = await prisma.competition.findUnique({
+    where: { id: competitionId },
+    select: {
+      id: true,
+      status: true,
+      durationDays: true,
+      startedAt: true,
+      endsAt: true,
+      type: true,
+      members: {
+        where: { abandonedAt: null },
+        select: {
+          userId: true,
+          role: true,
+          user: { select: { id: true, name: true, handle: true, avatarUrl: true } }
+        }
+      },
+      entries: {
+        select: {
+          userId: true,
+          day: true,
+          kind: true,
+          workoutSession: {
+            select: {
+              history: { select: { reps: true, weightKg: true } }
+            }
+          }
+        }
+      }
+    }
+  });
+
+  if (!competition) {
+    throw new AppError("Competição não encontrada", { statusCode: 404, code: "COMPETITION_NOT_FOUND" });
+  }
+
+  // Membership check (any role, including abandoned — they can still see).
+  const meMembership = await prisma.competitionMember.findUnique({
+    where: { competitionId_userId: { competitionId, userId } },
+    select: { id: true }
+  });
+  if (!meMembership) {
+    throw new AppError("Você não faz parte dessa competição", { statusCode: 403, code: "COMPETITION_NOT_A_MEMBER" });
+  }
+
+  type Row = {
+    userId: string;
+    user: { id: string; name: string | null; handle: string; avatarUrl: string | null };
+    role: "ADMIN" | "MEMBER";
+    daysActive: number;
+    volumeKg: number;
+  };
+
+  const rows = competition.members.map<Row>((m) => {
+    const days = new Set<string>();
+    let volume = 0;
+    for (const e of competition.entries) {
+      if (e.userId !== m.userId) continue;
+      days.add(e.day.toISOString().slice(0, 10));
+      if (e.workoutSession) {
+        for (const h of e.workoutSession.history) {
+          if (h.weightKg && h.reps) volume += h.weightKg * h.reps;
+        }
+      }
+    }
+    return {
+      userId: m.userId,
+      user: m.user,
+      role: m.role,
+      daysActive: days.size,
+      volumeKg: Math.round(volume)
+    };
+  });
+
+  // Sort by daysActive DESC, volumeKg DESC (tiebreaker). Stable order
+  // after that doesn't matter — any equal rows tie cleanly.
+  rows.sort((a, b) => b.daysActive - a.daysActive || b.volumeKg - a.volumeKg);
+
+  return {
+    competitionId: competition.id,
+    status: competition.status,
+    durationDays: competition.durationDays,
+    startedAt: competition.startedAt,
+    endsAt: competition.endsAt,
+    type: competition.type,
+    rows
+  };
+}
+
+// Feed of recent entries (proof photos) for everyone in the competition.
+// Limited + paginated by createdAt for cheapness.
+export async function getCompetitionFeed(userId: string, competitionId: string, limit = 30) {
+  const meMembership = await prisma.competitionMember.findUnique({
+    where: { competitionId_userId: { competitionId, userId } },
+    select: { id: true }
+  });
+  if (!meMembership) {
+    throw new AppError("Você não faz parte dessa competição", { statusCode: 403, code: "COMPETITION_NOT_A_MEMBER" });
+  }
+
+  const items = await prisma.competitionEntry.findMany({
+    where: { competitionId },
+    orderBy: { createdAt: "desc" },
+    take: Math.min(limit, 60),
+    select: {
+      id: true,
+      day: true,
+      kind: true,
+      photoUrl: true,
+      createdAt: true,
+      user: { select: { id: true, name: true, handle: true, avatarUrl: true } }
+    }
+  });
+
+  return { items };
+}
+
+// Auto-finalize / auto-cancel pass: called on-read from list endpoints so
+// we don't need a real cron for now. Cancels lobbies past startDeadline
+// and completes active rooms past endsAt (computing the winner).
+async function reconcileExpiredCompetitions(userId: string): Promise<void> {
+  const now = new Date();
+
+  // Cancel expired lobbies that this user is in (cheap query — restricted
+  // to the caller's memberships so it stays O(few) per request).
+  const lobbiesToCancel = await prisma.competition.findMany({
+    where: {
+      status: "LOBBY",
+      startDeadline: { lt: now },
+      members: { some: { userId } }
+    },
+    select: { id: true }
+  });
+  for (const c of lobbiesToCancel) {
+    await prisma.competition.update({
+      where: { id: c.id },
+      data: { status: "CANCELLED" }
+    });
+  }
+
+  // Finalize active rooms that hit endsAt.
+  const activeToFinalize = await prisma.competition.findMany({
+    where: {
+      status: "ACTIVE",
+      endsAt: { lt: now },
+      members: { some: { userId } }
+    },
+    select: { id: true }
+  });
+  for (const c of activeToFinalize) {
+    // Compute winner using same logic as getStandings.
+    const standings = await getStandings(userId, c.id);
+    const winner = standings.rows[0];
+    await prisma.competition.update({
+      where: { id: c.id },
+      data: { status: "COMPLETED", winnerUserId: winner?.userId ?? null }
+    });
+    if (winner) {
+      try {
+        const allMembers = await prisma.competitionMember.findMany({
+          where: { competitionId: c.id },
+          select: { userId: true }
+        });
+        await Promise.all(
+          allMembers.map((m) =>
+            createNotification({
+              userId: m.userId,
+              type: "COMPETITION_FINISHED",
+              title: "Desafio encerrado",
+              body:
+                m.userId === winner.userId
+                  ? "Parabéns, você venceu o desafio!"
+                  : `${winner.user.name ?? winner.user.handle} venceu o desafio.`,
+              metadata: { competitionId: c.id, winnerUserId: winner.userId }
+            })
+          )
+        );
+      } catch {
+        // ignore
+      }
+    }
+  }
 }
 
 // Pending invites for the current user (in-app only, link-only invites

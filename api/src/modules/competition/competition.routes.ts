@@ -6,7 +6,8 @@ import {
   competitionParamsSchema,
   createCompetitionBodySchema,
   inviteMemberBodySchema,
-  inviteTokenParamsSchema
+  inviteTokenParamsSchema,
+  postEntryBodySchema
 } from "./competition.schema";
 import {
   acceptInviteController,
@@ -14,11 +15,15 @@ import {
   declineInviteController,
   getActiveCompetitionController,
   getCompetitionController,
+  getFeedController,
   getInvitePreviewController,
+  getStandingsController,
   inviteMemberController,
   leaveCompetitionController,
   listMyCompetitionsController,
-  listMyInvitesController
+  listMyInvitesController,
+  postEntryController,
+  startCompetitionController
 } from "./competition.controller";
 
 const router = Router();
@@ -83,6 +88,34 @@ router.post(
   requireAuth,
   validateRequest({ params: competitionParamsSchema, body: inviteMemberBodySchema }),
   asyncHandler(async (req, res) => inviteMemberController(req, res))
+);
+
+router.post(
+  "/competitions/:competitionId/entries",
+  requireAuth,
+  validateRequest({ params: competitionParamsSchema, body: postEntryBodySchema }),
+  asyncHandler(async (req, res) => postEntryController(req, res))
+);
+
+router.get(
+  "/competitions/:competitionId/standings",
+  requireAuth,
+  validateRequest({ params: competitionParamsSchema }),
+  asyncHandler(async (req, res) => getStandingsController(req, res))
+);
+
+router.get(
+  "/competitions/:competitionId/feed",
+  requireAuth,
+  validateRequest({ params: competitionParamsSchema }),
+  asyncHandler(async (req, res) => getFeedController(req, res))
+);
+
+router.post(
+  "/competitions/:competitionId/start",
+  requireAuth,
+  validateRequest({ params: competitionParamsSchema }),
+  asyncHandler(async (req, res) => startCompetitionController(req, res))
 );
 
 router.post(

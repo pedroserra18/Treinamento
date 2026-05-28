@@ -720,6 +720,10 @@ model Competition {
   type         CompetitionType
   durationDays Int
   status       CompetitionStatus @default(LOBBY)
+  // Hard deadline for the admin to start the competition. Defaulted to
+  // createdAt + 3 days at the application layer. Cron / on-read check
+  // auto-cancels rooms that pass this without being started.
+  startDeadline DateTime?
   startedAt    DateTime?
   endsAt       DateTime?
   winnerUserId String?
@@ -747,15 +751,19 @@ model CompetitionMember {
   userId        String
   role          CompetitionRole @default(MEMBER)
   joinedAt      DateTime        @default(now())
+  // Soft-abandon flag. Strava-style: entries the user already posted
+  // stay in the feed/history but they drop out of the leaderboard and
+  // free up their "one active per user" slot.
+  abandonedAt   DateTime?
 
   competition Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
   user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // Two memberships for the same user in the same comp would break the
   // leaderboard. Application enforces "only one ACTIVE/LOBBY comp per user"
-  // at the service layer (transaction + check) — see joinCompetition.
+  // at the service layer (transaction + check), scoped to non-abandoned.
   @@unique([competitionId, userId])
-  @@index([userId])
+  @@index([userId, abandonedAt])
   @@map("competition_members")
 }
 
@@ -795,6 +803,10 @@ model CompetitionEntry {
   // Storage path, retained so we can drop the underlying object if the
   // entry/competition is deleted (best-effort GC).
   photoPath        String?
+  // SHA-256 of the raw photo bytes. Used to block users from reusing the
+  // same photo as a previous day's proof — they have to provide fresh
+  // proof per session.
+  photoHash        String?
   createdAt        DateTime              @default(now())
 
   competition    Competition     @relation(fields: [competitionId], references: [id], onDelete: Cascade)
@@ -804,5 +816,7 @@ model CompetitionEntry {
   @@unique([competitionId, userId, day, kind])
   @@index([competitionId, userId])
   @@index([userId, createdAt])
+  // Fast lookup for "did this user already use this hash in this comp?"
+  @@index([userId, photoHash])
   @@map("competition_entries")
 }
