@@ -6,6 +6,7 @@ import {
   chatParamsSchema,
   competitionParamsSchema,
   createCompetitionBodySchema,
+  entryCommentParamsSchema,
   entryParamsSchema,
   inviteMemberBodySchema,
   inviteTokenParamsSchema,
@@ -13,6 +14,7 @@ import {
   memberParamsSchema,
   postChatBodySchema,
   postEntryBodySchema,
+  postEntryCommentBodySchema,
   reactionBodySchema
 } from "./competition.schema";
 import {
@@ -20,6 +22,7 @@ import {
   createCompetitionController,
   declineInviteController,
   deleteChatController,
+  deleteEntryCommentController,
   demoteMemberController,
   getActiveCompetitionController,
   getCompetitionController,
@@ -30,10 +33,12 @@ import {
   kickMemberController,
   leaveCompetitionController,
   listChatController,
+  listEntryCommentsController,
   listInvitableFriendsController,
   listMyCompetitionsController,
   listMyInvitesController,
   postChatController,
+  postEntryCommentController,
   postEntryController,
   promoteMemberController,
   startCompetitionController,
@@ -137,6 +142,27 @@ router.post(
   requireAuth,
   validateRequest({ params: entryParamsSchema, body: reactionBodySchema }),
   asyncHandler(async (req, res) => toggleReactionController(req, res))
+);
+
+router.get(
+  "/competitions/:competitionId/entries/:entryId/comments",
+  requireAuth,
+  validateRequest({ params: entryParamsSchema }),
+  asyncHandler(async (req, res) => listEntryCommentsController(req, res))
+);
+
+router.post(
+  "/competitions/:competitionId/entries/:entryId/comments",
+  requireAuth,
+  validateRequest({ params: entryParamsSchema, body: postEntryCommentBodySchema }),
+  asyncHandler(async (req, res) => postEntryCommentController(req, res))
+);
+
+router.delete(
+  "/competitions/:competitionId/entries/:entryId/comments/:commentId",
+  requireAuth,
+  validateRequest({ params: entryCommentParamsSchema }),
+  asyncHandler(async (req, res) => deleteEntryCommentController(req, res))
 );
 
 router.get(

@@ -1,6 +1,7 @@
 import type {
   Competition,
   CompetitionChatMessage,
+  CompetitionEntryComment,
   CompetitionEntryKind,
   CompetitionFeedItem,
   CompetitionInvite,
@@ -299,6 +300,58 @@ export async function toggleReaction(
     throw new Error(payload.errorMessage ?? 'Falha ao reagir')
   }
   return payload.data
+}
+
+export async function listEntryComments(
+  authorizedFetch: AuthorizedFetch,
+  competitionId: string,
+  entryId: string,
+): Promise<{ items: CompetitionEntryComment[] }> {
+  const response = await authorizedFetch(
+    `${API_URL}/competitions/${competitionId}/entries/${entryId}/comments`,
+  )
+  const payload = await parsePayload<{ items: CompetitionEntryComment[] }>(response)
+  if (!response.ok || !payload.data) {
+    throw new Error(payload.errorMessage ?? 'Falha ao carregar comentários')
+  }
+  return payload.data
+}
+
+export async function postEntryComment(
+  authorizedFetch: AuthorizedFetch,
+  competitionId: string,
+  entryId: string,
+  content: string,
+): Promise<CompetitionEntryComment> {
+  const response = await authorizedFetch(
+    `${API_URL}/competitions/${competitionId}/entries/${entryId}/comments`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    },
+  )
+  const payload = await parsePayload<CompetitionEntryComment>(response)
+  if (!response.ok || !payload.data) {
+    throw new Error(payload.errorMessage ?? 'Falha ao comentar')
+  }
+  return payload.data
+}
+
+export async function deleteEntryComment(
+  authorizedFetch: AuthorizedFetch,
+  competitionId: string,
+  entryId: string,
+  commentId: string,
+): Promise<void> {
+  const response = await authorizedFetch(
+    `${API_URL}/competitions/${competitionId}/entries/${entryId}/comments/${commentId}`,
+    { method: 'DELETE' },
+  )
+  const payload = await parsePayload(response)
+  if (!response.ok) {
+    throw new Error(payload.errorMessage ?? 'Falha ao apagar comentário')
+  }
 }
 
 export async function listChatMessages(

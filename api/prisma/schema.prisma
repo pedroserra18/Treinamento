@@ -212,6 +212,7 @@ model User {
   competitionEntries      CompetitionEntry[]
   competitionMessages     CompetitionMessage[]
   competitionReactions    CompetitionEntryReaction[]
+  competitionEntryComments CompetitionEntryComment[]
 
   @@index([status, isDeleted])
   @@index([role])
@@ -869,6 +870,7 @@ model CompetitionEntry {
   user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   workoutSession WorkoutSession? @relation(fields: [workoutSessionId], references: [id], onDelete: SetNull)
   reactions      CompetitionEntryReaction[]
+  comments       CompetitionEntryComment[]
 
   @@unique([competitionId, userId, day, kind])
   @@index([competitionId, userId])
@@ -876,4 +878,22 @@ model CompetitionEntry {
   // Fast lookup for "did this user already use this hash in this comp?"
   @@index([userId, photoHash])
   @@map("competition_entries")
+}
+
+model CompetitionEntryComment {
+  id        String   @id @default(cuid())
+  entryId   String
+  userId    String
+  // Plain text, capped at 500 chars at the DB level. Profanity filter runs
+  // at the service layer like chat messages.
+  content   String   @db.VarChar(500)
+  createdAt DateTime @default(now())
+
+  entry CompetitionEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  user  User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Hot path: load the comment thread for one entry, oldest → newest.
+  @@index([entryId, createdAt])
+  @@index([userId])
+  @@map("competition_entry_comments")
 }

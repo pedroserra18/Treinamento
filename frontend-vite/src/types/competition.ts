@@ -98,6 +98,15 @@ export type CompetitionFeedItem = {
   user: CompetitionUserSummary
   workout: CompetitionEntryWorkoutSummary | null
   reactions: CompetitionReactionSummary[]
+  commentsCount: number
+}
+
+export type CompetitionEntryComment = {
+  id: string
+  userId: string
+  content: string
+  createdAt: string
+  user: CompetitionUserSummary
 }
 
 export type CompetitionInvite = {

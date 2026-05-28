@@ -8,6 +8,7 @@ import type {
   ListChatQuery,
   PostChatBody,
   PostEntryBody,
+  PostEntryCommentBody,
   ReactionBody
 } from "./competition.schema";
 import type { CompetitionReactionKind } from "@prisma/client";
@@ -1054,6 +1055,9 @@ export async function getCompetitionFeed(userId: string, competitionId: string, 
   // Reactions are loaded in one batch keyed by entry id so we avoid an
   // N+1 query per feed item.
   const reactionsByEntry = await loadReactionSummary(entries.map((e) => e.id), userId);
+  // Comment counts batched the same way — we only need the number on the
+  // grid tile; the full thread is loaded on demand when the user opens it.
+  const commentsByEntry = await loadCommentCounts(entries.map((e) => e.id));
 
   const items = entries.map((e) => {
     let totalVolumeKg = 0;
@@ -1082,7 +1086,8 @@ export async function getCompetitionFeed(userId: string, competitionId: string, 
             cardioSec
           }
         : null,
-      reactions: reactionsByEntry.get(e.id) ?? []
+      reactions: reactionsByEntry.get(e.id) ?? [],
+      commentsCount: commentsByEntry.get(e.id) ?? 0
     };
   });
 
@@ -1167,6 +1172,120 @@ async function loadReactionSummary(
     result.set(entryId, items);
   }
   return result;
+}
+
+// ─── Entry comments ─────────────────────────────────────────────────────
+
+async function loadCommentCounts(entryIds: string[]): Promise<Map<string, number>> {
+  if (entryIds.length === 0) return new Map();
+  const rows = await prisma.competitionEntryComment.groupBy({
+    by: ["entryId"],
+    where: { entryId: { in: entryIds } },
+    _count: { _all: true }
+  });
+  const map = new Map<string, number>();
+  for (const r of rows) map.set(r.entryId, r._count._all);
+  return map;
+}
+
+export async function listEntryComments(userId: string, competitionId: string, entryId: string) {
+  await assertActiveMembership(userId, competitionId);
+  await assertEntryInCompetition(competitionId, entryId);
+
+  const items = await prisma.competitionEntryComment.findMany({
+    where: { entryId },
+    orderBy: { createdAt: "asc" },
+    take: 200,
+    select: {
+      id: true,
+      userId: true,
+      content: true,
+      createdAt: true,
+      user: { select: { id: true, name: true, handle: true, avatarUrl: true } }
+    }
+  });
+  return { items };
+}
+
+export async function postEntryComment(
+  userId: string,
+  competitionId: string,
+  entryId: string,
+  payload: PostEntryCommentBody
+) {
+  await assertActiveMembership(userId, competitionId);
+  await assertEntryInCompetition(competitionId, entryId);
+
+  // Reuse the chat rate limit — same anti-flood target, same trade-off.
+  const recent = await prisma.competitionEntryComment.findFirst({
+    where: {
+      entryId,
+      userId,
+      createdAt: { gt: new Date(Date.now() - CHAT_RATE_LIMIT_SEC * 1000) }
+    },
+    select: { id: true }
+  });
+  if (recent) {
+    throw new AppError("Calma — espere alguns segundos antes de comentar de novo", {
+      statusCode: 429,
+      code: "COMMENT_RATE_LIMITED"
+    });
+  }
+
+  const check = checkProfanity(payload.content);
+  if (!check.ok) {
+    throw new AppError("Comentário bloqueado por conter conteúdo impróprio", {
+      statusCode: 400,
+      code: "COMMENT_BLOCKED_PROFANITY"
+    });
+  }
+
+  const comment = await prisma.competitionEntryComment.create({
+    data: { entryId, userId, content: payload.content },
+    select: {
+      id: true,
+      userId: true,
+      content: true,
+      createdAt: true,
+      user: { select: { id: true, name: true, handle: true, avatarUrl: true } }
+    }
+  });
+  return comment;
+}
+
+export async function deleteEntryComment(
+  userId: string,
+  competitionId: string,
+  entryId: string,
+  commentId: string
+) {
+  await assertEntryInCompetition(competitionId, entryId);
+
+  const comment = await prisma.competitionEntryComment.findUnique({
+    where: { id: commentId },
+    select: { id: true, userId: true, entryId: true }
+  });
+  if (!comment || comment.entryId !== entryId) {
+    throw new AppError("Comentário não encontrado", { statusCode: 404, code: "COMMENT_NOT_FOUND" });
+  }
+
+  // Author can delete their own. Admins (active) of the room can delete
+  // anyone's. Same rule as chat moderation.
+  if (comment.userId !== userId) {
+    const me = await prisma.competitionMember.findUnique({
+      where: { competitionId_userId: { competitionId, userId } },
+      select: { role: true, abandonedAt: true }
+    });
+    if (!me || me.role !== "ADMIN" || me.abandonedAt) {
+      throw new AppError("Você só pode apagar seus próprios comentários", {
+        statusCode: 403,
+        code: "COMMENT_NOT_AUTHORISED"
+      });
+    }
+  }
+
+  await prisma.competitionEntryComment.delete({ where: { id: commentId } });
+  return { success: true };
 }
 
 // ─── Chat ────────────────────────────────────────────────────────────────

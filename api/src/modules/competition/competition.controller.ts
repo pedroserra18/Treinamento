@@ -4,6 +4,7 @@ import {
   createCompetition,
   declineInvite,
   deleteChatMessage,
+  deleteEntryComment,
   getCompetitionById,
   getCompetitionFeed,
   getInvitePreview,
@@ -13,11 +14,13 @@ import {
   kickMember,
   leaveCompetition,
   listChatMessages,
+  listEntryComments,
   listInvitableFriends,
   listMyCompetitions,
   listMyInvites,
   postChatMessage,
   postCompetitionEntry,
+  postEntryComment,
   setMemberRole,
   startCompetition,
   toggleReaction
@@ -26,6 +29,7 @@ import type {
   ChatParams,
   CompetitionParams,
   CreateCompetitionBody,
+  EntryCommentParams,
   EntryParams,
   InviteMemberBody,
   InviteTokenParams,
@@ -33,6 +37,7 @@ import type {
   MemberParams,
   PostChatBody,
   PostEntryBody,
+  PostEntryCommentBody,
   ReactionBody
 } from "./competition.schema";
 
@@ -180,6 +185,32 @@ export async function toggleReactionController(req: Request, res: Response): Pro
   const userId = req.context.userId as string;
   const params = req.params as unknown as EntryParams;
   const data = await toggleReaction(userId, params.competitionId, params.entryId, req.body as ReactionBody);
+  send(res, 200, data);
+}
+
+export async function listEntryCommentsController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as EntryParams;
+  const data = await listEntryComments(userId, params.competitionId, params.entryId);
+  send(res, 200, data);
+}
+
+export async function postEntryCommentController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as EntryParams;
+  const data = await postEntryComment(
+    userId,
+    params.competitionId,
+    params.entryId,
+    req.body as PostEntryCommentBody
+  );
+  send(res, 201, data);
+}
+
+export async function deleteEntryCommentController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as EntryCommentParams;
+  const data = await deleteEntryComment(userId, params.competitionId, params.entryId, params.commentId);
   send(res, 200, data);
 }
 

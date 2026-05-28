@@ -44,6 +44,20 @@ export const reactionBodySchema = z
   })
   .strict();
 
+export const entryCommentParamsSchema = z
+  .object({
+    competitionId: z.string().cuid(),
+    entryId: z.string().cuid(),
+    commentId: z.string().cuid()
+  })
+  .strict();
+
+export const postEntryCommentBodySchema = z
+  .object({
+    content: z.string().trim().min(1).max(500)
+  })
+  .strict();
+
 export const chatParamsSchema = z
   .object({
     competitionId: z.string().cuid(),
@@ -87,6 +101,8 @@ export type InviteTokenParams = z.infer<typeof inviteTokenParamsSchema>;
 export type PostEntryBody = z.infer<typeof postEntryBodySchema>;
 export type EntryParams = z.infer<typeof entryParamsSchema>;
 export type ReactionBody = z.infer<typeof reactionBodySchema>;
+export type EntryCommentParams = z.infer<typeof entryCommentParamsSchema>;
+export type PostEntryCommentBody = z.infer<typeof postEntryCommentBodySchema>;
 export type ChatParams = z.infer<typeof chatParamsSchema>;
 export type PostChatBody = z.infer<typeof postChatBodySchema>;
 export type ListChatQuery = z.infer<typeof listChatQuerySchema>;
