@@ -47,6 +47,21 @@ function nowMs(): number {
   return Date.now()
 }
 
+// Coarse relative-time formatter. We keep buckets large enough that the
+// label only changes every few seconds even without a re-render, so the
+// stale text never looks wrong by more than a tick.
+function relativeTime(iso: string): string {
+  const diffSec = Math.max(0, Math.floor((nowMs() - new Date(iso).getTime()) / 1000))
+  if (diffSec < 60) return 'agora'
+  const min = Math.floor(diffSec / 60)
+  if (min < 60) return `há ${min} min`
+  const h = Math.floor(min / 60)
+  if (h < 24) return `há ${h}h`
+  const d = Math.floor(h / 24)
+  if (d < 7) return `há ${d}d`
+  return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+}
+
 export function CompetitionDetailPage() {
   const { competitionId = '' } = useParams<{ competitionId: string }>()
   const { authorizedFetch, user } = useAuth()
@@ -552,7 +567,14 @@ export function CompetitionDetailPage() {
       {/* Leaderboard — "Ranking" tab on mobile */}
       {(comp.status === 'ACTIVE' || comp.status === 'COMPLETED') && standings && (
         <div className={mobileTab !== 'ranking' ? 'hidden lg:block' : ''}>
-          <Leaderboard standings={standings} winnerUserId={comp.winnerUserId} rankDeltas={rankDeltas} />
+          <Leaderboard
+            standings={standings}
+            winnerUserId={comp.winnerUserId}
+            rankDeltas={rankDeltas}
+            currentUserId={user?.id}
+            competitionName={comp.name}
+            inviteUrl={inviteUrl}
+          />
         </div>
       )}
 
@@ -618,10 +640,15 @@ export function CompetitionDetailPage() {
               className="max-w-md rounded-2xl border border-white/15 bg-black/55 px-4 py-3 text-center text-white backdrop-blur-sm"
               onClick={(e) => e.stopPropagation()}
             >
-              <p className="text-sm font-bold">{displayName}</p>
+              <Link
+                to={`/u/${photoZoom.user.id}`}
+                className="text-sm font-bold hover:underline"
+              >
+                {displayName}
+              </Link>
               <p className="mt-0.5 inline-flex items-center gap-1.5 font-mono text-[10.5px] text-white/70">
                 {photoZoom.kind === 'TRAINING' ? <Dumbbell size={10} /> : <Activity size={10} />}
-                {photoZoom.kind === 'TRAINING' ? 'Treino' : 'Cardio'} · {new Date(photoZoom.day).toLocaleDateString('pt-BR')}
+                {photoZoom.kind === 'TRAINING' ? 'Treino' : 'Cardio'} · {new Date(photoZoom.day).toLocaleDateString('pt-BR')} · {relativeTime(photoZoom.createdAt)}
               </p>
               {photoZoom.workout && (
                 <div className="mt-2 space-y-0.5 font-mono text-[11px] text-white/80">
@@ -1044,12 +1071,39 @@ function RankDelta({ delta }: { delta: number | null }) {
 }
 
 function Leaderboard({
-  standings, winnerUserId, rankDeltas,
+  standings, winnerUserId, rankDeltas, currentUserId, competitionName, inviteUrl,
 }: {
   standings: CompetitionStandings
   winnerUserId: string | null
   rankDeltas: Map<string, number>
+  currentUserId: string | undefined
+  competitionName: string | null
+  inviteUrl: string
 }) {
+  const [shareCopied, setShareCopied] = useState(false)
+  // Find the calling user's row so we can build a shareable summary of
+  // their current position. Hide the share button if they aren't ranked.
+  const myIdx = currentUserId ? standings.rows.findIndex((r) => r.userId === currentUserId) : -1
+  const handleShareRank = async () => {
+    if (myIdx < 0) return
+    const myRow = standings.rows[myIdx]
+    const rankLabel = `${myIdx + 1}º lugar`
+    const text =
+      `Tô em ${rankLabel} no desafio "${competitionName ?? 'SerraAthlo'}" — ` +
+      `${myRow.daysActive} dias, ${myRow.points} pontos${myRow.streak > 0 ? `, streak de ${myRow.streak}` : ''}. ` +
+      `Vem treinar 👇 ${inviteUrl}`
+    try {
+      if (navigator.share) {
+        await navigator.share({ text })
+      } else {
+        await navigator.clipboard.writeText(text)
+      }
+      setShareCopied(true)
+      window.setTimeout(() => setShareCopied(false), 2000)
+    } catch {
+      // user cancelled — ignore
+    }
+  }
   return (
     <section className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 sm:p-5">
       <div className="flex flex-wrap items-end justify-between gap-2">
@@ -1057,9 +1111,21 @@ function Leaderboard({
           <Trophy size={14} className="text-[var(--brand)]" />
           Ranking
         </h2>
-        <p className="font-mono text-[9.5px] uppercase tracking-[0.12em] text-[var(--muted)]">
-          desempate: dias › pontos › tempo › volume
-        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          {myIdx >= 0 && (
+            <button
+              type="button"
+              onClick={() => void handleShareRank()}
+              className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+            >
+              <Link2 size={10} />
+              {shareCopied ? 'Copiado' : 'Compartilhar posição'}
+            </button>
+          )}
+          <p className="font-mono text-[9.5px] uppercase tracking-[0.12em] text-[var(--muted)]">
+            desempate: dias › pontos › tempo › volume
+          </p>
+        </div>
       </div>
       <ol className="mt-3 space-y-1.5">
         {standings.rows.map((row, idx) => {
@@ -1086,23 +1152,32 @@ function Leaderboard({
               >
                 {idx + 1}
               </span>
-              {row.user.avatarUrl ? (
-                <img
-                  src={row.user.avatarUrl}
-                  alt={row.user.name ?? row.user.handle}
-                  className="h-9 w-9 shrink-0 rounded-full object-cover"
-                />
-              ) : (
-                <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--surface)] text-sm font-bold text-[var(--text)]">
-                  {(row.user.name ?? row.user.handle).slice(0, 1).toUpperCase()}
-                </div>
-              )}
+              <Link
+                to={`/u/${row.userId}`}
+                className="flex shrink-0 items-center"
+                aria-label={`Abrir perfil de ${row.user.name ?? row.user.handle}`}
+              >
+                {row.user.avatarUrl ? (
+                  <img
+                    src={row.user.avatarUrl}
+                    alt={row.user.name ?? row.user.handle}
+                    className="h-9 w-9 shrink-0 rounded-full object-cover"
+                  />
+                ) : (
+                  <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--surface)] text-sm font-bold text-[var(--text)]">
+                    {(row.user.name ?? row.user.handle).slice(0, 1).toUpperCase()}
+                  </div>
+                )}
+              </Link>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <p className="min-w-0 truncate text-sm font-semibold text-[var(--text)]">
+                  <Link
+                    to={`/u/${row.userId}`}
+                    className="min-w-0 truncate text-sm font-semibold text-[var(--text)] hover:underline"
+                  >
                     {row.user.name ?? `@${row.user.handle}`}
                     {isWinner && <span className="ml-1.5 text-xs">🏆</span>}
-                  </p>
+                  </Link>
                   <RankDelta delta={rankDeltas.get(row.userId) ?? null} />
                   <CompetitionStreak count={row.streak} />
                 </div>
@@ -1567,21 +1642,30 @@ function MemberRow({
 
   return (
     <li className="relative flex items-center gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3">
-      {member.user.avatarUrl ? (
-        <img
-          src={member.user.avatarUrl}
-          alt={displayName}
-          className={`h-10 w-10 shrink-0 rounded-full object-cover ${member.abandonedAt ? 'opacity-40 grayscale' : ''}`}
-        />
-      ) : (
-        <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--surface)] text-sm font-bold text-[var(--text)] ${member.abandonedAt ? 'opacity-40' : ''}`}>
-          {(member.user.name ?? member.user.handle).slice(0, 1).toUpperCase()}
-        </div>
-      )}
+      <Link
+        to={`/u/${member.userId}`}
+        className="flex shrink-0 items-center"
+        aria-label={`Abrir perfil de ${displayName}`}
+      >
+        {member.user.avatarUrl ? (
+          <img
+            src={member.user.avatarUrl}
+            alt={displayName}
+            className={`h-10 w-10 shrink-0 rounded-full object-cover ${member.abandonedAt ? 'opacity-40 grayscale' : ''}`}
+          />
+        ) : (
+          <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--surface)] text-sm font-bold text-[var(--text)] ${member.abandonedAt ? 'opacity-40' : ''}`}>
+            {(member.user.name ?? member.user.handle).slice(0, 1).toUpperCase()}
+          </div>
+        )}
+      </Link>
       <div className="min-w-0 flex-1">
-        <p className={`truncate text-sm font-semibold ${member.abandonedAt ? 'text-[var(--muted)] line-through' : 'text-[var(--text)]'}`}>
+        <Link
+          to={`/u/${member.userId}`}
+          className={`block truncate text-sm font-semibold hover:underline ${member.abandonedAt ? 'text-[var(--muted)] line-through' : 'text-[var(--text)]'}`}
+        >
           {displayName}
-        </p>
+        </Link>
         <p className="mt-0.5 font-mono text-[10.5px] text-[var(--muted)]">
           @{member.user.handle}
           {member.abandonedAt && ' · saiu'}
