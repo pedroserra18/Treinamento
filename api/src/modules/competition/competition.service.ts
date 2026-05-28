@@ -16,6 +16,9 @@ const CHAT_RATE_LIMIT_SEC = 2;
 const MAX_MEMBERS = 10;
 const INVITE_EXPIRY_DAYS = 7;
 const LOBBY_START_DEADLINE_DAYS = 3;
+// Anti-spam: at most one entry per user across all their competitions
+// every ENTRY_RATE_LIMIT_SEC seconds. Unique-per-day still applies on top.
+const ENTRY_RATE_LIMIT_SEC = 30;
 
 // Postgres throws 40001 (serialization_failure) when two Serializable
 // transactions conflict — for us, that happens when two simultaneous
@@ -765,6 +768,23 @@ export async function postCompetitionEntry(userId: string, competitionId: string
     throw new AppError("Esse desafio já encerrou", { statusCode: 400, code: "COMPETITION_ENDED" });
   }
 
+  // Anti-spam rate limit. Even though unique-per-day blocks meaningful
+  // duplicates, the upload endpoint still ate bandwidth on bursts. This
+  // cap stops the "tapped the button 10 times" UX from hammering Storage.
+  const lastEntry = await prisma.competitionEntry.findFirst({
+    where: {
+      userId,
+      createdAt: { gt: new Date(Date.now() - ENTRY_RATE_LIMIT_SEC * 1000) }
+    },
+    select: { id: true }
+  });
+  if (lastEntry) {
+    throw new AppError("Aguarde alguns segundos antes de enviar outra prova.", {
+      statusCode: 429,
+      code: "ENTRY_RATE_LIMITED"
+    });
+  }
+
   // Kind validation against competition type.
   if (competition.type === "TRAINING" && payload.kind !== "TRAINING") {
     throw new AppError("Esse desafio é só de treino", { statusCode: 400, code: "COMPETITION_KIND_MISMATCH" });
@@ -895,7 +915,15 @@ export async function getStandings(userId: string, competitionId: string) {
     // two entries (training + cardio of the same workout) only contribute
     // their volume once.
     volumeKg: number;
+    // Consecutive-days streak ending today (or yesterday if today not yet
+    // posted). Matches the home-page streak semantics so the icon stays
+    // familiar. 0 means the streak is broken.
+    streak: number;
   };
+
+  // Anchor for the streak check — UTC midnight of "today". Same key the
+  // unique constraint on entries uses so the dates line up.
+  const todayKey = new Date().toISOString().slice(0, 10);
 
   const rows = competition.members.map<Row>((m) => {
     const days = new Set<string>();
@@ -928,6 +956,20 @@ export async function getStandings(userId: string, competitionId: string) {
       totalDurationSec += s.durationSec;
       volume += s.volume;
     }
+
+    // Streak: walk backwards from today. If today not yet posted, start
+    // counting from yesterday so the user doesn't see "0" first thing in
+    // the morning. Match the home-page rule for symmetry.
+    let cursor = new Date(`${todayKey}T00:00:00Z`);
+    if (!days.has(cursor.toISOString().slice(0, 10))) {
+      cursor.setUTCDate(cursor.getUTCDate() - 1);
+    }
+    let streak = 0;
+    while (days.has(cursor.toISOString().slice(0, 10))) {
+      streak += 1;
+      cursor.setUTCDate(cursor.getUTCDate() - 1);
+    }
+
     return {
       userId: m.userId,
       user: m.user,
@@ -935,7 +977,8 @@ export async function getStandings(userId: string, competitionId: string) {
       daysActive: days.size,
       points,
       totalDurationSec,
-      volumeKg: Math.round(volume)
+      volumeKg: Math.round(volume),
+      streak
     };
   });
 

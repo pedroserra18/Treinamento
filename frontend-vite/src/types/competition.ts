@@ -51,6 +51,8 @@ export type CompetitionStandingRow = {
   // by 2 entries on the same workout only count once.
   totalDurationSec: number
   volumeKg: number
+  // Consecutive-days streak (matches home-page semantics). 0 when broken.
+  streak: number
 }
 
 export type CompetitionStandings = {

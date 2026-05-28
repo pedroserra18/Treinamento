@@ -106,6 +106,46 @@ export function CompetitionDetailPage() {
     () => comp?.members.find((m) => m.userId === user?.id) ?? null,
     [comp, user?.id],
   )
+
+  // Rank deltas vs the snapshot we stored in localStorage on the previous
+  // load. Compare current rank to previous rank per user. New users (no
+  // prior position) get null = "no arrow shown". On change we rewrite the
+  // snapshot so the delta resets the next time the user opens the page.
+  const rankDeltas = useMemo(() => {
+    const map = new Map<string, number>()
+    if (!standings || !competitionId) return map
+    let prev: Record<string, number> = {}
+    try {
+      const raw = window.localStorage.getItem(`acad:comp-rank-snapshot:${competitionId}`)
+      if (raw) prev = JSON.parse(raw)
+    } catch {
+      // ignore corrupt snapshot
+    }
+    standings.rows.forEach((row, idx) => {
+      const currentRank = idx + 1
+      const prevRank = prev[row.userId]
+      if (typeof prevRank === 'number') {
+        map.set(row.userId, prevRank - currentRank)
+      }
+    })
+    return map
+  }, [standings, competitionId])
+
+  // Persist the current standings as the snapshot for next load. Done in
+  // an effect after we computed the deltas so we don't overwrite the
+  // baseline before showing the user the delta.
+  useEffect(() => {
+    if (!standings || !competitionId) return
+    const snapshot: Record<string, number> = {}
+    standings.rows.forEach((row, idx) => {
+      snapshot[row.userId] = idx + 1
+    })
+    try {
+      window.localStorage.setItem(`acad:comp-rank-snapshot:${competitionId}`, JSON.stringify(snapshot))
+    } catch {
+      // localStorage quota / private mode — non-blocking
+    }
+  }, [standings, competitionId])
   const isAdmin = myMembership?.role === 'ADMIN'
   const isOwner = comp?.ownerUserId === user?.id
 
@@ -427,7 +467,7 @@ export function CompetitionDetailPage() {
       {/* Leaderboard — "Ranking" tab on mobile */}
       {(comp.status === 'ACTIVE' || comp.status === 'COMPLETED') && standings && (
         <div className={mobileTab !== 'ranking' ? 'hidden lg:block' : ''}>
-          <Leaderboard standings={standings} winnerUserId={comp.winnerUserId} />
+          <Leaderboard standings={standings} winnerUserId={comp.winnerUserId} rankDeltas={rankDeltas} />
         </div>
       )}
 
@@ -669,6 +709,15 @@ function PersonalStatusCard({
                   <span className="font-bold text-[var(--brand-strong)]">
                     {myRow.points} pts
                   </span>
+                  {myRow.streak > 0 && (
+                    <>
+                      <span className="opacity-50">·</span>
+                      <span className="inline-flex items-center gap-0.5 font-bold text-orange-600 dark:text-orange-400">
+                        <span aria-hidden className="flame-alive text-[12px] leading-none">🔥{'\u{FE0F}'}</span>
+                        {myRow.streak} {myRow.streak === 1 ? 'seguido' : 'seguidos'}
+                      </span>
+                    </>
+                  )}
                   <span className="opacity-50">·</span>
                 </>
               )}
@@ -791,6 +840,24 @@ function ActiveCountdown({ endsAt }: { endsAt: string }) {
   )
 }
 
+// Streak badge — reuses the home page's flame styles so the streak icon
+// looks the same everywhere in the app. Active streak = animated warm
+// flame; broken streak = icy cyan version. Hidden when streak is 0 AND
+// the user already lost it (we don't show a broken streak for users who
+// never had one in the first place — too noisy).
+function CompetitionStreak({ count }: { count: number }) {
+  if (count <= 0) return null
+  return (
+    <span
+      className="inline-flex items-center gap-0.5 rounded-full bg-orange-500/10 px-1.5 py-0.5 font-mono text-[10.5px] font-extrabold tabular-nums text-orange-600 dark:text-orange-400"
+      title={`${count} ${count === 1 ? 'dia' : 'dias'} seguidos`}
+    >
+      <span aria-hidden className="flame-alive text-[13px] leading-none">🔥{'\u{FE0F}'}</span>
+      {count}
+    </span>
+  )
+}
+
 // Formats seconds as compact "1h 23min" / "23min" / "45s". Used for the
 // training-time tiebreaker shown on the leaderboard / status card.
 function formatDurationCompact(sec: number): string {
@@ -803,11 +870,36 @@ function formatDurationCompact(sec: number): string {
   return m > 0 ? `${h}h${m}min` : `${h}h`
 }
 
+// Rank-change diff component: shows ↑N / ↓N / = based on the user's
+// previous position. The snapshot is stored in localStorage scoped by
+// competition id so each user sees their personal "since last visit"
+// delta. Skips rendering entirely on first ever load (no snapshot yet).
+function RankDelta({ delta }: { delta: number | null }) {
+  if (delta == null) return null
+  if (delta === 0) {
+    return (
+      <span className="font-mono text-[10px] text-[var(--muted)]" title="Mesma posição">
+        =
+      </span>
+    )
+  }
+  const up = delta > 0
+  return (
+    <span
+      className={`font-mono text-[10px] font-bold ${up ? 'text-emerald-500' : 'text-rose-500'}`}
+      title={up ? `Subiu ${delta} ${delta === 1 ? 'posição' : 'posições'}` : `Caiu ${Math.abs(delta)} ${Math.abs(delta) === 1 ? 'posição' : 'posições'}`}
+    >
+      {up ? `↑${delta}` : `↓${Math.abs(delta)}`}
+    </span>
+  )
+}
+
 function Leaderboard({
-  standings, winnerUserId,
+  standings, winnerUserId, rankDeltas,
 }: {
   standings: CompetitionStandings
   winnerUserId: string | null
+  rankDeltas: Map<string, number>
 }) {
   return (
     <section className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 sm:p-5">
@@ -857,10 +949,14 @@ function Leaderboard({
                 </div>
               )}
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-[var(--text)]">
-                  {row.user.name ?? `@${row.user.handle}`}
-                  {isWinner && <span className="ml-1.5 text-xs">🏆</span>}
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className="min-w-0 truncate text-sm font-semibold text-[var(--text)]">
+                    {row.user.name ?? `@${row.user.handle}`}
+                    {isWinner && <span className="ml-1.5 text-xs">🏆</span>}
+                  </p>
+                  <RankDelta delta={rankDeltas.get(row.userId) ?? null} />
+                  <CompetitionStreak count={row.streak} />
+                </div>
                 <p className="mt-0.5 font-mono text-[10.5px] text-[var(--muted)]">
                   ⏱ {formatDurationCompact(row.totalDurationSec)}
                   {row.volumeKg > 0 && (
