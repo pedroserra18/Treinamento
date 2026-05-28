@@ -84,9 +84,13 @@ export function CompetitionInvitePage() {
 
   if (loading) {
     return (
-      <section className="mx-auto max-w-md space-y-3 px-4 py-8">
-        <Skeleton className="h-24 w-full rounded-2xl" />
-        <Skeleton className="h-12 w-full rounded-xl" />
+      <section className="mx-auto max-w-md space-y-3 px-4 py-8" aria-label="Carregando convite">
+        <Skeleton className="h-48 w-full rounded-3xl" />
+        <Skeleton className="h-10 w-full rounded-xl" />
+        <div className="flex gap-2">
+          <Skeleton className="h-12 flex-1 rounded-xl" />
+          <Skeleton className="h-12 flex-1 rounded-xl" />
+        </div>
       </section>
     )
   }

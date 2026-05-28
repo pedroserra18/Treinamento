@@ -129,9 +129,10 @@ export function CompetitionsPage() {
       )}
 
       {loading && (
-        <div className="space-y-3">
-          <Skeleton className="h-24 w-full rounded-2xl" />
-          <Skeleton className="h-24 w-full rounded-2xl" />
+        <div className="space-y-3" aria-label="Carregando desafios">
+          <Skeleton className="h-20 w-full rounded-2xl" />
+          <Skeleton className="h-32 w-full rounded-2xl" />
+          <Skeleton className="h-32 w-full rounded-2xl" />
         </div>
       )}
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { MessageSquare, Send, Trash2 } from 'lucide-react'
+import { Skeleton } from './Skeleton'
 import { useAuth } from '../../hooks/useAuth'
 import {
   deleteChatMessage,
@@ -110,7 +111,14 @@ export function CompetitionChat({
         className="mt-3 max-h-[400px] min-h-[120px] space-y-2 overflow-y-auto rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-2"
       >
         {loading && messages.length === 0 && (
-          <p className="px-2 py-4 text-center text-xs text-[var(--muted)]">Carregando…</p>
+          <div className="space-y-2 px-1 py-1">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className={`flex gap-2 ${i === 1 ? 'flex-row-reverse' : ''}`}>
+                <Skeleton className="h-7 w-7 shrink-0 rounded-full" />
+                <Skeleton className={`h-10 rounded-2xl ${i === 1 ? 'w-32' : 'w-44'}`} />
+              </div>
+            ))}
+          </div>
         )}
         {!loading && messages.length === 0 && (
           <p className="px-2 py-4 text-center text-xs text-[var(--muted)]">
