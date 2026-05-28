@@ -856,7 +856,7 @@ export async function getCompetitionFeed(userId: string, competitionId: string, 
     throw new AppError("Você não faz parte dessa competição", { statusCode: 403, code: "COMPETITION_NOT_A_MEMBER" });
   }
 
-  const items = await prisma.competitionEntry.findMany({
+  const entries = await prisma.competitionEntry.findMany({
     where: { competitionId },
     orderBy: { createdAt: "desc" },
     take: Math.min(limit, 60),
@@ -866,8 +866,57 @@ export async function getCompetitionFeed(userId: string, competitionId: string, 
       kind: true,
       photoUrl: true,
       createdAt: true,
-      user: { select: { id: true, name: true, handle: true, avatarUrl: true } }
+      user: { select: { id: true, name: true, handle: true, avatarUrl: true } },
+      // Workout context so the feed item can render volume / duration /
+      // exercise count without an extra round trip per item. Fast because
+      // each session is small and we cap the feed length.
+      workoutSession: {
+        select: {
+          durationSec: true,
+          workoutPlan: { select: { name: true } },
+          history: {
+            select: {
+              exerciseId: true,
+              reps: true,
+              weightKg: true
+            }
+          },
+          cardioEntries: {
+            select: { type: true, durationSec: true, distanceMeters: true }
+          }
+        }
+      }
     }
+  });
+
+  const items = entries.map((e) => {
+    let totalVolumeKg = 0;
+    const exerciseSet = new Set<string>();
+    for (const h of e.workoutSession?.history ?? []) {
+      if (h.weightKg && h.reps) totalVolumeKg += h.weightKg * h.reps;
+      exerciseSet.add(h.exerciseId);
+    }
+    const cardioSec = (e.workoutSession?.cardioEntries ?? []).reduce(
+      (acc, c) => acc + c.durationSec,
+      0
+    );
+    return {
+      id: e.id,
+      day: e.day,
+      kind: e.kind,
+      photoUrl: e.photoUrl,
+      createdAt: e.createdAt,
+      user: e.user,
+      workout: e.workoutSession
+        ? {
+            planName: e.workoutSession.workoutPlan?.name ?? null,
+            durationSec: e.workoutSession.durationSec ?? null,
+            exerciseCount: exerciseSet.size,
+            totalVolumeKg: Math.round(totalVolumeKg),
+            cardioSec
+          }
+        : null
+    };
   });
 
   return { items };

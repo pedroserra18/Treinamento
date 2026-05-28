@@ -354,7 +354,8 @@ function SendToCompetitionCta({
   error: string | null
   onSend: (kind: CompetitionEntryKind) => void
 }) {
-  const disabled = !hasPhoto || !savedSessionId || status === 'sending' || status === 'sent'
+  const isLobby = competition.status === 'LOBBY'
+  const disabled = isLobby || !hasPhoto || !savedSessionId || status === 'sending' || status === 'sent'
 
   return (
     <div className="rounded-2xl border border-amber-400/50 bg-gradient-to-br from-amber-50 to-[var(--surface)] p-4 sm:p-5 dark:from-amber-500/5">
@@ -364,10 +365,17 @@ function SendToCompetitionCta({
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-[12px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
-            Desafio em andamento
+            {isLobby ? 'Desafio aguardando início' : 'Desafio em andamento'}
           </p>
           <p className="text-sm font-semibold text-[var(--text)]">{competition.name ?? 'Seu desafio'}</p>
-          {!hasPhoto && (
+
+          {isLobby && (
+            <p className="mt-1 text-[11px] text-[var(--muted)]">
+              O admin precisa iniciar a sala antes que treinos comecem a contar.
+              Vá em <b className="text-[var(--text)]">/desafios</b> e clique em "Iniciar agora".
+            </p>
+          )}
+          {!isLobby && !hasPhoto && (
             <p className="mt-1 text-[11px] text-[var(--muted)]">
               Adicione uma foto na seção acima pra registrar a prova do dia.
             </p>
@@ -385,7 +393,8 @@ function SendToCompetitionCta({
 
       <div className="mt-3 flex flex-wrap gap-2">
         {/* BOTH-type rooms expose two buttons — TRAINING-only / CARDIO-only
-            rooms just need one. */}
+            rooms just need one. Buttons are disabled (with hint above) when
+            the room is still in lobby. */}
         {competition.type !== 'CARDIO' && (
           <button
             type="button"
@@ -1792,14 +1801,17 @@ export function TrainPage() {
       setSavedSessionId(started.id)
 
       // Fetch the active competition silently so the "Enviar para desafio"
-      // button knows whether to render. Failure is non-blocking.
+      // button knows whether to render. We accept LOBBY too so we can show
+      // a "waiting to start" hint instead of just hiding the card. Failure
+      // is non-blocking but logged so we can debug if needed.
       try {
         const comp = await getMyActiveCompetition(authorizedFetch)
-        if (comp && comp.status === 'ACTIVE') {
+        if (comp && (comp.status === 'ACTIVE' || comp.status === 'LOBBY')) {
           setActiveCompetition(comp)
         }
-      } catch {
-        // ignore
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn('Failed to fetch active competition for summary CTA', err)
       }
 
       if (summaryImageFile) {

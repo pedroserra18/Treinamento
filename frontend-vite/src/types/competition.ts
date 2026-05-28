@@ -57,6 +57,14 @@ export type CompetitionStandings = {
   rows: CompetitionStandingRow[]
 }
 
+export type CompetitionEntryWorkoutSummary = {
+  planName: string | null
+  durationSec: number | null
+  exerciseCount: number
+  totalVolumeKg: number
+  cardioSec: number
+}
+
 export type CompetitionFeedItem = {
   id: string
   day: string
@@ -64,6 +72,7 @@ export type CompetitionFeedItem = {
   photoUrl: string
   createdAt: string
   user: CompetitionUserSummary
+  workout: CompetitionEntryWorkoutSummary | null
 }
 
 export type CompetitionInvite = {

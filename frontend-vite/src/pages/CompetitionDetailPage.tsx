@@ -586,26 +586,49 @@ function CompetitionFeed({
         </p>
       ) : (
         <ul className="mt-3 space-y-2">
-          {items.map((item) => (
-            <li key={item.id} className="flex items-center gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3">
-              <button
-                type="button"
-                onClick={() => onZoom(item)}
-                className="h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-[var(--line)]"
-              >
-                <img src={item.photoUrl} alt="prova" className="h-full w-full object-cover" />
-              </button>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-[var(--text)]">
-                  {item.user.name ?? `@${item.user.handle}`}
-                </p>
-                <p className="mt-0.5 inline-flex items-center gap-1 font-mono text-[10.5px] text-[var(--muted)]">
-                  {item.kind === 'TRAINING' ? <Dumbbell size={10} /> : <Activity size={10} />}
-                  {item.kind === 'TRAINING' ? 'Treino' : 'Cardio'} · {new Date(item.day).toLocaleDateString('pt-BR')}
-                </p>
-              </div>
-            </li>
-          ))}
+          {items.map((item) => {
+            const durationMin = item.workout?.durationSec ? Math.round(item.workout.durationSec / 60) : null
+            const cardioMin = item.workout?.cardioSec ? Math.round(item.workout.cardioSec / 60) : null
+            return (
+              <li key={item.id} className="flex items-start gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3">
+                <button
+                  type="button"
+                  onClick={() => onZoom(item)}
+                  className="h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-[var(--line)]"
+                >
+                  <img src={item.photoUrl} alt="prova" className="h-full w-full object-cover" />
+                </button>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-[var(--text)]">
+                    {item.user.name ?? `@${item.user.handle}`}
+                  </p>
+                  <p className="mt-0.5 inline-flex items-center gap-1 font-mono text-[10.5px] text-[var(--muted)]">
+                    {item.kind === 'TRAINING' ? <Dumbbell size={10} /> : <Activity size={10} />}
+                    {item.kind === 'TRAINING' ? 'Treino' : 'Cardio'} · {new Date(item.day).toLocaleDateString('pt-BR')}
+                  </p>
+                  {item.workout && (
+                    <div className="mt-1.5 space-y-0.5 font-mono text-[10.5px] text-[var(--muted)]">
+                      {item.workout.planName && (
+                        <p className="truncate text-[var(--text)]">{item.workout.planName}</p>
+                      )}
+                      <p>
+                        {durationMin != null && <>⏱ {durationMin}min</>}
+                        {item.workout.exerciseCount > 0 && (
+                          <>{durationMin != null ? ' · ' : ''}💪 {item.workout.exerciseCount} exercícios</>
+                        )}
+                        {item.workout.totalVolumeKg > 0 && (
+                          <> · {item.workout.totalVolumeKg.toLocaleString('pt-BR')} kg</>
+                        )}
+                        {cardioMin != null && cardioMin > 0 && (
+                          <> · 🏃 {cardioMin}min</>
+                        )}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </li>
+            )
+          })}
         </ul>
       )}
     </section>
