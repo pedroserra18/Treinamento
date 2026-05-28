@@ -1810,7 +1810,6 @@ export function TrainPage() {
           setActiveCompetition(comp)
         }
       } catch (err) {
-        // eslint-disable-next-line no-console
         console.warn('Failed to fetch active competition for summary CTA', err)
       }
 

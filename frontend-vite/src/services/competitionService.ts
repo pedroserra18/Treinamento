@@ -1,5 +1,6 @@
 import type {
   Competition,
+  CompetitionChatMessage,
   CompetitionEntryKind,
   CompetitionFeedItem,
   CompetitionInvite,
@@ -273,6 +274,58 @@ export async function kickMember(
   const payload = await parsePayload(response)
   if (!response.ok) {
     throw new Error(payload.errorMessage ?? 'Falha ao remover membro')
+  }
+}
+
+export async function listChatMessages(
+  authorizedFetch: AuthorizedFetch,
+  competitionId: string,
+  options: { before?: string; limit?: number } = {},
+): Promise<{ items: CompetitionChatMessage[] }> {
+  const params = new URLSearchParams()
+  if (options.before) params.set('before', options.before)
+  if (options.limit) params.set('limit', String(options.limit))
+  const qs = params.toString()
+  const response = await authorizedFetch(`${API_URL}/competitions/${competitionId}/chat${qs ? `?${qs}` : ''}`)
+  const payload = await parsePayload<{ items: CompetitionChatMessage[] }>(response)
+  if (!response.ok || !payload.data) {
+    throw new Error(payload.errorMessage ?? 'Falha ao carregar conversa')
+  }
+  return payload.data
+}
+
+// Posts a chat message. The backend rejects with a 400 + specific code
+// for profanity and a 429 for rate limit — the caller surfaces those
+// codes back to the user inline.
+export async function postChatMessage(
+  authorizedFetch: AuthorizedFetch,
+  competitionId: string,
+  content: string,
+): Promise<CompetitionChatMessage> {
+  const response = await authorizedFetch(`${API_URL}/competitions/${competitionId}/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  })
+  const payload = await parsePayload<CompetitionChatMessage>(response)
+  if (!response.ok || !payload.data) {
+    throw new Error(payload.errorMessage ?? 'Falha ao enviar mensagem')
+  }
+  return payload.data
+}
+
+export async function deleteChatMessage(
+  authorizedFetch: AuthorizedFetch,
+  competitionId: string,
+  messageId: string,
+): Promise<void> {
+  const response = await authorizedFetch(
+    `${API_URL}/competitions/${competitionId}/chat/${messageId}`,
+    { method: 'DELETE' },
+  )
+  const payload = await parsePayload(response)
+  if (!response.ok) {
+    throw new Error(payload.errorMessage ?? 'Falha ao apagar mensagem')
   }
 }
 

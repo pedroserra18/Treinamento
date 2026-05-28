@@ -3,6 +3,7 @@ import {
   acceptInvite,
   createCompetition,
   declineInvite,
+  deleteChatMessage,
   getCompetitionById,
   getCompetitionFeed,
   getInvitePreview,
@@ -11,19 +12,24 @@ import {
   inviteMember,
   kickMember,
   leaveCompetition,
+  listChatMessages,
   listInvitableFriends,
   listMyCompetitions,
   listMyInvites,
+  postChatMessage,
   postCompetitionEntry,
   setMemberRole,
   startCompetition
 } from "./competition.service";
 import type {
+  ChatParams,
   CompetitionParams,
   CreateCompetitionBody,
   InviteMemberBody,
   InviteTokenParams,
+  ListChatQuery,
   MemberParams,
+  PostChatBody,
   PostEntryBody
 } from "./competition.schema";
 
@@ -142,6 +148,28 @@ export async function kickMemberController(req: Request, res: Response): Promise
   const userId = req.context.userId as string;
   const params = req.params as unknown as MemberParams;
   const data = await kickMember(userId, params.competitionId, params.userId);
+  send(res, 200, data);
+}
+
+export async function listChatController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as CompetitionParams;
+  const query = req.query as unknown as ListChatQuery;
+  const data = await listChatMessages(userId, params.competitionId, query);
+  send(res, 200, data);
+}
+
+export async function postChatController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as CompetitionParams;
+  const data = await postChatMessage(userId, params.competitionId, req.body as PostChatBody);
+  send(res, 201, data);
+}
+
+export async function deleteChatController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as ChatParams;
+  const data = await deleteChatMessage(userId, params.competitionId, params.messageId);
   send(res, 200, data);
 }
 

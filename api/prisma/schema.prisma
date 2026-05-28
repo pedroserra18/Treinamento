@@ -210,6 +210,7 @@ model User {
   competitionInvitesSent  CompetitionInvite[] @relation("CompetitionInviteSender")
   competitionInvitesReceived CompetitionInvite[] @relation("CompetitionInviteReceiver")
   competitionEntries      CompetitionEntry[]
+  competitionMessages     CompetitionMessage[]
 
   @@index([status, isDeleted])
   @@index([role])
@@ -733,10 +734,11 @@ model Competition {
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
 
-  owner   User                @relation("CompetitionOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
-  members CompetitionMember[]
-  invites CompetitionInvite[]
-  entries CompetitionEntry[]
+  owner    User                @relation("CompetitionOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  members  CompetitionMember[]
+  invites  CompetitionInvite[]
+  entries  CompetitionEntry[]
+  messages CompetitionMessage[]
 
   // Hot path: "is this user already in any LOBBY/ACTIVE competition?" — the
   // partial unique on members below relies on the joined query staying cheap.
@@ -787,6 +789,25 @@ model CompetitionInvite {
   @@index([invitedUserId, status])
   @@index([competitionId, status])
   @@map("competition_invites")
+}
+
+model CompetitionMessage {
+  id            String   @id @default(cuid())
+  competitionId String
+  userId        String
+  // Plain text only. Capped to 500 chars at the schema level so a single
+  // message can't blow up the page. Profanity filter runs at the service
+  // layer before insert.
+  content       String   @db.VarChar(500)
+  createdAt     DateTime @default(now())
+
+  competition Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Hot path: load the most recent N messages in a room.
+  @@index([competitionId, createdAt])
+  @@index([userId])
+  @@map("competition_messages")
 }
 
 model CompetitionEntry {

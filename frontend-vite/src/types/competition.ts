@@ -65,6 +65,14 @@ export type CompetitionEntryWorkoutSummary = {
   cardioSec: number
 }
 
+export type CompetitionChatMessage = {
+  id: string
+  userId: string
+  content: string
+  createdAt: string
+  user: CompetitionUserSummary
+}
+
 export type CompetitionFeedItem = {
   id: string
   day: string

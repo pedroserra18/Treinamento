@@ -24,6 +24,7 @@ import type {
   CompetitionUserSummary,
 } from '../types/competition'
 import { Skeleton } from '../components/common/Skeleton'
+import { CompetitionChat } from '../components/common/CompetitionChat'
 
 const TYPE_LABEL: Record<CompetitionType, string> = {
   TRAINING: 'Treino',
@@ -372,6 +373,11 @@ export function CompetitionDetailPage() {
       {/* Feed */}
       {(comp.status === 'ACTIVE' || comp.status === 'COMPLETED') && (
         <CompetitionFeed items={feed} onZoom={(item) => setPhotoZoom(item)} />
+      )}
+
+      {/* Chat — available once the room has at least started. */}
+      {(comp.status === 'ACTIVE' || comp.status === 'COMPLETED') && myMembership && !myMembership.abandonedAt && (
+        <CompetitionChat competitionId={comp.id} isAdmin={isAdmin} />
       )}
 
       {showFriendPicker && comp && (

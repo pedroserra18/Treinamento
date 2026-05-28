@@ -3,17 +3,21 @@ import { requireAuth } from "../../middlewares/auth.middleware";
 import { asyncHandler } from "../../shared/utils/async-handler";
 import { validateRequest } from "../../middlewares/validation.middleware";
 import {
+  chatParamsSchema,
   competitionParamsSchema,
   createCompetitionBodySchema,
   inviteMemberBodySchema,
   inviteTokenParamsSchema,
+  listChatQuerySchema,
   memberParamsSchema,
+  postChatBodySchema,
   postEntryBodySchema
 } from "./competition.schema";
 import {
   acceptInviteController,
   createCompetitionController,
   declineInviteController,
+  deleteChatController,
   demoteMemberController,
   getActiveCompetitionController,
   getCompetitionController,
@@ -23,9 +27,11 @@ import {
   inviteMemberController,
   kickMemberController,
   leaveCompetitionController,
+  listChatController,
   listInvitableFriendsController,
   listMyCompetitionsController,
   listMyInvitesController,
+  postChatController,
   postEntryController,
   promoteMemberController,
   startCompetitionController
@@ -121,6 +127,27 @@ router.post(
   requireAuth,
   validateRequest({ params: competitionParamsSchema }),
   asyncHandler(async (req, res) => startCompetitionController(req, res))
+);
+
+router.get(
+  "/competitions/:competitionId/chat",
+  requireAuth,
+  validateRequest({ params: competitionParamsSchema, query: listChatQuerySchema }),
+  asyncHandler(async (req, res) => listChatController(req, res))
+);
+
+router.post(
+  "/competitions/:competitionId/chat",
+  requireAuth,
+  validateRequest({ params: competitionParamsSchema, body: postChatBodySchema }),
+  asyncHandler(async (req, res) => postChatController(req, res))
+);
+
+router.delete(
+  "/competitions/:competitionId/chat/:messageId",
+  requireAuth,
+  validateRequest({ params: chatParamsSchema }),
+  asyncHandler(async (req, res) => deleteChatController(req, res))
 );
 
 router.get(
