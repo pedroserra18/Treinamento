@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/prisma";
 import { AppError } from "../../shared/errors/app-error";
 import { createNotification } from "../notification/notification.service";
+import { trackEvent } from "../../shared/services/event-log.service";
 import type {
   CreateCompetitionBody,
   InviteMemberBody,
@@ -681,6 +682,17 @@ export async function setMemberRole(
   }
 
   await prisma.competitionMember.update({ where: { id: target.id }, data: { role } });
+  // Audit trail — moderator actions are the ones we want to be able to
+  // explain after the fact ("why was X demoted?"). trackEvent swallows
+  // its own errors so a logging failure can't break the action.
+  void trackEvent({
+    userId,
+    category: "COMPETITION",
+    action: role === "ADMIN" ? "competition_member_promoted" : "competition_member_demoted",
+    resourceType: "competition",
+    resourceId: competitionId,
+    metadata: { targetUserId, previousRole: target.role, newRole: role }
+  });
   return { success: true };
 }
 
@@ -730,6 +742,15 @@ export async function kickMember(userId: string, competitionId: string, targetUs
   await prisma.competitionMember.update({
     where: { id: target.id },
     data: { abandonedAt: new Date(), role: "MEMBER" }
+  });
+
+  void trackEvent({
+    userId,
+    category: "COMPETITION",
+    action: "competition_member_kicked",
+    resourceType: "competition",
+    resourceId: competitionId,
+    metadata: { targetUserId }
   });
 
   return { success: true };
@@ -1267,6 +1288,16 @@ export async function deleteCompetitionEntry(userId: string, competitionId: stri
     await tx.competitionEntry.delete({ where: { id: entryId } });
     await recomputeMemberStats(tx, competitionId, entry.userId);
   });
+
+  void trackEvent({
+    userId,
+    category: "COMPETITION",
+    action: "competition_entry_deleted",
+    resourceType: "competition_entry",
+    resourceId: entryId,
+    metadata: { competitionId, ownerUserId: entry.userId }
+  });
+
   return { success: true };
 }
 
@@ -1367,7 +1398,8 @@ export async function deleteEntryComment(
 
   // Author can delete their own. Admins (active) of the room can delete
   // anyone's. Same rule as chat moderation.
-  if (comment.userId !== userId) {
+  const isAdminAction = comment.userId !== userId;
+  if (isAdminAction) {
     const me = await prisma.competitionMember.findUnique({
       where: { competitionId_userId: { competitionId, userId } },
       select: { role: true, abandonedAt: true }
@@ -1381,6 +1413,18 @@ export async function deleteEntryComment(
   }
 
   await prisma.competitionEntryComment.delete({ where: { id: commentId } });
+
+  if (isAdminAction) {
+    void trackEvent({
+      userId,
+      category: "COMPETITION",
+      action: "competition_comment_deleted",
+      resourceType: "competition_comment",
+      resourceId: commentId,
+      metadata: { competitionId, entryId, authorUserId: comment.userId }
+    });
+  }
+
   return { success: true };
 }
 
@@ -1479,7 +1523,8 @@ export async function deleteChatMessage(userId: string, competitionId: string, m
   }
 
   // Author can always delete their own. Admins can delete anyone's.
-  if (message.userId !== userId) {
+  const isAdminAction = message.userId !== userId;
+  if (isAdminAction) {
     const me = await prisma.competitionMember.findUnique({
       where: { competitionId_userId: { competitionId, userId } },
       select: { role: true, abandonedAt: true }
@@ -1493,6 +1538,18 @@ export async function deleteChatMessage(userId: string, competitionId: string, m
   }
 
   await prisma.competitionMessage.delete({ where: { id: messageId } });
+
+  if (isAdminAction) {
+    void trackEvent({
+      userId,
+      category: "COMPETITION",
+      action: "competition_chat_deleted",
+      resourceType: "competition_message",
+      resourceId: messageId,
+      metadata: { competitionId, authorUserId: message.userId }
+    });
+  }
+
   return { success: true };
 }
 

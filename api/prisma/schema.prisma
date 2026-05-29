@@ -120,6 +120,7 @@ enum EventCategory {
   ONBOARDING
   WORKOUT
   SYSTEM
+  COMPETITION
 }
 
 enum PostPrivacy {
