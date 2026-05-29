@@ -1571,19 +1571,28 @@ export async function deleteChatMessage(userId: string, competitionId: string, m
   return { success: true };
 }
 
-// Auto-finalize / auto-cancel pass: called on-read from list endpoints so
-// we don't need a real cron for now. Cancels lobbies past startDeadline
-// and completes active rooms past endsAt (computing the winner).
-async function reconcileExpiredCompetitions(userId: string): Promise<void> {
+// Auto-finalize / auto-cancel pass. Two callers:
+// - On-read mode (userId provided): used by list endpoints as a fallback
+//   so users don't see stale LOBBY/ACTIVE rows even when the cron is
+//   down. Restricted to the caller's memberships so it stays O(few) per
+//   request.
+// - Cron mode (userId = null): scans across all users. Run by the
+//   external cron job (e.g. Vercel Cron) every ~5 min so the on-read
+//   path becomes a no-op in steady state.
+async function reconcileExpiredCompetitions(userId: string | null = null): Promise<{
+  cancelledLobbies: number;
+  finalizedActive: number;
+}> {
   const now = new Date();
 
-  // Cancel expired lobbies that this user is in (cheap query — restricted
-  // to the caller's memberships so it stays O(few) per request).
+  const memberScope = userId ? { members: { some: { userId } } } : {};
+
+  // Cancel expired lobbies.
   const lobbiesToCancel = await prisma.competition.findMany({
     where: {
       status: "LOBBY",
       startDeadline: { lt: now },
-      members: { some: { userId } }
+      ...memberScope
     },
     select: { id: true }
   });
@@ -1599,13 +1608,17 @@ async function reconcileExpiredCompetitions(userId: string): Promise<void> {
     where: {
       status: "ACTIVE",
       endsAt: { lt: now },
-      members: { some: { userId } }
+      ...memberScope
     },
-    select: { id: true }
+    select: { id: true, members: { select: { userId: true }, take: 1 } }
   });
   for (const c of activeToFinalize) {
-    // Compute winner using same logic as getStandings.
-    const standings = await getStandings(userId, c.id);
+    // Use any member's id to satisfy the membership check inside
+    // getStandings — that's how we re-use the same winner-picking logic
+    // regardless of who triggered the reconcile.
+    const scopeUserId = userId ?? c.members[0]?.userId;
+    if (!scopeUserId) continue;
+    const standings = await getStandings(scopeUserId, c.id);
     const winner = standings.rows[0];
     await prisma.competition.update({
       where: { id: c.id },
@@ -1636,6 +1649,19 @@ async function reconcileExpiredCompetitions(userId: string): Promise<void> {
       }
     }
   }
+
+  return {
+    cancelledLobbies: lobbiesToCancel.length,
+    finalizedActive: activeToFinalize.length
+  };
+}
+
+// Exposed for the cron endpoint. Runs across all users.
+export async function runCompetitionReconcile(): Promise<{
+  cancelledLobbies: number;
+  finalizedActive: number;
+}> {
+  return reconcileExpiredCompetitions(null);
 }
 
 // Pending invites for the current user (in-app only, link-only invites

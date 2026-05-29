@@ -113,7 +113,14 @@ const envSchema = z.object({
   // degrades gracefully instead of crashing the API on boot.
   SUPABASE_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
   SUPABASE_SERVICE_ROLE_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
-  SUPABASE_STORAGE_BUCKET: z.preprocess(emptyToUndefined, z.string().optional())
+  SUPABASE_STORAGE_BUCKET: z.preprocess(emptyToUndefined, z.string().optional()),
+
+  // Shared secret expected on /cron/* endpoints. Vercel Cron sends it
+  // as `Authorization: Bearer <CRON_SECRET>` when set in the Vercel
+  // project env; we accept either that header or `x-cron-secret`. The
+  // endpoint refuses calls without a matching secret so the public URL
+  // can't be abused to repeatedly trigger expensive background work.
+  CRON_SECRET: z.preprocess(emptyToUndefined, z.string().min(32, "CRON_SECRET must have at least 32 chars").optional())
 });
 
 const parsedEnv = envSchema.safeParse(process.env);
@@ -196,6 +203,7 @@ export const env = {
   supabaseUrl: data.SUPABASE_URL,
   supabaseServiceRoleKey: data.SUPABASE_SERVICE_ROLE_KEY,
   supabaseStorageBucket: data.SUPABASE_STORAGE_BUCKET,
+  cronSecret: data.CRON_SECRET,
 
   logLevel: data.LOG_LEVEL,
   enforceHttps,
