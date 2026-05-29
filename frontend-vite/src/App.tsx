@@ -9,6 +9,7 @@ import { AdminRoute } from './components/auth/AdminRoute'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { Skeleton } from './components/common/Skeleton'
 import { queryClient } from './lib/queryClient'
+import { captureRenderError } from './lib/sentry'
 
 // Eager: pages a user is likely to hit before navigating away. Keeping them
 // in the main chunk avoids a flash of skeleton on the most common landings.
@@ -75,7 +76,10 @@ function AnimatedRoutes() {
       >
         {/* Per-route boundary keyed by pathname — when the user navigates
             away from a crashed page, the boundary resets automatically. */}
-        <ErrorBoundary key={location.pathname}>
+        <ErrorBoundary
+          key={location.pathname}
+          onError={(error, info) => captureRenderError(error, info.componentStack)}
+        >
           <Suspense fallback={<RouteFallback />}>
             <Routes location={location}>
               <Route path="/" element={<HomePage />} />
@@ -266,7 +270,7 @@ function AnimatedRoutes() {
 
 function App() {
   return (
-    <ErrorBoundary>
+    <ErrorBoundary onError={(error, info) => captureRenderError(error, info.componentStack)}>
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <BrowserRouter>

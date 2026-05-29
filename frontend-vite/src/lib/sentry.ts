@@ -44,6 +44,18 @@ export function initSentryFrontend(): void {
   });
 }
 
+// Captures a render-time error coming from the global ErrorBoundary.
+// componentStack is attached as a context so we get the React tree of
+// where the crash happened, not just the call site of throw().
+export function captureRenderError(error: Error, componentStack: string | null | undefined): void {
+  if (!dsn) return;
+  Sentry.withScope((scope) => {
+    scope.setTag("error_type", "render");
+    if (componentStack) scope.setContext("react", { componentStack });
+    Sentry.captureException(error);
+  });
+}
+
 export function setSentryUser(user: SentryUser | null): void {
   if (!dsn) {
     return;
