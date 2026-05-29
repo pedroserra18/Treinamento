@@ -29,6 +29,7 @@ import {
   useStartCompetition,
   useToggleReaction,
 } from '../hooks/useCompetition'
+import { useCompetitionRealtime } from '../hooks/useCompetitionRealtime'
 import type {
   CompetitionFeedItem,
   CompetitionReactionKind,
@@ -66,15 +67,27 @@ export function CompetitionDetailPage() {
   const compQuery = useCompetition(competitionId)
   const comp = compQuery.data ?? null
   const isActive = comp?.status === 'ACTIVE'
+
+  // Realtime subscription: when Supabase Realtime is configured, the
+  // hook invalidates the relevant caches as soon as something changes
+  // in Postgres. We dial polling back when realtime is enabled — there's
+  // no point in 12s polling if we already get pushes — but we don't
+  // disable polling entirely so that a temporary websocket drop still
+  // recovers within ~60s.
+  const { enabled: realtimeEnabled } = useCompetitionRealtime(
+    isActive ? competitionId : undefined,
+  )
+  const shouldPoll = isActive && !realtimeEnabled
+
   // Standings + feed only matter once the room has started. Polling is
   // declarative — TanStack Query handles the interval, focus pause, etc.
   const standingsQuery = useStandings(
     isActive || comp?.status === 'COMPLETED' ? competitionId : undefined,
-    { polling: isActive },
+    { polling: shouldPoll },
   )
   const feedQuery = useCompetitionFeed(
     isActive || comp?.status === 'COMPLETED' ? competitionId : undefined,
-    { polling: isActive },
+    { polling: shouldPoll },
   )
   const standings = standingsQuery.data ?? null
   // Infinite feed: flatten all loaded pages into one list. The reference
