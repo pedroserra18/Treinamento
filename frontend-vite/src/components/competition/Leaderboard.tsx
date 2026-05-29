@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Link2, Trophy } from 'lucide-react'
 import type { CompetitionStandings } from '../../types/competition'
+import { avatarThumbUrl } from '../../lib/imageTransform'
 import { formatDurationCompact } from './helpers'
 
 // Streak badge — reuses the home page's flame styles so the streak icon
@@ -131,7 +132,7 @@ export function Leaderboard({
               >
                 {row.user.avatarUrl ? (
                   <img
-                    src={row.user.avatarUrl}
+                    src={avatarThumbUrl(row.user.avatarUrl, 80)}
                     alt={row.user.name ?? row.user.handle}
                     className="h-9 w-9 shrink-0 rounded-full object-cover"
                   />

@@ -3,6 +3,7 @@ import type {
   CompetitionFeedItem,
   CompetitionReactionKind,
 } from '../../types/competition'
+import { avatarThumbUrl, feedTileThumbUrl } from '../../lib/imageTransform'
 import { ReactionsBar } from './ReactionsBar'
 import { REACTION_KINDS } from './reactionKinds'
 
@@ -62,7 +63,7 @@ function FeedGridTile({
         aria-label={`Prova de ${displayName} em ${dayShort}`}
       >
         <img
-          src={item.photoUrl}
+          src={feedTileThumbUrl(item.photoUrl)}
           alt={`prova ${displayName}`}
           className="absolute inset-0 h-full w-full object-cover transition-transform group-hover:scale-105"
           loading="lazy"
@@ -96,7 +97,7 @@ function FeedGridTile({
         >
           <div className="flex items-center gap-1.5">
             {item.user.avatarUrl ? (
-              <img src={item.user.avatarUrl} alt="" className="h-5 w-5 rounded-full object-cover ring-1 ring-white/30" />
+              <img src={avatarThumbUrl(item.user.avatarUrl, 48)} alt="" className="h-5 w-5 rounded-full object-cover ring-1 ring-white/30" />
             ) : (
               <div className="grid h-5 w-5 place-items-center rounded-full bg-white/20 text-[9px] font-bold text-white">
                 {displayName.slice(0, 1).toUpperCase()}

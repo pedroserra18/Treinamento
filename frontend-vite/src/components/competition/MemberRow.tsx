@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Crown, MoreVertical, UserMinus } from 'lucide-react'
 import type { CompetitionMember as Member } from '../../types/competition'
+import { avatarThumbUrl } from '../../lib/imageTransform'
 
 export function MemberRow({
   member, isOwner, canModerate, isMe, menuOpen, busy, onOpenMenu, onPromote, onDemote, onKick,
@@ -36,7 +37,7 @@ export function MemberRow({
       >
         {member.user.avatarUrl ? (
           <img
-            src={member.user.avatarUrl}
+            src={avatarThumbUrl(member.user.avatarUrl, 96)}
             alt={displayName}
             className={`h-10 w-10 shrink-0 rounded-full object-cover ${member.abandonedAt ? 'opacity-40 grayscale' : ''}`}
           />

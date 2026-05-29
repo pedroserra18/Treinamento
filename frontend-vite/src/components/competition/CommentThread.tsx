@@ -5,6 +5,7 @@ import {
   useEntryComments,
   usePostEntryComment,
 } from '../../hooks/useCompetition'
+import { avatarThumbUrl } from '../../lib/imageTransform'
 
 // Thread of comments below a proof. Loads on mount via TanStack Query.
 // Authors / admins can delete; mutations patch the feed cache so the
@@ -70,7 +71,7 @@ export function CommentThread({
           return (
             <div key={c.id} className="flex gap-2 rounded-lg bg-white/5 p-2">
               {c.user.avatarUrl ? (
-                <img src={c.user.avatarUrl} alt="" className="h-6 w-6 rounded-full object-cover" />
+                <img src={avatarThumbUrl(c.user.avatarUrl, 64)} alt="" className="h-6 w-6 rounded-full object-cover" />
               ) : (
                 <div className="grid h-6 w-6 place-items-center rounded-full bg-white/15 text-[10px] font-bold text-white">
                   {name.slice(0, 1).toUpperCase()}

@@ -5,6 +5,7 @@ import {
   useInvitableFriends,
   useInviteMember,
 } from '../../hooks/useCompetition'
+import { avatarThumbUrl } from '../../lib/imageTransform'
 
 export function FriendPickerModal({
   competitionId, onClose, onInvited,
@@ -117,7 +118,7 @@ export function FriendPickerModal({
                   >
                     {f.avatarUrl ? (
                       <img
-                        src={f.avatarUrl}
+                        src={avatarThumbUrl(f.avatarUrl, 80)}
                         alt={f.name ?? f.handle}
                         className="h-9 w-9 shrink-0 rounded-full object-cover"
                       />
