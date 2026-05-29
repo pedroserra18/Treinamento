@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { X as XIcon } from 'lucide-react'
-import { useAuth } from '../../hooks/useAuth'
 import {
-  inviteMember,
-  listInvitableFriends,
-} from '../../services/competitionService'
-import type { CompetitionUserSummary } from '../../types/competition'
+  useInvitableFriends,
+  useInviteMember,
+} from '../../hooks/useCompetition'
 
 export function FriendPickerModal({
   competitionId, onClose, onInvited,
@@ -15,12 +13,12 @@ export function FriendPickerModal({
   onClose: () => void
   onInvited: () => void
 }) {
-  const { authorizedFetch } = useAuth()
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [friends, setFriends] = useState<CompetitionUserSummary[]>([])
   const [inviting, setInviting] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+
+  const query = useInvitableFriends(competitionId)
+  const inviteMut = useInviteMember(competitionId)
 
   useEffect(() => {
     const prev = document.body.style.overflow
@@ -30,27 +28,8 @@ export function FriendPickerModal({
     }
   }, [])
 
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    setError(null)
-    listInvitableFriends(authorizedFetch, competitionId)
-      .then((data) => {
-        if (cancelled) return
-        setFriends(data.items)
-      })
-      .catch((err) => {
-        if (cancelled) return
-        setError(err instanceof Error ? err.message : 'Falha ao carregar amigos')
-      })
-      .finally(() => {
-        if (cancelled) return
-        setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [authorizedFetch, competitionId])
+  const friends = useMemo(() => query.data?.items ?? [], [query.data])
+  const loading = query.isLoading
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -64,8 +43,7 @@ export function FriendPickerModal({
     setInviting(friendId)
     setError(null)
     try {
-      await inviteMember(authorizedFetch, competitionId, { invitedUserId: friendId })
-      setFriends((curr) => curr.filter((f) => f.id !== friendId))
+      await inviteMut.mutateAsync({ invitedUserId: friendId })
       onInvited()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao convidar')

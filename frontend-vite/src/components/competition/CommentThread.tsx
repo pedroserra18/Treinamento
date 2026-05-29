@@ -1,89 +1,52 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { MessageCircle, Send, Trash2 } from 'lucide-react'
-import { useAuth } from '../../hooks/useAuth'
 import {
-  deleteEntryComment,
-  listEntryComments,
-  postEntryComment,
-} from '../../services/competitionService'
-import type { CompetitionEntryComment } from '../../types/competition'
+  useDeleteEntryComment,
+  useEntryComments,
+  usePostEntryComment,
+} from '../../hooks/useCompetition'
 
-// Thread of comments below a proof. Loads on mount, posts inline, and
-// lets authors / admins delete. Parent supplies `onChange` so it can
-// keep the commentsCount on the grid tile in sync without a full feed
-// refetch.
+// Thread of comments below a proof. Loads on mount via TanStack Query.
+// Authors / admins can delete; mutations patch the feed cache so the
+// grid tile count stays in sync without an extra refetch.
 export function CommentThread({
-  competitionId, entryId, currentUserId, canModerate, onChange,
+  competitionId, entryId, currentUserId, canModerate,
 }: {
   competitionId: string
   entryId: string
   currentUserId: string | undefined
   canModerate: boolean
-  onChange: (delta: number) => void
 }) {
-  const { authorizedFetch } = useAuth()
-  const [comments, setComments] = useState<CompetitionEntryComment[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
-  const [sending, setSending] = useState(false)
-  // Bumped when entryId changes so an in-flight load for a previous modal
-  // can't overwrite the comments of the current one.
-  const reqIdRef = useRef(0)
+  const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    let cancelled = false
-    const myReq = ++reqIdRef.current
-    setLoading(true)
-    setError(null)
-    setComments([])
-    listEntryComments(authorizedFetch, competitionId, entryId)
-      .then((res) => {
-        if (cancelled || reqIdRef.current !== myReq) return
-        setComments(res.items)
-      })
-      .catch((err) => {
-        if (cancelled || reqIdRef.current !== myReq) return
-        setError(err instanceof Error ? err.message : 'Falha ao carregar comentários')
-      })
-      .finally(() => {
-        if (cancelled || reqIdRef.current !== myReq) return
-        setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [authorizedFetch, competitionId, entryId])
+  const query = useEntryComments(competitionId, entryId)
+  const postMut = usePostEntryComment(competitionId, entryId)
+  const deleteMut = useDeleteEntryComment(competitionId, entryId)
+
+  const comments = query.data?.items ?? []
+  const loading = query.isLoading
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     e.stopPropagation()
     const content = draft.trim()
-    if (!content || sending) return
-    setSending(true)
+    if (!content || postMut.isPending) return
     setError(null)
     try {
-      const created = await postEntryComment(authorizedFetch, competitionId, entryId, content)
-      setComments((prev) => [...prev, created])
+      await postMut.mutateAsync(content)
       setDraft('')
-      onChange(+1)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao comentar')
-    } finally {
-      setSending(false)
     }
   }
 
   const remove = async (commentId: string) => {
     if (!window.confirm('Apagar esse comentário?')) return
-    const previous = comments
-    setComments((prev) => prev.filter((c) => c.id !== commentId))
-    onChange(-1)
+    setError(null)
     try {
-      await deleteEntryComment(authorizedFetch, competitionId, entryId, commentId)
+      await deleteMut.mutateAsync(commentId)
     } catch (err) {
-      setComments(previous)
-      onChange(+1)
       setError(err instanceof Error ? err.message : 'Falha ao apagar comentário')
     }
   }
@@ -145,7 +108,7 @@ export function CommentThread({
         />
         <button
           type="submit"
-          disabled={!draft.trim() || sending}
+          disabled={!draft.trim() || postMut.isPending}
           className="grid h-7 w-7 place-items-center rounded-full bg-[var(--brand)] text-white disabled:opacity-40"
           aria-label="Enviar comentário"
         >

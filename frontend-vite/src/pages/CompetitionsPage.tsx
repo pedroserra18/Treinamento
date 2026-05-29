@@ -1,18 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowLeft, Trophy, Plus, Users, Clock, Sparkles } from 'lucide-react'
-import { useAuth } from '../hooks/useAuth'
 import {
-  createCompetition,
-  declineInvite,
-  acceptInvite,
-  listMyCompetitions,
-  listMyInvites,
-} from '../services/competitionService'
+  useAcceptInvite,
+  useCreateCompetition,
+  useDeclineInvite,
+  useMyCompetitions,
+  useMyInvites,
+} from '../hooks/useCompetition'
 import type {
   Competition,
-  CompetitionInvitePreview,
   CompetitionType,
 } from '../types/competition'
 import { Skeleton } from '../components/common/Skeleton'
@@ -39,34 +37,20 @@ function formatRelativeFromNow(iso: string): string {
 }
 
 export function CompetitionsPage() {
-  const { authorizedFetch } = useAuth()
   const navigate = useNavigate()
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [competitions, setCompetitions] = useState<Competition[]>([])
-  const [invites, setInvites] = useState<CompetitionInvitePreview[]>([])
   const [showCreate, setShowCreate] = useState(false)
 
-  const loadAll = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const [{ items: comps }, { items: invs }] = await Promise.all([
-        listMyCompetitions(authorizedFetch),
-        listMyInvites(authorizedFetch),
-      ])
-      setCompetitions(comps)
-      setInvites(invs)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao carregar')
-    } finally {
-      setLoading(false)
-    }
-  }, [authorizedFetch])
+  const compsQuery = useMyCompetitions()
+  const invitesQuery = useMyInvites()
+  const acceptMut = useAcceptInvite()
+  const declineMut = useDeclineInvite()
 
-  useEffect(() => {
-    void loadAll()
-  }, [loadAll])
+  const loading = compsQuery.isLoading || invitesQuery.isLoading
+  // Memoize the unwraps so downstream useMemo deps stay stable across
+  // renders where the underlying query data hasn't changed.
+  const competitions = useMemo(() => compsQuery.data?.items ?? [], [compsQuery.data])
+  const invites = useMemo(() => invitesQuery.data?.items ?? [], [invitesQuery.data])
 
   const activeCompetition = useMemo(
     () => competitions.find((c) => c.status === 'LOBBY' || c.status === 'ACTIVE') ?? null,
@@ -79,8 +63,7 @@ export function CompetitionsPage() {
 
   const handleAcceptInvite = async (token: string) => {
     try {
-      await acceptInvite(authorizedFetch, token)
-      await loadAll()
+      await acceptMut.mutateAsync(token)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao aceitar convite')
     }
@@ -88,8 +71,7 @@ export function CompetitionsPage() {
 
   const handleDeclineInvite = async (token: string) => {
     try {
-      await declineInvite(authorizedFetch, token)
-      await loadAll()
+      await declineMut.mutateAsync(token)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao recusar convite')
     }
@@ -243,9 +225,8 @@ export function CompetitionsPage() {
       {showCreate && (
         <CreateCompetitionModal
           onClose={() => setShowCreate(false)}
-          onCreated={async (comp) => {
+          onCreated={(comp) => {
             setShowCreate(false)
-            setCompetitions((curr) => [comp, ...curr])
             navigate(`/desafios/${comp.id}`)
           }}
         />
@@ -330,14 +311,13 @@ function CreateCompetitionModal({
   onClose, onCreated,
 }: {
   onClose: () => void
-  onCreated: (comp: Competition) => void | Promise<void>
+  onCreated: (comp: Competition) => void
 }) {
-  const { authorizedFetch } = useAuth()
   const [name, setName] = useState('')
   const [type, setType] = useState<CompetitionType>('BOTH')
   const [durationDays, setDurationDays] = useState<30 | 60 | 90>(30)
-  const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const createMut = useCreateCompetition()
 
   // Lock body scroll while the modal is open — same pattern as the rest
   // of the app's modals.
@@ -350,21 +330,19 @@ function CreateCompetitionModal({
   }, [])
 
   const handleSubmit = async () => {
-    setSaving(true)
     setErr(null)
     try {
-      const comp = await createCompetition(authorizedFetch, {
+      const comp = await createMut.mutateAsync({
         name: name.trim() || undefined,
         type,
         durationDays,
       })
-      await onCreated(comp)
+      onCreated(comp)
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Falha ao criar')
-    } finally {
-      setSaving(false)
     }
   }
+  const saving = createMut.isPending
 
   return (
     <div

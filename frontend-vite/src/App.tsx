@@ -1,12 +1,14 @@
 import { lazy, Suspense } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { QueryClientProvider } from '@tanstack/react-query'
 import { ErrorBoundary } from './components/common/ErrorBoundary'
 import { AuthProvider } from './context/AuthContext'
 import { AppShell } from './components/layout/AppShell'
 import { AdminRoute } from './components/auth/AdminRoute'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { Skeleton } from './components/common/Skeleton'
+import { queryClient } from './lib/queryClient'
 
 // Eager: pages a user is likely to hit before navigating away. Keeping them
 // in the main chunk avoids a flash of skeleton on the most common landings.
@@ -265,13 +267,15 @@ function AnimatedRoutes() {
 function App() {
   return (
     <ErrorBoundary>
-      <AuthProvider>
-        <BrowserRouter>
-          <AppShell>
-            <AnimatedRoutes />
-          </AppShell>
-        </BrowserRouter>
-      </AuthProvider>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <BrowserRouter>
+            <AppShell>
+              <AnimatedRoutes />
+            </AppShell>
+          </BrowserRouter>
+        </AuthProvider>
+      </QueryClientProvider>
     </ErrorBoundary>
   )
 }

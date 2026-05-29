@@ -1,10 +1,15 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Trophy, Users, Clock } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
-import { acceptInvite, declineInvite, getInvitePreview, getMyActiveCompetition } from '../services/competitionService'
-import type { Competition, CompetitionInvitePreview, CompetitionType } from '../types/competition'
+import {
+  useAcceptInvite,
+  useDeclineInvite,
+  useInvitePreview,
+  useMyActiveCompetition,
+} from '../hooks/useCompetition'
+import type { CompetitionType } from '../types/competition'
 import { Skeleton } from '../components/common/Skeleton'
 
 const TYPE_DESCRIPTION: Record<CompetitionType, string> = {
@@ -15,55 +20,34 @@ const TYPE_DESCRIPTION: Record<CompetitionType, string> = {
 
 export function CompetitionInvitePage() {
   const { token = '' } = useParams<{ token: string }>()
-  const { authorizedFetch, isAuthenticated } = useAuth()
+  const { isAuthenticated } = useAuth()
   const navigate = useNavigate()
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [preview, setPreview] = useState<CompetitionInvitePreview | null>(null)
-  const [activeCompetition, setActiveCompetition] = useState<Competition | null>(null)
-  const [busy, setBusy] = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      // Pull preview + current active comp in parallel so the page can
-      // tell the user up-front "you can't accept yet" without a wasted
-      // attempt that just bounces off the backend.
-      const [data, comp] = await Promise.all([
-        getInvitePreview(authorizedFetch, token),
-        isAuthenticated
-          ? getMyActiveCompetition(authorizedFetch).catch(() => null)
-          : Promise.resolve(null),
-      ])
-      setPreview(data)
-      setActiveCompetition(comp)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Convite não encontrado')
-    } finally {
-      setLoading(false)
-    }
-  }, [authorizedFetch, token, isAuthenticated])
+  const previewQuery = useInvitePreview(token)
+  // Only ask "do I have an active comp?" when the user is logged in —
+  // this drives the conflict warning before they click accept.
+  const activeQuery = useMyActiveCompetition()
+  const acceptMut = useAcceptInvite()
+  const declineMut = useDeclineInvite()
 
-  useEffect(() => {
-    if (token) void load()
-  }, [token, load])
+  const preview = previewQuery.data ?? null
+  const activeCompetition = isAuthenticated ? activeQuery.data ?? null : null
+  const loading = previewQuery.isLoading
+  const busy = acceptMut.isPending || declineMut.isPending
 
   const handleAccept = async () => {
     if (!isAuthenticated) {
-      // Bounce through login, come back here.
       navigate(`/login?next=${encodeURIComponent(`/desafios/convite/${token}`)}`)
       return
     }
-    setBusy(true)
     setError(null)
     try {
-      await acceptInvite(authorizedFetch, token)
+      await acceptMut.mutateAsync(token)
       if (preview) navigate(`/desafios/${preview.competition.id}`)
       else navigate('/desafios')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao aceitar')
-      setBusy(false)
     }
   }
 
@@ -72,15 +56,15 @@ export function CompetitionInvitePage() {
       navigate('/desafios')
       return
     }
-    setBusy(true)
     try {
-      await declineInvite(authorizedFetch, token)
+      await declineMut.mutateAsync(token)
       navigate('/desafios')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao recusar')
-      setBusy(false)
     }
   }
+
+  const previewError = previewQuery.error instanceof Error ? previewQuery.error.message : null
 
   if (loading) {
     return (
@@ -95,12 +79,12 @@ export function CompetitionInvitePage() {
     )
   }
 
-  if (error || !preview) {
+  if (previewError || !preview) {
     return (
       <section className="mx-auto max-w-md space-y-4 px-4 py-12 text-center">
         <Trophy size={48} className="mx-auto text-[var(--muted)]" />
         <h1 className="text-xl font-bold text-[var(--text)]">Convite inválido</h1>
-        <p className="text-sm text-[var(--muted)]">{error ?? 'Esse link expirou ou foi cancelado.'}</p>
+        <p className="text-sm text-[var(--muted)]">{previewError ?? 'Esse link expirou ou foi cancelado.'}</p>
         <Link
           to="/desafios"
           className="inline-flex items-center justify-center rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white hover:bg-[var(--brand-strong)]"

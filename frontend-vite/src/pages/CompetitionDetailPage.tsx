@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   Activity,
   ArrowLeft,
@@ -15,23 +16,22 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import {
-  deleteCompetitionEntry,
-  demoteMember,
-  getCompetition,
-  getCompetitionFeed,
-  getStandings,
-  inviteMember,
-  kickMember,
-  leaveCompetition,
-  promoteMember,
-  startCompetition,
-  toggleReaction,
-} from '../services/competitionService'
+  competitionKeys,
+  useCompetition,
+  useCompetitionFeed,
+  useDeleteEntry,
+  useDemoteMember,
+  useInviteMember,
+  useKickMember,
+  useLeaveCompetition,
+  usePromoteMember,
+  useStandings,
+  useStartCompetition,
+  useToggleReaction,
+} from '../hooks/useCompetition'
 import type {
-  Competition,
   CompetitionFeedItem,
   CompetitionReactionKind,
-  CompetitionStandings,
   CompetitionType,
 } from '../types/competition'
 import { Skeleton } from '../components/common/Skeleton'
@@ -58,62 +58,47 @@ const TYPE_LABEL: Record<CompetitionType, string> = {
 
 export function CompetitionDetailPage() {
   const { competitionId = '' } = useParams<{ competitionId: string }>()
-  const { authorizedFetch, user } = useAuth()
+  const { user } = useAuth()
   const navigate = useNavigate()
-  const [loading, setLoading] = useState(true)
+  const qc = useQueryClient()
+
+  // Server state — all data fetching goes through TanStack Query.
+  const compQuery = useCompetition(competitionId)
+  const comp = compQuery.data ?? null
+  const isActive = comp?.status === 'ACTIVE'
+  // Standings + feed only matter once the room has started. Polling is
+  // declarative — TanStack Query handles the interval, focus pause, etc.
+  const standingsQuery = useStandings(
+    isActive || comp?.status === 'COMPLETED' ? competitionId : undefined,
+    { polling: isActive },
+  )
+  const feedQuery = useCompetitionFeed(
+    isActive || comp?.status === 'COMPLETED' ? competitionId : undefined,
+    { polling: isActive },
+  )
+  const standings = standingsQuery.data ?? null
+  // Stabilize the array reference so memos downstream (rankDeltas, liveZoom)
+  // don't recompute every render when the feed is unchanged.
+  const feed = useMemo(() => feedQuery.data?.items ?? [], [feedQuery.data])
+
+  // Mutations — created at hook level so they bind to the current
+  // competitionId without us threading callbacks everywhere.
+  const inviteMut = useInviteMember(competitionId)
+  const startMut = useStartCompetition(competitionId)
+  const leaveMut = useLeaveCompetition(competitionId)
+  const promoteMut = usePromoteMember(competitionId)
+  const demoteMut = useDemoteMember(competitionId)
+  const kickMut = useKickMember(competitionId)
+  const reactionMut = useToggleReaction(competitionId)
+  const deleteEntryMut = useDeleteEntry(competitionId)
+
+  // Local UI state.
   const [error, setError] = useState<string | null>(null)
-  const [comp, setComp] = useState<Competition | null>(null)
-  const [standings, setStandings] = useState<CompetitionStandings | null>(null)
-  const [feed, setFeed] = useState<CompetitionFeedItem[]>([])
   const [copied, setCopied] = useState(false)
-  const [starting, setStarting] = useState(false)
   const [photoZoom, setPhotoZoom] = useState<CompetitionFeedItem | null>(null)
   const [showFriendPicker, setShowFriendPicker] = useState(false)
   const [memberMenuFor, setMemberMenuFor] = useState<string | null>(null)
-  const [memberBusy, setMemberBusy] = useState(false)
   const [mobileTab, setMobileTab] = useState<CompetitionTab>('geral')
-
-  // Re-fetches the volatile parts of the page (leaderboard + feed) without
-  // touching the competition / members / countdown. Used both on initial
-  // load and by the polling effect below so the page feels live.
-  const refreshDynamic = useCallback(async (status: Competition['status']) => {
-    if (status !== 'ACTIVE' && status !== 'COMPLETED') return
-    const [s, f] = await Promise.all([
-      getStandings(authorizedFetch, competitionId).catch(() => null),
-      getCompetitionFeed(authorizedFetch, competitionId).catch(() => ({ items: [] })),
-    ])
-    if (s) setStandings(s)
-    setFeed(f.items)
-  }, [authorizedFetch, competitionId])
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const data = await getCompetition(authorizedFetch, competitionId)
-      setComp(data)
-      await refreshDynamic(data.status)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao carregar competição')
-    } finally {
-      setLoading(false)
-    }
-  }, [authorizedFetch, competitionId, refreshDynamic])
-
-  useEffect(() => {
-    if (competitionId) void load()
-  }, [competitionId, load])
-
-  // Polls the leaderboard + feed every 12s so members see new proofs
-  // arrive without a full page refresh. Stops when the competition is
-  // completed or cancelled.
-  useEffect(() => {
-    if (!comp || comp.status !== 'ACTIVE') return
-    const id = window.setInterval(() => {
-      void refreshDynamic(comp.status)
-    }, 12_000)
-    return () => window.clearInterval(id)
-  }, [comp, refreshDynamic])
 
   const myMembership = useMemo(
     () => comp?.members.find((m) => m.userId === user?.id) ?? null,
@@ -139,12 +124,8 @@ export function CompetitionDetailPage() {
         map.set(row.userId, prevRank - currentRank)
       }
     })
-    return map
-  }, [standings, competitionId])
-
-  // Persist the current standings as the snapshot for next load.
-  useEffect(() => {
-    if (!standings || !competitionId) return
+    // Persist the new snapshot for next visit. Doing it in the same memo
+    // avoids needing a useEffect.
     const snapshot: Record<string, number> = {}
     standings.rows.forEach((row, idx) => {
       snapshot[row.userId] = idx + 1
@@ -152,8 +133,9 @@ export function CompetitionDetailPage() {
     try {
       window.localStorage.setItem(`acad:comp-rank-snapshot:${competitionId}`, JSON.stringify(snapshot))
     } catch {
-      // localStorage quota / private mode — non-blocking
+      // quota / private mode — non-blocking
     }
+    return map
   }, [standings, competitionId])
 
   const isAdmin = myMembership?.role === 'ADMIN'
@@ -197,7 +179,7 @@ export function CompetitionDetailPage() {
       : 'Tem certeza que quer sair do desafio?'
     if (!window.confirm(msg)) return
     try {
-      await leaveCompetition(authorizedFetch, comp.id)
+      await leaveMut.mutateAsync()
       navigate('/desafios')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao sair')
@@ -205,131 +187,107 @@ export function CompetitionDetailPage() {
   }
 
   const handlePromote = async (memberId: string) => {
-    if (!comp) return
-    setMemberBusy(true)
     setError(null)
     try {
-      await promoteMember(authorizedFetch, comp.id, memberId)
-      await load()
+      await promoteMut.mutateAsync(memberId)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao promover')
     } finally {
-      setMemberBusy(false)
       setMemberMenuFor(null)
     }
   }
 
   const handleDemote = async (memberId: string) => {
-    if (!comp) return
-    setMemberBusy(true)
     setError(null)
     try {
-      await demoteMember(authorizedFetch, comp.id, memberId)
-      await load()
+      await demoteMut.mutateAsync(memberId)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao rebaixar')
     } finally {
-      setMemberBusy(false)
       setMemberMenuFor(null)
     }
   }
 
   const handleKick = async (memberId: string, displayName: string) => {
-    if (!comp) return
     if (!window.confirm(`Remover ${displayName} do desafio?`)) {
       setMemberMenuFor(null)
       return
     }
-    setMemberBusy(true)
     setError(null)
     try {
-      await kickMember(authorizedFetch, comp.id, memberId)
-      await load()
+      await kickMut.mutateAsync(memberId)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao remover membro')
     } finally {
-      setMemberBusy(false)
       setMemberMenuFor(null)
     }
   }
 
-  // Optimistically toggle the reaction so the UI feels instant.
+  // Optimistic toggle: patch the feed cache directly so the UI feels
+  // instant. The mutation hits the API; the next poll reconciles any drift.
   const handleReact = async (entryId: string, kind: CompetitionReactionKind) => {
-    setFeed((curr) =>
-      curr.map((item) => {
-        if (item.id !== entryId) return item
-        const existing = item.reactions.find((r) => r.kind === kind)
-        if (existing) {
-          if (existing.mine) {
-            const nextCount = existing.count - 1
-            const filteredReactions = nextCount > 0
-              ? item.reactions.map((r) => (r.kind === kind ? { ...r, count: nextCount, mine: false } : r))
-              : item.reactions.filter((r) => r.kind !== kind)
-            return { ...item, reactions: filteredReactions }
+    qc.setQueryData<{ items: CompetitionFeedItem[] }>(
+      competitionKeys.feed(competitionId),
+      (data) => data
+        ? {
+            items: data.items.map((item) => {
+              if (item.id !== entryId) return item
+              const existing = item.reactions.find((r) => r.kind === kind)
+              if (existing) {
+                if (existing.mine) {
+                  const nextCount = existing.count - 1
+                  const filtered = nextCount > 0
+                    ? item.reactions.map((r) => r.kind === kind ? { ...r, count: nextCount, mine: false } : r)
+                    : item.reactions.filter((r) => r.kind !== kind)
+                  return { ...item, reactions: filtered }
+                }
+                return {
+                  ...item,
+                  reactions: item.reactions.map((r) =>
+                    r.kind === kind ? { ...r, count: r.count + 1, mine: true } : r,
+                  ),
+                }
+              }
+              return { ...item, reactions: [...item.reactions, { kind, count: 1, mine: true }] }
+            }),
           }
-          return {
-            ...item,
-            reactions: item.reactions.map((r) =>
-              r.kind === kind ? { ...r, count: r.count + 1, mine: true } : r,
-            ),
-          }
-        }
-        return { ...item, reactions: [...item.reactions, { kind, count: 1, mine: true }] }
-      }),
+        : data,
     )
     try {
-      await toggleReaction(authorizedFetch, competitionId, entryId, kind)
+      await reactionMut.mutateAsync({ entryId, kind })
     } catch (err) {
-      void refreshDynamic(comp?.status ?? 'ACTIVE')
+      void qc.invalidateQueries({ queryKey: competitionKeys.feed(competitionId) })
       setError(err instanceof Error ? err.message : 'Falha ao reagir')
     }
   }
 
-  // Admin-only proof removal from inside the zoom modal.
   const handleDeleteEntry = async (entry: CompetitionFeedItem) => {
-    if (!comp) return
     const name = entry.user.name ?? `@${entry.user.handle}`
     if (!window.confirm(`Apagar a prova de ${name}? Essa ação não pode ser desfeita.`)) return
-    setFeed((curr) => curr.filter((it) => it.id !== entry.id))
+    // Optimistic remove from cache so the user sees instant feedback.
+    qc.setQueryData<{ items: CompetitionFeedItem[] }>(
+      competitionKeys.feed(competitionId),
+      (data) => data ? { items: data.items.filter((it) => it.id !== entry.id) } : data,
+    )
     setPhotoZoom(null)
     try {
-      await deleteCompetitionEntry(authorizedFetch, comp.id, entry.id)
-      void refreshDynamic(comp.status)
+      await deleteEntryMut.mutateAsync(entry.id)
+      // Mutation already invalidates feed + standings on success.
     } catch (err) {
-      void load()
+      // Roll back by refetching.
+      void qc.invalidateQueries({ queryKey: competitionKeys.feed(competitionId) })
       setError(err instanceof Error ? err.message : 'Falha ao remover prova')
     }
   }
 
-  // Keep the grid badge in sync with the comment thread without refetching.
-  const adjustCommentsCount = useCallback((entryId: string, delta: number) => {
-    setFeed((curr) =>
-      curr.map((item) =>
-        item.id === entryId
-          ? { ...item, commentsCount: Math.max(0, item.commentsCount + delta) }
-          : item,
-      ),
-    )
-    setPhotoZoom((curr) =>
-      curr && curr.id === entryId
-        ? { ...curr, commentsCount: Math.max(0, curr.commentsCount + delta) }
-        : curr,
-    )
-  }, [])
-
   const handleStart = async () => {
     if (!comp) return
     if (!window.confirm('Iniciar o desafio agora? Depois disso a categoria e a duração ficam travadas.')) return
-    setStarting(true)
     setError(null)
     try {
-      const updated = await startCompetition(authorizedFetch, comp.id)
-      setComp(updated)
-      await load()
+      await startMut.mutateAsync()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao iniciar')
-    } finally {
-      setStarting(false)
     }
   }
 
@@ -337,7 +295,7 @@ export function CompetitionDetailPage() {
   const handleNewLink = async () => {
     if (!comp) return
     try {
-      const invite = await inviteMember(authorizedFetch, comp.id, {})
+      const invite = await inviteMut.mutateAsync({})
       const url = `${window.location.origin}/desafios/convite/${invite.token}`
       await navigator.clipboard.writeText(url).catch(() => {
         window.prompt('Copie o link:', url)
@@ -349,7 +307,15 @@ export function CompetitionDetailPage() {
     }
   }
 
-  if (loading) {
+  // Sync photoZoom with the latest feed data — if a poll updates reactions
+  // or comment counts, the open modal should reflect that without us
+  // copying everything around manually.
+  const liveZoom = useMemo(() => {
+    if (!photoZoom) return null
+    return feed.find((it) => it.id === photoZoom.id) ?? photoZoom
+  }, [feed, photoZoom])
+
+  if (compQuery.isLoading) {
     return (
       <section className="space-y-3">
         <Skeleton className="h-4 w-32" />
@@ -364,7 +330,7 @@ export function CompetitionDetailPage() {
     )
   }
 
-  if (error || !comp) {
+  if (compQuery.error || !comp) {
     return (
       <section className="space-y-3">
         <Link
@@ -375,7 +341,7 @@ export function CompetitionDetailPage() {
           Voltar para desafios
         </Link>
         <p className="rounded-xl border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-500">
-          {error ?? 'Competição não encontrada'}
+          {compQuery.error instanceof Error ? compQuery.error.message : 'Competição não encontrada'}
         </p>
       </section>
     )
@@ -390,6 +356,14 @@ export function CompetitionDetailPage() {
         <ArrowLeft size={11} />
         Voltar para desafios
       </Link>
+
+      {/* Inline error banner for mutation failures — query errors render
+          above via the fallback state. */}
+      {error && (
+        <p className="rounded-xl border border-red-500/30 bg-red-500/5 px-3 py-2 text-sm text-red-500">
+          {error}
+        </p>
+      )}
 
       <motion.header
         initial={{ opacity: 0, y: 8 }}
@@ -415,8 +389,6 @@ export function CompetitionDetailPage() {
         </div>
       </motion.header>
 
-      {/* Mobile tab navigation — only shown once the competition has
-          started, so the lobby flow stays as a single scrolling page. */}
       {(comp.status === 'ACTIVE' || comp.status === 'COMPLETED') && (
         <MobileTabBar value={mobileTab} onChange={setMobileTab} />
       )}
@@ -437,7 +409,7 @@ export function CompetitionDetailPage() {
         <LobbyCountdown
           startDeadline={comp.startDeadline}
           isAdmin={isAdmin}
-          starting={starting}
+          starting={startMut.isPending}
           enoughMembers={comp.members.filter((m) => !m.abandonedAt).length >= 2}
           onStart={() => void handleStart()}
         />
@@ -514,7 +486,7 @@ export function CompetitionDetailPage() {
               canModerate={isAdmin && (comp.status === 'LOBBY' || comp.status === 'ACTIVE')}
               isMe={m.userId === user?.id}
               menuOpen={memberMenuFor === m.userId}
-              busy={memberBusy}
+              busy={promoteMut.isPending || demoteMut.isPending || kickMut.isPending}
               onOpenMenu={() => setMemberMenuFor((curr) => (curr === m.userId ? null : m.userId))}
               onPromote={() => void handlePromote(m.userId)}
               onDemote={() => void handleDemote(m.userId)}
@@ -564,21 +536,19 @@ export function CompetitionDetailPage() {
         </div>
       )}
 
-      {showFriendPicker && comp && (
+      {showFriendPicker && (
         <FriendPickerModal
           competitionId={comp.id}
           onClose={() => setShowFriendPicker(false)}
-          onInvited={() => {
-            setShowFriendPicker(false)
-            void load()
-          }}
+          onInvited={() => setShowFriendPicker(false)}
         />
       )}
 
-      {photoZoom && (() => {
-        const durationMin = photoZoom.workout?.durationSec ? Math.round(photoZoom.workout.durationSec / 60) : null
-        const cardioMin = photoZoom.workout?.cardioSec ? Math.round(photoZoom.workout.cardioSec / 60) : null
-        const displayName = photoZoom.user.name ?? `@${photoZoom.user.handle}`
+      {liveZoom && (() => {
+        const z = liveZoom
+        const durationMin = z.workout?.durationSec ? Math.round(z.workout.durationSec / 60) : null
+        const cardioMin = z.workout?.cardioSec ? Math.round(z.workout.cardioSec / 60) : null
+        const displayName = z.user.name ?? `@${z.user.handle}`
         return (
           <div
             className="fixed inset-0 z-[90] flex flex-col items-center justify-center gap-3 bg-black/85 p-4"
@@ -587,7 +557,7 @@ export function CompetitionDetailPage() {
             aria-modal="true"
           >
             <img
-              src={photoZoom.photoUrl}
+              src={z.photoUrl}
               alt={`Prova de ${displayName}`}
               className="max-h-[70vh] max-w-full rounded-xl object-contain"
               onClick={(e) => e.stopPropagation()}
@@ -597,27 +567,27 @@ export function CompetitionDetailPage() {
               onClick={(e) => e.stopPropagation()}
             >
               <Link
-                to={`/u/${photoZoom.user.id}`}
+                to={`/u/${z.user.id}`}
                 className="text-sm font-bold hover:underline"
               >
                 {displayName}
               </Link>
               <p className="mt-0.5 inline-flex items-center gap-1.5 font-mono text-[10.5px] text-white/70">
-                {photoZoom.kind === 'TRAINING' ? <Dumbbell size={10} /> : <Activity size={10} />}
-                {photoZoom.kind === 'TRAINING' ? 'Treino' : 'Cardio'} · {new Date(photoZoom.day).toLocaleDateString('pt-BR')} · {relativeTime(photoZoom.createdAt)}
+                {z.kind === 'TRAINING' ? <Dumbbell size={10} /> : <Activity size={10} />}
+                {z.kind === 'TRAINING' ? 'Treino' : 'Cardio'} · {new Date(z.day).toLocaleDateString('pt-BR')} · {relativeTime(z.createdAt)}
               </p>
-              {photoZoom.workout && (
+              {z.workout && (
                 <div className="mt-2 space-y-0.5 font-mono text-[11px] text-white/80">
-                  {photoZoom.workout.planName && (
-                    <p className="font-semibold text-white">{photoZoom.workout.planName}</p>
+                  {z.workout.planName && (
+                    <p className="font-semibold text-white">{z.workout.planName}</p>
                   )}
                   <p>
                     {durationMin != null && <>⏱ {durationMin}min</>}
-                    {photoZoom.workout.exerciseCount > 0 && (
-                      <>{durationMin != null ? ' · ' : ''}💪 {photoZoom.workout.exerciseCount} exercícios</>
+                    {z.workout.exerciseCount > 0 && (
+                      <>{durationMin != null ? ' · ' : ''}💪 {z.workout.exerciseCount} exercícios</>
                     )}
-                    {photoZoom.workout.totalVolumeKg > 0 && (
-                      <> · {photoZoom.workout.totalVolumeKg.toLocaleString('pt-BR')} kg</>
+                    {z.workout.totalVolumeKg > 0 && (
+                      <> · {z.workout.totalVolumeKg.toLocaleString('pt-BR')} kg</>
                     )}
                     {cardioMin != null && cardioMin > 0 && (
                       <> · 🏃 {cardioMin}min</>
@@ -627,42 +597,21 @@ export function CompetitionDetailPage() {
               )}
               <div className="mt-3 flex justify-center">
                 <ReactionsBar
-                  reactions={photoZoom.reactions}
-                  onReact={(kind) => {
-                    void handleReact(photoZoom.id, kind)
-                    setPhotoZoom((curr) => {
-                      if (!curr) return null
-                      const existing = curr.reactions.find((r) => r.kind === kind)
-                      if (existing) {
-                        if (existing.mine) {
-                          const nextCount = existing.count - 1
-                          const filtered = nextCount > 0
-                            ? curr.reactions.map((r) => (r.kind === kind ? { ...r, count: nextCount, mine: false } : r))
-                            : curr.reactions.filter((r) => r.kind !== kind)
-                          return { ...curr, reactions: filtered }
-                        }
-                        return {
-                          ...curr,
-                          reactions: curr.reactions.map((r) => r.kind === kind ? { ...r, count: r.count + 1, mine: true } : r),
-                        }
-                      }
-                      return { ...curr, reactions: [...curr.reactions, { kind, count: 1, mine: true }] }
-                    })
-                  }}
+                  reactions={z.reactions}
+                  onReact={(kind) => void handleReact(z.id, kind)}
                   compact
                 />
               </div>
               <CommentThread
                 competitionId={competitionId}
-                entryId={photoZoom.id}
+                entryId={z.id}
                 currentUserId={user?.id}
                 canModerate={isAdmin}
-                onChange={(delta) => adjustCommentsCount(photoZoom.id, delta)}
               />
               {isAdmin && comp.status === 'ACTIVE' && (
                 <button
                   type="button"
-                  onClick={() => void handleDeleteEntry(photoZoom)}
+                  onClick={() => void handleDeleteEntry(z)}
                   className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-rose-500/40 px-3 py-1 text-[11px] font-semibold text-rose-400 hover:bg-rose-500/15"
                 >
                   <Trash2 size={11} />
