@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from './useAuth'
 import {
   acceptInvite,
@@ -70,11 +70,19 @@ export function useStandings(competitionId: string | undefined, options?: { poll
   })
 }
 
+// Infinite feed query — first page polls every 12s when the room is
+// active so newly-posted proofs land without a manual refresh.
+// Subsequent pages only load on user request (scroll-to-bottom).
 export function useCompetitionFeed(competitionId: string | undefined, options?: { polling?: boolean }) {
   const { authorizedFetch } = useAuth()
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: competitionKeys.feed(competitionId ?? ''),
-    queryFn: () => getCompetitionFeed(authorizedFetch, competitionId!),
+    queryFn: ({ pageParam }) =>
+      getCompetitionFeed(authorizedFetch, competitionId!, {
+        before: pageParam as string | undefined,
+      }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     enabled: Boolean(competitionId),
     refetchInterval: options?.polling ? 12_000 : false,
   })
@@ -257,25 +265,33 @@ export function useDeleteEntry(competitionId: string) {
   })
 }
 
+type FeedPage = { items: CompetitionFeedItem[]; nextCursor: string | null }
+type FeedInfiniteData = { pages: FeedPage[]; pageParams: unknown[] }
+
 // Bumps the commentsCount on the feed query for one entry. Used right
 // after a comment add/delete so the grid tile chip updates without an
-// extra refetch.
+// extra refetch. Walks every loaded page since the entry could live
+// on any of them.
 function patchFeedCommentCount(
   qc: ReturnType<typeof useQueryClient>,
   competitionId: string,
   entryId: string,
   delta: number,
 ) {
-  qc.setQueryData<{ items: CompetitionFeedItem[] }>(
+  qc.setQueryData<FeedInfiniteData>(
     competitionKeys.feed(competitionId),
     (data) =>
       data
         ? {
-            items: data.items.map((it) =>
-              it.id === entryId
-                ? { ...it, commentsCount: Math.max(0, it.commentsCount + delta) }
-                : it,
-            ),
+            ...data,
+            pages: data.pages.map((page) => ({
+              ...page,
+              items: page.items.map((it) =>
+                it.id === entryId
+                  ? { ...it, commentsCount: Math.max(0, it.commentsCount + delta) }
+                  : it,
+              ),
+            })),
           }
         : data,
   )

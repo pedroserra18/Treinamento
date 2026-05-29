@@ -172,9 +172,16 @@ export async function getStandings(
 export async function getCompetitionFeed(
   authorizedFetch: AuthorizedFetch,
   competitionId: string,
-): Promise<{ items: CompetitionFeedItem[] }> {
-  const response = await authorizedFetch(`${API_URL}/competitions/${competitionId}/feed`)
-  const payload = await parsePayload<{ items: CompetitionFeedItem[] }>(response)
+  options: { before?: string; limit?: number } = {},
+): Promise<{ items: CompetitionFeedItem[]; nextCursor: string | null }> {
+  const params = new URLSearchParams()
+  if (options.before) params.set('before', options.before)
+  if (options.limit) params.set('limit', String(options.limit))
+  const qs = params.toString()
+  const response = await authorizedFetch(
+    `${API_URL}/competitions/${competitionId}/feed${qs ? `?${qs}` : ''}`,
+  )
+  const payload = await parsePayload<{ items: CompetitionFeedItem[]; nextCursor: string | null }>(response)
   if (!response.ok || !payload.data) {
     throw new Error(payload.errorMessage ?? 'Falha ao carregar feed')
   }

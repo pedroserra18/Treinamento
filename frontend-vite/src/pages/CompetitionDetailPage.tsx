@@ -77,9 +77,15 @@ export function CompetitionDetailPage() {
     { polling: isActive },
   )
   const standings = standingsQuery.data ?? null
-  // Stabilize the array reference so memos downstream (rankDeltas, liveZoom)
-  // don't recompute every render when the feed is unchanged.
-  const feed = useMemo(() => feedQuery.data?.items ?? [], [feedQuery.data])
+  // Infinite feed: flatten all loaded pages into one list. The reference
+  // is stabilized by useMemo so memos downstream (rankDeltas, liveZoom)
+  // don't churn when the feed is unchanged.
+  const feed = useMemo(
+    () => feedQuery.data?.pages.flatMap((p) => p.items) ?? [],
+    [feedQuery.data],
+  )
+  const hasNextFeedPage = feedQuery.hasNextPage
+  const isFetchingNextFeedPage = feedQuery.isFetchingNextPage
 
   // Mutations — created at hook level so they bind to the current
   // competitionId without us threading callbacks everywhere.
@@ -225,34 +231,40 @@ export function CompetitionDetailPage() {
 
   // Optimistic toggle: patch the feed cache directly so the UI feels
   // instant. The mutation hits the API; the next poll reconciles any drift.
+  // The feed is an infinite query so we walk pages instead of a flat list.
+  type FeedPage = { items: CompetitionFeedItem[]; nextCursor: string | null }
+  type FeedCache = { pages: FeedPage[]; pageParams: unknown[] }
+
   const handleReact = async (entryId: string, kind: CompetitionReactionKind) => {
-    qc.setQueryData<{ items: CompetitionFeedItem[] }>(
-      competitionKeys.feed(competitionId),
-      (data) => data
-        ? {
-            items: data.items.map((item) => {
-              if (item.id !== entryId) return item
-              const existing = item.reactions.find((r) => r.kind === kind)
-              if (existing) {
-                if (existing.mine) {
-                  const nextCount = existing.count - 1
-                  const filtered = nextCount > 0
-                    ? item.reactions.map((r) => r.kind === kind ? { ...r, count: nextCount, mine: false } : r)
-                    : item.reactions.filter((r) => r.kind !== kind)
-                  return { ...item, reactions: filtered }
-                }
-                return {
-                  ...item,
-                  reactions: item.reactions.map((r) =>
-                    r.kind === kind ? { ...r, count: r.count + 1, mine: true } : r,
-                  ),
-                }
+    qc.setQueryData<FeedCache>(competitionKeys.feed(competitionId), (data) => {
+      if (!data) return data
+      return {
+        ...data,
+        pages: data.pages.map((page) => ({
+          ...page,
+          items: page.items.map((item) => {
+            if (item.id !== entryId) return item
+            const existing = item.reactions.find((r) => r.kind === kind)
+            if (existing) {
+              if (existing.mine) {
+                const nextCount = existing.count - 1
+                const filtered = nextCount > 0
+                  ? item.reactions.map((r) => r.kind === kind ? { ...r, count: nextCount, mine: false } : r)
+                  : item.reactions.filter((r) => r.kind !== kind)
+                return { ...item, reactions: filtered }
               }
-              return { ...item, reactions: [...item.reactions, { kind, count: 1, mine: true }] }
-            }),
-          }
-        : data,
-    )
+              return {
+                ...item,
+                reactions: item.reactions.map((r) =>
+                  r.kind === kind ? { ...r, count: r.count + 1, mine: true } : r,
+                ),
+              }
+            }
+            return { ...item, reactions: [...item.reactions, { kind, count: 1, mine: true }] }
+          }),
+        })),
+      }
+    })
     try {
       await reactionMut.mutateAsync({ entryId, kind })
     } catch (err) {
@@ -265,9 +277,13 @@ export function CompetitionDetailPage() {
     const name = entry.user.name ?? `@${entry.user.handle}`
     if (!window.confirm(`Apagar a prova de ${name}? Essa ação não pode ser desfeita.`)) return
     // Optimistic remove from cache so the user sees instant feedback.
-    qc.setQueryData<{ items: CompetitionFeedItem[] }>(
-      competitionKeys.feed(competitionId),
-      (data) => data ? { items: data.items.filter((it) => it.id !== entry.id) } : data,
+    qc.setQueryData<FeedCache>(competitionKeys.feed(competitionId), (data) =>
+      data
+        ? {
+            ...data,
+            pages: data.pages.map((p) => ({ ...p, items: p.items.filter((it) => it.id !== entry.id) })),
+          }
+        : data,
     )
     setPhotoZoom(null)
     try {
@@ -523,6 +539,18 @@ export function CompetitionDetailPage() {
             onZoom={(item) => setPhotoZoom(item)}
             onReact={(entryId, kind) => void handleReact(entryId, kind)}
           />
+          {hasNextFeedPage && (
+            <div className="flex justify-center">
+              <button
+                type="button"
+                onClick={() => void feedQuery.fetchNextPage()}
+                disabled={isFetchingNextFeedPage}
+                className="rounded-full border border-[var(--line)] px-4 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-wider text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)] disabled:opacity-50"
+              >
+                {isFetchingNextFeedPage ? 'Carregando…' : 'Carregar provas mais antigas'}
+              </button>
+            </div>
+          )}
         </div>
       )}
 

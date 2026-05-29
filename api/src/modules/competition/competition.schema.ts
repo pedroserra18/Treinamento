@@ -78,6 +78,15 @@ export const listChatQuerySchema = z
   })
   .strict();
 
+export const listFeedQuerySchema = z
+  .object({
+    // Cursor is the createdAt ISO of the last item the client already
+    // has. Server returns entries strictly before it.
+    before: z.string().datetime().optional(),
+    limit: z.coerce.number().int().min(1).max(50).default(30)
+  })
+  .strict();
+
 export const postEntryBodySchema = z
   .object({
     kind: z.enum(["TRAINING", "CARDIO"]),
@@ -106,3 +115,4 @@ export type PostEntryCommentBody = z.infer<typeof postEntryCommentBodySchema>;
 export type ChatParams = z.infer<typeof chatParamsSchema>;
 export type PostChatBody = z.infer<typeof postChatBodySchema>;
 export type ListChatQuery = z.infer<typeof listChatQuerySchema>;
+export type ListFeedQuery = z.infer<typeof listFeedQuerySchema>;

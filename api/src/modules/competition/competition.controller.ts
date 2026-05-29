@@ -35,6 +35,7 @@ import type {
   InviteMemberBody,
   InviteTokenParams,
   ListChatQuery,
+  ListFeedQuery,
   MemberParams,
   PostChatBody,
   PostEntryBody,
@@ -128,7 +129,8 @@ export async function getStandingsController(req: Request, res: Response): Promi
 export async function getFeedController(req: Request, res: Response): Promise<void> {
   const userId = req.context.userId as string;
   const params = req.params as unknown as CompetitionParams;
-  const data = await getCompetitionFeed(userId, params.competitionId);
+  const query = req.query as unknown as ListFeedQuery;
+  const data = await getCompetitionFeed(userId, params.competitionId, query);
   send(res, 200, data);
 }
 

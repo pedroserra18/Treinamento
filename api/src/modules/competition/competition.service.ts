@@ -7,6 +7,7 @@ import type {
   CreateCompetitionBody,
   InviteMemberBody,
   ListChatQuery,
+  ListFeedQuery,
   PostChatBody,
   PostEntryBody,
   PostEntryCommentBody,
@@ -1092,8 +1093,15 @@ export async function getStandings(userId: string, competitionId: string) {
 }
 
 // Feed of recent entries (proof photos) for everyone in the competition.
-// Limited + paginated by createdAt for cheapness.
-export async function getCompetitionFeed(userId: string, competitionId: string, limit = 30) {
+// Cursor-based pagination by createdAt — clients pass `before` (the
+// createdAt of their oldest cached item) to fetch the next page. The
+// composite index (competitionId, createdAt) makes this an indexed
+// range scan even when a long-running room has thousands of entries.
+export async function getCompetitionFeed(
+  userId: string,
+  competitionId: string,
+  query: ListFeedQuery = { limit: 30 }
+) {
   const meMembership = await prisma.competitionMember.findUnique({
     where: { competitionId_userId: { competitionId, userId } },
     select: { id: true }
@@ -1103,9 +1111,12 @@ export async function getCompetitionFeed(userId: string, competitionId: string, 
   }
 
   const entries = await prisma.competitionEntry.findMany({
-    where: { competitionId },
+    where: {
+      competitionId,
+      ...(query.before ? { createdAt: { lt: new Date(query.before) } } : {})
+    },
     orderBy: { createdAt: "desc" },
-    take: Math.min(limit, 60),
+    take: query.limit,
     select: {
       id: true,
       day: true,
@@ -1174,7 +1185,14 @@ export async function getCompetitionFeed(userId: string, competitionId: string, 
     };
   });
 
-  return { items };
+  // nextCursor is the createdAt of the last item returned. Clients pass
+  // it back as `before` to fetch the next page. Null when we returned
+  // fewer items than requested — there's nothing left to paginate.
+  const nextCursor = items.length === query.limit
+    ? items[items.length - 1].createdAt.toISOString()
+    : null;
+
+  return { items, nextCursor };
 }
 
 // ─── Reactions on entries ────────────────────────────────────────────────

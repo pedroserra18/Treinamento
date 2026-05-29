@@ -15,6 +15,7 @@ import {
   inviteMemberBodySchema,
   inviteTokenParamsSchema,
   listChatQuerySchema,
+  listFeedQuerySchema,
   memberParamsSchema,
   postChatBodySchema,
   postEntryBodySchema,
@@ -149,7 +150,7 @@ router.get(
   "/competitions/:competitionId/feed",
   requireAuth,
   competitionReadLimiter,
-  validateRequest({ params: competitionParamsSchema }),
+  validateRequest({ params: competitionParamsSchema, query: listFeedQuerySchema }),
   asyncHandler(async (req, res) => getFeedController(req, res))
 );
 
