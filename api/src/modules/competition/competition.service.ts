@@ -824,17 +824,25 @@ export async function postCompetitionEntry(userId: string, competitionId: string
   today.setUTCHours(0, 0, 0, 0);
 
   try {
-    const entry = await prisma.competitionEntry.create({
-      data: {
-        competitionId,
-        userId,
-        day: today,
-        kind: payload.kind,
-        workoutSessionId: payload.workoutSessionId ?? null,
-        photoUrl: payload.photoUrl,
-        photoPath: payload.photoPath ?? null,
-        photoHash: payload.photoHash
-      }
+    // Create + recompute stats in the same transaction so the
+    // standings stay in sync with the entry table. Without the wrap a
+    // crash between the two would leave stats stale until the next
+    // entry by the same user.
+    const entry = await prisma.$transaction(async (tx) => {
+      const created = await tx.competitionEntry.create({
+        data: {
+          competitionId,
+          userId,
+          day: today,
+          kind: payload.kind,
+          workoutSessionId: payload.workoutSessionId ?? null,
+          photoUrl: payload.photoUrl,
+          photoPath: payload.photoPath ?? null,
+          photoHash: payload.photoHash
+        }
+      });
+      await recomputeMemberStats(tx, competitionId, userId);
+      return created;
     });
     return entry;
   } catch (err) {
@@ -849,9 +857,74 @@ export async function postCompetitionEntry(userId: string, competitionId: string
   }
 }
 
-// Standings: per-member count of distinct days with at least one entry,
-// plus total workout volume as the tiebreaker. Excludes abandoned members
-// but their entries stay in the feed.
+// Recomputes the materialised stats row for one (competition, user)
+// pair from scratch. Cheap because the entry set is bounded by
+// durationDays × 2 (max ~180 rows for a 90-day BOTH room). Always
+// called inside a transaction so the entry change and the stats
+// update commit atomically. If the row doesn't exist yet, it's
+// created via upsert.
+async function recomputeMemberStats(tx: TxClient, competitionId: string, userId: string): Promise<void> {
+  const entries = await tx.competitionEntry.findMany({
+    where: { competitionId, userId },
+    select: {
+      day: true,
+      workoutSessionId: true,
+      workoutSession: {
+        select: {
+          durationSec: true,
+          history: { select: { reps: true, weightKg: true } }
+        }
+      }
+    }
+  });
+
+  const days = new Set<string>();
+  const sessions = new Map<string, { durationSec: number; volume: number }>();
+  let points = 0;
+  for (const e of entries) {
+    days.add(e.day.toISOString().slice(0, 10));
+    points += 1;
+    if (e.workoutSessionId && e.workoutSession && !sessions.has(e.workoutSessionId)) {
+      let vol = 0;
+      for (const h of e.workoutSession.history) {
+        if (h.weightKg && h.reps) vol += h.weightKg * h.reps;
+      }
+      sessions.set(e.workoutSessionId, {
+        durationSec: e.workoutSession.durationSec ?? 0,
+        volume: vol
+      });
+    }
+  }
+  let totalDurationSec = 0;
+  let volume = 0;
+  for (const s of sessions.values()) {
+    totalDurationSec += s.durationSec;
+    volume += s.volume;
+  }
+
+  await tx.competitionMemberStats.upsert({
+    where: { competitionId_userId: { competitionId, userId } },
+    update: {
+      daysActive: days.size,
+      points,
+      totalDurationSec,
+      volumeKg: Math.round(volume)
+    },
+    create: {
+      competitionId,
+      userId,
+      daysActive: days.size,
+      points,
+      totalDurationSec,
+      volumeKg: Math.round(volume)
+    }
+  });
+}
+
+// Standings: reads materialised aggregates from competition_member_stats
+// (kept in sync by recomputeMemberStats) and joins streak — which is
+// computed live from a tiny per-user day list so it naturally decays
+// when a user misses a day without us needing a cron tick.
 export async function getStandings(userId: string, competitionId: string) {
   const competition = await prisma.competition.findUnique({
     where: { id: competitionId },
@@ -870,18 +943,13 @@ export async function getStandings(userId: string, competitionId: string) {
           user: { select: { id: true, name: true, handle: true, avatarUrl: true } }
         }
       },
-      entries: {
+      memberStats: {
         select: {
           userId: true,
-          day: true,
-          kind: true,
-          workoutSessionId: true,
-          workoutSession: {
-            select: {
-              durationSec: true,
-              history: { select: { reps: true, weightKg: true } }
-            }
-          }
+          daysActive: true,
+          points: true,
+          totalDurationSec: true,
+          volumeKg: true
         }
       }
     }
@@ -900,70 +968,68 @@ export async function getStandings(userId: string, competitionId: string) {
     throw new AppError("Você não faz parte dessa competição", { statusCode: 403, code: "COMPETITION_NOT_A_MEMBER" });
   }
 
+  // Lazy backfill: if any active member is missing a stats row (legacy
+  // competitions created before the materialised table existed, or a
+  // member added before this code shipped), compute on the fly so the
+  // standings render correctly. Subsequent calls hit the cached row.
+  const statsByUser = new Map(competition.memberStats.map((s) => [s.userId, s]));
+  const missing = competition.members.filter((m) => !statsByUser.has(m.userId)).map((m) => m.userId);
+  if (missing.length > 0) {
+    await prisma.$transaction(async (tx) => {
+      for (const uid of missing) {
+        await recomputeMemberStats(tx, competitionId, uid);
+      }
+    });
+    // Re-read the stats we just populated. Cheap — small set keyed by
+    // the unique (competitionId, userId) index.
+    const fresh = await prisma.competitionMemberStats.findMany({
+      where: { competitionId, userId: { in: missing } },
+      select: { userId: true, daysActive: true, points: true, totalDurationSec: true, volumeKg: true }
+    });
+    for (const s of fresh) statsByUser.set(s.userId, s);
+  }
+
+  // Streak still computed live so it decays naturally when a user
+  // misses a day. One bulk query keyed by the (competitionId, userId)
+  // index — cheap even with hundreds of entries per user.
+  const dayRows = await prisma.competitionEntry.findMany({
+    where: {
+      competitionId,
+      userId: { in: competition.members.map((m) => m.userId) }
+    },
+    select: { userId: true, day: true },
+    distinct: ["userId", "day"]
+  });
+  const daysByUser = new Map<string, Set<string>>();
+  for (const r of dayRows) {
+    let set = daysByUser.get(r.userId);
+    if (!set) {
+      set = new Set();
+      daysByUser.set(r.userId, set);
+    }
+    set.add(r.day.toISOString().slice(0, 10));
+  }
+
+  const todayKey = new Date().toISOString().slice(0, 10);
+
   type Row = {
     userId: string;
     user: { id: string; name: string | null; handle: string; avatarUrl: string | null };
     role: "ADMIN" | "MEMBER";
-    // Distinct calendar days the user posted any proof.
     daysActive: number;
-    // Total proofs posted = sum across days of (kinds posted). For TRAINING-
-    // only or CARDIO-only rooms this equals daysActive. For BOTH rooms it
-    // can reach 2 × daysActive when the user logged both kinds every day.
     points: number;
-    // Sum of distinct workout-session durations. We dedupe by session id
-    // so a single workout that produced both TRAINING and CARDIO entries
-    // only counts its time once.
     totalDurationSec: number;
-    // Kept as a secondary stat. Same dedupe logic — sessions referenced by
-    // two entries (training + cardio of the same workout) only contribute
-    // their volume once.
     volumeKg: number;
-    // Consecutive-days streak ending today (or yesterday if today not yet
-    // posted). Matches the home-page streak semantics so the icon stays
-    // familiar. 0 means the streak is broken.
     streak: number;
   };
 
-  // Anchor for the streak check — UTC midnight of "today". Same key the
-  // unique constraint on entries uses so the dates line up.
-  const todayKey = new Date().toISOString().slice(0, 10);
-
   const rows = competition.members.map<Row>((m) => {
-    const days = new Set<string>();
-    const sessions = new Map<
-      string,
-      { durationSec: number; volume: number }
-    >();
-    let points = 0;
-    for (const e of competition.entries) {
-      if (e.userId !== m.userId) continue;
-      days.add(e.day.toISOString().slice(0, 10));
-      points += 1;
-      // Aggregate per session. If a session is referenced by both a
-      // TRAINING and a CARDIO entry, we end up with one entry in the map
-      // — no double-counting of duration or volume.
-      if (e.workoutSessionId && e.workoutSession && !sessions.has(e.workoutSessionId)) {
-        let vol = 0;
-        for (const h of e.workoutSession.history) {
-          if (h.weightKg && h.reps) vol += h.weightKg * h.reps;
-        }
-        sessions.set(e.workoutSessionId, {
-          durationSec: e.workoutSession.durationSec ?? 0,
-          volume: vol
-        });
-      }
-    }
-    let totalDurationSec = 0;
-    let volume = 0;
-    for (const s of sessions.values()) {
-      totalDurationSec += s.durationSec;
-      volume += s.volume;
-    }
+    const stats = statsByUser.get(m.userId);
+    const days = daysByUser.get(m.userId) ?? new Set<string>();
 
-    // Streak: walk backwards from today. If today not yet posted, start
-    // counting from yesterday so the user doesn't see "0" first thing in
-    // the morning. Match the home-page rule for symmetry.
-    let cursor = new Date(`${todayKey}T00:00:00Z`);
+    // Walk backwards from today. If today not yet posted, start from
+    // yesterday so the user doesn't see "0" first thing in the morning.
+    const cursor = new Date(`${todayKey}T00:00:00Z`);
     if (!days.has(cursor.toISOString().slice(0, 10))) {
       cursor.setUTCDate(cursor.getUTCDate() - 1);
     }
@@ -977,19 +1043,15 @@ export async function getStandings(userId: string, competitionId: string) {
       userId: m.userId,
       user: m.user,
       role: m.role,
-      daysActive: days.size,
-      points,
-      totalDurationSec,
-      volumeKg: Math.round(volume),
+      daysActive: stats?.daysActive ?? 0,
+      points: stats?.points ?? 0,
+      totalDurationSec: stats?.totalDurationSec ?? 0,
+      volumeKg: stats?.volumeKg ?? 0,
       streak
     };
   });
 
   // Tiebreaker chain: days → points → time → volume.
-  // 1) Most distinct days wins (consistency).
-  // 2) Tied days → most points (intensity / both per day in BOTH rooms).
-  // 3) Tied points → most accumulated training time.
-  // 4) Tied time → most weight moved. Stable order from here.
   rows.sort((a, b) =>
     b.daysActive - a.daysActive ||
     b.points - a.points ||
@@ -1194,13 +1256,17 @@ export async function deleteCompetitionEntry(userId: string, competitionId: stri
 
   const entry = await prisma.competitionEntry.findUnique({
     where: { id: entryId },
-    select: { id: true, competitionId: true }
+    select: { id: true, competitionId: true, userId: true }
   });
   if (!entry || entry.competitionId !== competitionId) {
     throw new AppError("Prova não encontrada", { statusCode: 404, code: "COMPETITION_ENTRY_NOT_FOUND" });
   }
 
-  await prisma.competitionEntry.delete({ where: { id: entryId } });
+  // Delete + recompute stats for the affected user atomically.
+  await prisma.$transaction(async (tx) => {
+    await tx.competitionEntry.delete({ where: { id: entryId } });
+    await recomputeMemberStats(tx, competitionId, entry.userId);
+  });
   return { success: true };
 }
 

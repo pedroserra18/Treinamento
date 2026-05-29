@@ -213,6 +213,7 @@ model User {
   competitionMessages     CompetitionMessage[]
   competitionReactions    CompetitionEntryReaction[]
   competitionEntryComments CompetitionEntryComment[]
+  competitionMemberStats  CompetitionMemberStats[]
 
   @@index([status, isDeleted])
   @@index([role])
@@ -741,6 +742,7 @@ model Competition {
   invites  CompetitionInvite[]
   entries  CompetitionEntry[]
   messages CompetitionMessage[]
+  memberStats CompetitionMemberStats[]
 
   // Hot path: "is this user already in any LOBBY/ACTIVE competition?" — the
   // partial unique on members below relies on the joined query staying cheap.
@@ -878,6 +880,40 @@ model CompetitionEntry {
   // Fast lookup for "did this user already use this hash in this comp?"
   @@index([userId, photoHash])
   @@map("competition_entries")
+}
+
+// Materialised per-member aggregates so the standings endpoint becomes
+// a cheap SELECT instead of recomputing across every entry on each call.
+// The values are kept in sync by the service layer: any code path that
+// inserts, updates, or deletes a CompetitionEntry calls
+// recomputeMemberStats() inside the same transaction. Streak is NOT
+// stored here — it's computed live in getStandings from the entries'
+// day column so it can naturally decay when the user misses a day
+// without us running a separate "tick the clock" job.
+model CompetitionMemberStats {
+  id               String   @id @default(cuid())
+  competitionId    String
+  userId           String
+  // Distinct calendar days with at least one proof posted.
+  daysActive       Int      @default(0)
+  // Total proofs posted (1 per kind per day).
+  points           Int      @default(0)
+  // Sum of distinct workout-session durations (sec), deduped by session.
+  totalDurationSec Int      @default(0)
+  // Sum of distinct workout-session volumes (kg), deduped by session.
+  // Stored as Int (rounded) since the leaderboard never shows decimals.
+  volumeKg         Int      @default(0)
+  updatedAt        DateTime @updatedAt
+
+  competition Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([competitionId, userId])
+  // Tiebreaker order matches the standings sort (days › points › time ›
+  // volume) so the planner can serve a sorted scan straight from the
+  // index when the room is hot.
+  @@index([competitionId, daysActive, points, totalDurationSec, volumeKg])
+  @@map("competition_member_stats")
 }
 
 model CompetitionEntryComment {
