@@ -284,3 +284,52 @@ export const authCodeVerifyLimiter = rateLimit({
 export const sanitizeInput = xss() as RequestHandler;
 
 export const preventHttpParamPollution = hpp();
+
+// Builds a per-user rate limiter for authenticated endpoints. Must be
+// mounted AFTER auth so req.context.userId is populated; when no user
+// is on the request, falls back to IP so unauthenticated callers don't
+// silently bypass the cap.
+//
+// The shared-IP problem (offices, NAT, mobile carriers) means a single
+// IP-keyed global cap will block legitimate users at scale once a couple
+// of people on the same network are polling concurrently. A per-user
+// cap is the right knob — at 5k DAU each polling /standings every 12s
+// = ~25k req/min total, but each user only contributes 5 req/min, so
+// 60/min headroom per user is plenty for normal use.
+export function createUserScopedLimiter(opts: {
+  prefix: string;
+  windowMs: number;
+  max: number;
+}): RequestHandler {
+  return rateLimit({
+    windowMs: opts.windowMs,
+    max: opts.max,
+    store: createRedisStore(opts.prefix),
+    keyGenerator: (req) => {
+      const userId = req.context?.userId;
+      if (userId) return `u:${userId}`;
+      return `ip:${ipKeyGenerator(req.ip ?? req.socket.remoteAddress ?? "unknown")}`;
+    },
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { message: "Muitas requisições. Tente novamente em alguns segundos." }
+  });
+}
+
+// Polling endpoints (standings, feed, chat list). 120 reads/min per user
+// is roughly 4× the normal polling rate, so bursts (tab refocus,
+// multiple devices) still pass.
+export const competitionReadLimiter = createUserScopedLimiter({
+  prefix: "rl:comp:read:",
+  windowMs: 60 * 1000,
+  max: 120
+});
+
+// Write endpoints (chat, comments, reactions, entries, invites). A
+// tighter cap since the per-action service-level limits (2s/30s) already
+// stop normal-pattern spam — this is purely the "scripted bot" backstop.
+export const competitionWriteLimiter = createUserScopedLimiter({
+  prefix: "rl:comp:write:",
+  windowMs: 60 * 1000,
+  max: 30
+});
