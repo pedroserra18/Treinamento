@@ -14,7 +14,9 @@ export async function uploadCompetitionPhotoController(req: Request, res: Respon
     throw new AppError("dataUrl is required", { statusCode: 400, code: "MISSING_DATA_URL" });
   }
 
-  const result = await uploadDataUrl("competition", userId, dataUrl);
+  // verifyFreshness is on only for competition proofs — body / workout
+  // photos can legitimately predate the upload.
+  const result = await uploadDataUrl("competition", userId, dataUrl, { verifyFreshness: true });
 
   res.status(201).json({
     data: { photoUrl: result.publicUrl, photoPath: result.path },

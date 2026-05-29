@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { AppError } from "../../shared/errors/app-error";
 import { getStorageBucket, getStorageClient, isStorageConfigured } from "../../config/storage";
+import { checkPhotoFreshness } from "../competition/photo-freshness";
 
 const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_BYTES = 2_500_000; // 2.5 MB after client-side compression
@@ -10,6 +11,13 @@ export type UploadedImage = {
   publicUrl: string;
 };
 
+type UploadOptions = {
+  // When true, parses EXIF and rejects photos older than 24h. Only
+  // applied to competition proofs — body/workout photos can come from
+  // any time, that's not the cheat surface.
+  verifyFreshness?: boolean;
+};
+
 // Uploads a base64 data URL to a folder inside the configured bucket and
 // returns a public URL. The bucket is expected to be set as PUBLIC in the
 // Supabase dashboard so we don't need to manage signed URLs (acceptable
@@ -17,7 +25,8 @@ export type UploadedImage = {
 export async function uploadDataUrl(
   folder: "competition" | "body" | "workout",
   ownerId: string,
-  dataUrl: string
+  dataUrl: string,
+  options: UploadOptions = {}
 ): Promise<UploadedImage> {
   if (!isStorageConfigured()) {
     throw new AppError("Object storage is not configured on this environment", {
@@ -48,6 +57,24 @@ export async function uploadDataUrl(
       statusCode: 413,
       code: "IMAGE_TOO_LARGE"
     });
+  }
+
+  // Anti-cheat: when caller asks (competition proofs), reject photos
+  // whose EXIF says they were shot more than 24h ago. Photos without
+  // EXIF pass through — most chat/social apps strip it on send and we
+  // don't want to lock out users whose privacy stack strips metadata.
+  if (options.verifyFreshness) {
+    const freshness = await checkPhotoFreshness(buffer);
+    if (!freshness.ok) {
+      throw new AppError(
+        "Essa foto foi tirada há mais de 24h. Use uma foto recente do treino.",
+        {
+          statusCode: 400,
+          code: "PHOTO_TOO_OLD",
+          details: { capturedAt: freshness.capturedAt.toISOString() }
+        }
+      );
+    }
   }
 
   // Path shape: <folder>/<ownerId>/<timestamp>-<rand>.<ext> — caps directory
