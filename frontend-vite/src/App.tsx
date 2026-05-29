@@ -1,3 +1,4 @@
+import { ErrorBoundary } from './components/common/ErrorBoundary'
 import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
 import { TrainPage } from './pages/TrainPage'
@@ -43,6 +44,9 @@ function AnimatedRoutes() {
         exit={{ opacity: 0, y: -6, filter: 'blur(2px)' }}
         transition={{ duration: 0.24, ease: 'easeOut' }}
       >
+        {/* Per-route boundary keyed by pathname — when the user navigates
+            away from a crashed page, the boundary resets automatically. */}
+        <ErrorBoundary key={location.pathname}>
         <Routes location={location}>
           <Route path="/" element={<HomePage />} />
           <Route path="/login" element={<LoginPage />} />
@@ -223,6 +227,7 @@ function AnimatedRoutes() {
             }
           />
         </Routes>
+        </ErrorBoundary>
       </motion.div>
     </AnimatePresence>
   )
@@ -230,13 +235,15 @@ function AnimatedRoutes() {
 
 function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <AppShell>
-          <AnimatedRoutes />
-        </AppShell>
-      </BrowserRouter>
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <BrowserRouter>
+          <AppShell>
+            <AnimatedRoutes />
+          </AppShell>
+        </BrowserRouter>
+      </AuthProvider>
+    </ErrorBoundary>
   )
 }
 
