@@ -1,0 +1,22 @@
+# Render Cron Job snippet — paste this under `services:` in the root
+# render.yaml when you upgrade to a paid plan. Free tier doesn't support
+# Render's native cron, so we use cron-job.org externally instead
+# (documented in the main render.yaml).
+
+  - type: cron
+    name: competition-reconcile
+    runtime: node
+    region: oregon
+    plan: starter
+    schedule: "*/5 * * * *"
+    rootDir: api
+    buildCommand: npm install
+    startCommand: >
+      curl -fsS -X POST
+      -H "Authorization: Bearer $CRON_SECRET"
+      "$ACAD_API_URL/api/v1/cron/competition-reconcile"
+    envVars:
+      - key: CRON_SECRET
+        sync: false
+      - key: ACAD_API_URL
+        sync: false

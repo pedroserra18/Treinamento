@@ -1,0 +1,85 @@
+# Render Blueprint — provisions the API as a Web Service plus a Cron Job
+# that hits /cron/competition-reconcile every 5 minutes.
+#
+# To deploy:
+#   1. Push the repo to GitHub (already done).
+#   2. In Render dashboard → "+ New" → "Blueprint" → connect this repo.
+#   3. Render reads this file and lists the services it'll create.
+#   4. Click "Apply" — Render asks for the secret env vars listed below
+#      (sync:false). Paste each one from your local api/.env.
+#   5. First deploy auto-runs 'prisma migrate deploy' via the start:prod
+#      script. Subsequent deploys also do, so the DB stays in sync.
+#
+# Free tier note: the Web Service spins down after 15 min idle (~30s
+# cold start on first request). Upgrade to Starter ($7/mo) when you need
+# always-on. Cron Jobs need at least Starter on the cron side too.
+#
+# Health check: the API exposes /healthz via the health module, which
+# Render uses to decide if a deploy succeeded.
+
+services:
+  - type: web
+    name: acad-api
+    runtime: node
+    region: oregon
+    plan: free
+    rootDir: api
+    buildCommand: npm install && npm run build
+    startCommand: npm run start:prod
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: API_PORT
+        value: "10000"
+      # Secrets — set these in the Render dashboard, never commit. The
+      # sync:false flag tells Render to prompt for each one on first
+      # deploy instead of trying to pull from a blueprint default.
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_CALLBACK_URL
+        sync: false
+      - key: CLIENT_URL
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_STORAGE_BUCKET
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: CRON_SECRET
+        sync: false
+      - key: REDIS_URL
+        sync: false
+
+  # Cron job for the competition reconcile lives OUTSIDE this file —
+  # Render's cron-job type requires a paid plan ($7/mo Starter). On the
+  # free tier we use https://cron-job.org instead (also free):
+  #
+  #   - URL: https://acad-api.onrender.com/api/v1/cron/competition-reconcile
+  #   - Method: POST
+  #   - Header: Authorization: Bearer <CRON_SECRET from .env>
+  #   - Schedule: every 5 minutes
+  #
+  # When you eventually upgrade Render to Starter, uncomment the cron
+  # block in deploy/render-cron.example.yaml and re-apply the blueprint.
