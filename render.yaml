@@ -24,7 +24,10 @@ services:
     region: oregon
     plan: free
     rootDir: api
-    buildCommand: npm install && npm run build
+    # --include=dev força o npm a instalar devDependencies mesmo com
+    # NODE_ENV=production setado (Render seta automaticamente). Sem isso,
+    # @types/express e os outros types ficam de fora e o tsc falha.
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm run start:prod
     healthCheckPath: /api/v1/health
     envVars:
