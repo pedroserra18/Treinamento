@@ -5,8 +5,9 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && prisma generate",
     "start": "node dist/server.js",
+    "start:prod": "prisma migrate deploy && node dist/server.js",
     "test:security": "node --import tsx --test tests/security.integration.test.ts",
     "test:auth": "node --import tsx --test tests/auth.integration.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
