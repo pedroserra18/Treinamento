@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { AppError } from "../../shared/errors/app-error";
 import { getStorageBucket, getStorageClient, isStorageConfigured } from "../../config/storage";
 import { checkPhotoFreshness } from "../competition/photo-freshness";
+import { checkImageModeration } from "../competition/image-moderation";
 
 const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_BYTES = 2_500_000; // 2.5 MB after client-side compression
@@ -72,6 +73,26 @@ export async function uploadDataUrl(
           statusCode: 400,
           code: "PHOTO_TOO_OLD",
           details: { capturedAt: freshness.capturedAt.toISOString() }
+        }
+      );
+    }
+
+    // Image moderation: same opt-in flag as freshness — competition
+    // proofs go through nudity / gore / offensive content checks.
+    // Body / workout uploads stay unchecked (user's own private
+    // history; not a moderation surface).
+    const moderation = await checkImageModeration(buffer, mime);
+    if (!moderation.ok) {
+      throw new AppError(
+        moderation.reason === "nudity"
+          ? "Essa imagem foi bloqueada por conter conteúdo explícito."
+          : moderation.reason === "gore"
+            ? "Essa imagem foi bloqueada por conter violência."
+            : "Essa imagem foi bloqueada por conter conteúdo impróprio.",
+        {
+          statusCode: 400,
+          code: "PHOTO_MODERATION_BLOCKED",
+          details: { category: moderation.reason }
         }
       );
     }

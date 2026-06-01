@@ -115,6 +115,13 @@ const envSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
   SUPABASE_STORAGE_BUCKET: z.preprocess(emptyToUndefined, z.string().optional()),
 
+  // Sightengine image moderation — runs against competition proof
+  // photos before upload. Optional; when empty the moderation module
+  // is a no-op (image goes straight to Storage). See:
+  // src/modules/competition/image-moderation.ts
+  SIGHTENGINE_API_USER: z.preprocess(emptyToUndefined, z.string().optional()),
+  SIGHTENGINE_API_SECRET: z.preprocess(emptyToUndefined, z.string().optional()),
+
   // Shared secret expected on /cron/* endpoints. Vercel Cron sends it
   // as `Authorization: Bearer <CRON_SECRET>` when set in the Vercel
   // project env; we accept either that header or `x-cron-secret`. The
@@ -204,6 +211,8 @@ export const env = {
   supabaseServiceRoleKey: data.SUPABASE_SERVICE_ROLE_KEY,
   supabaseStorageBucket: data.SUPABASE_STORAGE_BUCKET,
   cronSecret: data.CRON_SECRET,
+  sightengineApiUser: data.SIGHTENGINE_API_USER,
+  sightengineApiSecret: data.SIGHTENGINE_API_SECRET,
 
   logLevel: data.LOG_LEVEL,
   enforceHttps,
