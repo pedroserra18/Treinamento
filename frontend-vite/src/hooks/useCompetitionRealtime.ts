@@ -68,7 +68,7 @@ export function useCompetitionRealtime(competitionId: string | undefined): { ena
         'postgres_changes',
         { event: '*', schema: 'public', table: 'competition_messages', filter: `competitionId=eq.${competitionId}` },
         () => {
-          void qc.invalidateQueries({ queryKey: [...competitionKeys.detail(competitionId), 'chat'] })
+          void qc.invalidateQueries({ queryKey: competitionKeys.chat(competitionId) })
         },
       )
       .subscribe()

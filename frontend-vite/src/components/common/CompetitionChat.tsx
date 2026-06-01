@@ -4,30 +4,42 @@ import { MessageSquare, Send, Trash2 } from 'lucide-react'
 import { Skeleton } from './Skeleton'
 import { useAuth } from '../../hooks/useAuth'
 import {
-  deleteChatMessage,
-  listChatMessages,
-  postChatMessage,
-} from '../../services/competitionService'
-import type { CompetitionChatMessage } from '../../types/competition'
+  useChatMessages,
+  useDeleteChatMessage,
+  usePostChatMessage,
+} from '../../hooks/useCompetition'
+import { avatarThumbUrl } from '../../lib/imageTransform'
 
-// Compact chat panel for a competition. Polls every 6s while mounted so
-// new messages appear without WebSocket plumbing. The input shows inline
-// rejection feedback when the backend blocks profanity (specific error
-// code) or rate-limits the user.
+// Compact chat panel for a competition. When Supabase Realtime is wired
+// (useCompetitionRealtime in the parent page), the chat query is
+// invalidated on every new message and the panel updates in <1s without
+// any polling. When Realtime is not configured, the parent passes
+// `polling: true` and the query falls back to a 6s refetchInterval.
+//
+// The input shows inline rejection feedback when the backend blocks
+// profanity (specific error code) or rate-limits the user.
 export function CompetitionChat({
-  competitionId, isAdmin,
+  competitionId, isAdmin, pollingFallback,
 }: {
   competitionId: string
   isAdmin: boolean
+  // When true, the chat refetches every 6s. The parent flips this off
+  // once Realtime is connected — push updates make the interval moot.
+  pollingFallback?: boolean
 }) {
-  const { authorizedFetch, user } = useAuth()
-  const [messages, setMessages] = useState<CompetitionChatMessage[]>([])
-  const [loading, setLoading] = useState(true)
+  const { user } = useAuth()
   const [draft, setDraft] = useState('')
-  const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [blockedMessage, setBlockedMessage] = useState<string | null>(null)
   const listRef = useRef<HTMLDivElement | null>(null)
+
+  const query = useChatMessages(competitionId, { polling: pollingFallback ?? false })
+  const postMut = usePostChatMessage(competitionId)
+  const deleteMut = useDeleteChatMessage(competitionId)
+
+  const messages = query.data?.items ?? []
+  const loading = query.isLoading
+  const sending = postMut.isPending
 
   // Always scroll to the latest message after a render that changed the
   // list length. Behaves well even on slow connections because we anchor
@@ -38,45 +50,23 @@ export function CompetitionChat({
     el.scrollTop = el.scrollHeight
   }, [])
 
-  const load = useCallback(async () => {
-    try {
-      const data = await listChatMessages(authorizedFetch, competitionId, { limit: 50 })
-      setMessages(data.items)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao carregar conversa')
-    } finally {
-      setLoading(false)
-    }
-  }, [authorizedFetch, competitionId])
-
-  useEffect(() => {
-    void load()
-    // Light polling so new messages from others show up without making
-    // the user reload. Stops when component unmounts.
-    const id = window.setInterval(() => {
-      void load()
-    }, 6000)
-    return () => window.clearInterval(id)
-  }, [load])
-
   useEffect(() => {
     scrollToBottom()
   }, [messages.length, scrollToBottom])
 
-  const handleSend = async () => {
+  const handleSend = async (e: React.FormEvent) => {
+    e.preventDefault()
     const content = draft.trim()
     if (!content || sending) return
-    setSending(true)
     setError(null)
     setBlockedMessage(null)
     try {
-      const message = await postChatMessage(authorizedFetch, competitionId, content)
-      setMessages((curr) => [...curr, message])
+      await postMut.mutateAsync(content)
       setDraft('')
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Falha ao enviar'
-      // Specific feedback when the backend blocks. We don't need a fancy
-      // toast — inline message under the input reads naturally.
+      // Specific feedback when the backend blocks. Inline message under
+      // the input reads naturally — no toast needed.
       if (/impr[oó]prio|bloqueada/i.test(msg)) {
         setBlockedMessage('Mensagem bloqueada por conter conteúdo impróprio')
       } else if (/calma|alguns segundos/i.test(msg)) {
@@ -84,16 +74,14 @@ export function CompetitionChat({
       } else {
         setError(msg)
       }
-    } finally {
-      setSending(false)
     }
   }
 
   const handleDelete = async (messageId: string) => {
     if (!window.confirm('Apagar essa mensagem?')) return
+    setError(null)
     try {
-      await deleteChatMessage(authorizedFetch, competitionId, messageId)
-      setMessages((curr) => curr.filter((m) => m.id !== messageId))
+      await deleteMut.mutateAsync(messageId)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao apagar')
     }
@@ -138,7 +126,7 @@ export function CompetitionChat({
             >
               {m.user.avatarUrl ? (
                 <img
-                  src={m.user.avatarUrl}
+                  src={avatarThumbUrl(m.user.avatarUrl, 64)}
                   alt={displayName}
                   className="h-7 w-7 shrink-0 rounded-full object-cover"
                 />
@@ -189,13 +177,7 @@ export function CompetitionChat({
         </p>
       )}
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault()
-          void handleSend()
-        }}
-        className="mt-3 flex gap-2"
-      >
+      <form onSubmit={handleSend} className="mt-3 flex gap-2">
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}

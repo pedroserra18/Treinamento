@@ -573,7 +573,11 @@ export function CompetitionDetailPage() {
 
       {(comp.status === 'ACTIVE' || comp.status === 'COMPLETED') && myMembership && !myMembership.abandonedAt && (
         <div className={mobileTab !== 'chat' ? 'hidden lg:block' : ''}>
-          <CompetitionChat competitionId={comp.id} isAdmin={isAdmin} />
+          <CompetitionChat
+            competitionId={comp.id}
+            isAdmin={isAdmin}
+            pollingFallback={shouldPoll}
+          />
         </div>
       )}
 

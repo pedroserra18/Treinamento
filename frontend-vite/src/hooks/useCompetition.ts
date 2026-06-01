@@ -4,6 +4,7 @@ import {
   acceptInvite,
   createCompetition,
   declineInvite,
+  deleteChatMessage,
   deleteCompetitionEntry,
   deleteEntryComment,
   demoteMember,
@@ -15,10 +16,12 @@ import {
   inviteMember,
   kickMember,
   leaveCompetition,
+  listChatMessages,
   listEntryComments,
   listInvitableFriends,
   listMyCompetitions,
   listMyInvites,
+  postChatMessage,
   postEntryComment,
   promoteMember,
   startCompetition,
@@ -44,6 +47,7 @@ export const competitionKeys = {
   feed: (id: string) => [...competitionKeys.detail(id), 'feed'] as const,
   invitableFriends: (id: string) => [...competitionKeys.detail(id), 'invitable-friends'] as const,
   entryComments: (id: string, entryId: string) => [...competitionKeys.detail(id), 'entry', entryId, 'comments'] as const,
+  chat: (id: string) => [...competitionKeys.detail(id), 'chat'] as const,
   invitePreview: (token: string) => [...competitionKeys.all, 'invite-preview', token] as const,
 }
 
@@ -127,6 +131,51 @@ export function useInvitableFriends(competitionId: string | undefined) {
     queryKey: competitionKeys.invitableFriends(competitionId ?? ''),
     queryFn: () => listInvitableFriends(authorizedFetch, competitionId!),
     enabled: Boolean(competitionId),
+  })
+}
+
+// Chat messages — single query for the most recent 50. When Realtime
+// is wired, useCompetitionRealtime invalidates this key on every new
+// message so the UI updates in <1s without polling. When Realtime is
+// off (no Supabase env), the consumer can pass `polling: true` to
+// fall back to the old 6s interval.
+export function useChatMessages(competitionId: string | undefined, options?: { polling?: boolean }) {
+  const { authorizedFetch } = useAuth()
+  return useQuery({
+    queryKey: competitionKeys.chat(competitionId ?? ''),
+    queryFn: () => listChatMessages(authorizedFetch, competitionId!, { limit: 50 }),
+    enabled: Boolean(competitionId),
+    refetchInterval: options?.polling ? 6_000 : false,
+  })
+}
+
+export function usePostChatMessage(competitionId: string) {
+  const { authorizedFetch } = useAuth()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (content: string) => postChatMessage(authorizedFetch, competitionId, content),
+    onSuccess: (created) => {
+      // Append the new message to the cached list so the sender sees it
+      // instantly — Realtime invalidation will reconcile if drift.
+      qc.setQueryData<{ items: typeof created[] }>(
+        competitionKeys.chat(competitionId),
+        (data) => data ? { items: [...data.items, created] } : { items: [created] },
+      )
+    },
+  })
+}
+
+export function useDeleteChatMessage(competitionId: string) {
+  const { authorizedFetch } = useAuth()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (messageId: string) => deleteChatMessage(authorizedFetch, competitionId, messageId),
+    onSuccess: (_data, messageId) => {
+      qc.setQueryData<{ items: Array<{ id: string }> }>(
+        competitionKeys.chat(competitionId),
+        (data) => data ? { items: data.items.filter((m) => m.id !== messageId) } : data,
+      )
+    },
   })
 }
 
