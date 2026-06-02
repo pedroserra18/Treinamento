@@ -21,7 +21,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useScrollLock } from '../hooks/useScrollLock'
 import {
   Flame, Layers, Dumbbell, Plus, Play, Search, Pencil, Sparkles, MoreHorizontal,
-  MoreVertical, ArrowUpDown, RefreshCcw, Trash2, Check, ChevronUp, ChevronDown,
+  MoreVertical, ArrowUpDown, RefreshCcw, Trash2, Check, GripVertical,
   Activity, X,
 } from 'lucide-react'
 import { SkeletonCard } from '../components/common/Skeleton'
@@ -948,20 +948,76 @@ function ExerciseContextMenuSheet({
   )
 }
 
-// Bottom sheet pra reordenar os exercícios do treino ativo. Lista todos
-// com ⬆⬇ por linha — cada toque já move a posição (sem precisar
-// confirmar). Mantém a thumbnail pra ficar fácil de reconhecer e o
-// índice atualizado pra o usuário entender o que mudou.
+// Linha sortable individual usada dentro do sheet de reordenação.
+// Diferente do drag no card grande (que usa long-press), aqui o
+// usuário já está em modo "Reordenar" explícito — drag é instantâneo
+// sem delay. O handle ≡ na direita deixa visual a affordance.
+function SortableReorderRow({
+  id, index, exercise,
+}: {
+  id: string
+  index: number
+  exercise: ActiveExercise
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    zIndex: isDragging ? 50 : undefined,
+    boxShadow: isDragging ? '0 8px 20px -6px rgba(0,0,0,0.4)' : undefined,
+    background: isDragging ? 'var(--surface-hover)' : undefined,
+    touchAction: 'manipulation',
+  }
+  return (
+    <li
+      ref={setNodeRef}
+      style={style}
+      className="flex items-center gap-2 border-b border-[var(--line)] px-3 py-2"
+      {...attributes}
+      {...listeners}
+    >
+      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-[var(--surface-hover)] font-mono text-[10px] font-bold text-[var(--muted)]">
+        {index + 1}
+      </span>
+      {exercise.thumbnailUrl ? (
+        <img src={exercise.thumbnailUrl} alt="" className="h-10 w-10 shrink-0 rounded-md object-cover" />
+      ) : (
+        <div className="h-10 w-10 shrink-0 rounded-md bg-[var(--surface-hover)]" />
+      )}
+      <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--text)]">
+        {exercise.exerciseName}
+      </span>
+      <GripVertical size={18} className="shrink-0 text-[var(--muted)]" aria-hidden />
+    </li>
+  )
+}
+
+// Bottom sheet pra reordenar os exercícios via drag-and-drop. Sem
+// setas — o usuário segura qualquer linha e arrasta pra cima ou pra
+// baixo, vendo o handle ≡ à direita pra deixar claro a affordance.
+// Sem delay (activationConstraint: distance só) porque o usuário já
+// está em modo reorder explícito; scroll dentro da lista mantém o
+// natural porque o touch precisa se mover 5px+ pra ativar.
 function ReorderExercisesSheet({
-  open, exercises, onMoveUp, onMoveDown, onClose,
+  open, exercises, onReorder, onClose,
 }: {
   open: boolean
   exercises: ActiveExercise[]
-  onMoveUp: (index: number) => void
-  onMoveDown: (index: number) => void
+  // Recebe o array inteiro reordenado em vez de (from, to) pra dar
+  // controle total ao caller (pode skipar reordens triviais, etc.).
+  onReorder: (next: ActiveExercise[]) => void
   onClose: () => void
 }) {
   useScrollLock(open)
+
+  // Dentro do sheet usamos distance (5px) em vez de delay — o usuário
+  // já entrou em modo reorder, então o gesto deve ser instantâneo.
+  // Distance evita ativar drag em um tap leve sem perder responsividade.
+  const sheetSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { distance: 5 } }),
+  )
 
   useEffect(() => {
     if (!open) return
@@ -971,6 +1027,15 @@ function ReorderExercisesSheet({
   }, [open, onClose])
 
   if (!open) return null
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = exercises.findIndex((ex) => ex.exerciseId === active.id)
+    const newIndex = exercises.findIndex((ex) => ex.exerciseId === over.id)
+    if (oldIndex === -1 || newIndex === -1) return
+    onReorder(arrayMove(exercises, oldIndex, newIndex))
+  }
 
   return createPortal(
     <AnimatePresence>
@@ -1001,56 +1066,29 @@ function ReorderExercisesSheet({
             Reordenar Exercícios
           </h3>
           <p className="shrink-0 px-4 pb-2 text-center text-[11px] text-[var(--muted)]">
-            Use as setas pra mover cada exercício.
+            Segure e arraste pra reordenar.
           </p>
-          <ul className="flex-1 overflow-y-auto border-t border-[var(--line)]">
-            {exercises.map((exercise, idx) => {
-              const isFirst = idx === 0
-              const isLast = idx === exercises.length - 1
-              return (
-                <li
-                  key={`${exercise.exerciseId}-${idx}`}
-                  className="flex items-center gap-2 border-b border-[var(--line)] px-3 py-2"
-                >
-                  <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-[var(--surface-hover)] font-mono text-[10px] font-bold text-[var(--muted)]">
-                    {idx + 1}
-                  </span>
-                  {exercise.thumbnailUrl ? (
-                    <img
-                      src={exercise.thumbnailUrl}
-                      alt=""
-                      className="h-10 w-10 shrink-0 rounded-md object-cover"
-                    />
-                  ) : (
-                    <div className="h-10 w-10 shrink-0 rounded-md bg-[var(--surface-hover)]" />
-                  )}
-                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--text)]">
-                    {exercise.exerciseName}
-                  </span>
-                  <div className="flex shrink-0 items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => onMoveUp(idx)}
-                      disabled={isFirst}
-                      className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-30"
-                      aria-label={`Mover ${exercise.exerciseName} para cima`}
-                    >
-                      <ChevronUp size={16} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onMoveDown(idx)}
-                      disabled={isLast}
-                      className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-30"
-                      aria-label={`Mover ${exercise.exerciseName} para baixo`}
-                    >
-                      <ChevronDown size={16} />
-                    </button>
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
+          <DndContext
+            sensors={sheetSensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={exercises.map((ex) => ex.exerciseId)}
+              strategy={verticalListSortingStrategy}
+            >
+              <ul className="flex-1 overflow-y-auto border-t border-[var(--line)]">
+                {exercises.map((exercise, idx) => (
+                  <SortableReorderRow
+                    key={exercise.exerciseId}
+                    id={exercise.exerciseId}
+                    index={idx}
+                    exercise={exercise}
+                  />
+                ))}
+              </ul>
+            </SortableContext>
+          </DndContext>
           <div className="shrink-0 border-t border-[var(--line)] bg-[var(--surface)] p-3">
             <button
               type="button"
@@ -2467,30 +2505,6 @@ export function TrainPage() {
     )
     if (!confirmed) return
     setActiveExercises((current) => current.filter((_, idx) => idx !== exerciseIndex))
-  }
-
-  // Troca dois exercícios de lugar no array. Usado pelos botões de
-  // reordenação. Não dispara nada de backend — a ordem em rotina já é
-  // persistida na próxima save de rotina; em sessão ad-hoc é só UI.
-  const moveExerciseUp = (exerciseIndex: number) => {
-    if (exerciseIndex <= 0) return
-    setActiveExercises((current) => {
-      const next = [...current]
-      const tmp = next[exerciseIndex - 1]
-      next[exerciseIndex - 1] = next[exerciseIndex]
-      next[exerciseIndex] = tmp
-      return next
-    })
-  }
-  const moveExerciseDown = (exerciseIndex: number) => {
-    setActiveExercises((current) => {
-      if (exerciseIndex >= current.length - 1) return current
-      const next = [...current]
-      const tmp = next[exerciseIndex + 1]
-      next[exerciseIndex + 1] = next[exerciseIndex]
-      next[exerciseIndex] = tmp
-      return next
-    })
   }
 
   // Aplica a substituição de um exercício pelo ExerciseOption picado.
@@ -4163,8 +4177,7 @@ export function TrainPage() {
           <ReorderExercisesSheet
             open
             exercises={activeExercises}
-            onMoveUp={moveExerciseUp}
-            onMoveDown={moveExerciseDown}
+            onReorder={(next) => setActiveExercises(next)}
             onClose={() => setReorderSheetOpen(false)}
           />
         )}
