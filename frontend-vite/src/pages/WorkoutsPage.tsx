@@ -22,6 +22,11 @@ import {
 } from '../services/workoutService'
 import { formatClock, formatRestOptionLabel, REST_OPTIONS_SEC } from '../lib/workout-timing'
 import { SkeletonCard } from '../components/common/Skeleton'
+import { ExerciseContextMenuSheet } from './train/ExerciseContextMenuSheet'
+import { ReorderExercisesSheet, type ReorderItem } from './train/ReorderExercisesSheet'
+import { SubstituteExerciseModal } from './train/SubstituteExerciseModal'
+import { CreateExerciseModal } from './train/CreateExerciseModal'
+import { MoreVertical } from 'lucide-react'
 
 const muscleOptions = MUSCLE_OPTIONS
 
@@ -354,10 +359,15 @@ export function WorkoutsPage({
   const [optionsByPlan, setOptionsByPlan] = useState<Record<string, ExerciseOption[]>>({})
   const [hasExploredByPlan, setHasExploredByPlan] = useState<Record<string, boolean>>({})
 
-  const [replaceTargetId, setReplaceTargetId] = useState<string | null>(null)
-  const [replaceQuery, setReplaceQuery] = useState('')
-  const [replaceMuscle, setReplaceMuscle] = useState('')
-  const [replaceOptions, setReplaceOptions] = useState<ExerciseOption[]>([])
+  // Estado das 3 ações compartilhadas com o TrainPage: kebab (menu de
+  // contexto), reorder sheet e substitute modal. Todas operam sobre o
+  // plan_exercise por id; reorder e substitute precisam saber também
+  // a qual plano pertence pra rotear a chamada certa pro backend.
+  const [ctxMenuTarget, setCtxMenuTarget] = useState<{ planId: string; planExerciseId: string; exerciseId: string; exerciseName: string } | null>(null)
+  const [reorderPlanId, setReorderPlanId] = useState<string | null>(null)
+  const [substituteTarget, setSubstituteTarget] = useState<{ planId: string; planExerciseId: string; exerciseId: string; exerciseName: string } | null>(null)
+  const [createExerciseForSubstitute, setCreateExerciseForSubstitute] = useState<{ planId: string; planExerciseId: string } | null>(null)
+  const [createExerciseOpen, setCreateExerciseOpen] = useState(false)
 
   const [draftByExercise, setDraftByExercise] = useState<Record<string, PerformanceDraft>>({})
   const [expandedByExercise, setExpandedByExercise] = useState<Record<string, boolean>>({})
@@ -369,7 +379,6 @@ export function WorkoutsPage({
   const [planNameDraftById, setPlanNameDraftById] = useState<Record<string, string>>({})
   const [createdPlanId, setCreatedPlanId] = useState<string | null>(null)
   const exploreSearchRequestIdRef = useRef(0)
-  const replaceSearchRequestIdRef = useRef(0)
   const exerciseSearchCacheRef = useRef<Map<string, ExerciseOption[]>>(new Map())
 
   const fetchExerciseOptions = useCallback(
@@ -512,41 +521,6 @@ export function WorkoutsPage({
 
     return () => window.clearTimeout(timeoutId)
   }, [addMuscleByPlan, addQueryByPlan, fetchExerciseOptions, hasExploredByPlan])
-
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      const normalized = replaceQuery.trim()
-      if (!replaceTargetId || (!normalized && !replaceMuscle)) {
-        replaceSearchRequestIdRef.current += 1
-        setReplaceOptions([])
-        return
-      }
-
-      const requestId = ++replaceSearchRequestIdRef.current
-
-      void fetchExerciseOptions({
-        q: normalized || undefined,
-        primaryMuscleGroup: replaceMuscle || undefined,
-        limit: 12,
-      })
-        .then((options) => {
-          if (requestId !== replaceSearchRequestIdRef.current) {
-            return
-          }
-
-          setReplaceOptions(options)
-        })
-        .catch((err) => {
-          if (requestId !== replaceSearchRequestIdRef.current) {
-            return
-          }
-
-          setError(err instanceof Error ? err.message : 'Erro no autocomplete para substituicao')
-        })
-    }, 300)
-
-    return () => window.clearTimeout(timeoutId)
-  }, [fetchExerciseOptions, replaceMuscle, replaceQuery, replaceTargetId])
 
   const createCustom = async () => {
     if (newPlanName.trim().length < 2) {
@@ -901,60 +875,37 @@ export function WorkoutsPage({
     }
   }
 
-  const moveExercise = async (plan: WorkoutPlan, planExerciseId: string, direction: -1 | 1) => {
-    const currentIndex = plan.exercises.findIndex((item) => item.id === planExerciseId)
-    const nextIndex = currentIndex + direction
-
-    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= plan.exercises.length) {
-      return
-    }
+  // Aplica a nova ordem retornada pelo ReorderExercisesSheet. O backend
+  // já reordena de forma atômica via temp-offset quando recebemos um
+  // updatePlanExercise com orderIndex novo — então pra cada gesto de
+  // drag (que move 1 item de A pra B) basta UMA chamada com o novo
+  // índice do item que se moveu. O loop abaixo emite uma chamada por
+  // item que mudou de posição (na prática, 1) e re-busca a lista.
+  const applyReorder = async (plan: WorkoutPlan, next: ReorderItem[]) => {
+    const previous = plan.exercises
+    if (next.length !== previous.length) return
 
     try {
-      await updatePlanExercise(authorizedFetch, plan.id, planExerciseId, {
-        orderIndex: nextIndex + 1,
-      })
+      for (let i = 0; i < next.length; i += 1) {
+        const targetId = next[i].id
+        const oldIndex = previous.findIndex((p) => p.id === targetId)
+        if (oldIndex === -1 || oldIndex === i) continue
+        await updatePlanExercise(authorizedFetch, plan.id, targetId, {
+          orderIndex: i + 1,
+        })
+        break // Uma chamada já dispara o reorder atômico no backend
+      }
       await loadAll()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao reordenar exercicios')
     }
   }
 
-  const openReplace = async (planExerciseId: string) => {
-    setReplaceTargetId(planExerciseId)
-    setReplaceQuery('')
-    setReplaceMuscle('')
-    setReplaceOptions([])
-  }
-
-  const searchReplace = async () => {
-    if (!replaceQuery.trim() && !replaceMuscle) {
-      setError('Digite algo ou selecione um musculo para buscar substituicao')
-      return
-    }
-
+  const applySubstitution = async (planId: string, planExerciseId: string, newExerciseId: string) => {
     try {
-      const options = await searchExercisesForPlan(authorizedFetch, {
-        q: replaceQuery.trim() || undefined,
-        primaryMuscleGroup: replaceMuscle || undefined,
-        limit: 12,
-      })
-      setReplaceOptions(options)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao buscar substituicao')
-    }
-  }
-
-  const applyReplace = async (plan: WorkoutPlan, newExerciseId: string) => {
-    if (!replaceTargetId) {
-      return
-    }
-
-    try {
-      await updatePlanExercise(authorizedFetch, plan.id, replaceTargetId, {
+      await updatePlanExercise(authorizedFetch, planId, planExerciseId, {
         exerciseId: newExerciseId,
       })
-      setReplaceTargetId(null)
-      setReplaceOptions([])
       await loadAll()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao substituir exercicio')
@@ -1380,7 +1331,7 @@ export function WorkoutsPage({
                           </button>
                         )}
                       </div>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
                         <button
                           type="button"
                           className="rounded-md border border-[var(--line)] px-2 py-1 text-xs text-[var(--text)]"
@@ -1393,41 +1344,22 @@ export function WorkoutsPage({
                         >
                           {expandedByExercise[item.id] ? 'Ocultar series' : 'Editar series'}
                         </button>
+                        {/* Kebab vertical — abre o ExerciseContextMenuSheet
+                            com as 3 ações padrão (reordenar / substituir /
+                            remover). Mesma UX do TrainPage pra o usuário
+                            não precisar aprender duas interfaces. */}
                         <button
                           type="button"
-                          className="rounded-md border border-[var(--line)] px-2 py-1 text-xs text-[var(--text)]"
-                          onClick={() => {
-                            void moveExercise(plan, item.id, -1)
-                          }}
+                          aria-label={`Ações para ${exerciseLabel}`}
+                          className="grid h-8 w-8 place-items-center rounded-md border border-[var(--line)] text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                          onClick={() => setCtxMenuTarget({
+                            planId: plan.id,
+                            planExerciseId: item.id,
+                            exerciseId: item.exercise.id,
+                            exerciseName: exerciseLabel,
+                          })}
                         >
-                          Subir
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-md border border-[var(--line)] px-2 py-1 text-xs text-[var(--text)]"
-                          onClick={() => {
-                            void moveExercise(plan, item.id, 1)
-                          }}
-                        >
-                          Descer
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-md border border-[var(--line)] px-2 py-1 text-xs text-[var(--text)]"
-                          onClick={() => {
-                            void openReplace(item.id)
-                          }}
-                        >
-                          Substituir
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-md border border-red-500/60 px-2 py-1 text-xs text-red-400"
-                          onClick={() => {
-                            void removeExerciseFromPlan(plan.id, item.id)
-                          }}
-                        >
-                          Remover
+                          <MoreVertical size={16} />
                         </button>
                       </div>
                     </div>
@@ -1711,47 +1643,6 @@ export function WorkoutsPage({
                       </div>
                     ) : null}
 
-                    {replaceTargetId === item.id ? (
-                      <div className="mt-3 rounded-lg border border-[var(--line)] p-2">
-                        <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
-                          <input
-                            value={replaceQuery}
-                            onChange={(event) => setReplaceQuery(event.target.value)}
-                            placeholder="Buscar substituto"
-                            className="rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
-                          />
-                          <select
-                            value={replaceMuscle}
-                            onChange={(event) => setReplaceMuscle(event.target.value)}
-                            className="rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
-                          >
-                            <option value="">Todos</option>
-                            {muscleOptions.map((muscle) => (
-                              <option key={muscle} value={muscle}>
-                                {muscle}
-                              </option>
-                            ))}
-                          </select>
-                          <button
-                            type="button"
-                            className="rounded-md border border-[var(--line)] px-3 py-1 text-sm font-semibold text-[var(--text)]"
-                            onClick={() => {
-                              void searchReplace()
-                            }}
-                          >
-                            Buscar
-                          </button>
-                        </div>
-
-                        <div className="mt-2 max-h-72 space-y-2 overflow-y-auto pr-1">
-                          {replaceOptions.map((option) => (
-                            renderExerciseOptionCard(option, 'Substituir na rotina em edicao', () => {
-                              void applyReplace(plan, option.id)
-                            })
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
                   </div>
                 )
               })}
@@ -1771,6 +1662,83 @@ export function WorkoutsPage({
           </article>
         ))}
       </div>
+
+      {/* Sheets / modais compartilhados com o TrainPage. Ficam fora do
+          loop de planos pra montar uma única instância — quem dispara
+          informa qual plano + plan_exercise é o alvo via state. */}
+      {ctxMenuTarget && (
+        <ExerciseContextMenuSheet
+          open
+          exerciseName={ctxMenuTarget.exerciseName}
+          onReorder={() => {
+            setReorderPlanId(ctxMenuTarget.planId)
+            setCtxMenuTarget(null)
+          }}
+          onSubstitute={() => {
+            setSubstituteTarget(ctxMenuTarget)
+            setCtxMenuTarget(null)
+          }}
+          onRemove={() => {
+            void removeExerciseFromPlan(ctxMenuTarget.planId, ctxMenuTarget.planExerciseId)
+            setCtxMenuTarget(null)
+          }}
+          onClose={() => setCtxMenuTarget(null)}
+        />
+      )}
+      {reorderPlanId && (() => {
+        const targetPlan = plans.find((p) => p.id === reorderPlanId)
+        if (!targetPlan) return null
+        return (
+          <ReorderExercisesSheet
+            open
+            items={targetPlan.exercises.map((ex): ReorderItem => ({
+              id: ex.id,
+              name: ex.customName ?? ex.exercise.name,
+              thumbnailUrl: ex.exercise.thumbnailUrl,
+            }))}
+            onReorder={(next) => { void applyReorder(targetPlan, next) }}
+            onClose={() => setReorderPlanId(null)}
+          />
+        )
+      })()}
+      {substituteTarget && (
+        <SubstituteExerciseModal
+          key={`sub-${substituteTarget.planExerciseId}`}
+          open
+          source={{ id: substituteTarget.exerciseId, name: substituteTarget.exerciseName }}
+          onPick={(option) => {
+            void applySubstitution(substituteTarget.planId, substituteTarget.planExerciseId, option.id)
+          }}
+          onCreateRequest={() => {
+            setCreateExerciseForSubstitute({
+              planId: substituteTarget.planId,
+              planExerciseId: substituteTarget.planExerciseId,
+            })
+            setSubstituteTarget(null)
+            setCreateExerciseOpen(true)
+          }}
+          onClose={() => setSubstituteTarget(null)}
+        />
+      )}
+      {createExerciseOpen && (
+        <CreateExerciseModal
+          open
+          onCreated={(newExercise) => {
+            if (createExerciseForSubstitute) {
+              void applySubstitution(
+                createExerciseForSubstitute.planId,
+                createExerciseForSubstitute.planExerciseId,
+                newExercise.id,
+              )
+            }
+            setCreateExerciseForSubstitute(null)
+          }}
+          onClose={() => {
+            setCreateExerciseOpen(false)
+            setCreateExerciseForSubstitute(null)
+          }}
+        />
+      )}
     </section>
   )
 }

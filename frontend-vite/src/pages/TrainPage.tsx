@@ -21,11 +21,14 @@ import { useAuth } from '../hooks/useAuth'
 import { useScrollLock } from '../hooks/useScrollLock'
 import {
   Flame, Layers, Dumbbell, Plus, Play, Search, Pencil, Sparkles, MoreHorizontal,
-  MoreVertical, ArrowUpDown, RefreshCcw, Trash2, Check, GripVertical,
+  MoreVertical, Check,
   Activity, X,
 } from 'lucide-react'
 import { SkeletonCard } from '../components/common/Skeleton'
 import { CreateExerciseModal } from './train/CreateExerciseModal'
+import { ExerciseContextMenuSheet } from './train/ExerciseContextMenuSheet'
+import { ReorderExercisesSheet, type ReorderItem } from './train/ReorderExercisesSheet'
+import { SubstituteExerciseModal } from './train/SubstituteExerciseModal'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPost, sharePlan, type PostPrivacy } from '../services/socialService'
 import { WorkoutsPage } from './WorkoutsPage'
@@ -37,6 +40,7 @@ import {
   type ExerciseExplorerSelection,
 } from '../lib/exercise-explorer'
 import { isBodyweightEquipment, resolveBodyweightFlag } from '../lib/exercise-meta'
+import { pushRecentExerciseId } from '../lib/recent-exercises'
 import { formatClock, formatRestOptionLabel, REST_OPTIONS_SEC } from '../lib/workout-timing'
 import { saveWorkoutSessionImage } from '../lib/workout-session-image'
 import { optimizeImageFileToDataUrl } from '../lib/image-processing'
@@ -109,35 +113,6 @@ type ActiveExercise = {
   // significa exercício solto. Por enquanto, persiste só na sessão
   // — a rotina e o histórico de treino não armazenam supersets.
   supersetGroup?: string | null
-}
-
-// localStorage key + capacidade da lista de "exercícios recentes",
-// usada pelo SubstituteExerciseModal pra popular a seção "Recentes".
-// É puramente no client — sem persistência backend ainda. Atualiza
-// toda vez que o usuário adiciona um exercício no treino ativo.
-const RECENT_EXERCISES_KEY = 'acad:recent-exercises'
-const RECENT_EXERCISES_LIMIT = 20
-
-function getRecentExerciseIds(): string[] {
-  try {
-    const raw = window.localStorage.getItem(RECENT_EXERCISES_KEY)
-    if (!raw) return []
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return []
-    return parsed.filter((v): v is string => typeof v === 'string').slice(0, RECENT_EXERCISES_LIMIT)
-  } catch {
-    return []
-  }
-}
-
-function pushRecentExerciseId(id: string): void {
-  try {
-    const current = getRecentExerciseIds().filter((v) => v !== id)
-    const next = [id, ...current].slice(0, RECENT_EXERCISES_LIMIT)
-    window.localStorage.setItem(RECENT_EXERCISES_KEY, JSON.stringify(next))
-  } catch {
-    // Quota cheia / private mode — silencioso, recent é nice-to-have
-  }
 }
 
 // Visual marker colors for superset groups — repeated cyclically when
@@ -843,563 +818,6 @@ function RestTimePickerSheet({
         </motion.div>
       </motion.div>
     </AnimatePresence>,
-    document.body,
-  )
-}
-
-// Bottom sheet acionado pelo kebab (três pontinhos) no card do
-// exercício. Lista as quatro ações do Hevy: reordenar, substituir,
-// adicionar a supersérie, e remover (destrutivo, em vermelho).
-// Cada ação fecha o sheet automático após chamar o callback.
-function ExerciseContextMenuSheet({
-  open, exerciseName, isInSuperset, onReorder, onSubstitute, onAddToSuperset, onRemove, onClose,
-}: {
-  open: boolean
-  exerciseName: string
-  // Quando true, a opção de supersérie vira "Sair" em vez de "Adicionar",
-  // refletindo o toggle real do handler. Ajuda o usuário a entender
-  // sem precisar abrir e ver que entrou num grupo errado.
-  isInSuperset: boolean
-  onReorder: () => void
-  onSubstitute: () => void
-  onAddToSuperset: () => void
-  onRemove: () => void
-  onClose: () => void
-}) {
-  useScrollLock(open)
-
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [open, onClose])
-
-  if (!open) return null
-
-  const items: Array<{
-    icon: typeof ArrowUpDown
-    label: string
-    onClick: () => void
-    destructive?: boolean
-  }> = [
-    { icon: ArrowUpDown, label: 'Reordenar Exercícios', onClick: onReorder },
-    { icon: RefreshCcw, label: 'Substituir Exercício', onClick: onSubstitute },
-    {
-      icon: isInSuperset ? X : Plus,
-      label: isInSuperset ? 'Sair da Supersérie' : 'Adicionar A Supersérie',
-      onClick: onAddToSuperset,
-    },
-    { icon: Trash2, label: 'Remover Exercício', onClick: onRemove, destructive: true },
-  ]
-
-  return createPortal(
-    <AnimatePresence>
-      <motion.div
-        key="ctx-backdrop"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.18 }}
-        onClick={onClose}
-        className="fixed inset-0 z-[70] flex items-end justify-center bg-black/55 backdrop-blur-sm sm:items-center"
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Ações para ${exerciseName}`}
-      >
-        <motion.div
-          key="ctx-sheet"
-          initial={{ y: 60, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          exit={{ y: 40, opacity: 0 }}
-          transition={{ type: 'spring', stiffness: 340, damping: 28 }}
-          onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-md overflow-hidden rounded-t-2xl border border-b-0 border-[var(--line)] bg-[var(--surface)] pb-2 shadow-2xl sm:mb-0 sm:rounded-2xl sm:border-b"
-        >
-          <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-[var(--line)] sm:hidden" />
-          <ul className="border-t border-[var(--line)]">
-            {items.map((item, idx) => {
-              const Icon = item.icon
-              const isLast = idx === items.length - 1
-              return (
-                <li key={item.label}>
-                  <button
-                    type="button"
-                    onClick={() => { item.onClick(); onClose() }}
-                    className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors ${
-                      !isLast ? 'border-b border-[var(--line)]' : ''
-                    } ${
-                      item.destructive
-                        ? 'text-rose-500 hover:bg-rose-500/10'
-                        : 'text-[var(--text)] hover:bg-[var(--surface-hover)]'
-                    }`}
-                  >
-                    <Icon size={18} className="shrink-0" />
-                    <span className="text-[14px] font-medium">{item.label}</span>
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>,
-    document.body,
-  )
-}
-
-// Linha sortable individual usada dentro do sheet de reordenação.
-// Diferente do drag no card grande (que usa long-press), aqui o
-// usuário já está em modo "Reordenar" explícito — drag é instantâneo
-// sem delay. O handle ≡ na direita deixa visual a affordance.
-function SortableReorderRow({
-  id, index, exercise,
-}: {
-  id: string
-  index: number
-  exercise: ActiveExercise
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.4 : 1,
-    zIndex: isDragging ? 50 : undefined,
-    boxShadow: isDragging ? '0 8px 20px -6px rgba(0,0,0,0.4)' : undefined,
-    background: isDragging ? 'var(--surface-hover)' : undefined,
-    touchAction: 'manipulation',
-  }
-  return (
-    <li
-      ref={setNodeRef}
-      style={style}
-      className="flex items-center gap-2 border-b border-[var(--line)] px-3 py-2"
-      {...attributes}
-      {...listeners}
-    >
-      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-[var(--surface-hover)] font-mono text-[10px] font-bold text-[var(--muted)]">
-        {index + 1}
-      </span>
-      {exercise.thumbnailUrl ? (
-        <img src={exercise.thumbnailUrl} alt="" className="h-10 w-10 shrink-0 rounded-md object-cover" />
-      ) : (
-        <div className="h-10 w-10 shrink-0 rounded-md bg-[var(--surface-hover)]" />
-      )}
-      <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--text)]">
-        {exercise.exerciseName}
-      </span>
-      <GripVertical size={18} className="shrink-0 text-[var(--muted)]" aria-hidden />
-    </li>
-  )
-}
-
-// Bottom sheet pra reordenar os exercícios via drag-and-drop. Sem
-// setas — o usuário segura qualquer linha e arrasta pra cima ou pra
-// baixo, vendo o handle ≡ à direita pra deixar claro a affordance.
-// Sem delay (activationConstraint: distance só) porque o usuário já
-// está em modo reorder explícito; scroll dentro da lista mantém o
-// natural porque o touch precisa se mover 5px+ pra ativar.
-function ReorderExercisesSheet({
-  open, exercises, onReorder, onClose,
-}: {
-  open: boolean
-  exercises: ActiveExercise[]
-  // Recebe o array inteiro reordenado em vez de (from, to) pra dar
-  // controle total ao caller (pode skipar reordens triviais, etc.).
-  onReorder: (next: ActiveExercise[]) => void
-  onClose: () => void
-}) {
-  useScrollLock(open)
-
-  // Dentro do sheet usamos distance (5px) em vez de delay — o usuário
-  // já entrou em modo reorder, então o gesto deve ser instantâneo.
-  // Distance evita ativar drag em um tap leve sem perder responsividade.
-  const sheetSensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(TouchSensor, { activationConstraint: { distance: 5 } }),
-  )
-
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [open, onClose])
-
-  if (!open) return null
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event
-    if (!over || active.id === over.id) return
-    const oldIndex = exercises.findIndex((ex) => ex.exerciseId === active.id)
-    const newIndex = exercises.findIndex((ex) => ex.exerciseId === over.id)
-    if (oldIndex === -1 || newIndex === -1) return
-    onReorder(arrayMove(exercises, oldIndex, newIndex))
-  }
-
-  return createPortal(
-    <AnimatePresence>
-      <motion.div
-        key="reorder-backdrop"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.18 }}
-        onClick={onClose}
-        className="fixed inset-0 z-[70] flex items-end justify-center bg-black/55 backdrop-blur-sm sm:items-center"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Reordenar exercícios"
-      >
-        <motion.div
-          key="reorder-sheet"
-          initial={{ y: 60, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          exit={{ y: 40, opacity: 0 }}
-          transition={{ type: 'spring', stiffness: 340, damping: 28 }}
-          onClick={(e) => e.stopPropagation()}
-          className="flex w-full max-w-md flex-col overflow-hidden rounded-t-2xl border border-b-0 border-[var(--line)] bg-[var(--surface)] shadow-2xl sm:mb-0 sm:rounded-2xl sm:border-b"
-          style={{ maxHeight: 'min(80vh, 640px)' }}
-        >
-          <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-[var(--line)] sm:hidden" />
-          <h3 className="shrink-0 px-4 pb-2 pt-3 text-center text-[14px] font-bold text-[var(--text)]">
-            Reordenar Exercícios
-          </h3>
-          <p className="shrink-0 px-4 pb-2 text-center text-[11px] text-[var(--muted)]">
-            Segure e arraste pra reordenar.
-          </p>
-          <DndContext
-            sensors={sheetSensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleDragEnd}
-          >
-            <SortableContext
-              items={exercises.map((ex) => ex.exerciseId)}
-              strategy={verticalListSortingStrategy}
-            >
-              <ul className="flex-1 overflow-y-auto border-t border-[var(--line)]">
-                {exercises.map((exercise, idx) => (
-                  <SortableReorderRow
-                    key={exercise.exerciseId}
-                    id={exercise.exerciseId}
-                    index={idx}
-                    exercise={exercise}
-                  />
-                ))}
-              </ul>
-            </SortableContext>
-          </DndContext>
-          <div className="shrink-0 border-t border-[var(--line)] bg-[var(--surface)] p-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-full rounded-xl bg-[var(--brand)] py-3 text-[14px] font-bold text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)]"
-            >
-              Feito
-            </button>
-          </div>
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>,
-    document.body,
-  )
-}
-
-// Modal cheio de substituição (estilo Hevy). Carrega o catálogo na
-// abertura, organiza em duas seções (Sugeridos = mesmo grupo muscular
-// que o source, ranqueado por frequência de uso; Recentes = IDs que
-// o usuário usou no passado, lidos do localStorage) e ainda permite
-// pesquisa livre + filtro por equipamento e músculo. Quando o user
-// escolhe, dispara onPick com o ExerciseOption completo pra o parent
-// fazer a substituição mantendo as séries.
-function SubstituteExerciseModal({
-  open, sourceExercise, onPick, onCreateRequest, onClose,
-}: {
-  open: boolean
-  sourceExercise: ActiveExercise
-  onPick: (option: ExerciseOption) => void
-  // Disparado quando o usuário toca em "Criar" — o parent abre o
-  // CreateExerciseModal, e o exercício criado lá vira o substituto.
-  onCreateRequest: () => void
-  onClose: () => void
-}) {
-  const { authorizedFetch } = useAuth()
-  useScrollLock(open)
-  const [search, setSearch] = useState('')
-  const [muscleFilter, setMuscleFilter] = useState<string>('ALL')
-  const [equipmentFilter, setEquipmentFilter] = useState<string>('ALL')
-  const [catalog, setCatalog] = useState<ExerciseOption[]>([])
-  // Inicia já em loading porque o parent só monta esse componente
-  // quando vai abrir. Evita chamar setLoading(true) dentro do effect
-  // (que o lint react-hooks/set-state-in-effect proíbe).
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  // Carrega o catálogo na abertura. O parent passa `key={index}` então
-  // os filtros já começam frescos por causa do remount.
-  useEffect(() => {
-    if (!open) return
-    let cancelled = false
-    searchExercisesForPlan(authorizedFetch, { limit: 300 })
-      .then((data) => { if (!cancelled) setCatalog(data) })
-      .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Falha ao carregar') })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [open, authorizedFetch])
-
-  // Listas únicas de músculos e equipamentos pra popular os filtros.
-  // Derivadas do catálogo real, ignora vazios.
-  const muscleOptions = useMemo(() => {
-    const set = new Set<string>()
-    for (const ex of catalog) if (ex.primaryMuscleGroup) set.add(ex.primaryMuscleGroup)
-    return Array.from(set).sort()
-  }, [catalog])
-  const equipmentOptions = useMemo(() => {
-    const set = new Set<string>()
-    for (const ex of catalog) if (ex.equipment) set.add(ex.equipment)
-    return Array.from(set).sort()
-  }, [catalog])
-
-  // Aplica os 3 filtros (busca + músculo + equipamento) sequencialmente.
-  // Exclui o próprio source — substituir por ele mesmo é no-op.
-  const filtered = useMemo(() => {
-    let list = catalog.filter((ex) => ex.id !== sourceExercise.exerciseId)
-    const q = search.trim().toLowerCase()
-    if (q) list = list.filter((ex) => ex.name.toLowerCase().includes(q))
-    if (muscleFilter !== 'ALL') list = list.filter((ex) => ex.primaryMuscleGroup === muscleFilter)
-    if (equipmentFilter !== 'ALL') list = list.filter((ex) => ex.equipment === equipmentFilter)
-    return list
-  }, [catalog, search, muscleFilter, equipmentFilter, sourceExercise.exerciseId])
-
-  // SUGERIDOS = mesmo grupo muscular primário do source, depois
-  // ordenado por "quão recente o usuário usou" (proxy de frequência).
-  // O índice no recentIds funciona como ranking inverso (0 = mais
-  // recente). IDs não recentes vão pro final mantendo a ordem alfabética.
-  const recentIds = useMemo(() => (open ? getRecentExerciseIds() : []), [open])
-  const recentRank = useMemo(() => {
-    const map = new Map<string, number>()
-    recentIds.forEach((id, idx) => map.set(id, idx))
-    return map
-  }, [recentIds])
-  // O ActiveExercise não guarda muscle group — só dá pra inferir via
-  // catálogo. Pega do catálogo o muscle do source pra filtrar Sugeridos.
-  const sourceMuscleGroup = useMemo(() => {
-    const sourceInCatalog = catalog.find((ex) => ex.id === sourceExercise.exerciseId)
-    return sourceInCatalog?.primaryMuscleGroup ?? null
-  }, [catalog, sourceExercise.exerciseId])
-
-  const suggested = useMemo(() => {
-    if (!sourceMuscleGroup) return []
-    const candidates = filtered.filter((ex) => ex.primaryMuscleGroup === sourceMuscleGroup)
-    return [...candidates]
-      .sort((a, b) => {
-        const ra = recentRank.get(a.id) ?? Infinity
-        const rb = recentRank.get(b.id) ?? Infinity
-        if (ra !== rb) return ra - rb
-        return a.name.localeCompare(b.name, 'pt-BR')
-      })
-      .slice(0, 5)
-  }, [filtered, sourceMuscleGroup, recentRank])
-
-  // RECENTES = ordem do localStorage, intersectada com o filtro atual.
-  // Deduplica contra Sugeridos pra não exibir o mesmo exercício duas
-  // vezes — se já apareceu em "sugeridos", remove daqui. Sem isso, o
-  // usuário que treina sempre o mesmo grupo via os mesmos exercícios
-  // listados em duplicata.
-  const suggestedIdSet = useMemo(() => new Set(suggested.map((ex) => ex.id)), [suggested])
-  const recent = useMemo(() => {
-    return recentIds
-      .map((id) => filtered.find((ex) => ex.id === id))
-      .filter((ex): ex is ExerciseOption => Boolean(ex))
-      .filter((ex) => !suggestedIdSet.has(ex.id))
-      .slice(0, 10)
-  }, [recentIds, filtered, suggestedIdSet])
-
-  // Quando o usuário digita ALGO na busca, queremos foco — só os
-  // "Resultados da busca" devem aparecer, sem Sugeridos / Recentes
-  // empoluindo a tela com duplicatas. Filtros chip (músculo /
-  // equipamento) NÃO disparam modo busca — eles só estreitam as
-  // duas seções normais.
-  const searchActive = Boolean(search.trim())
-  const hasOnlyChipFilter = !searchActive && (muscleFilter !== 'ALL' || equipmentFilter !== 'ALL')
-
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [open, onClose])
-
-  if (!open) return null
-
-  // Sub-componente local pra evitar repetir a row de exercício 3x.
-  const renderRow = (option: ExerciseOption) => (
-    <button
-      key={option.id}
-      type="button"
-      onClick={() => { onPick(option); onClose() }}
-      className="flex w-full items-center gap-3 border-b border-[var(--line)] px-4 py-3 text-left transition-colors hover:bg-[var(--surface-hover)]"
-    >
-      <div className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full bg-white">
-        {option.thumbnailUrl ? (
-          <img src={option.thumbnailUrl} alt="" className="h-full w-full object-cover" />
-        ) : (
-          <Dumbbell size={20} className="text-[var(--muted)]" />
-        )}
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-[14px] font-medium text-[var(--text)]">{option.name}</p>
-        {option.primaryMuscleGroup && (
-          <p className="truncate text-[12px] text-[var(--muted)]">{option.primaryMuscleGroup}</p>
-        )}
-      </div>
-      {/* Ícone de "estatísticas" como na imagem — só decoração por enquanto.
-          Futuro: clicar abre o histórico do exercício. */}
-      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-[var(--line)] text-[var(--muted)]" aria-hidden>
-        <Activity size={13} />
-      </span>
-    </button>
-  )
-
-  return createPortal(
-    <motion.div
-      key="sub-modal"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.18 }}
-      className="fixed inset-0 z-[80] flex bg-[var(--surface)] sm:items-center sm:justify-center sm:bg-black/55 sm:backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Substituir exercício"
-    >
-      <motion.div
-        initial={{ y: 30, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        exit={{ y: 30, opacity: 0 }}
-        transition={{ type: 'spring', stiffness: 320, damping: 30 }}
-        className="flex h-full w-full flex-col bg-[var(--surface)] sm:h-auto sm:max-h-[85vh] sm:max-w-md sm:rounded-2xl sm:border sm:border-[var(--line)] sm:shadow-2xl"
-      >
-        {/* Header com Cancelar / Título / Criar — mesma estrutura do
-            screenshot do Hevy. "Criar" hoje só fecha + dispara o atalho
-            existente de adicionar exercício; refino fica pra depois. */}
-        <header className="flex shrink-0 items-center justify-between border-b border-[var(--line)] px-4 py-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-[14px] font-semibold text-[var(--brand)] hover:text-[var(--brand-strong)]"
-          >
-            Cancelar
-          </button>
-          <h2 className="text-[14px] font-bold text-[var(--text)]">Substituir exercício</h2>
-          <button
-            type="button"
-            onClick={onCreateRequest}
-            className="text-[14px] font-semibold text-[var(--brand)] hover:text-[var(--brand-strong)]"
-          >
-            Criar
-          </button>
-        </header>
-
-        {/* Busca + filtros — barra sticky pra ficar acessível durante o
-            scroll da lista (importante em mobile). */}
-        <div className="shrink-0 space-y-2 border-b border-[var(--line)] p-3">
-          <label className="flex items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2">
-            <Search size={14} className="text-[var(--muted)]" />
-            <input
-              type="search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Procurar exercício"
-              className="flex-1 bg-transparent text-[14px] text-[var(--text)] outline-none placeholder:text-[var(--muted)]"
-            />
-          </label>
-          <div className="flex gap-2">
-            <select
-              value={equipmentFilter}
-              onChange={(e) => setEquipmentFilter(e.target.value)}
-              className="flex-1 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 text-[13px] text-[var(--text)]"
-            >
-              <option value="ALL">Todo o Equipamento</option>
-              {equipmentOptions.map((eq) => <option key={eq} value={eq}>{eq}</option>)}
-            </select>
-            <select
-              value={muscleFilter}
-              onChange={(e) => setMuscleFilter(e.target.value)}
-              className="flex-1 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 text-[13px] text-[var(--text)]"
-            >
-              <option value="ALL">Todos os Músculos</option>
-              {muscleOptions.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
-          </div>
-        </div>
-
-        {/* Conteúdo rolável */}
-        <div className="flex-1 overflow-y-auto">
-          {loading && (
-            <p className="px-4 py-8 text-center text-[12px] text-[var(--muted)]">Carregando…</p>
-          )}
-          {error && (
-            <p className="m-3 rounded-xl border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-center text-[12px] text-rose-500">
-              {error}
-            </p>
-          )}
-          {!loading && !error && (
-            <>
-              {/* Modo busca: substitui Sugeridos+Recentes por uma única
-                  seção "Resultados da busca" pra não duplicar item. */}
-              {searchActive ? (
-                <section>
-                  <h3 className="bg-[var(--surface-hover)] px-4 py-2 text-[12px] font-bold uppercase tracking-wider text-[var(--muted)]">
-                    Resultados da busca ({filtered.length})
-                  </h3>
-                  {filtered.map(renderRow)}
-                  {filtered.length === 0 && (
-                    <p className="px-4 py-8 text-center text-[12px] text-[var(--muted)]">
-                      Nenhum exercício bate com "{search.trim()}".
-                    </p>
-                  )}
-                </section>
-              ) : (
-                <>
-                  {/* Sugeridos — só aparece se tiver pelo menos um candidato.
-                      Quando o source não tem muscle group (exercício custom
-                      sem catálogo), suggested fica vazio e pulamos o header. */}
-                  {suggested.length > 0 && (
-                    <section>
-                      <h3 className="bg-[var(--surface-hover)] px-4 py-2 text-[12px] font-bold uppercase tracking-wider text-[var(--muted)]">
-                        Exercícios sugeridos
-                      </h3>
-                      {suggested.map(renderRow)}
-                    </section>
-                  )}
-
-                  {/* Recentes — SEMPRE renderiza o header pra deixar
-                      claro que existe a seção. Quando vazio, mostra um
-                      placeholder pra o usuário entender que ainda não
-                      acumulou histórico (em vez de só sumir e parecer
-                      bug). */}
-                  <section>
-                    <h3 className="bg-[var(--surface-hover)] px-4 py-2 text-[12px] font-bold uppercase tracking-wider text-[var(--muted)]">
-                      Exercícios Recentes
-                    </h3>
-                    {recent.length > 0 ? (
-                      recent.map(renderRow)
-                    ) : (
-                      <p className="px-4 py-6 text-center text-[12px] text-[var(--muted)]">
-                        {hasOnlyChipFilter
-                          ? 'Nenhum recente bate com os filtros.'
-                          : 'Os exercícios que você usa vão aparecer aqui.'}
-                      </p>
-                    )}
-                  </section>
-                </>
-              )}
-            </>
-          )}
-        </div>
-      </motion.div>
-    </motion.div>,
     document.body,
   )
 }
@@ -4252,8 +3670,22 @@ export function TrainPage() {
         {reorderSheetOpen && (
           <ReorderExercisesSheet
             open
-            exercises={activeExercises}
-            onReorder={(next) => setActiveExercises(next)}
+            items={activeExercises.map((ex): ReorderItem => ({
+              id: ex.exerciseId,
+              name: ex.exerciseName,
+              thumbnailUrl: ex.thumbnailUrl,
+            }))}
+            onReorder={(next) => {
+              // Reconstrói o array de ActiveExercise na nova ordem
+              // resolvendo cada id de volta pro objeto original — assim
+              // preserva séries, descansos, supersets, etc. Se algum id
+              // não existir mais (paranoia), filtramos pra não quebrar.
+              const byId = new Map(activeExercises.map((ex) => [ex.exerciseId, ex]))
+              const reordered = next
+                .map((item) => byId.get(item.id))
+                .filter((ex): ex is typeof activeExercises[number] => Boolean(ex))
+              setActiveExercises(reordered)
+            }}
             onClose={() => setReorderSheetOpen(false)}
           />
         )}
@@ -4261,7 +3693,10 @@ export function TrainPage() {
           <SubstituteExerciseModal
             key={`sub-${substituteSourceIndex}`}
             open
-            sourceExercise={activeExercises[substituteSourceIndex]}
+            source={{
+              id: activeExercises[substituteSourceIndex].exerciseId,
+              name: activeExercises[substituteSourceIndex].exerciseName,
+            }}
             onPick={(option) => applySubstitution(substituteSourceIndex, option)}
             onCreateRequest={() => {
               // Fecha o substitute, lembra qual exercício queremos
