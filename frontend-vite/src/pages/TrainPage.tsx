@@ -1164,19 +1164,26 @@ function SubstituteExerciseModal({
   }, [filtered, sourceMuscleGroup, recentRank])
 
   // RECENTES = ordem do localStorage, intersectada com o filtro atual.
-  // O .map(...).filter() é o jeito mais conciso de mapear ID→option
-  // preservando a ordem do localStorage.
+  // Deduplica contra Sugeridos pra não exibir o mesmo exercício duas
+  // vezes — se já apareceu em "sugeridos", remove daqui. Sem isso, o
+  // usuário que treina sempre o mesmo grupo via os mesmos exercícios
+  // listados em duplicata.
+  const suggestedIdSet = useMemo(() => new Set(suggested.map((ex) => ex.id)), [suggested])
   const recent = useMemo(() => {
     return recentIds
       .map((id) => filtered.find((ex) => ex.id === id))
       .filter((ex): ex is ExerciseOption => Boolean(ex))
+      .filter((ex) => !suggestedIdSet.has(ex.id))
       .slice(0, 10)
-  }, [recentIds, filtered])
+  }, [recentIds, filtered, suggestedIdSet])
 
-  // Mostra "Todos" só quando o user está ativamente filtrando ou
-  // buscando — caso contrário as duas seções (Sugeridos / Recentes)
-  // já dão direção suficiente sem afogar o resto da lista.
-  const hasActiveFilter = Boolean(search.trim() || muscleFilter !== 'ALL' || equipmentFilter !== 'ALL')
+  // Quando o usuário digita ALGO na busca, queremos foco — só os
+  // "Resultados da busca" devem aparecer, sem Sugeridos / Recentes
+  // empoluindo a tela com duplicatas. Filtros chip (músculo /
+  // equipamento) NÃO disparam modo busca — eles só estreitam as
+  // duas seções normais.
+  const searchActive = Boolean(search.trim())
+  const hasOnlyChipFilter = !searchActive && (muscleFilter !== 'ALL' || equipmentFilter !== 'ALL')
 
   useEffect(() => {
     if (!open) return
@@ -1301,41 +1308,54 @@ function SubstituteExerciseModal({
           )}
           {!loading && !error && (
             <>
-              {suggested.length > 0 && (
+              {/* Modo busca: substitui Sugeridos+Recentes por uma única
+                  seção "Resultados da busca" pra não duplicar item. */}
+              {searchActive ? (
                 <section>
                   <h3 className="bg-[var(--surface-hover)] px-4 py-2 text-[12px] font-bold uppercase tracking-wider text-[var(--muted)]">
-                    Exercícios sugeridos
-                  </h3>
-                  {suggested.map(renderRow)}
-                </section>
-              )}
-              {recent.length > 0 && (
-                <section>
-                  <h3 className="bg-[var(--surface-hover)] px-4 py-2 text-[12px] font-bold uppercase tracking-wider text-[var(--muted)]">
-                    Exercícios Recentes
-                  </h3>
-                  {recent.map(renderRow)}
-                </section>
-              )}
-              {hasActiveFilter && (
-                <section>
-                  <h3 className="bg-[var(--surface-hover)] px-4 py-2 text-[12px] font-bold uppercase tracking-wider text-[var(--muted)]">
-                    {search.trim()
-                      ? `Resultados da busca (${filtered.length})`
-                      : `Todos (${filtered.length})`}
+                    Resultados da busca ({filtered.length})
                   </h3>
                   {filtered.map(renderRow)}
                   {filtered.length === 0 && (
                     <p className="px-4 py-8 text-center text-[12px] text-[var(--muted)]">
-                      Nenhum exercício bate com a busca.
+                      Nenhum exercício bate com "{search.trim()}".
                     </p>
                   )}
                 </section>
-              )}
-              {!hasActiveFilter && suggested.length === 0 && recent.length === 0 && (
-                <p className="px-4 py-8 text-center text-[12px] text-[var(--muted)]">
-                  Use a busca acima pra encontrar exercícios.
-                </p>
+              ) : (
+                <>
+                  {/* Sugeridos — só aparece se tiver pelo menos um candidato.
+                      Quando o source não tem muscle group (exercício custom
+                      sem catálogo), suggested fica vazio e pulamos o header. */}
+                  {suggested.length > 0 && (
+                    <section>
+                      <h3 className="bg-[var(--surface-hover)] px-4 py-2 text-[12px] font-bold uppercase tracking-wider text-[var(--muted)]">
+                        Exercícios sugeridos
+                      </h3>
+                      {suggested.map(renderRow)}
+                    </section>
+                  )}
+
+                  {/* Recentes — SEMPRE renderiza o header pra deixar
+                      claro que existe a seção. Quando vazio, mostra um
+                      placeholder pra o usuário entender que ainda não
+                      acumulou histórico (em vez de só sumir e parecer
+                      bug). */}
+                  <section>
+                    <h3 className="bg-[var(--surface-hover)] px-4 py-2 text-[12px] font-bold uppercase tracking-wider text-[var(--muted)]">
+                      Exercícios Recentes
+                    </h3>
+                    {recent.length > 0 ? (
+                      recent.map(renderRow)
+                    ) : (
+                      <p className="px-4 py-6 text-center text-[12px] text-[var(--muted)]">
+                        {hasOnlyChipFilter
+                          ? 'Nenhum recente bate com os filtros.'
+                          : 'Os exercícios que você usa vão aparecer aqui.'}
+                      </p>
+                    )}
+                  </section>
+                </>
               )}
             </>
           )}
