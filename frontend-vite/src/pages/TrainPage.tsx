@@ -25,6 +25,7 @@ import {
   Activity, X,
 } from 'lucide-react'
 import { SkeletonCard } from '../components/common/Skeleton'
+import { CreateExerciseModal } from './train/CreateExerciseModal'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPost, sharePlan, type PostPrivacy } from '../services/socialService'
 import { WorkoutsPage } from './WorkoutsPage'
@@ -1074,11 +1075,14 @@ function ReorderExercisesSheet({
 // escolhe, dispara onPick com o ExerciseOption completo pra o parent
 // fazer a substituição mantendo as séries.
 function SubstituteExerciseModal({
-  open, sourceExercise, onPick, onClose,
+  open, sourceExercise, onPick, onCreateRequest, onClose,
 }: {
   open: boolean
   sourceExercise: ActiveExercise
   onPick: (option: ExerciseOption) => void
+  // Disparado quando o usuário toca em "Criar" — o parent abre o
+  // CreateExerciseModal, e o exercício criado lá vira o substituto.
+  onCreateRequest: () => void
   onClose: () => void
 }) {
   const { authorizedFetch } = useAuth()
@@ -1245,12 +1249,7 @@ function SubstituteExerciseModal({
           <h2 className="text-[14px] font-bold text-[var(--text)]">Substituir exercício</h2>
           <button
             type="button"
-            onClick={() => {
-              onClose()
-              // Reaproveita o explorer global pra criar/escolher livremente
-              // quando o catálogo padrão não tem o que o usuário quer.
-              openExerciseExplorer({ context: 'ACTIVE_WORKOUT' })
-            }}
+            onClick={onCreateRequest}
             className="text-[14px] font-semibold text-[var(--brand)] hover:text-[var(--brand-strong)]"
           >
             Criar
@@ -1321,7 +1320,9 @@ function SubstituteExerciseModal({
               {hasActiveFilter && (
                 <section>
                   <h3 className="bg-[var(--surface-hover)] px-4 py-2 text-[12px] font-bold uppercase tracking-wider text-[var(--muted)]">
-                    Todos ({filtered.length})
+                    {search.trim()
+                      ? `Resultados da busca (${filtered.length})`
+                      : `Todos (${filtered.length})`}
                   </h3>
                   {filtered.map(renderRow)}
                   {filtered.length === 0 && (
@@ -1627,6 +1628,11 @@ export function TrainPage() {
   // Substitute modal (estilo Hevy) — quando aberto, mostra Sugeridos +
   // Recentes em vez do explorer global. Null = fechado.
   const [substituteSourceIndex, setSubstituteSourceIndex] = useState<number | null>(null)
+  // Quando aberto a partir do "Criar" do substitute modal, indica que
+  // o exercício criado deve substituir o atual em vez de só virar
+  // disponível no catálogo. Null = abriu standalone (substitui nada).
+  const [createExerciseForSubstituteIndex, setCreateExerciseForSubstituteIndex] = useState<number | null>(null)
+  const [createExerciseOpen, setCreateExerciseOpen] = useState(false)
   const [restFinishedName, setRestFinishedName] = useState<string | null>(null)
   // Per-exercise all-time max load, fetched once when the active screen
   // opens. We mutate this on every confirmed PR so the next set of the
@@ -4148,7 +4154,33 @@ export function TrainPage() {
             open
             sourceExercise={activeExercises[substituteSourceIndex]}
             onPick={(option) => applySubstitution(substituteSourceIndex, option)}
+            onCreateRequest={() => {
+              // Fecha o substitute, lembra qual exercício queremos
+              // trocar, abre o create. Quando o create resolver, o
+              // onCreated abaixo substitui automaticamente.
+              setCreateExerciseForSubstituteIndex(substituteSourceIndex)
+              setSubstituteSourceIndex(null)
+              setCreateExerciseOpen(true)
+            }}
             onClose={() => setSubstituteSourceIndex(null)}
+          />
+        )}
+        {createExerciseOpen && (
+          <CreateExerciseModal
+            open
+            onCreated={(newExercise) => {
+              // Adiciona o novo exercício no cache de recentes pra ele
+              // aparecer na próxima abertura do substitute modal.
+              pushRecentExerciseId(newExercise.id)
+              if (createExerciseForSubstituteIndex != null) {
+                applySubstitution(createExerciseForSubstituteIndex, newExercise)
+              }
+              setCreateExerciseForSubstituteIndex(null)
+            }}
+            onClose={() => {
+              setCreateExerciseOpen(false)
+              setCreateExerciseForSubstituteIndex(null)
+            }}
           />
         )}
         {supersetPickerSourceIndex != null && activeExercises[supersetPickerSourceIndex] && (

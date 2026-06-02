@@ -814,3 +814,71 @@ export async function getLatestExercisePerformance(
 
   throw new Error(payload.errorMessage ?? 'Falha ao carregar historico por exercicio')
 }
+
+// Cria um exercício PRIVATE do usuário. O backend força scope+owner —
+// daqui só mandamos os campos editáveis pelo formulário.
+export type CreateExerciseInput = {
+  name: string
+  equipment: string
+  primaryMuscleGroup: string
+  secondaryMuscleGroup?: string | null
+  difficulty?: 'BEGINNER' | 'INTERMEDIATE' | 'ADVANCED'
+  trackingType?: 'REPS' | 'TIME' | 'DISTANCE' | 'REPS_AND_TIME'
+  isBodyweight?: boolean
+  allowsExtraLoad?: boolean
+  isCompound?: boolean
+  instructions?: string | null
+  thumbnailUrl?: string | null
+}
+
+export async function createCustomExercise(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  input: CreateExerciseInput,
+): Promise<ExerciseOption> {
+  const response = await authorizedFetch(`${API_URL}/exercises`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+
+  const payload = await parsePayload<Record<string, unknown>>(response)
+
+  if (!response.ok || !payload.data) {
+    throw new Error(payload.errorMessage ?? 'Falha ao criar exercício')
+  }
+
+  const data = payload.data
+  return {
+    id: String(data.id ?? ''),
+    name: String(data.name ?? ''),
+    primaryMuscleGroup: String(data.primaryMuscleGroup ?? ''),
+    difficulty: String(data.difficulty ?? ''),
+    equipment: String(data.equipment ?? ''),
+    isBodyweight: Boolean(data.isBodyweight),
+    allowsExtraLoad: Boolean(data.allowsExtraLoad),
+    trackingType: (data.trackingType ?? 'REPS') as ExerciseOption['trackingType'],
+    thumbnailUrl: typeof data.thumbnailUrl === 'string' ? data.thumbnailUrl : null,
+    videoUrl: typeof data.videoUrl === 'string' ? data.videoUrl : null,
+  }
+}
+
+// Upload do thumbnail de exercício custom. Devolve a URL pública +
+// path no Storage pra mandar pro createCustomExercise como thumbnailUrl.
+export async function uploadExercisePhoto(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  dataUrl: string,
+): Promise<{ photoUrl: string; photoPath: string }> {
+  const response = await authorizedFetch(`${API_URL}/uploads/exercise-photo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dataUrl }),
+  })
+
+  const payload = await parsePayload<{ photoUrl: string; photoPath: string }>(response)
+
+  if (!response.ok || !payload.data) {
+    throw new Error(payload.errorMessage ?? 'Falha ao subir foto do exercício')
+  }
+
+  return payload.data
+}
