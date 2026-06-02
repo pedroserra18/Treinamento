@@ -1091,6 +1091,12 @@ export function TrainPage() {
   // Sheet de reordenação. Diferente do kebab menu, este é global — abre
   // listando TODOS os exercícios com setas ⬆⬇ pra reorganizar.
   const [reorderSheetOpen, setReorderSheetOpen] = useState(false)
+  // Quando o usuário pede pra substituir um exercício, marcamos o
+  // índice aqui e abrimos o explorer global. O handler de seleção
+  // (mais abaixo) checa esse ref pra decidir entre substituir vs
+  // adicionar — usa ref em vez de state pra evitar problemas de
+  // stale closure no listener de evento (que é criado uma vez).
+  const pendingSubstitutionIndexRef = useRef<number | null>(null)
   const [restFinishedName, setRestFinishedName] = useState<string | null>(null)
   // Per-exercise all-time max load, fetched once when the active screen
   // opens. We mutate this on every confirmed PR so the next set of the
@@ -1535,6 +1541,45 @@ export function TrainPage() {
 
       const payload = (event as CustomEvent<ExerciseExplorerSelection>).detail
       if (!payload) {
+        return
+      }
+
+      // Caminho de SUBSTITUIÇÃO: quando o usuário abriu o explorer via
+      // "Substituir Exercício" no kebab. Substituímos a identidade do
+      // exercício (id, name, thumbnail, equipment, tracking) mas
+      // preservamos as séries já registradas, o descanso, as notas e
+      // o grupo de supersérie — comportamento que o usuário espera ao
+      // "trocar" um exercício que tá no meio do treino.
+      const substituteIndex = pendingSubstitutionIndexRef.current
+      if (substituteIndex != null) {
+        pendingSubstitutionIndexRef.current = null
+        let blocked = false
+        setActiveExercises((current) => {
+          // Bloqueia substituir por algo que já tá no treino (a não ser
+          // que seja substituir pelo próprio — no-op).
+          const dup = current.findIndex((ex) => ex.exerciseId === payload.id)
+          if (dup !== -1 && dup !== substituteIndex) {
+            blocked = true
+            return current
+          }
+          return current.map((exercise, idx) => {
+            if (idx !== substituteIndex) return exercise
+            return {
+              ...exercise,
+              exerciseId: payload.id,
+              exerciseName: payload.name,
+              equipment: payload.equipment,
+              thumbnailUrl: payload.thumbnailUrl,
+              videoUrl: payload.videoUrl,
+              isBodyweight: resolveBodyweightFlag(payload.isBodyweight, payload.name, payload.equipment),
+              allowsExtraLoad: payload.allowsExtraLoad,
+              trackingType: (payload.trackingType ?? 'REPS') as TrackingType,
+            }
+          })
+        })
+        if (blocked) {
+          setError('Esse exercício já está no treino — escolha outro.')
+        }
         return
       }
 
@@ -3418,10 +3463,15 @@ export function TrainPage() {
             open
             exerciseName={activeExercises[contextMenuExerciseIndex].exerciseName}
             onReorder={() => setReorderSheetOpen(true)}
-            // Substituir / Supersérie: ainda em backlog. Cada uma precisa
-            // de UX própria — picker de exercícios pra substituir, linker
-            // entre dois pra supersérie. Sinaliza por enquanto.
-            onSubstitute={() => setError('Substituir exercício — em breve.')}
+            onSubstitute={() => {
+              // Marca o índice + abre o explorer existente. Quando o
+              // usuário escolher um exercício lá, o handler de seleção
+              // detecta esse ref e troca em vez de adicionar.
+              pendingSubstitutionIndexRef.current = contextMenuExerciseIndex
+              openExerciseExplorer({ context: 'ACTIVE_WORKOUT' })
+            }}
+            // Supersérie: ainda em backlog. Precisa de linker entre dois
+            // exercícios + marcador visual. Sinaliza por enquanto.
             onAddToSuperset={() => setError('Adicionar à supersérie — em breve.')}
             onRemove={() => handleRemoveExercise(contextMenuExerciseIndex)}
             onClose={() => setContextMenuExerciseIndex(null)}
