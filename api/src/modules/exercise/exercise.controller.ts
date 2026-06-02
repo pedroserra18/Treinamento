@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
-import { getExerciseById, listExercises, updateExercise } from "./exercise.service";
-import { ExerciseParams, ListExercisesQuery, UpdateExerciseBody } from "./exercise.schema";
+import { createExercise, getExerciseById, listExercises, updateExercise } from "./exercise.service";
+import { CreateExerciseBody, ExerciseParams, ListExercisesQuery, UpdateExerciseBody } from "./exercise.schema";
 
 export async function listExercisesController(req: Request, res: Response): Promise<void> {
   const exercises = await listExercises(req.query as unknown as ListExercisesQuery, {
@@ -26,6 +26,22 @@ export async function getExerciseByIdController(req: Request, res: Response): Pr
   });
 
   res.status(200).json({
+    data: exercise,
+    meta: {
+      requestId: req.context.requestId
+    }
+  });
+}
+
+export async function createExerciseController(req: Request, res: Response): Promise<void> {
+  const body = req.body as CreateExerciseBody;
+
+  const exercise = await createExercise(body, {
+    userId: req.context.userId,
+    userRole: req.context.userRole
+  });
+
+  res.status(201).json({
     data: exercise,
     meta: {
       requestId: req.context.requestId
