@@ -5,6 +5,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useScrollLock } from '../hooks/useScrollLock'
 import {
   Flame, Layers, Dumbbell, Plus, Play, Search, Pencil, Sparkles, MoreHorizontal,
+  MoreVertical, ArrowUpDown, RefreshCcw, Trash2, Check,
   Activity, X,
 } from 'lucide-react'
 import { SkeletonCard } from '../components/common/Skeleton'
@@ -620,6 +621,203 @@ function SetTypePickerSheet({
   )
 }
 
+// Bottom sheet pra escolher o tempo de descanso entre séries. Mesmo
+// padrão visual do SetTypePickerSheet (mesma animação, scroll lock,
+// portal, backdrop). A opção atual fica destacada com o brand color
+// e o usuário confirma no "Feito". Tap fora ou Escape descarta.
+function RestTimePickerSheet({
+  open, currentSec, onConfirm, onClose,
+}: {
+  open: boolean
+  currentSec: number
+  onConfirm: (sec: number) => void
+  onClose: () => void
+}) {
+  useScrollLock(open)
+  // Mantém um draft local pra o "Feito" só aplicar quando o usuário
+  // confirma — clicar fora descarta. O parent passa `key={index}` quando
+  // monta o sheet, então useState(currentSec) sempre inicializa fresco
+  // pra o exercício correto sem precisar de useEffect sincronizando.
+  const [draft, setDraft] = useState<number>(currentSec)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [open, onClose])
+
+  if (!open) return null
+
+  // "Sem descanso" sempre disponível como primeira opção; resto vem
+  // de REST_OPTIONS_SEC (10s, 20s, ..., 60s, 90s, 120s, ..., 300s).
+  const options = [0, ...REST_OPTIONS_SEC]
+
+  return createPortal(
+    <AnimatePresence>
+      <motion.div
+        key="rest-backdrop"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.18 }}
+        onClick={onClose}
+        className="fixed inset-0 z-[70] flex items-end justify-center bg-black/55 backdrop-blur-sm sm:items-center"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Selecionar tempo de descanso"
+      >
+        <motion.div
+          key="rest-sheet"
+          initial={{ y: 60, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 40, opacity: 0 }}
+          transition={{ type: 'spring', stiffness: 340, damping: 28 }}
+          onClick={(e) => e.stopPropagation()}
+          className="flex w-full max-w-md flex-col overflow-hidden rounded-t-2xl border border-b-0 border-[var(--line)] bg-[var(--surface)] shadow-2xl sm:mb-0 sm:rounded-2xl sm:border-b"
+          style={{ maxHeight: 'min(70vh, 560px)' }}
+        >
+          <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-[var(--line)] sm:hidden" />
+          <div className="shrink-0 px-4 pt-3 text-center">
+            <h3 className="text-[14px] font-bold text-[var(--text)]">Tempo de Descanso</h3>
+          </div>
+
+          {/* Lista rolável de opções — o conjunto cabe sem scroll em
+              telas médias mas trava o overflow pra não esticar a sheet
+              em telas baixas. */}
+          <ul className="flex-1 overflow-y-auto border-t border-[var(--line)]">
+            {options.map((sec) => {
+              const isCurrent = sec === draft
+              return (
+                <li key={sec}>
+                  <button
+                    type="button"
+                    onClick={() => setDraft(sec)}
+                    className={`flex w-full items-center justify-center gap-2 border-b border-[var(--line)] px-4 py-3 text-center text-[15px] transition-colors ${
+                      isCurrent
+                        ? 'bg-[var(--brand)]/12 font-bold text-[var(--brand-strong)]'
+                        : 'font-medium text-[var(--text)] hover:bg-[var(--surface-hover)]'
+                    }`}
+                  >
+                    {sec === 0 ? 'Sem descanso' : formatRestOptionLabel(sec)}
+                    {isCurrent && <Check size={14} className="text-[var(--brand)]" />}
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+
+          {/* "Feito" sticky no rodapé — mesma cor do brand, segue o
+              padrão dos botões primários do app. */}
+          <div className="shrink-0 border-t border-[var(--line)] bg-[var(--surface)] p-3">
+            <button
+              type="button"
+              onClick={() => { onConfirm(draft); onClose() }}
+              className="w-full rounded-xl bg-[var(--brand)] py-3 text-[14px] font-bold text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)]"
+            >
+              Feito
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>,
+    document.body,
+  )
+}
+
+// Bottom sheet acionado pelo kebab (três pontinhos) no card do
+// exercício. Lista as quatro ações do Hevy: reordenar, substituir,
+// adicionar a supersérie, e remover (destrutivo, em vermelho).
+// Cada ação fecha o sheet automático após chamar o callback.
+function ExerciseContextMenuSheet({
+  open, exerciseName, onReorder, onSubstitute, onAddToSuperset, onRemove, onClose,
+}: {
+  open: boolean
+  exerciseName: string
+  onReorder: () => void
+  onSubstitute: () => void
+  onAddToSuperset: () => void
+  onRemove: () => void
+  onClose: () => void
+}) {
+  useScrollLock(open)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [open, onClose])
+
+  if (!open) return null
+
+  const items: Array<{
+    icon: typeof ArrowUpDown
+    label: string
+    onClick: () => void
+    destructive?: boolean
+  }> = [
+    { icon: ArrowUpDown, label: 'Reordenar Exercícios', onClick: onReorder },
+    { icon: RefreshCcw, label: 'Substituir Exercício', onClick: onSubstitute },
+    { icon: Plus, label: 'Adicionar A Supersérie', onClick: onAddToSuperset },
+    { icon: Trash2, label: 'Remover Exercício', onClick: onRemove, destructive: true },
+  ]
+
+  return createPortal(
+    <AnimatePresence>
+      <motion.div
+        key="ctx-backdrop"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.18 }}
+        onClick={onClose}
+        className="fixed inset-0 z-[70] flex items-end justify-center bg-black/55 backdrop-blur-sm sm:items-center"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Ações para ${exerciseName}`}
+      >
+        <motion.div
+          key="ctx-sheet"
+          initial={{ y: 60, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 40, opacity: 0 }}
+          transition={{ type: 'spring', stiffness: 340, damping: 28 }}
+          onClick={(e) => e.stopPropagation()}
+          className="w-full max-w-md overflow-hidden rounded-t-2xl border border-b-0 border-[var(--line)] bg-[var(--surface)] pb-2 shadow-2xl sm:mb-0 sm:rounded-2xl sm:border-b"
+        >
+          <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-[var(--line)] sm:hidden" />
+          <ul className="border-t border-[var(--line)]">
+            {items.map((item, idx) => {
+              const Icon = item.icon
+              const isLast = idx === items.length - 1
+              return (
+                <li key={item.label}>
+                  <button
+                    type="button"
+                    onClick={() => { item.onClick(); onClose() }}
+                    className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors ${
+                      !isLast ? 'border-b border-[var(--line)]' : ''
+                    } ${
+                      item.destructive
+                        ? 'text-rose-500 hover:bg-rose-500/10'
+                        : 'text-[var(--text)] hover:bg-[var(--surface-hover)]'
+                    }`}
+                  >
+                    <Icon size={18} className="shrink-0" />
+                    <span className="text-[14px] font-medium">{item.label}</span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>,
+    document.body,
+  )
+}
+
 // Seção de cardio do treino ativo: lista os cardios adicionados e um mini-form
 // (tipo + minutos + distância opcional em km) para acrescentar mais.
 function CardioSection({ entries, onAdd, onRemove }: {
@@ -768,6 +966,9 @@ export function TrainPage() {
   >({})
   const [editingRestExerciseIndex, setEditingRestExerciseIndex] = useState<number | null>(null)
   const [restDraftSec, setRestDraftSec] = useState('0')
+  // Kebab menu (3 pontinhos) — guarda o índice do exercício cujo
+  // menu de contexto está aberto. Null = nenhum aberto.
+  const [contextMenuExerciseIndex, setContextMenuExerciseIndex] = useState<number | null>(null)
   const [restFinishedName, setRestFinishedName] = useState<string | null>(null)
   // Per-exercise all-time max load, fetched once when the active screen
   // opens. We mutate this on every confirmed PR so the next set of the
@@ -1474,8 +1675,12 @@ export function TrainPage() {
     setRestDraftSec(String(target.restDurationSec))
   }
 
-  const applyRestEdit = async (exerciseIndex: number) => {
-    const parsed = Number(restDraftSec)
+  // Aplica o tempo de descanso novo. O sheet já garante que o valor
+  // vem de uma lista válida (REST_OPTIONS_SEC ∪ {0}), então não
+  // precisa mais validar formato — a validação fica como guarda
+  // defensiva contra chamadas programáticas com valores estranhos.
+  const applyRestEdit = async (exerciseIndex: number, secOverride?: number) => {
+    const parsed = secOverride ?? Number(restDraftSec)
     const isInt = Number.isInteger(parsed)
     const isZero = parsed === 0
     const inRange = parsed >= 10 && parsed <= 300
@@ -1520,6 +1725,20 @@ export function TrainPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao salvar descanso na rotina')
     }
+  }
+
+  // Remove um exercício do treino ativo. Quando o exercício veio de
+  // uma rotina, mostra confirm forte porque a remoção é irreversível
+  // pela UI (precisaria voltar à edição da rotina). Quando é um
+  // exercício adicionado on-the-fly à sessão, basta sumir.
+  const handleRemoveExercise = (exerciseIndex: number) => {
+    const target = activeExercises[exerciseIndex]
+    if (!target) return
+    const confirmed = window.confirm(
+      `Remover "${target.exerciseName}" do treino?\n\nIsso apaga as séries que você já registrou desse exercício nesta sessão.`,
+    )
+    if (!confirmed) return
+    setActiveExercises((current) => current.filter((_, idx) => idx !== exerciseIndex))
   }
 
   const patchSet = (
@@ -2636,37 +2855,25 @@ export function TrainPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  {editingRestExerciseIndex === exerciseIndex ? (
-                    <div className="flex items-center gap-2">
-                      <select
-                        value={restDraftSec}
-                        onChange={(event) => setRestDraftSec(event.target.value)}
-                        className="w-32 rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-xs text-[var(--text)]"
-                      >
-                        <option value="0">Sem descanso</option>
-                        {REST_OPTIONS_SEC.map((seconds) => (
-                          <option key={seconds} value={seconds}>
-                            {formatRestOptionLabel(seconds)}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        onClick={() => void applyRestEdit(exerciseIndex)}
-                        className="rounded-lg border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--text)]"
-                      >
-                        Salvar
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => startRestEdit(exerciseIndex)}
-                      className="rounded-lg border border-[var(--line)] px-2 py-1 text-xs text-[var(--text)]"
-                    >
-                      Descanso {formatClock(exercise.restDurationSec)}
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => startRestEdit(exerciseIndex)}
+                    className="rounded-lg border border-[var(--line)] px-2 py-1 text-xs text-[var(--text)] hover:bg-[var(--surface-hover)]"
+                  >
+                    Descanso {formatClock(exercise.restDurationSec)}
+                  </button>
+                  {/* Kebab (3 pontinhos verticais) — abre o sheet de
+                      ações do exercício. Posicionado à direita do
+                      botão de descanso pra manter o ponto de toque
+                      no canto superior direito do card, como o Hevy. */}
+                  <button
+                    type="button"
+                    onClick={() => setContextMenuExerciseIndex(exerciseIndex)}
+                    className="grid h-7 w-7 place-items-center rounded-lg border border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                    aria-label={`Mais ações para ${exercise.exerciseName}`}
+                  >
+                    <MoreVertical size={14} />
+                  </button>
                 </div>
               </div>
 
@@ -3046,6 +3253,34 @@ export function TrainPage() {
             )
           })}
         </article>
+
+        {/* Sheets globais — só um deles abre por vez. Lendo o
+            exercício do índice em vez de passar tudo via prop evita
+            stale closures se o estado dos exercícios mudar enquanto
+            o sheet está aberto. */}
+        {editingRestExerciseIndex != null && activeExercises[editingRestExerciseIndex] && (
+          <RestTimePickerSheet
+            key={`rest-${editingRestExerciseIndex}`}
+            open
+            currentSec={activeExercises[editingRestExerciseIndex].restDurationSec}
+            onConfirm={(sec) => void applyRestEdit(editingRestExerciseIndex, sec)}
+            onClose={() => setEditingRestExerciseIndex(null)}
+          />
+        )}
+        {contextMenuExerciseIndex != null && activeExercises[contextMenuExerciseIndex] && (
+          <ExerciseContextMenuSheet
+            open
+            exerciseName={activeExercises[contextMenuExerciseIndex].exerciseName}
+            // Reordenar / Substituir / Supersérie: backlog. UX dedicada
+            // pra cada (drag handle, picker de exercícios, etc.) merece
+            // commit próprio. Por enquanto, sinaliza pro usuário.
+            onReorder={() => setError('Reordenar exercícios — em breve.')}
+            onSubstitute={() => setError('Substituir exercício — em breve.')}
+            onAddToSuperset={() => setError('Adicionar à supersérie — em breve.')}
+            onRemove={() => handleRemoveExercise(contextMenuExerciseIndex)}
+            onClose={() => setContextMenuExerciseIndex(null)}
+          />
+        )}
 
         <CardioSection
           entries={cardioEntries}
