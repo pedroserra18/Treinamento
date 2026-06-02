@@ -1,10 +1,10 @@
 import { useAuth } from '../hooks/useAuth'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   getExerciseExplorerSelectionEventName,
   type ExerciseExplorerSelection,
 } from '../lib/exercise-explorer'
-import { MUSCLE_OPTIONS, resolveBodyweightFlag } from '../lib/exercise-meta'
+import { resolveBodyweightFlag } from '../lib/exercise-meta'
 import type { CardioType, ExerciseOption, WorkoutPlan } from '../types/workout'
 import { SetTypeSelector } from '../components/common/SetTypeSelector'
 import { type SetType, type DropEntry } from '../components/common/setTypeOptions'
@@ -16,19 +16,19 @@ import {
   deletePlanExercise,
   deleteWorkoutPlan,
   listWorkoutPlans,
-  searchExercisesForPlan,
   updateWorkoutPlan,
   updatePlanExercise,
 } from '../services/workoutService'
-import { formatClock, formatRestOptionLabel, REST_OPTIONS_SEC } from '../lib/workout-timing'
+import { formatClock } from '../lib/workout-timing'
 import { SkeletonCard } from '../components/common/Skeleton'
 import { ExerciseContextMenuSheet } from './train/ExerciseContextMenuSheet'
 import { ReorderExercisesSheet, type ReorderItem } from './train/ReorderExercisesSheet'
 import { SubstituteExerciseModal } from './train/SubstituteExerciseModal'
 import { CreateExerciseModal } from './train/CreateExerciseModal'
-import { MoreVertical } from 'lucide-react'
-
-const muscleOptions = MUSCLE_OPTIONS
+import { AddExerciseModal } from './train/AddExerciseModal'
+import { RestTimePickerSheet } from './train/RestTimePickerSheet'
+import { pushRecentExerciseId } from '../lib/recent-exercises'
+import { MoreVertical, Plus } from 'lucide-react'
 
 const CARDIO_LABELS: Record<CardioType, string> = {
   WALK: 'Caminhada', RUN: 'Corrida', BIKE: 'Bicicleta', STAIRS: 'Escada',
@@ -354,11 +354,6 @@ export function WorkoutsPage({
   const [newPlanName, setNewPlanName] = useState('')
   const [newPlanDescription, setNewPlanDescription] = useState('')
 
-  const [addQueryByPlan, setAddQueryByPlan] = useState<Record<string, string>>({})
-  const [addMuscleByPlan, setAddMuscleByPlan] = useState<Record<string, string>>({})
-  const [optionsByPlan, setOptionsByPlan] = useState<Record<string, ExerciseOption[]>>({})
-  const [hasExploredByPlan, setHasExploredByPlan] = useState<Record<string, boolean>>({})
-
   // Estado das 3 ações compartilhadas com o TrainPage: kebab (menu de
   // contexto), reorder sheet e substitute modal. Todas operam sobre o
   // plan_exercise por id; reorder e substitute precisam saber também
@@ -367,37 +362,21 @@ export function WorkoutsPage({
   const [reorderPlanId, setReorderPlanId] = useState<string | null>(null)
   const [substituteTarget, setSubstituteTarget] = useState<{ planId: string; planExerciseId: string; exerciseId: string; exerciseName: string } | null>(null)
   const [createExerciseForSubstitute, setCreateExerciseForSubstitute] = useState<{ planId: string; planExerciseId: string } | null>(null)
+  const [createExerciseForAddPlanId, setCreateExerciseForAddPlanId] = useState<string | null>(null)
   const [createExerciseOpen, setCreateExerciseOpen] = useState(false)
+  // AddExerciseModal — guarda o planId que vai receber o exercício.
+  const [addExerciseTargetPlanId, setAddExerciseTargetPlanId] = useState<string | null>(null)
+  // RestTimePickerSheet — guarda o planExerciseId cujo descanso está
+  // sendo editado. Reusa o mesmo sheet do TrainPage.
+  const [restPickerTarget, setRestPickerTarget] = useState<{ planId: string; planExerciseId: string; currentSec: number } | null>(null)
 
   const [draftByExercise, setDraftByExercise] = useState<Record<string, PerformanceDraft>>({})
   const [expandedByExercise, setExpandedByExercise] = useState<Record<string, boolean>>({})
   const [editingNameByExercise, setEditingNameByExercise] = useState<Record<string, boolean>>({})
   const [customNameByExercise, setCustomNameByExercise] = useState<Record<string, string>>({})
-  const [editingRestByExercise, setEditingRestByExercise] = useState<Record<string, boolean>>({})
-  const [restDraftByExercise, setRestDraftByExercise] = useState<Record<string, string>>({})
   const [editingPlanNameById, setEditingPlanNameById] = useState<Record<string, boolean>>({})
   const [planNameDraftById, setPlanNameDraftById] = useState<Record<string, string>>({})
   const [createdPlanId, setCreatedPlanId] = useState<string | null>(null)
-  const exploreSearchRequestIdRef = useRef(0)
-  const exerciseSearchCacheRef = useRef<Map<string, ExerciseOption[]>>(new Map())
-
-  const fetchExerciseOptions = useCallback(
-    async (input: { q?: string; primaryMuscleGroup?: string; limit: number }) => {
-      const normalizedQuery = input.q?.trim().toLowerCase() ?? ''
-      const normalizedMuscle = input.primaryMuscleGroup ?? ''
-      const cacheKey = `${normalizedQuery}::${normalizedMuscle}::${input.limit}`
-
-      const cached = exerciseSearchCacheRef.current.get(cacheKey)
-      if (cached) {
-        return cached
-      }
-
-      const options = await searchExercisesForPlan(authorizedFetch, input)
-      exerciseSearchCacheRef.current.set(cacheKey, options)
-      return options
-    },
-    [authorizedFetch],
-  )
 
   useEffect(() => {
     if (!createOnlyMode) {
@@ -412,7 +391,6 @@ export function WorkoutsPage({
     try {
       const planData = await listWorkoutPlans(authorizedFetch)
       setPlans(planData)
-      exerciseSearchCacheRef.current.clear()
       setDraftByExercise((current) => {
         const next = { ...current }
 
@@ -447,15 +425,6 @@ export function WorkoutsPage({
         })
         return next
       })
-      setRestDraftByExercise((current) => {
-        const next = { ...current }
-        planData.forEach((plan) => {
-          plan.exercises.forEach((exercise) => {
-            next[exercise.id] = String(exercise.restSec ?? 0)
-          })
-        })
-        return next
-      })
       setPlanNameDraftById((current) => {
         const next = { ...current }
         planData.forEach((plan) => {
@@ -473,54 +442,6 @@ export function WorkoutsPage({
   useEffect(() => {
     void loadAll()
   }, [loadAll])
-
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      const exploredPlanIds = Object.keys(hasExploredByPlan).filter((planId) => hasExploredByPlan[planId])
-      if (exploredPlanIds.length === 0) {
-        return
-      }
-
-      const requestId = ++exploreSearchRequestIdRef.current
-
-      void Promise.all(
-        exploredPlanIds.map(async (planId) => {
-          const normalized = (addQueryByPlan[planId] ?? '').trim()
-          const selectedMuscle = addMuscleByPlan[planId] || undefined
-
-          const options = await fetchExerciseOptions({
-            q: normalized || undefined,
-            primaryMuscleGroup: selectedMuscle,
-            limit: 200,
-          })
-
-          return [planId, options] as const
-        }),
-      )
-        .then((results) => {
-          if (requestId !== exploreSearchRequestIdRef.current) {
-            return
-          }
-
-          setOptionsByPlan((current) => {
-            const next = { ...current }
-            results.forEach(([planId, options]) => {
-              next[planId] = options
-            })
-            return next
-          })
-        })
-        .catch((err) => {
-          if (requestId !== exploreSearchRequestIdRef.current) {
-            return
-          }
-
-          setError(err instanceof Error ? err.message : 'Erro ao buscar exercicios')
-        })
-    }, 250)
-
-    return () => window.clearTimeout(timeoutId)
-  }, [addMuscleByPlan, addQueryByPlan, fetchExerciseOptions, hasExploredByPlan])
 
   const createCustom = async () => {
     if (newPlanName.trim().length < 2) {
@@ -544,85 +465,6 @@ export function WorkoutsPage({
       setError(err instanceof Error ? err.message : 'Erro ao criar treino')
     }
   }
-
-  const lookupExercises = async (planId: string) => {
-    const q = (addQueryByPlan[planId] ?? '').trim()
-    const selectedMuscle = addMuscleByPlan[planId] || undefined
-
-    try {
-      setHasExploredByPlan((current) => ({ ...current, [planId]: true }))
-      const options = await fetchExerciseOptions({
-        q: q || undefined,
-        primaryMuscleGroup: selectedMuscle,
-        limit: 200,
-      })
-      setOptionsByPlan((current) => ({ ...current, [planId]: options }))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao buscar exercicios')
-    }
-  }
-
-  const stopExploringExercises = (planId: string) => {
-    exploreSearchRequestIdRef.current += 1
-    setHasExploredByPlan((current) => ({ ...current, [planId]: false }))
-    setOptionsByPlan((current) => ({
-      ...current,
-      [planId]: [],
-    }))
-  }
-
-  const renderExerciseOptionCard = (
-    option: ExerciseOption,
-    actionLabel: string,
-    onPrimaryAction: () => void,
-  ) => (
-    <article key={option.id} className="rounded-xl border border-[var(--line)] p-3">
-      <div className="flex items-start gap-3">
-        <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] sm:h-20 sm:w-20">
-          {option.thumbnailUrl ? (
-            <img
-              src={option.thumbnailUrl}
-              alt={`Imagem do exercicio ${option.name}`}
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">
-              Sem foto
-            </div>
-          )}
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-bold text-[var(--text)]">{option.name}</p>
-          <span className="block text-xs text-[var(--muted)]">
-            {option.primaryMuscleGroup} • {option.difficulty}
-          </span>
-
-          <div className="mt-2 flex flex-wrap gap-2">
-            <button
-              type="button"
-              className="rounded-lg border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--text)]"
-              onClick={onPrimaryAction}
-            >
-              {actionLabel}
-            </button>
-            <button
-              type="button"
-              disabled={!option.videoUrl}
-              onClick={() => {
-                if (option.videoUrl) {
-                  window.open(option.videoUrl, '_blank', 'noopener,noreferrer')
-                }
-              }}
-              className="rounded-lg border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {option.videoUrl ? 'Ver video' : 'Video em breve'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </article>
-  )
 
   const addToPlan = useCallback(async (plan: WorkoutPlan, option: ExerciseOption) => {
     const alreadyExists = plan.exercises.some((entry) => entry.exercise.id === option.id)
@@ -792,16 +634,10 @@ export function WorkoutsPage({
       return false
     }
 
-    const rawRestDraft = restDraftByExercise[planExerciseId] ?? String(targetExercise.restSec ?? 0)
-    const parsedRest = Number(rawRestDraft)
-    const isInt = Number.isInteger(parsedRest)
-    const isZero = parsedRest === 0
-    const inRange = parsedRest >= 10 && parsedRest <= 300
-
-    if (!isInt || (!isZero && !inRange)) {
-      setError('Descanso deve ser 0 ou um valor entre 10 e 300 segundos.')
-      return false
-    }
+    // O descanso agora é persistido diretamente pelo RestTimePickerSheet
+    // (ver onConfirm). Aqui só lemos o valor canônico do targetExercise
+    // pra incluir no payload do save de séries.
+    const parsedRest = targetExercise.restSec ?? 0
 
     const typedExerciseName = (customNameByExercise[planExerciseId] ?? targetExercise.customName ?? targetExercise.exercise.name).trim()
     const fallbackExerciseName = targetExercise.exercise.name
@@ -939,32 +775,6 @@ export function WorkoutsPage({
       await loadAll()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao salvar nome personalizado')
-    }
-  }
-
-  const saveRestSec = async (planId: string, planExerciseId: string) => {
-    const raw = restDraftByExercise[planExerciseId] ?? '0'
-    const parsed = Number(raw)
-    const isInt = Number.isInteger(parsed)
-    const isZero = parsed === 0
-    const inRange = parsed >= 10 && parsed <= 300
-
-    if (!isInt || (!isZero && !inRange)) {
-      setError('Descanso deve ser 0 ou um valor entre 10 e 300 segundos.')
-      return
-    }
-
-    try {
-      await updatePlanExercise(authorizedFetch, planId, planExerciseId, {
-        restSec: parsed === 0 ? null : parsed,
-      })
-      setEditingRestByExercise((current) => ({
-        ...current,
-        [planExerciseId]: false,
-      }))
-      await loadAll()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao salvar descanso do exercicio')
     }
   }
 
@@ -1129,96 +939,6 @@ export function WorkoutsPage({
               </div>
             </div>
 
-            <div className="mt-3 rounded-xl border border-[var(--line)] p-3">
-              <p className="text-sm font-semibold text-[var(--text)]">Adicionar exercicio</p>
-              <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
-                <input
-                  value={addQueryByPlan[plan.id] ?? ''}
-                  onChange={(event) =>
-                    {
-                      setAddQueryByPlan((current) => ({
-                        ...current,
-                        [plan.id]: event.target.value,
-                      }))
-                      if (hasExploredByPlan[plan.id]) {
-                        setOptionsByPlan((current) => ({
-                          ...current,
-                          [plan.id]: [],
-                        }))
-                      }
-                    }
-                  }
-                  placeholder="Buscar exercicio"
-                  className="rounded-lg border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
-                />
-                <select
-                  value={addMuscleByPlan[plan.id] ?? ''}
-                  onChange={(event) =>
-                    {
-                      setAddMuscleByPlan((current) => ({
-                        ...current,
-                        [plan.id]: event.target.value,
-                      }))
-                      if (hasExploredByPlan[plan.id]) {
-                        setOptionsByPlan((current) => ({
-                          ...current,
-                          [plan.id]: [],
-                        }))
-                      }
-                    }
-                  }
-                  className="rounded-lg border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
-                >
-                  <option value="">Todos</option>
-                  {muscleOptions.map((muscle) => (
-                    <option key={muscle} value={muscle}>
-                      {muscle}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  className="rounded-lg border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--text)]"
-                  onClick={() => {
-                    void lookupExercises(plan.id)
-                  }}
-                >
-                  Explorar exercicios
-                </button>
-                {hasExploredByPlan[plan.id] ? (
-                  <button
-                    type="button"
-                    className="rounded-lg border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--muted)]"
-                    onClick={() => {
-                      stopExploringExercises(plan.id)
-                    }}
-                  >
-                    Parar exploracao
-                  </button>
-                ) : null}
-              </div>
-
-              <div className="mt-2 max-h-72 overflow-y-auto pr-1">
-                {hasExploredByPlan[plan.id] ? null : (
-                  <p className="mb-2 text-xs text-[var(--muted)]">
-                    Clique em "Explorar exercicios" para carregar a lista.
-                  </p>
-                )}
-
-                {hasExploredByPlan[plan.id] && (optionsByPlan[plan.id] ?? []).length === 0 ? (
-                  <p className="mb-2 text-xs text-[var(--muted)]">Nenhum exercicio encontrado para o filtro atual.</p>
-                ) : null}
-
-                <div className="space-y-2">
-                  {(optionsByPlan[plan.id] ?? []).map((option) => (
-                    renderExerciseOptionCard(option, 'Adicionar na rotina em edicao', () => {
-                      void addToPlan(plan, option)
-                    })
-                  ))}
-                </div>
-              </div>
-            </div>
-
             <div className="mt-3 space-y-2">
               {plan.exercises.length === 0 ? <p className="text-sm text-[var(--muted)]">Sem exercicios.</p> : null}
               {plan.exercises.map((item, index) => {
@@ -1287,49 +1007,17 @@ export function WorkoutsPage({
                           {draft.series.length} serie(s)
                           {showLoad ? ` • 1RM max: ${bestSeries1rm.toFixed(1)} kg` : ' • peso corporal'}
                         </p>
-                        {editingRestByExercise[item.id] ? (
-                          <div className="mt-2 flex items-center gap-2">
-                            <select
-                              value={restDraftByExercise[item.id] ?? '0'}
-                              onChange={(event) =>
-                                setRestDraftByExercise((current) => ({
-                                  ...current,
-                                  [item.id]: event.target.value,
-                                }))
-                              }
-                              className="w-36 rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-xs"
-                            >
-                              <option value="0">Sem descanso</option>
-                              {REST_OPTIONS_SEC.map((seconds) => (
-                                <option key={seconds} value={seconds}>
-                                  {formatRestOptionLabel(seconds)}
-                                </option>
-                              ))}
-                            </select>
-                            <button
-                              type="button"
-                              className="rounded-md border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--text)]"
-                              onClick={() => {
-                                void saveRestSec(plan.id, item.id)
-                              }}
-                            >
-                              Salvar descanso
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            className="mt-2 rounded-md border border-[var(--line)] px-2 py-1 text-xs text-[var(--text)]"
-                            onClick={() =>
-                              setEditingRestByExercise((current) => ({
-                                ...current,
-                                [item.id]: true,
-                              }))
-                            }
-                          >
-                            Descanso: {formatClock(item.restSec ?? 0)}
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          className="mt-2 rounded-md border border-[var(--line)] px-2 py-1 text-xs text-[var(--text)]"
+                          onClick={() => setRestPickerTarget({
+                            planId: plan.id,
+                            planExerciseId: item.id,
+                            currentSec: item.restSec ?? 0,
+                          })}
+                        >
+                          Descanso: {formatClock(item.restSec ?? 0)}
+                        </button>
                       </div>
                       <div className="flex items-center gap-2">
                         <button
@@ -1646,6 +1334,18 @@ export function WorkoutsPage({
                   </div>
                 )
               })}
+
+              {/* Botão grande "Adicionar Exercício" no rodapé — mesmo
+                  padrão do TrainPage durante treino ativo. Abre o
+                  AddExerciseModal full-screen com busca live + Recentes. */}
+              <button
+                type="button"
+                onClick={() => setAddExerciseTargetPlanId(plan.id)}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand)] py-3 text-[14px] font-bold text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)]"
+              >
+                <Plus size={16} />
+                Adicionar Exercício
+              </button>
             </div>
 
             <PlanCardioPanel
@@ -1724,19 +1424,62 @@ export function WorkoutsPage({
         <CreateExerciseModal
           open
           onCreated={(newExercise) => {
+            pushRecentExerciseId(newExercise.id)
             if (createExerciseForSubstitute) {
               void applySubstitution(
                 createExerciseForSubstitute.planId,
                 createExerciseForSubstitute.planExerciseId,
                 newExercise.id,
               )
+            } else if (createExerciseForAddPlanId) {
+              const targetPlan = plans.find((p) => p.id === createExerciseForAddPlanId)
+              if (targetPlan) void addToPlan(targetPlan, newExercise)
             }
             setCreateExerciseForSubstitute(null)
+            setCreateExerciseForAddPlanId(null)
           }}
           onClose={() => {
             setCreateExerciseOpen(false)
             setCreateExerciseForSubstitute(null)
+            setCreateExerciseForAddPlanId(null)
           }}
+        />
+      )}
+      {addExerciseTargetPlanId && (
+        <AddExerciseModal
+          key={`add-${addExerciseTargetPlanId}`}
+          open
+          onPick={(option) => {
+            const targetPlan = plans.find((p) => p.id === addExerciseTargetPlanId)
+            if (targetPlan) {
+              pushRecentExerciseId(option.id)
+              void addToPlan(targetPlan, option)
+            }
+          }}
+          onCreateRequest={() => {
+            setCreateExerciseForAddPlanId(addExerciseTargetPlanId)
+            setAddExerciseTargetPlanId(null)
+            setCreateExerciseOpen(true)
+          }}
+          onClose={() => setAddExerciseTargetPlanId(null)}
+        />
+      )}
+      {restPickerTarget && (
+        <RestTimePickerSheet
+          key={`rest-${restPickerTarget.planExerciseId}`}
+          open
+          currentSec={restPickerTarget.currentSec}
+          onConfirm={async (sec) => {
+            try {
+              await updatePlanExercise(authorizedFetch, restPickerTarget.planId, restPickerTarget.planExerciseId, {
+                restSec: sec,
+              })
+              await loadAll()
+            } catch (err) {
+              setError(err instanceof Error ? err.message : 'Erro ao salvar descanso')
+            }
+          }}
+          onClose={() => setRestPickerTarget(null)}
         />
       )}
     </section>

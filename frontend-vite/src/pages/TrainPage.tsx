@@ -21,7 +21,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useScrollLock } from '../hooks/useScrollLock'
 import {
   Flame, Layers, Dumbbell, Plus, Play, Search, Pencil, Sparkles, MoreHorizontal,
-  MoreVertical, Check,
+  MoreVertical,
   Activity, X,
 } from 'lucide-react'
 import { SkeletonCard } from '../components/common/Skeleton'
@@ -29,6 +29,8 @@ import { CreateExerciseModal } from './train/CreateExerciseModal'
 import { ExerciseContextMenuSheet } from './train/ExerciseContextMenuSheet'
 import { ReorderExercisesSheet, type ReorderItem } from './train/ReorderExercisesSheet'
 import { SubstituteExerciseModal } from './train/SubstituteExerciseModal'
+import { RestTimePickerSheet } from './train/RestTimePickerSheet'
+import { AddExerciseModal } from './train/AddExerciseModal'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPost, sharePlan, type PostPrivacy } from '../services/socialService'
 import { WorkoutsPage } from './WorkoutsPage'
@@ -41,7 +43,7 @@ import {
 } from '../lib/exercise-explorer'
 import { isBodyweightEquipment, resolveBodyweightFlag } from '../lib/exercise-meta'
 import { pushRecentExerciseId } from '../lib/recent-exercises'
-import { formatClock, formatRestOptionLabel, REST_OPTIONS_SEC } from '../lib/workout-timing'
+import { formatClock } from '../lib/workout-timing'
 import { saveWorkoutSessionImage } from '../lib/workout-session-image'
 import { optimizeImageFileToDataUrl } from '../lib/image-processing'
 import type { WorkoutPlan, CardioType, CardioEntryInput, ExerciseOption } from '../types/workout'
@@ -718,110 +720,6 @@ function SortableExerciseCard({
   )
 }
 
-// Bottom sheet pra escolher o tempo de descanso entre séries. Mesmo
-// padrão visual do SetTypePickerSheet (mesma animação, scroll lock,
-// portal, backdrop). A opção atual fica destacada com o brand color
-// e o usuário confirma no "Feito". Tap fora ou Escape descarta.
-function RestTimePickerSheet({
-  open, currentSec, onConfirm, onClose,
-}: {
-  open: boolean
-  currentSec: number
-  onConfirm: (sec: number) => void
-  onClose: () => void
-}) {
-  useScrollLock(open)
-  // Mantém um draft local pra o "Feito" só aplicar quando o usuário
-  // confirma — clicar fora descarta. O parent passa `key={index}` quando
-  // monta o sheet, então useState(currentSec) sempre inicializa fresco
-  // pra o exercício correto sem precisar de useEffect sincronizando.
-  const [draft, setDraft] = useState<number>(currentSec)
-
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [open, onClose])
-
-  if (!open) return null
-
-  // "Sem descanso" sempre disponível como primeira opção; resto vem
-  // de REST_OPTIONS_SEC (10s, 20s, ..., 60s, 90s, 120s, ..., 300s).
-  const options = [0, ...REST_OPTIONS_SEC]
-
-  return createPortal(
-    <AnimatePresence>
-      <motion.div
-        key="rest-backdrop"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.18 }}
-        onClick={onClose}
-        className="fixed inset-0 z-[70] flex items-end justify-center bg-black/55 backdrop-blur-sm sm:items-center"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Selecionar tempo de descanso"
-      >
-        <motion.div
-          key="rest-sheet"
-          initial={{ y: 60, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          exit={{ y: 40, opacity: 0 }}
-          transition={{ type: 'spring', stiffness: 340, damping: 28 }}
-          onClick={(e) => e.stopPropagation()}
-          className="flex w-full max-w-md flex-col overflow-hidden rounded-t-2xl border border-b-0 border-[var(--line)] bg-[var(--surface)] shadow-2xl sm:mb-0 sm:rounded-2xl sm:border-b"
-          style={{ maxHeight: 'min(70vh, 560px)' }}
-        >
-          <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-[var(--line)] sm:hidden" />
-          <div className="shrink-0 px-4 pt-3 text-center">
-            <h3 className="text-[14px] font-bold text-[var(--text)]">Tempo de Descanso</h3>
-          </div>
-
-          {/* Lista rolável de opções — o conjunto cabe sem scroll em
-              telas médias mas trava o overflow pra não esticar a sheet
-              em telas baixas. */}
-          <ul className="flex-1 overflow-y-auto border-t border-[var(--line)]">
-            {options.map((sec) => {
-              const isCurrent = sec === draft
-              return (
-                <li key={sec}>
-                  <button
-                    type="button"
-                    onClick={() => setDraft(sec)}
-                    className={`flex w-full items-center justify-center gap-2 border-b border-[var(--line)] px-4 py-3 text-center text-[15px] transition-colors ${
-                      isCurrent
-                        ? 'bg-[var(--brand)]/12 font-bold text-[var(--brand-strong)]'
-                        : 'font-medium text-[var(--text)] hover:bg-[var(--surface-hover)]'
-                    }`}
-                  >
-                    {sec === 0 ? 'Sem descanso' : formatRestOptionLabel(sec)}
-                    {isCurrent && <Check size={14} className="text-[var(--brand)]" />}
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
-
-          {/* "Feito" sticky no rodapé — mesma cor do brand, segue o
-              padrão dos botões primários do app. */}
-          <div className="shrink-0 border-t border-[var(--line)] bg-[var(--surface)] p-3">
-            <button
-              type="button"
-              onClick={() => { onConfirm(draft); onClose() }}
-              className="w-full rounded-xl bg-[var(--brand)] py-3 text-[14px] font-bold text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)]"
-            >
-              Feito
-            </button>
-          </div>
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>,
-    document.body,
-  )
-}
-
 // Picker pra pareamento de supersérie. Lista os OUTROS exercícios do
 // treino (exclui o que abriu o sheet). Tap em um deles pareia os dois
 // no mesmo grupo. Se o alvo já está numa supersérie, mostra o letrão
@@ -1055,7 +953,6 @@ export function TrainPage() {
   const [startedAt, setStartedAt] = useState<Date | null>(null)
   const [endedAt, setEndedAt] = useState<Date | null>(null)
 
-  const [exerciseSearch, setExerciseSearch] = useState('')
   const [lastPerformanceByExercise, setLastPerformanceByExercise] = useState<
     Record<
       string,
@@ -1104,10 +1001,16 @@ export function TrainPage() {
   // Substitute modal (estilo Hevy) — quando aberto, mostra Sugeridos +
   // Recentes em vez do explorer global. Null = fechado.
   const [substituteSourceIndex, setSubstituteSourceIndex] = useState<number | null>(null)
+  // AddExerciseModal (estilo Hevy) — busca live + Recentes pra inserir
+  // novo exercício no treino ativo.
+  const [addExerciseOpen, setAddExerciseOpen] = useState(false)
   // Quando aberto a partir do "Criar" do substitute modal, indica que
   // o exercício criado deve substituir o atual em vez de só virar
   // disponível no catálogo. Null = abriu standalone (substitui nada).
   const [createExerciseForSubstituteIndex, setCreateExerciseForSubstituteIndex] = useState<number | null>(null)
+  // Quando true, ao terminar de criar exercício adicionamos no treino
+  // ativo (em vez de substituir). Dispara pelo "Criar" no AddExerciseModal.
+  const [createExerciseForAdd, setCreateExerciseForAdd] = useState(false)
   const [createExerciseOpen, setCreateExerciseOpen] = useState(false)
   const [restFinishedName, setRestFinishedName] = useState<string | null>(null)
   // Per-exercise all-time max load, fetched once when the active screen
@@ -1619,106 +1522,34 @@ export function TrainPage() {
     }
   }, [])
 
+  // Retro-compat com o explorer global no AppShell — outros pontos do
+  // app podem disparar openExerciseExplorer e selecionar daí. No treino
+  // ativo, redireciona pra os mesmos helpers do AddExerciseModal/
+  // SubstituteExerciseModal. O caminho principal hoje é via os modais
+  // locais, mas mantenho esse listener pra não quebrar deep-links.
   useEffect(() => {
     const eventName = getExerciseExplorerSelectionEventName()
 
     const handler = (event: Event) => {
-      if (screen !== 'ACTIVE') {
-        return
-      }
-
+      if (screen !== 'ACTIVE') return
       const payload = (event as CustomEvent<ExerciseExplorerSelection>).detail
-      if (!payload) {
-        return
-      }
+      if (!payload) return
 
-      // Toda interação com o explorer é um sinal forte de "exercício
-      // de interesse" — entra na lista de recentes pro modal de
-      // substituição encontrar mais tarde.
-      pushRecentExerciseId(payload.id)
+      // trackingType é opcional no ExerciseExplorerSelection mas
+      // requerido no ExerciseOption — default REPS pra normalizar.
+      const option: ExerciseOption = { ...payload, trackingType: payload.trackingType ?? 'REPS' }
 
-      // Caminho de SUBSTITUIÇÃO: quando o usuário abriu o explorer via
-      // "Substituir Exercício" no kebab. Substituímos a identidade do
-      // exercício (id, name, thumbnail, equipment, tracking) mas
-      // preservamos as séries já registradas, o descanso, as notas e
-      // o grupo de supersérie — comportamento que o usuário espera ao
-      // "trocar" um exercício que tá no meio do treino.
       const substituteIndex = pendingSubstitutionIndexRef.current
       if (substituteIndex != null) {
         pendingSubstitutionIndexRef.current = null
-        let blocked = false
-        setActiveExercises((current) => {
-          // Bloqueia substituir por algo que já tá no treino (a não ser
-          // que seja substituir pelo próprio — no-op).
-          const dup = current.findIndex((ex) => ex.exerciseId === payload.id)
-          if (dup !== -1 && dup !== substituteIndex) {
-            blocked = true
-            return current
-          }
-          return current.map((exercise, idx) => {
-            if (idx !== substituteIndex) return exercise
-            return {
-              ...exercise,
-              exerciseId: payload.id,
-              exerciseName: payload.name,
-              equipment: payload.equipment,
-              thumbnailUrl: payload.thumbnailUrl,
-              videoUrl: payload.videoUrl,
-              isBodyweight: resolveBodyweightFlag(payload.isBodyweight, payload.name, payload.equipment),
-              allowsExtraLoad: payload.allowsExtraLoad,
-              trackingType: (payload.trackingType ?? 'REPS') as TrackingType,
-            }
-          })
-        })
-        if (blocked) {
-          setError('Esse exercício já está no treino — escolha outro.')
-        }
+        applySubstitution(substituteIndex, option)
         return
       }
-
-      let added = false
-      setActiveExercises((current) => {
-        if (current.some((exercise) => exercise.exerciseId === payload.id)) {
-          return current
-        }
-
-        added = true
-        return [
-          ...current,
-          {
-            exerciseId: payload.id,
-            exerciseName: payload.name,
-            equipment: payload.equipment,
-            thumbnailUrl: payload.thumbnailUrl,
-            videoUrl: payload.videoUrl,
-            isBodyweight: resolveBodyweightFlag(payload.isBodyweight, payload.name, payload.equipment),
-            allowsExtraLoad: payload.allowsExtraLoad,
-            trackingType: (payload.trackingType ?? 'REPS') as TrackingType,
-            suggestedReps:
-              payload.trackingType === 'TIME'
-                ? '30'
-                : payload.trackingType === 'DISTANCE'
-                  ? '20'
-                  : '10',
-            restDurationSec: 0,
-            restRemainingSec: 0,
-            restRunning: false,
-            sets: [createSet()],
-            userNote: '',
-          },
-        ]
-      })
-
-      if (!added) {
-        setError('Esse exercicio ja foi adicionado no treino ativo.')
-      }
+      addExerciseToActiveWorkout(option)
     }
 
     window.addEventListener(eventName, handler)
-
-    return () => {
-      window.removeEventListener(eventName, handler)
-    }
+    return () => window.removeEventListener(eventName, handler)
   }, [screen])
 
   const totals = useMemo(() => calculateTotals(activeExercises), [activeExercises])
@@ -1734,7 +1565,6 @@ export function TrainPage() {
     setManualTimerMinutes('')
     setStartedAt(null)
     setEndedAt(null)
-    setExerciseSearch('')
     setSummaryName('')
     setSummaryDurationMin('')
     setSummaryNotes('')
@@ -1999,6 +1829,44 @@ export function TrainPage() {
     )
     if (!confirmed) return
     setActiveExercises((current) => current.filter((_, idx) => idx !== exerciseIndex))
+  }
+
+  // Adiciona um exercício ao final do treino ativo. Reaproveitado tanto
+  // pelo AddExerciseModal novo quanto pelo explorer global legado (via
+  // evento de seleção). Bloqueia duplicata pra não criar exercício
+  // repetido no mesmo treino.
+  const addExerciseToActiveWorkout = (payload: ExerciseOption) => {
+    pushRecentExerciseId(payload.id)
+    let added = false
+    setActiveExercises((current) => {
+      if (current.some((ex) => ex.exerciseId === payload.id)) return current
+      added = true
+      return [
+        ...current,
+        {
+          exerciseId: payload.id,
+          exerciseName: payload.name,
+          equipment: payload.equipment,
+          thumbnailUrl: payload.thumbnailUrl,
+          videoUrl: payload.videoUrl,
+          isBodyweight: resolveBodyweightFlag(payload.isBodyweight, payload.name, payload.equipment),
+          allowsExtraLoad: payload.allowsExtraLoad,
+          trackingType: (payload.trackingType ?? 'REPS') as TrackingType,
+          suggestedReps:
+            payload.trackingType === 'TIME'
+              ? '30'
+              : payload.trackingType === 'DISTANCE'
+                ? '20'
+                : '10',
+          restDurationSec: 0,
+          restRemainingSec: 0,
+          restRunning: false,
+          sets: [createSet()],
+          userNote: '',
+        },
+      ]
+    })
+    if (!added) setError('Esse exercicio ja foi adicionado no treino ativo.')
   }
 
   // Aplica a substituição de um exercício pelo ExerciseOption picado.
@@ -3130,33 +2998,6 @@ export function TrainPage() {
 
         {error ? <p className="text-sm text-red-400">{error}</p> : null}
 
-        <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
-          <h2 className="text-lg font-extrabold text-[var(--text)]">Adicionar exercicio</h2>
-          <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]">
-            <input
-              value={exerciseSearch}
-              onChange={(event) => setExerciseSearch(event.target.value)}
-              placeholder="Buscar exercicio"
-              className="rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
-            />
-            <button
-              type="button"
-              onClick={() => {
-                openExerciseExplorer({
-                  initialQuery: exerciseSearch.trim() || undefined,
-                  context: 'ACTIVE_WORKOUT',
-                })
-              }}
-              className="rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)]"
-            >
-              Explorar Exercicios
-            </button>
-          </div>
-          <p className="mt-2 text-xs text-[var(--muted)]">
-            Clique em "Explorar Exercicios" para abrir a lista com foto e video.
-          </p>
-        </article>
-
         <article className="space-y-3">
           {activeExercises.length === 0 ? (
             <p className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-3 text-sm text-[var(--muted)]">
@@ -3624,6 +3465,19 @@ export function TrainPage() {
           })}
             </SortableContext>
           </DndContext>
+
+          {/* Botão grande "Adicionar Exercício" no rodapé da lista —
+              substitui o card antigo com input + Explorar pra ficar no
+              padrão Hevy: tap único abre o modal full-screen com busca
+              live + Recentes + opção de criar exercício custom. */}
+          <button
+            type="button"
+            onClick={() => setAddExerciseOpen(true)}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand)] py-3 text-[14px] font-bold text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)]"
+          >
+            <Plus size={16} />
+            Adicionar Exercício
+          </button>
         </article>
 
         {/* Sheets globais — só um deles abre por vez. Lendo o
@@ -3709,21 +3563,37 @@ export function TrainPage() {
             onClose={() => setSubstituteSourceIndex(null)}
           />
         )}
+        {addExerciseOpen && (
+          <AddExerciseModal
+            open
+            onPick={(option) => addExerciseToActiveWorkout(option)}
+            onCreateRequest={() => {
+              setAddExerciseOpen(false)
+              setCreateExerciseForAdd(true)
+              setCreateExerciseOpen(true)
+            }}
+            onClose={() => setAddExerciseOpen(false)}
+          />
+        )}
         {createExerciseOpen && (
           <CreateExerciseModal
             open
             onCreated={(newExercise) => {
               // Adiciona o novo exercício no cache de recentes pra ele
-              // aparecer na próxima abertura do substitute modal.
+              // aparecer na próxima abertura de qualquer picker.
               pushRecentExerciseId(newExercise.id)
               if (createExerciseForSubstituteIndex != null) {
                 applySubstitution(createExerciseForSubstituteIndex, newExercise)
+              } else if (createExerciseForAdd) {
+                addExerciseToActiveWorkout(newExercise)
               }
               setCreateExerciseForSubstituteIndex(null)
+              setCreateExerciseForAdd(false)
             }}
             onClose={() => {
               setCreateExerciseOpen(false)
               setCreateExerciseForSubstituteIndex(null)
+              setCreateExerciseForAdd(false)
             }}
           />
         )}
