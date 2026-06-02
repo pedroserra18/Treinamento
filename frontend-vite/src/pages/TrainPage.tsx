@@ -1901,6 +1901,62 @@ export function TrainPage() {
     return () => window.clearTimeout(id)
   }, [restFinishedName])
 
+  // Mobile background catch-up. iOS Safari (e Chrome em alguns casos)
+  // pausa setInterval quando a aba sai pra background — trocar de
+  // app, travar a tela, minimizar — então o cronômetro de duração e
+  // o timer de descanso "congelam" no valor que tinham. Quando o
+  // usuário volta, esse efeito calcula quanto tempo passou enquanto
+  // hidden e compensa nos contadores.
+  const isWorkoutRunningRef = useRef(isWorkoutRunning)
+  useEffect(() => { isWorkoutRunningRef.current = isWorkoutRunning }, [isWorkoutRunning])
+  useEffect(() => {
+    let hiddenAt: number | null = null
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAt = Date.now()
+        return
+      }
+      // visibilityState === 'visible' (ou pageshow do bfcache)
+      if (hiddenAt == null) return
+      const missedSec = Math.floor((Date.now() - hiddenAt) / 1000)
+      hiddenAt = null
+      if (missedSec <= 0) return
+
+      // Catch-up do cronômetro de treino — só avança se estiver
+      // rodando (se o usuário tinha pausado, mantém pausado).
+      if (isWorkoutRunningRef.current) {
+        setElapsedSec((current) => current + missedSec)
+      }
+
+      // Catch-up dos timers de descanso. Cada exercício com
+      // restRunning recebe o desconto; se zerar, dispara o nome
+      // do exercício pra o overlay "Descanso acabou".
+      setActiveExercises((current) => {
+        let anyChanged = false
+        const next = current.map((exercise) => {
+          if (!exercise.restRunning) return exercise
+          anyChanged = true
+          const remaining = exercise.restRemainingSec - missedSec
+          if (remaining <= 0) {
+            setRestFinishedName(exercise.exerciseName)
+            return { ...exercise, restRemainingSec: 0, restRunning: false }
+          }
+          return { ...exercise, restRemainingSec: remaining }
+        })
+        return anyChanged ? next : current
+      })
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    // pageshow cobre o caso de Safari restaurar a página do bfcache
+    // (back/forward navigation) — não dispara visibilitychange nesse
+    // path mas a aba ficou "hidden" do nosso ponto de vista.
+    window.addEventListener('pageshow', handleVisibility)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('pageshow', handleVisibility)
+    }
+  }, [])
+
   useEffect(() => {
     return () => {
       if (summaryImagePreview) {
