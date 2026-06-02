@@ -1,5 +1,21 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { createPortal } from 'react-dom'
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  arrayMove,
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useScrollLock } from '../hooks/useScrollLock'
@@ -654,6 +670,49 @@ function SetTypePickerSheet({
   )
 }
 
+// Wrapper de drag-to-reorder pra cada card de exercício no treino ativo.
+// Long-press (250ms + 8px de tolerância) ativa o drag, então toques
+// rápidos e scroll continuam funcionando normalmente. O drag NÃO é
+// disparado por interação em <input>/<button>/<select> internos — o
+// pointer já recebeu o gesto desses elementos primeiro e os listeners
+// não burbulham pra cá.
+function SortableExerciseCard({
+  id, children, supersetColor,
+}: {
+  id: string
+  children: React.ReactNode
+  supersetColor: string | null
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    // Card flutuando: opacidade pra mostrar movimento + z-index pra
+    // ficar sempre na frente dos outros enquanto arrasta.
+    opacity: isDragging ? 0.4 : 1,
+    zIndex: isDragging ? 50 : undefined,
+    // Stripe da supersérie + sombra extra enquanto arrasta pra
+    // simular um "card levantado" no estilo iOS.
+    boxShadow: isDragging
+      ? `${supersetColor ? `inset 4px 0 0 0 ${supersetColor}, ` : ''}0 12px 28px -8px rgba(0,0,0,0.45)`
+      : (supersetColor ? `inset 4px 0 0 0 ${supersetColor}` : undefined),
+    // Manipulation evita que o sistema entenda o long-press como
+    // "selecionar texto" ou "copy menu" no iOS Safari.
+    touchAction: 'manipulation',
+  }
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="relative overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4"
+      {...attributes}
+      {...listeners}
+    >
+      {children}
+    </div>
+  )
+}
+
 // Bottom sheet pra escolher o tempo de descanso entre séries. Mesmo
 // padrão visual do SetTypePickerSheet (mesma animação, scroll lock,
 // portal, backdrop). A opção atual fica destacada com o brand color
@@ -1235,7 +1294,18 @@ export function TrainPage() {
   const [contextMenuExerciseIndex, setContextMenuExerciseIndex] = useState<number | null>(null)
   // Sheet de reordenação. Diferente do kebab menu, este é global — abre
   // listando TODOS os exercícios com setas ⬆⬇ pra reorganizar.
+  // É um fallback acessível pra quem não pegar a gesture de drag.
   const [reorderSheetOpen, setReorderSheetOpen] = useState(false)
+  // Sensors do dnd-kit pra drag-to-reorder dos cards de exercício.
+  // - PointerSensor: desktop + alguns mobiles. Delay de 150ms evita
+  //   confundir clique com drag.
+  // - TouchSensor: mobile específico. Delay maior (250ms) é o padrão
+  //   iOS pra "long-press to pick up", e tolerância de 8px permite
+  //   scrollar a página sem ativar drag por acidente.
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
+  )
   // Quando o usuário pede pra substituir um exercício, marcamos o
   // índice aqui e abrimos o explorer global. O handler de seleção
   // (mais abaixo) checa esse ref pra decidir entre substituir vs
@@ -2078,6 +2148,22 @@ export function TrainPage() {
       next[exerciseIndex + 1] = next[exerciseIndex]
       next[exerciseIndex] = tmp
       return next
+    })
+  }
+
+  // Handler do drag-and-drop. Recebe a nova posição via dnd-kit,
+  // encontra os índices pelos exerciseIds e usa arrayMove pra
+  // calcular o novo array. exerciseId é único por treino (garantido
+  // pelo handler que adiciona exercícios), então funciona como id
+  // estável pro dnd-kit mesmo após reorder.
+  const handleExerciseDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    setActiveExercises((current) => {
+      const oldIndex = current.findIndex((ex) => ex.exerciseId === active.id)
+      const newIndex = current.findIndex((ex) => ex.exerciseId === over.id)
+      if (oldIndex === -1 || newIndex === -1) return current
+      return arrayMove(current, oldIndex, newIndex)
     })
   }
 
@@ -3198,18 +3284,24 @@ export function TrainPage() {
             </p>
           ) : null}
 
+          <DndContext
+            sensors={dndSensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleExerciseDragEnd}
+          >
+            <SortableContext
+              items={activeExercises.map((ex) => ex.exerciseId)}
+              strategy={verticalListSortingStrategy}
+            >
           {activeExercises.map((exercise, exerciseIndex) => {
             const showLoadInput = !isEffectiveBodyweightExercise(exercise)
             const supersetColor = supersetColorFor(exercise.supersetGroup)
 
             return (
-              <div
-                key={`${exercise.exerciseId}-${exerciseIndex}`}
-                className="relative overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4"
-                // Stripe colorida na esquerda quando o exercício está numa
-                // supersérie. Mesmo grupo = mesma cor, então o usuário
-                // identifica visualmente quais exercícios estão pareados.
-                style={supersetColor ? { boxShadow: `inset 4px 0 0 0 ${supersetColor}` } : undefined}
+              <SortableExerciseCard
+                key={exercise.exerciseId}
+                id={exercise.exerciseId}
+                supersetColor={supersetColor}
               >
               {supersetColor && exercise.supersetGroup && (
                 <span
@@ -3647,9 +3739,11 @@ export function TrainPage() {
                   + Adicionar série
                 </button>
               </div>
-              </div>
+              </SortableExerciseCard>
             )
           })}
+            </SortableContext>
+          </DndContext>
         </article>
 
         {/* Sheets globais — só um deles abre por vez. Lendo o
