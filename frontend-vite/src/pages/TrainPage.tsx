@@ -1757,8 +1757,18 @@ export function TrainPage() {
       return
     }
 
+    // Tick baseado em wall-clock — `delta` é quantos segundos REAIS
+    // passaram desde o último tick, não o "1" presumido do setInterval.
+    // Isso faz o cronômetro se autocorrigir quando iOS pausa o
+    // setInterval em background: o próximo tick depois de voltar
+    // pulará pra frente pelo tempo todo de ausência, sem depender de
+    // eventos de visibilidade.
+    let lastTickMs = Date.now()
     const id = window.setInterval(() => {
-      setElapsedSec((current) => current + 1)
+      const now = Date.now()
+      const delta = Math.max(1, Math.floor((now - lastTickMs) / 1000))
+      lastTickMs = now
+      setElapsedSec((current) => current + delta)
     }, 1000)
 
     return () => window.clearInterval(id)
@@ -1878,15 +1888,25 @@ export function TrainPage() {
       return
     }
 
+    // Mesmo padrão do cronômetro de treino: decrementa pelo TEMPO REAL
+    // entre ticks (não por 1s presumido). Quando iOS Safari pausa o
+    // setInterval em background, o próximo tick depois de voltar já
+    // pula vários segundos de uma vez — o timer de descanso conclui
+    // corretamente mesmo se o user ficou 10 min com a tela travada.
+    let lastTickMs = Date.now()
     const id = window.setInterval(() => {
+      const now = Date.now()
+      const delta = Math.max(1, Math.floor((now - lastTickMs) / 1000))
+      lastTickMs = now
       setActiveExercises((current) => {
         const next = current.map((exercise) => {
           if (!exercise.restRunning) return exercise
-          if (exercise.restRemainingSec <= 1) {
+          const remaining = exercise.restRemainingSec - delta
+          if (remaining <= 0) {
             setRestFinishedName(exercise.exerciseName)
             return { ...exercise, restRemainingSec: 0, restRunning: false }
           }
-          return { ...exercise, restRemainingSec: exercise.restRemainingSec - 1 }
+          return { ...exercise, restRemainingSec: remaining }
         })
         return next
       })
