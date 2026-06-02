@@ -5,7 +5,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useScrollLock } from '../hooks/useScrollLock'
 import {
   Flame, Layers, Dumbbell, Plus, Play, Search, Pencil, Sparkles, MoreHorizontal,
-  MoreVertical, ArrowUpDown, RefreshCcw, Trash2, Check,
+  MoreVertical, ArrowUpDown, RefreshCcw, Trash2, Check, ChevronUp, ChevronDown,
   Activity, X,
 } from 'lucide-react'
 import { SkeletonCard } from '../components/common/Skeleton'
@@ -818,6 +818,125 @@ function ExerciseContextMenuSheet({
   )
 }
 
+// Bottom sheet pra reordenar os exercícios do treino ativo. Lista todos
+// com ⬆⬇ por linha — cada toque já move a posição (sem precisar
+// confirmar). Mantém a thumbnail pra ficar fácil de reconhecer e o
+// índice atualizado pra o usuário entender o que mudou.
+function ReorderExercisesSheet({
+  open, exercises, onMoveUp, onMoveDown, onClose,
+}: {
+  open: boolean
+  exercises: ActiveExercise[]
+  onMoveUp: (index: number) => void
+  onMoveDown: (index: number) => void
+  onClose: () => void
+}) {
+  useScrollLock(open)
+
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [open, onClose])
+
+  if (!open) return null
+
+  return createPortal(
+    <AnimatePresence>
+      <motion.div
+        key="reorder-backdrop"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.18 }}
+        onClick={onClose}
+        className="fixed inset-0 z-[70] flex items-end justify-center bg-black/55 backdrop-blur-sm sm:items-center"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Reordenar exercícios"
+      >
+        <motion.div
+          key="reorder-sheet"
+          initial={{ y: 60, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 40, opacity: 0 }}
+          transition={{ type: 'spring', stiffness: 340, damping: 28 }}
+          onClick={(e) => e.stopPropagation()}
+          className="flex w-full max-w-md flex-col overflow-hidden rounded-t-2xl border border-b-0 border-[var(--line)] bg-[var(--surface)] shadow-2xl sm:mb-0 sm:rounded-2xl sm:border-b"
+          style={{ maxHeight: 'min(80vh, 640px)' }}
+        >
+          <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-[var(--line)] sm:hidden" />
+          <h3 className="shrink-0 px-4 pb-2 pt-3 text-center text-[14px] font-bold text-[var(--text)]">
+            Reordenar Exercícios
+          </h3>
+          <p className="shrink-0 px-4 pb-2 text-center text-[11px] text-[var(--muted)]">
+            Use as setas pra mover cada exercício.
+          </p>
+          <ul className="flex-1 overflow-y-auto border-t border-[var(--line)]">
+            {exercises.map((exercise, idx) => {
+              const isFirst = idx === 0
+              const isLast = idx === exercises.length - 1
+              return (
+                <li
+                  key={`${exercise.exerciseId}-${idx}`}
+                  className="flex items-center gap-2 border-b border-[var(--line)] px-3 py-2"
+                >
+                  <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-[var(--surface-hover)] font-mono text-[10px] font-bold text-[var(--muted)]">
+                    {idx + 1}
+                  </span>
+                  {exercise.thumbnailUrl ? (
+                    <img
+                      src={exercise.thumbnailUrl}
+                      alt=""
+                      className="h-10 w-10 shrink-0 rounded-md object-cover"
+                    />
+                  ) : (
+                    <div className="h-10 w-10 shrink-0 rounded-md bg-[var(--surface-hover)]" />
+                  )}
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--text)]">
+                    {exercise.exerciseName}
+                  </span>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => onMoveUp(idx)}
+                      disabled={isFirst}
+                      className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-30"
+                      aria-label={`Mover ${exercise.exerciseName} para cima`}
+                    >
+                      <ChevronUp size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onMoveDown(idx)}
+                      disabled={isLast}
+                      className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-30"
+                      aria-label={`Mover ${exercise.exerciseName} para baixo`}
+                    >
+                      <ChevronDown size={16} />
+                    </button>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+          <div className="shrink-0 border-t border-[var(--line)] bg-[var(--surface)] p-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full rounded-xl bg-[var(--brand)] py-3 text-[14px] font-bold text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)]"
+            >
+              Feito
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>,
+    document.body,
+  )
+}
+
 // Seção de cardio do treino ativo: lista os cardios adicionados e um mini-form
 // (tipo + minutos + distância opcional em km) para acrescentar mais.
 function CardioSection({ entries, onAdd, onRemove }: {
@@ -969,6 +1088,9 @@ export function TrainPage() {
   // Kebab menu (3 pontinhos) — guarda o índice do exercício cujo
   // menu de contexto está aberto. Null = nenhum aberto.
   const [contextMenuExerciseIndex, setContextMenuExerciseIndex] = useState<number | null>(null)
+  // Sheet de reordenação. Diferente do kebab menu, este é global — abre
+  // listando TODOS os exercícios com setas ⬆⬇ pra reorganizar.
+  const [reorderSheetOpen, setReorderSheetOpen] = useState(false)
   const [restFinishedName, setRestFinishedName] = useState<string | null>(null)
   // Per-exercise all-time max load, fetched once when the active screen
   // opens. We mutate this on every confirmed PR so the next set of the
@@ -1739,6 +1861,30 @@ export function TrainPage() {
     )
     if (!confirmed) return
     setActiveExercises((current) => current.filter((_, idx) => idx !== exerciseIndex))
+  }
+
+  // Troca dois exercícios de lugar no array. Usado pelos botões de
+  // reordenação. Não dispara nada de backend — a ordem em rotina já é
+  // persistida na próxima save de rotina; em sessão ad-hoc é só UI.
+  const moveExerciseUp = (exerciseIndex: number) => {
+    if (exerciseIndex <= 0) return
+    setActiveExercises((current) => {
+      const next = [...current]
+      const tmp = next[exerciseIndex - 1]
+      next[exerciseIndex - 1] = next[exerciseIndex]
+      next[exerciseIndex] = tmp
+      return next
+    })
+  }
+  const moveExerciseDown = (exerciseIndex: number) => {
+    setActiveExercises((current) => {
+      if (exerciseIndex >= current.length - 1) return current
+      const next = [...current]
+      const tmp = next[exerciseIndex + 1]
+      next[exerciseIndex + 1] = next[exerciseIndex]
+      next[exerciseIndex] = tmp
+      return next
+    })
   }
 
   const patchSet = (
@@ -3271,14 +3417,23 @@ export function TrainPage() {
           <ExerciseContextMenuSheet
             open
             exerciseName={activeExercises[contextMenuExerciseIndex].exerciseName}
-            // Reordenar / Substituir / Supersérie: backlog. UX dedicada
-            // pra cada (drag handle, picker de exercícios, etc.) merece
-            // commit próprio. Por enquanto, sinaliza pro usuário.
-            onReorder={() => setError('Reordenar exercícios — em breve.')}
+            onReorder={() => setReorderSheetOpen(true)}
+            // Substituir / Supersérie: ainda em backlog. Cada uma precisa
+            // de UX própria — picker de exercícios pra substituir, linker
+            // entre dois pra supersérie. Sinaliza por enquanto.
             onSubstitute={() => setError('Substituir exercício — em breve.')}
             onAddToSuperset={() => setError('Adicionar à supersérie — em breve.')}
             onRemove={() => handleRemoveExercise(contextMenuExerciseIndex)}
             onClose={() => setContextMenuExerciseIndex(null)}
+          />
+        )}
+        {reorderSheetOpen && (
+          <ReorderExercisesSheet
+            open
+            exercises={activeExercises}
+            onMoveUp={moveExerciseUp}
+            onMoveDown={moveExerciseDown}
+            onClose={() => setReorderSheetOpen(false)}
           />
         )}
 
