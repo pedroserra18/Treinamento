@@ -19,13 +19,52 @@ import { RegisterPage } from './pages/RegisterPage'
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
 import { GoogleCallbackPage } from './pages/GoogleCallbackPage'
 
+// Detects the "stale chunk" failure mode: a user had the app open when
+// we deployed, the old chunk hashes no longer exist on the CDN, the SPA
+// fallback rewrites the missing .js to index.html, and the browser
+// refuses to execute HTML as a module. The error string varies a bit
+// between Chromium and WebKit so we accept all the common phrasings.
+function isStaleChunkError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  const msg = err.message || ''
+  return (
+    msg.includes("'text/html' is not a valid JavaScript MIME type") ||
+    msg.includes('Failed to fetch dynamically imported module') ||
+    msg.includes('Loading chunk') ||
+    msg.includes('Failed to load script') ||
+    msg.includes('Importing a module script failed')
+  )
+}
+
 // Lazy: everything else. Each route becomes its own chunk, shrinking the
 // initial bundle. The helper unwraps named exports since React.lazy
-// requires `default`.
+// requires `default`, AND auto-recovers from stale chunk errors by
+// reloading the page once (the fresh index.html has the new hashes).
 const lazyNamed = <T extends Record<string, unknown>, K extends keyof T>(
   loader: () => Promise<T>,
   name: K,
-) => lazy(() => loader().then((mod) => ({ default: mod[name] as React.ComponentType<unknown> })))
+) => lazy(async () => {
+  try {
+    const mod = await loader()
+    return { default: mod[name] as React.ComponentType<unknown> }
+  } catch (err) {
+    if (isStaleChunkError(err)) {
+      // Guard against an infinite reload loop if the chunk really is
+      // broken (and not just a deploy race) — one reload per tab,
+      // tracked via sessionStorage which dies with the tab.
+      const KEY = 'acad:chunk-stale-reload'
+      if (!sessionStorage.getItem(KEY)) {
+        sessionStorage.setItem(KEY, '1')
+        window.location.reload()
+        // Block the lazy() promise from settling while the reload
+        // takes over the document — prevents React from rendering an
+        // error UI during the brief navigation window.
+        return new Promise<{ default: React.ComponentType<unknown> }>(() => {})
+      }
+    }
+    throw err
+  }
+})
 
 const TrainPage = lazyNamed(() => import('./pages/TrainPage'), 'TrainPage')
 const ProgressPage = lazyNamed(() => import('./pages/ProgressPage'), 'ProgressPage')
