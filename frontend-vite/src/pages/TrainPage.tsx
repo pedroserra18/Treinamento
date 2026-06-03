@@ -2698,18 +2698,22 @@ export function TrainPage() {
   }
 
   if (screen === 'SUMMARY') {
+    // Helpers que precisam estar acessíveis em todo o screen.
+    const startedTime = startedAt
+      ? new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(startedAt)
+      : null
+    const endedTime = endedAt
+      ? new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(endedAt)
+      : null
     return (
-      <section className="space-y-4">
+      <section className="space-y-3">
         <motion.header
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
+          className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4"
         >
           <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <h1 className="text-xl font-bold tracking-tight text-[var(--text)] sm:text-2xl">Resumo do treino</h1>
-              <p className="mt-1 text-sm text-[var(--muted)]">Revise e ajuste os dados antes de salvar.</p>
-            </div>
+            <h1 className="text-xl font-bold tracking-tight text-[var(--text)] sm:text-2xl">Resumo do treino</h1>
             <button
               type="button"
               onClick={backToActiveTraining}
@@ -2723,44 +2727,33 @@ export function TrainPage() {
 
         {error ? <p className="text-sm text-red-400">{error}</p> : null}
 
-        <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 space-y-4">
-          {/* Chips de início/fim no topo — substitui o cartão cinza
-              com texto pequeno que ninguém lia. Mostra horários puros
-              em vez de data full pra economizar espaço. */}
-          {(startedAt || endedAt) && (
-            <div className="flex flex-wrap gap-2 text-[11px] font-mono text-[var(--muted)]">
-              {startedAt && (
-                <span className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] px-2.5 py-1">
-                  <span className="text-[var(--muted)]">Início</span>
-                  <b className="text-[var(--text)]">
-                    {new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(startedAt)}
-                  </b>
-                </span>
-              )}
-              {endedAt && (
-                <span className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] px-2.5 py-1">
-                  <span className="text-[var(--muted)]">Fim</span>
-                  <b className="text-[var(--text)]">
-                    {new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(endedAt)}
-                  </b>
-                </span>
-              )}
-            </div>
-          )}
-
-          <label className="block text-sm font-semibold text-[var(--text)]">
-            Nome do treino
+        <article className="space-y-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
+          {/* Nome do treino — horários viram subtítulo discreto abaixo
+              do input, eliminando a linha de chips que ocupava espaço
+              próprio. Mantém a info visível sem demandar atenção. */}
+          <div>
+            <label className="block text-sm font-semibold text-[var(--text)]" htmlFor="summary-name-input">
+              Nome do treino
+            </label>
             <input
+              id="summary-name-input"
               value={summaryName}
               onChange={(event) => setSummaryName(event.target.value)}
-              className="mt-1 w-full rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-2xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
             />
-          </label>
+            {(startedTime || endedTime) && (
+              <p className="mt-1 font-mono text-[11px] text-[var(--muted)]">
+                {startedTime && endedTime
+                  ? `${startedTime} → ${endedTime}`
+                  : startedTime
+                    ? `Início ${startedTime}`
+                    : `Fim ${endedTime}`}
+              </p>
+            )}
+          </div>
 
           {/* Duração — abre o wheel picker (estilo iOS) em vez do input
-              livre. Mais previsível, sem chance de erro de digitação.
-              O texto formatado mostra h+min pra ficar legível ("1h 5min"
-              em vez de "65"). */}
+              livre. Mais previsível, sem chance de erro de digitação. */}
           {(() => {
             const fallbackMin = Math.max(1, Math.round(elapsedSec / 60))
             const currentMin = parseDurationMin(summaryDurationMin, fallbackMin)
@@ -2776,7 +2769,7 @@ export function TrainPage() {
                   type="button"
                   onClick={() => setDurationPickerOpen(true)}
                   style={{ touchAction: 'manipulation' }}
-                  className="mt-1 flex w-full items-center justify-between rounded-xl border border-[var(--line)] bg-transparent px-3 py-2.5 text-left text-sm font-semibold text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
+                  className="mt-1 flex w-full items-center justify-between rounded-2xl border border-[var(--line)] bg-transparent px-3 py-2.5 text-left text-sm font-semibold text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
                 >
                   <span className="tabular-nums">{display}</span>
                   <span className="text-[11px] font-normal text-[var(--muted)]">Tocar pra alterar</span>
@@ -2785,10 +2778,9 @@ export function TrainPage() {
             )
           })()}
 
-          {/* Cards de métricas — 2x2 grid com Volume + Séries (calculadas
-              em tempo real do state) e PRs novos + Sets concluídos
-              (derivados). vs último treino mostra delta se a rotina já
-              foi treinada antes. */}
+          {/* Cards de métricas — Volume + Séries sempre; PRs/Sets
+              concluídos/vs último treino só se houver informação útil.
+              Cards reduzidos (text-2xl + p-3.5) pra economizar tela. */}
           {(() => {
             const newPrs = Object.entries(prByExerciseId).reduce<{ name: string; load: number; previous: number | null }[]>((acc, [exId, currentPr]) => {
               if (currentPr == null) return acc
@@ -2804,45 +2796,55 @@ export function TrainPage() {
             const completedSetsCount = activeExercises.reduce((s, ex) => s + ex.sets.filter((set) => set.checked).length, 0)
             const completePct = totalSetsAttempted > 0 ? Math.round((completedSetsCount / totalSetsAttempted) * 100) : 0
 
+            // "vs último treino" só faz sentido quando:
+            //   • A rotina já tem ≥1 sessão anterior em outro dia (não
+            //     o que acabamos de fazer) — evita comparar contra a
+            //     versão de hoje mais cedo, que confunde.
+            //   • A duração anterior é minimamente significativa (≥5 min)
+            //     pra não comparar contra um treino abortado.
             const lastSession = originMode === 'ROUTINE' && activePlanId ? lastUseByPlanId[activePlanId] : null
+            const lastDayKey = lastSession ? new Date(lastSession.endedAt).toISOString().slice(0, 10) : null
+            const todayKey = new Date().toISOString().slice(0, 10)
+            const isDifferentDay = lastDayKey != null && lastDayKey !== todayKey
             const lastDurationMin = lastSession?.durationSec ? Math.round(lastSession.durationSec / 60) : null
             const currentDurationMin = Math.max(1, Math.round(elapsedSec / 60))
-            const durationDelta = lastDurationMin ? currentDurationMin - lastDurationMin : null
+            const canCompareDuration = isDifferentDay && lastDurationMin != null && lastDurationMin >= 5
+            const durationDelta = canCompareDuration ? currentDurationMin - lastDurationMin! : null
+
+            const hasSecondRow = newPrs.length > 0 || durationDelta != null || completePct < 100
 
             return (
               <>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="relative overflow-hidden rounded-2xl border border-[var(--brand)]/20 bg-gradient-to-br from-[color-mix(in_srgb,var(--brand)_12%,var(--surface))] to-[var(--surface)] p-4">
-                    <div className="flex items-center gap-2 text-[var(--brand)]">
-                      <Flame size={16} />
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">Volume total</p>
+                <div className="grid gap-2.5 sm:grid-cols-2">
+                  <div className="relative overflow-hidden rounded-2xl border border-[var(--brand)]/20 bg-gradient-to-br from-[color-mix(in_srgb,var(--brand)_12%,var(--surface))] to-[var(--surface)] p-3.5">
+                    <div className="flex items-center gap-1.5 text-[var(--brand)]">
+                      <Flame size={14} />
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">Volume</p>
                     </div>
-                    <p className="mt-2 text-3xl font-black text-[var(--text)]">
+                    <p className="mt-1.5 text-2xl font-black text-[var(--text)]">
                       {Math.round(totals.totalVolumeKg).toLocaleString('pt-BR')}{' '}
-                      <span className="text-lg font-semibold text-[var(--muted)]">kg</span>
+                      <span className="text-base font-semibold text-[var(--muted)]">kg</span>
                     </p>
                   </div>
-                  <div className="relative overflow-hidden rounded-2xl border border-[var(--accent-blue)]/20 bg-gradient-to-br from-[color-mix(in_srgb,var(--accent-blue)_10%,var(--surface))] to-[var(--surface)] p-4">
-                    <div className="flex items-center gap-2 text-[var(--accent-blue)]">
-                      <Layers size={16} />
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">Séries realizadas</p>
+                  <div className="relative overflow-hidden rounded-2xl border border-[var(--accent-blue)]/20 bg-gradient-to-br from-[color-mix(in_srgb,var(--accent-blue)_10%,var(--surface))] to-[var(--surface)] p-3.5">
+                    <div className="flex items-center gap-1.5 text-[var(--accent-blue)]">
+                      <Layers size={14} />
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">Séries</p>
                     </div>
-                    <p className="mt-2 text-3xl font-black text-[var(--text)]">{totals.totalSeries}</p>
+                    <p className="mt-1.5 text-2xl font-black text-[var(--text)]">{totals.totalSeries}</p>
                   </div>
                 </div>
 
-                {/* Segunda linha de métricas — só aparece se tem algo útil:
-                    PR novo OU comparação com último treino OU % concluído != 100. */}
-                {(newPrs.length > 0 || durationDelta != null || completePct < 100) && (
-                  <div className="grid gap-3 sm:grid-cols-2">
+                {hasSecondRow && (
+                  <div className="grid gap-2.5 sm:grid-cols-2">
                     {newPrs.length > 0 && (
-                      <div className="rounded-2xl border border-amber-400/30 bg-gradient-to-br from-amber-500/10 to-[var(--surface)] p-4">
-                        <div className="flex items-center gap-2 text-amber-500">
-                          <Sparkles size={16} />
+                      <div className="rounded-2xl border border-amber-400/30 bg-gradient-to-br from-amber-500/10 to-[var(--surface)] p-3.5">
+                        <div className="flex items-center gap-1.5 text-amber-500">
+                          <Sparkles size={14} />
                           <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">PRs novos</p>
                         </div>
-                        <p className="mt-2 text-3xl font-black text-[var(--text)]">{newPrs.length}</p>
-                        <ul className="mt-1.5 space-y-0.5 text-[11px] text-[var(--muted)]">
+                        <p className="mt-1.5 text-2xl font-black text-[var(--text)]">{newPrs.length}</p>
+                        <ul className="mt-1 space-y-0.5 text-[11px] text-[var(--muted)]">
                           {newPrs.slice(0, 3).map((pr) => (
                             <li key={pr.name} className="truncate">
                               • {pr.name}: <b className="text-amber-600">{pr.load}kg</b>
@@ -2854,25 +2856,23 @@ export function TrainPage() {
                       </div>
                     )}
                     {completePct < 100 && (
-                      <div className="rounded-2xl border border-[var(--line)] p-4">
-                        <div className="flex items-center gap-2 text-[var(--text)]">
-                          <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">Sets concluídos</p>
-                        </div>
-                        <p className="mt-2 text-3xl font-black text-[var(--text)]">
-                          {completedSetsCount}<span className="text-lg font-semibold text-[var(--muted)]">/{totalSetsAttempted}</span>
+                      <div className="rounded-2xl border border-[var(--line)] p-3.5">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">Sets concluídos</p>
+                        <p className="mt-1.5 text-2xl font-black text-[var(--text)]">
+                          {completedSetsCount}<span className="text-base font-semibold text-[var(--muted)]">/{totalSetsAttempted}</span>
                         </p>
-                        <p className="mt-1 text-[11px] text-[var(--muted)]">{completePct}% das séries marcadas</p>
+                        <p className="mt-0.5 text-[11px] text-[var(--muted)]">{completePct}% das séries marcadas</p>
                       </div>
                     )}
                     {durationDelta != null && (
-                      <div className="rounded-2xl border border-[var(--line)] p-4">
+                      <div className="rounded-2xl border border-[var(--line)] p-3.5">
                         <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">vs último treino</p>
-                        <p className={`mt-2 text-3xl font-black tabular-nums ${
+                        <p className={`mt-1.5 text-2xl font-black tabular-nums ${
                           durationDelta < 0 ? 'text-emerald-500' : durationDelta > 0 ? 'text-[var(--text)]' : 'text-[var(--muted)]'
                         }`}>
-                          {durationDelta > 0 ? '+' : ''}{durationDelta}<span className="text-lg font-semibold text-[var(--muted)]"> min</span>
+                          {durationDelta > 0 ? '+' : ''}{durationDelta}<span className="text-base font-semibold text-[var(--muted)]"> min</span>
                         </p>
-                        <p className="mt-1 text-[11px] text-[var(--muted)]">
+                        <p className="mt-0.5 text-[11px] text-[var(--muted)]">
                           Anterior: {lastDurationMin}min · {relativeDaysFromNow(lastSession!.endedAt)}
                         </p>
                       </div>
@@ -2883,42 +2883,44 @@ export function TrainPage() {
             )
           })()}
 
-          {/* Upload bonito — dropzone com label-as-button + preview
-              dentro do mesmo card. Bem mais agradável que <input type=file>
-              cru. Clica em qualquer lugar pra trocar a imagem. */}
+          {/* Foto — compacta quando vazia (botão pequeno), expande pra
+              preview grande quando há imagem. Antes ocupava ~220px de
+              altura mesmo sem foto (área tracejada gigante). */}
           <div>
-            <p className="text-sm font-semibold text-[var(--text)]">Foto do treino</p>
-            <label
-              className="mt-1.5 block cursor-pointer overflow-hidden rounded-2xl border-2 border-dashed border-[var(--line)] bg-[var(--surface-hover)]/40 transition-colors hover:border-[var(--brand)]/40 hover:bg-[var(--surface-hover)]"
-            >
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(event) => handleSummaryImage(event.target.files?.[0] ?? null)}
-                className="hidden"
-              />
-              {summaryImagePreview ? (
+            {summaryImagePreview ? (
+              <label className="block cursor-pointer overflow-hidden rounded-2xl border border-[var(--line)]">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(event) => handleSummaryImage(event.target.files?.[0] ?? null)}
+                  className="hidden"
+                />
                 <div className="relative">
                   <img
                     src={summaryImagePreview}
                     alt="Preview do treino"
-                    className="mx-auto block w-full max-h-80 object-cover"
+                    className="mx-auto block w-full max-h-72 object-cover"
                     style={{ aspectRatio: '4 / 5' }}
                   />
-                  <span className="absolute right-3 top-3 rounded-full bg-black/60 px-3 py-1 text-[11px] font-semibold text-white backdrop-blur-sm">
+                  <span className="absolute right-2.5 top-2.5 rounded-full bg-black/60 px-2.5 py-0.5 text-[11px] font-semibold text-white backdrop-blur-sm">
                     Trocar foto
                   </span>
                 </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center">
-                  <div className="grid h-12 w-12 place-items-center rounded-full bg-[var(--surface)] text-[var(--muted)]">
-                    <Plus size={20} />
-                  </div>
-                  <p className="text-[13px] font-semibold text-[var(--text)]">Adicionar foto</p>
-                  <p className="text-[11px] text-[var(--muted)]">JPG ou PNG · proporção 4:5 recomendada</p>
-                </div>
-              )}
-            </label>
+              </label>
+            ) : (
+              <label
+                className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-[var(--line)] px-3 py-2.5 text-sm font-semibold text-[var(--muted)] transition-colors hover:border-[var(--brand)]/40 hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+              >
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(event) => handleSummaryImage(event.target.files?.[0] ?? null)}
+                  className="hidden"
+                />
+                <Plus size={14} />
+                Adicionar foto <span className="text-[11px] font-normal text-[var(--muted)]">(opcional)</span>
+              </label>
+            )}
           </div>
 
           {!savedSessionId ? (
