@@ -1853,12 +1853,35 @@ export function TrainPage() {
     setScreen('ACTIVE')
   }
 
-  // Wrapper que checa sets em branco antes de finalizar. Conta sets que
-  // têm algum dado preenchido mas não foram marcados como concluídos
-  // (checked=false), o que indica "ia fazer mas esqueci de bater o ✓".
-  // Pra sets totalmente vazios não avisa — o usuário só programou mais
-  // séries do que executou, é comportamento normal.
+  // Wrapper que faz duas checagens antes de finalizar:
+  //   1) BLOQUEIO HARD — não permite finalizar se o treino está vazio
+  //      (nenhuma série de musculação executada/preenchida E nenhum
+  //      cardio). Faz sentido: salvar registro de "treino" sem nada
+  //      polui o histórico e não tem informação útil.
+  //   2) SOFT WARNING — séries com valores preenchidos mas sem o ✓.
+  //      Avisa e deixa o usuário escolher finalizar mesmo assim.
   const finalizeWithSafetyCheck = () => {
+    // 1) Treino completamente vazio?
+    const hasMuscleWork = activeExercises.some((ex) =>
+      ex.sets.some((s) =>
+        s.checked ||
+        s.reps.trim() !== '' ||
+        s.weightKg.trim() !== '' ||
+        s.rir.trim() !== '' ||
+        s.rpe.trim() !== ''
+      )
+    )
+    const hasCardio = cardioEntries.length > 0
+    if (!hasMuscleWork && !hasCardio) {
+      setInfoDialog({
+        title: 'Treino vazio',
+        message:
+          'Você precisa de pelo menos uma atividade pra finalizar — uma série de musculação (mesmo só com reps/peso preenchido) ou uma entrada de cardio.\n\nVolte e adicione algum exercício, ou descarte o treino se foi um engano.',
+      })
+      return
+    }
+
+    // 2) Séries pendentes (input sem ✓)?
     let unchecked = 0
     for (const exercise of activeExercises) {
       for (const set of exercise.sets) {
