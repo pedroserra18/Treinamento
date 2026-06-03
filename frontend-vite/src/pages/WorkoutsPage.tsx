@@ -27,6 +27,7 @@ import { SubstituteExerciseModal } from './train/SubstituteExerciseModal'
 import { CreateExerciseModal } from './train/CreateExerciseModal'
 import { AddExerciseModal } from './train/AddExerciseModal'
 import { RestTimePickerSheet } from './train/RestTimePickerSheet'
+import { InfoDialog } from '../components/common/InfoDialog'
 import { pushRecentExerciseId } from '../lib/recent-exercises'
 import { MoreVertical, Plus } from 'lucide-react'
 
@@ -366,6 +367,9 @@ export function WorkoutsPage({
   const [createExerciseOpen, setCreateExerciseOpen] = useState(false)
   // AddExerciseModal — guarda o planId que vai receber o exercício.
   const [addExerciseTargetPlanId, setAddExerciseTargetPlanId] = useState<string | null>(null)
+  // Diálogo de aviso pra duplicatas e similares. Trocou o window.alert
+  // intrusivo + setError vermelho persistente por um modal previsível.
+  const [infoDialog, setInfoDialog] = useState<{ title: string; message: string } | null>(null)
   // RestTimePickerSheet — guarda o planExerciseId cujo descanso está
   // sendo editado. Reusa o mesmo sheet do TrainPage.
   const [restPickerTarget, setRestPickerTarget] = useState<{ planId: string; planExerciseId: string; currentSec: number } | null>(null)
@@ -469,7 +473,10 @@ export function WorkoutsPage({
   const addToPlan = useCallback(async (plan: WorkoutPlan, option: ExerciseOption) => {
     const alreadyExists = plan.exercises.some((entry) => entry.exercise.id === option.id)
     if (alreadyExists) {
-      window.alert('Este exercicio ja faz parte do treino. Escolha outro para manter variedade.')
+      setInfoDialog({
+        title: 'Exercício já na rotina',
+        message: `${option.name} já faz parte desta rotina. Escolha outro para manter variedade.`,
+      })
       return
     }
 
@@ -483,9 +490,15 @@ export function WorkoutsPage({
       await loadAll()
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Erro ao adicionar exercicio ao treino'
-      setError(message)
       if (isDuplicateExerciseError(message)) {
-        window.alert('Exercicio repetido bloqueado. Nao e permitido duplicar exercicio no mesmo treino.')
+        // Backend confirmou duplicata mesmo após nossa pré-checagem
+        // (race entre fetch local e backend). Mostra o mesmo aviso.
+        setInfoDialog({
+          title: 'Exercício já na rotina',
+          message: `${option.name} já faz parte desta rotina.`,
+        })
+      } else {
+        setError(message)
       }
     }
   }, [authorizedFetch, loadAll])
@@ -1453,10 +1466,10 @@ export function WorkoutsPage({
             const targetPlan = plans.find((p) => p.id === addExerciseTargetPlanId)
             if (!targetPlan) return
             // Filtra duplicatas em relação ao que JÁ está no plano —
-            // evita ter que disparar alert por item e dá feedback agregado.
+            // agrega o aviso em um único diálogo (evita N popups).
             const presentIds = new Set(targetPlan.exercises.map((entry) => entry.exercise.id))
+            const skipped = options.filter((opt) => presentIds.has(opt.id))
             const toAdd = options.filter((opt) => !presentIds.has(opt.id))
-            const skipped = options.length - toAdd.length
 
             // Add em série pro backend sequenciar o orderIndex sem
             // colisão. Um único loadAll no final (em vez de N), evitando
@@ -1472,8 +1485,14 @@ export function WorkoutsPage({
                 })
               }
               await loadAll()
-              if (skipped > 0) {
-                setError(`${skipped} exercício(s) já estavam na rotina e foram ignorados.`)
+              if (skipped.length > 0) {
+                setInfoDialog({
+                  title: skipped.length === 1 ? 'Exercício já na rotina' : 'Exercícios já na rotina',
+                  message:
+                    skipped.length === 1
+                      ? `${skipped[0].name} já faz parte desta rotina e não foi adicionado novamente.`
+                      : `${skipped.length} exercícios já faziam parte desta rotina e não foram adicionados novamente:\n\n${skipped.map((s) => `• ${s.name}`).join('\n')}`,
+                })
               }
             } catch (err) {
               setError(err instanceof Error ? err.message : 'Erro ao adicionar exercícios à rotina')
@@ -1503,6 +1522,14 @@ export function WorkoutsPage({
             }
           }}
           onClose={() => setRestPickerTarget(null)}
+        />
+      )}
+      {infoDialog && (
+        <InfoDialog
+          open
+          title={infoDialog.title}
+          message={infoDialog.message}
+          onClose={() => setInfoDialog(null)}
         />
       )}
     </section>

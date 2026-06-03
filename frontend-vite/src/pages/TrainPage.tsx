@@ -31,6 +31,7 @@ import { ReorderExercisesSheet, type ReorderItem } from './train/ReorderExercise
 import { SubstituteExerciseModal } from './train/SubstituteExerciseModal'
 import { RestTimePickerSheet } from './train/RestTimePickerSheet'
 import { AddExerciseModal } from './train/AddExerciseModal'
+import { InfoDialog } from '../components/common/InfoDialog'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPost, sharePlan, type PostPrivacy } from '../services/socialService'
 import { WorkoutsPage } from './WorkoutsPage'
@@ -1027,6 +1028,10 @@ export function TrainPage() {
   // AddExerciseModal (estilo Hevy) — busca live + Recentes pra inserir
   // novo exercício no treino ativo.
   const [addExerciseOpen, setAddExerciseOpen] = useState(false)
+  // Diálogo de aviso pra duplicatas (e outros casos similares). Trocou
+  // o setError vermelho fixo na tela por um modal claramente acionável —
+  // o erro ficava pendurado entre header e lista até trocar de tela.
+  const [infoDialog, setInfoDialog] = useState<{ title: string; message: string } | null>(null)
   // Quando aberto a partir do "Criar" do substitute modal, indica que
   // o exercício criado deve substituir o atual em vez de só virar
   // disponível no catálogo. Null = abriu standalone (substitui nada).
@@ -1938,7 +1943,12 @@ export function TrainPage() {
         },
       ]
     })
-    if (!added) setError('Esse exercicio ja foi adicionado no treino ativo.')
+    if (!added) {
+      setInfoDialog({
+        title: 'Exercício já no treino',
+        message: `${payload.name} já faz parte deste treino. Para evitar conflito, ele não foi adicionado novamente.`,
+      })
+    }
   }
 
   // Aplica a substituição de um exercício pelo ExerciseOption picado.
@@ -1968,7 +1978,12 @@ export function TrainPage() {
         }
       })
     })
-    if (blocked) setError('Esse exercício já está no treino — escolha outro.')
+    if (blocked) {
+      setInfoDialog({
+        title: 'Exercício já no treino',
+        message: `${payload.name} já está em outra posição do treino. Escolha outro exercício para substituir.`,
+      })
+    }
   }
 
   // Handler do drag-and-drop. Recebe a nova posição via dnd-kit,
@@ -3672,14 +3687,20 @@ export function TrainPage() {
           <AddExerciseModal
             open
             onPickBatch={(options) => {
-              // Filtra ANTES de chamar pra não disparar setError pra
-              // cada duplicata (que era a UX feia quando o usuário
-              // marcava em batch um exercício que já estava no treino).
+              // Filtra duplicatas antes de chamar pra agregar o aviso
+              // em um único diálogo (evita N popups).
               const presentIds = new Set(activeExercises.map((ex) => ex.exerciseId))
+              const skipped = options.filter((opt) => presentIds.has(opt.id))
               const toAdd = options.filter((opt) => !presentIds.has(opt.id))
               for (const option of toAdd) addExerciseToActiveWorkout(option)
-              if (toAdd.length < options.length) {
-                setError(`${options.length - toAdd.length} exercício(s) já estavam no treino e foram ignorados.`)
+              if (skipped.length > 0) {
+                setInfoDialog({
+                  title: skipped.length === 1 ? 'Exercício já no treino' : 'Exercícios já no treino',
+                  message:
+                    skipped.length === 1
+                      ? `${skipped[0].name} já faz parte deste treino e não foi adicionado novamente.`
+                      : `${skipped.length} exercícios já faziam parte deste treino e não foram adicionados novamente:\n\n${skipped.map((s) => `• ${s.name}`).join('\n')}`,
+                })
               }
             }}
             onCreateRequest={() => {
@@ -3730,6 +3751,15 @@ export function TrainPage() {
           onAdd={(entry) => setCardioEntries((current) => [...current, entry])}
           onRemove={(index) => setCardioEntries((current) => current.filter((_, i) => i !== index))}
         />
+
+        {infoDialog && (
+          <InfoDialog
+            open
+            title={infoDialog.title}
+            message={infoDialog.message}
+            onClose={() => setInfoDialog(null)}
+          />
+        )}
       </section>
     )
   }
