@@ -32,6 +32,7 @@ import { SubstituteExerciseModal } from './train/SubstituteExerciseModal'
 import { RestTimePickerSheet } from './train/RestTimePickerSheet'
 import { AddExerciseModal } from './train/AddExerciseModal'
 import { DurationPickerSheet } from './train/DurationPickerSheet'
+import { SwipeableSetRow } from './train/SwipeableSetRow'
 import { InfoDialog } from '../components/common/InfoDialog'
 import { ConfirmDialog } from '../components/common/ConfirmDialog'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -3750,13 +3751,16 @@ export function TrainPage() {
                     const allowedTypes: SetType[] | undefined = isTime || isDistance ? ['normal', 'warmup', 'failure'] : undefined
 
                     return (
-                  <div
+                  <SwipeableSetRow
                     key={`${exercise.exerciseId}-${setIndex}`}
+                    onDelete={() => removeSet(exerciseIndex, setIndex)}
+                  >
+                  <div
                     className={`rounded-xl border transition-colors ${
                       setInput.checked
                         ? 'border-green-500/50 bg-green-500/5'
                         : 'border-[var(--line)]'
-                    } ${isComplex ? 'space-y-2 p-3' : 'px-2 py-1.5'}`}
+                    } ${isComplex ? 'space-y-2 p-3' : 'px-2 py-1.5 pr-7 sm:pr-9'}`}
                   >
                     {!isComplex ? (
                       /* COMPACT ROW (normal/warmup/failure):
@@ -4033,6 +4037,7 @@ export function TrainPage() {
                               row above; RIR/RPE moved to the per-exercise expander. */}
 
                   </div>
+                  </SwipeableSetRow>
                     )
                   })()
                 ))}
