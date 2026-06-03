@@ -175,8 +175,36 @@ function toFiniteNumber(value: unknown): number | null {
     return null
   }
 
-  const parsed = Number(value)
+  // String inputs do nosso form usam vírgula como separador decimal
+  // (locale BR). Normaliza pra ponto antes de passar pro Number,
+  // que só entende ponto. Outros tipos (number) passam intactos.
+  const normalized = typeof value === 'string' ? value.replace(',', '.') : value
+  const parsed = Number(normalized)
   return Number.isFinite(parsed) ? parsed : null
+}
+
+// Normaliza input decimal pro padrão BR: aceita vírgula e ponto como
+// separador (usuários BR digitam vírgula no teclado virtual; quem cola
+// valor de outro lugar pode trazer ponto), garante UM único separador
+// e limita a `maxDecimals` casas após ele. Mantém como string pra o
+// input controlado conseguir guardar estados intermediários ("50,"
+// digitado mas ainda incompleto).
+function sanitizeDecimalInput(raw: string, maxDecimals = 3): string {
+  // Remove tudo que não é dígito ou separador
+  let cleaned = raw.replace(/[^\d.,]/g, '')
+  // Normaliza vírgula pra ponto pra trabalhar com um separador só
+  cleaned = cleaned.replace(/,/g, '.')
+  // Mantém apenas o PRIMEIRO ponto — pontos subsequentes viram nada
+  const firstDot = cleaned.indexOf('.')
+  if (firstDot !== -1) {
+    cleaned = cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, '')
+    // Trunca a parte decimal pra no máximo maxDecimals dígitos
+    const [intPart, decPart = ''] = cleaned.split('.')
+    cleaned = decPart.length > 0 ? `${intPart}.${decPart.slice(0, maxDecimals)}` : `${intPart}.`
+  }
+  // O usuário viu "vírgula", então devolve assim pro display ficar
+  // consistente com o teclado dele.
+  return cleaned.replace('.', ',')
 }
 
 function mapPlanToActiveExercises(plan: WorkoutPlan): ActiveExercise[] {
@@ -228,8 +256,8 @@ function calculateTotals(exercises: ActiveExercise[]): { totalSeries: number; to
         totalSeries += 1
         setInput.dropSets.forEach((drop) => {
           const r = Number(drop.reps)
-          const w = Number(drop.weightKg)
-          if (Number.isFinite(r) && r > 0 && Number.isFinite(w) && w > 0) {
+          const w = toFiniteNumber(drop.weightKg) ?? 0
+          if (Number.isFinite(r) && r > 0 && w > 0) {
             totalVolumeKg += w * r
           }
         })
@@ -242,8 +270,8 @@ function calculateTotals(exercises: ActiveExercise[]): { totalSeries: number; to
         const isValid = (Number.isFinite(cr) && cr > 0 && Number.isFinite(cc) && cc > 0) || setInput.checked
         if (!isValid) return
         totalSeries += 1
-        const weight = Number(setInput.weightKg)
-        if (Number.isFinite(weight) && weight > 0 && Number.isFinite(cr) && cr > 0 && Number.isFinite(cc) && cc > 0) {
+        const weight = toFiniteNumber(setInput.weightKg) ?? 0
+        if (weight > 0 && Number.isFinite(cr) && cr > 0 && Number.isFinite(cc) && cc > 0) {
           totalVolumeKg += weight * cr * cc
         }
         return
@@ -256,8 +284,8 @@ function calculateTotals(exercises: ActiveExercise[]): { totalSeries: number; to
       }
 
       totalSeries += 1
-      const weight = Number(setInput.weightKg)
-      if (Number.isFinite(weight) && weight > 0 && Number.isFinite(effectiveReps) && effectiveReps > 0) {
+      const weight = toFiniteNumber(setInput.weightKg) ?? 0
+      if (weight > 0 && Number.isFinite(effectiveReps) && effectiveReps > 0) {
         totalVolumeKg += weight * effectiveReps
       }
     })
@@ -3331,7 +3359,7 @@ export function TrainPage() {
                                 aria-label="Peso em kg"
                                 onChange={(event) =>
                                   patchSet(exerciseIndex, setIndex, {
-                                    weightKg: event.target.value.replace(/[^\d.]/g, ''),
+                                    weightKg: sanitizeDecimalInput(event.target.value),
                                   })
                                 }
                                 className="w-[52px] shrink-0 rounded-md border border-[var(--line)] bg-transparent px-1 py-1 text-center text-[12.5px] font-semibold tabular-nums sm:w-[64px]"
@@ -3451,9 +3479,10 @@ export function TrainPage() {
                                 <input
                                   value={drop.weightKg}
                                   placeholder={dropIdx === 0 ? weightPlaceholder : 'kg'}
+                                  inputMode="decimal"
                                   onChange={(e) =>
                                     patchDropEntry(exerciseIndex, setIndex, dropIdx, {
-                                      weightKg: e.target.value.replace(/[^\d.]/g, ''),
+                                      weightKg: sanitizeDecimalInput(e.target.value),
                                     })
                                   }
                                   className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
@@ -3500,9 +3529,10 @@ export function TrainPage() {
                             <input
                               value={setInput.weightKg}
                               placeholder={weightPlaceholder}
+                              inputMode="decimal"
                               onChange={(event) =>
                                 patchSet(exerciseIndex, setIndex, {
-                                  weightKg: event.target.value.replace(/[^\d.]/g, ''),
+                                  weightKg: sanitizeDecimalInput(event.target.value),
                                 })
                               }
                               className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"

@@ -55,7 +55,8 @@ const GROUPS_20: GroupSpec[] = [
       "Pullover com halter",
       "Supino com pausa",
       "Supino no smith",
-      "Press no cabo para peito"
+      "Press no cabo para peito",
+      "Crucifixo declinado maquina"
     ]
   },
   {
@@ -111,7 +112,8 @@ const GROUPS_20: GroupSpec[] = [
       "Cadeira abdutora",
       "Levantamento terra romeno",
       "Good morning com barra",
-      "Pistol squat assistido"
+      "Pistol squat assistido",
+      "Mesa flexora"
     ]
   },
   {
@@ -170,7 +172,8 @@ const GROUPS_20: GroupSpec[] = [
       "Pike push up",
       "Flexao pike elevada",
       "Caminhada na parede",
-      "Flexao parada de mao na parede"
+      "Flexao parada de mao na parede",
+      "Elevacao frontal na polia com corda"
     ]
   }
 ];
