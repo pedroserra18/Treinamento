@@ -21,7 +21,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useScrollLock } from '../hooks/useScrollLock'
 import {
   Flame, Layers, Dumbbell, Plus, Play, Pencil, Sparkles, MoreHorizontal,
-  MoreVertical,
+  MoreVertical, ArrowLeft,
   Activity, X,
 } from 'lucide-react'
 import { SkeletonCard } from '../components/common/Skeleton'
@@ -54,6 +54,7 @@ import {
   getExercisePersonalRecords,
   getLatestExercisePerformance,
   getSessionHighlights,
+  listWorkoutHistory,
   listWorkoutPlans,
   searchExercisesForPlan,
   startWorkoutSession,
@@ -295,9 +296,25 @@ function relativeDaysFromNow(iso: string): string {
   const d = Math.floor(ms / (1000 * 60 * 60 * 24))
   if (d <= 0) return 'hoje'
   if (d === 1) return 'ontem'
-  if (d < 7) return `há ${d}d`
-  if (d < 30) return `há ${Math.floor(d / 7)}sem`
-  return `há ${Math.floor(d / 30)}m`
+  if (d < 7) return `há ${d} dias`
+  if (d < 14) return 'há 1 semana'
+  if (d < 30) return `há ${Math.floor(d / 7)} semanas`
+  if (d < 60) return 'há 1 mês'
+  if (d < 365) return `há ${Math.floor(d / 30)} meses`
+  if (d < 730) return 'há 1 ano'
+  return `há ${Math.floor(d / 365)} anos`
+}
+
+// Formata uma duração em segundos pra rótulo curto e legível.
+// Usado pra mostrar a duração do último treino na lista de rotinas.
+function formatDurationCompact(sec: number): string {
+  if (sec < 60) return `${sec}s`
+  const totalMin = Math.round(sec / 60)
+  if (totalMin < 60) return `${totalMin}min`
+  const h = Math.floor(totalMin / 60)
+  const m = totalMin % 60
+  if (m === 0) return `${h}h`
+  return `${h}h${String(m).padStart(2, '0')}`
 }
 
 const CARDIO_LABELS: Record<CardioType, string> = {
@@ -930,6 +947,9 @@ export function TrainPage() {
   const [screen, setScreen] = useState<TrainScreen>('DASHBOARD')
   const [plans, setPlans] = useState<WorkoutPlan[]>([])
   const [loadingPlans, setLoadingPlans] = useState(true)
+  // Erro fica scoped por tela: ao trocar de screen, limpamos pra evitar
+  // mensagem vazar entre dashboard / ativo / summary (e.g. "exercicio ja
+  // adicionado" aparecer na dashboard depois de finalizar treino).
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [openRoutineMenuId, setOpenRoutineMenuId] = useState<string | null>(null)
@@ -948,6 +968,10 @@ export function TrainPage() {
   const [elapsedSec, setElapsedSec] = useState(0)
   const [isWorkoutRunning, setIsWorkoutRunning] = useState(false)
   const [manualTimerMinutes, setManualTimerMinutes] = useState('')
+  // Popover do menu "⋯" do treino ativo (Pausar/Retomar + Editar tempo).
+  // Esses controles são fluxo de borda — esconder evita competir com
+  // o botão primário "Finalizar Treino".
+  const [advancedTimerOpen, setAdvancedTimerOpen] = useState(false)
 
   const [startedAt, setStartedAt] = useState<Date | null>(null)
   const [endedAt, setEndedAt] = useState<Date | null>(null)
@@ -1048,6 +1072,45 @@ export function TrainPage() {
   const interactionOrderByExerciseRef = useRef<Record<string, number>>({})
   const interactionOrderCounterRef = useRef(0)
 
+  // Histórico recente pra enriquecer os cards de rotina ("último treino:
+  // há 3 dias · 1h05") e pra escolher qual rotina destacar no smart-CTA
+  // da dashboard ("Iniciar [última rotina]"). Buscamos uma página de 50
+  // sessões — cobre 99% dos usuários sem custo. Falha silenciosamente:
+  // a página funciona sem essas info, só fica menos rica.
+  type LastUseInfo = { endedAt: string; durationSec: number | null; planId: string; planName: string }
+  const [lastUseByPlanId, setLastUseByPlanId] = useState<Record<string, LastUseInfo>>({})
+  const [mostRecentSession, setMostRecentSession] = useState<LastUseInfo | null>(null)
+
+  const reloadHistorySummary = useCallback(async () => {
+    try {
+      const { items } = await listWorkoutHistory(authorizedFetch, 1, 50)
+      const byPlan: Record<string, LastUseInfo> = {}
+      let mostRecent: LastUseInfo | null = null
+      for (const session of items) {
+        if (!session.endedAt) continue
+        if (!session.workoutPlanId || !session.workoutPlan) continue
+        const info: LastUseInfo = {
+          endedAt: session.endedAt,
+          durationSec: session.durationSec,
+          planId: session.workoutPlanId,
+          planName: session.workoutPlan.name,
+        }
+        // listWorkoutHistory já vem ordenado desc por endedAt — primeira
+        // ocorrência por plano é a mais recente daquela rotina.
+        if (!byPlan[session.workoutPlanId]) byPlan[session.workoutPlanId] = info
+        if (!mostRecent) mostRecent = info
+      }
+      setLastUseByPlanId(byPlan)
+      setMostRecentSession(mostRecent)
+    } catch {
+      // silencioso — info nice-to-have
+    }
+  }, [authorizedFetch])
+
+  useEffect(() => {
+    void reloadHistorySummary()
+  }, [reloadHistorySummary])
+
   const reloadPlans = useCallback(async (preferredPlanId?: string) => {
     const items = await listWorkoutPlans(authorizedFetch)
     setPlans(items)
@@ -1063,6 +1126,10 @@ export function TrainPage() {
   }, [authorizedFetch])
 
   useEffect(() => {
+    // setLoadingPlans(true) garante o skeleton em re-fetches (ex.: depois
+    // de mudança de auth). Estado inicial já é true mas explicitar evita
+    // flash de empty se reloadPlans for re-invocada após o primeiro load.
+    setLoadingPlans(true)
     void reloadPlans()
       .catch((err) => {
         setError(err instanceof Error ? err.message : 'Erro ao carregar rotinas')
@@ -1549,6 +1616,12 @@ export function TrainPage() {
 
     window.addEventListener(eventName, handler)
     return () => window.removeEventListener(eventName, handler)
+  }, [screen])
+
+  // Erros são scoped por tela — qualquer transição limpa o estado pra
+  // não exibir uma mensagem que ficou pendurada de outro contexto.
+  useEffect(() => {
+    setError(null)
   }, [screen])
 
   const totals = useMemo(() => calculateTotals(activeExercises), [activeExercises])
@@ -2420,16 +2493,17 @@ export function TrainPage() {
           className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
         >
           <div className="flex items-center justify-between gap-3">
-            <div>
-              <h1 className="text-2xl font-black text-[var(--text)]">Resumo do treino</h1>
+            <div className="min-w-0">
+              <h1 className="text-xl font-bold tracking-tight text-[var(--text)] sm:text-2xl">Resumo do treino</h1>
               <p className="mt-1 text-sm text-[var(--muted)]">Revise e ajuste os dados antes de salvar.</p>
             </div>
             <button
               type="button"
               onClick={backToActiveTraining}
-              className="flex items-center gap-1.5 rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--text)]"
+              aria-label="Voltar"
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[var(--line)] text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
             >
-              ← Voltar
+              <ArrowLeft size={16} />
             </button>
           </div>
         </motion.header>
@@ -2717,16 +2791,17 @@ export function TrainPage() {
           className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
         >
           <div className="flex items-center justify-between gap-3">
-            <div>
-              <h1 className="text-2xl font-black text-[var(--text)]">Recomendações</h1>
+            <div className="min-w-0">
+              <h1 className="text-xl font-bold tracking-tight text-[var(--text)] sm:text-2xl">Recomendações</h1>
               <p className="mt-1 text-sm text-[var(--muted)]">Escolha uma estrutura e salve como novo treino.</p>
             </div>
             <button
               type="button"
               onClick={() => setScreen('DASHBOARD')}
-              className="flex items-center gap-1.5 rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--text)]"
+              aria-label="Voltar"
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[var(--line)] text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
             >
-              ← Voltar
+              <ArrowLeft size={16} />
             </button>
           </div>
         </motion.header>
@@ -2744,16 +2819,17 @@ export function TrainPage() {
           className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
         >
           <div className="flex items-center justify-between gap-3">
-            <div>
-              <h1 className="text-2xl font-black text-[var(--text)]">Nova Rotina</h1>
+            <div className="min-w-0">
+              <h1 className="text-xl font-bold tracking-tight text-[var(--text)] sm:text-2xl">Nova Rotina</h1>
               <p className="mt-1 text-sm text-[var(--muted)]">Monte uma nova rotina e salve para usar nos treinos.</p>
             </div>
             <button
               type="button"
               onClick={() => setScreen('DASHBOARD')}
-              className="flex items-center gap-1.5 rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--text)]"
+              aria-label="Voltar"
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[var(--line)] text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
             >
-              ← Voltar
+              <ArrowLeft size={16} />
             </button>
           </div>
         </motion.header>
@@ -2781,16 +2857,17 @@ export function TrainPage() {
           className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
         >
           <div className="flex items-center justify-between gap-3">
-            <div>
-              <h1 className="text-2xl font-black text-[var(--text)]">Editando rotina</h1>
-              <p className="mt-1 text-sm text-[var(--muted)]">{editingPlan?.name ?? ''}</p>
+            <div className="min-w-0">
+              <h1 className="truncate text-xl font-bold tracking-tight text-[var(--text)] sm:text-2xl">Editando rotina</h1>
+              <p className="mt-1 truncate text-sm text-[var(--muted)]">{editingPlan?.name ?? ''}</p>
             </div>
             <button
               type="button"
               onClick={() => setScreen('DASHBOARD')}
-              className="rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--text)]"
+              aria-label="Voltar"
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[var(--line)] text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
             >
-              {'<- Voltar'}
+              <ArrowLeft size={16} />
             </button>
           </div>
         </motion.header>
@@ -2925,23 +3002,17 @@ export function TrainPage() {
           className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h1 className="text-xl font-black text-[var(--text)] sm:text-2xl">Treino ativo: {activePlanName}</h1>
-              <p className="mt-1 text-sm text-[var(--muted)]">Cronometro geral e descanso por exercicio.</p>
+            <div className="min-w-0">
+              <h1 className="truncate text-xl font-bold tracking-tight text-[var(--text)] sm:text-2xl">Treino ativo: {activePlanName}</h1>
+              <p className="mt-1 text-sm text-[var(--muted)]">Cronômetro geral e descanso por exercício.</p>
             </div>
-            <p className="text-3xl font-black text-[var(--text)] tabular-nums">{formatClock(elapsedSec)}</p>
+            <p className="text-3xl font-bold tabular-nums text-[var(--text)]">{formatClock(elapsedSec)}</p>
           </div>
 
-          {/* Compact Duração / Volume / Séries summary — mirrors Hevy's
-              top header. Recomputed from totals on every render which is
-              cheap since the helper already memoises. */}
-          <div className="mt-4 grid grid-cols-3 gap-3 border-t border-dashed border-[var(--line)] pt-3 text-center sm:text-left">
-            <div>
-              <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Duração</p>
-              <p className="mt-0.5 text-[15px] font-extrabold text-[var(--brand-strong)] tabular-nums sm:text-base">
-                {formatClock(elapsedSec)}
-              </p>
-            </div>
+          {/* Mini-summary — só Volume e Séries (Duração já está no
+              cronômetro grande no canto direito do header, repetir era
+              ruído). Volume e Séries são derivados, não duplicam nada. */}
+          <div className="mt-4 grid grid-cols-2 gap-3 border-t border-dashed border-[var(--line)] pt-3 text-center sm:text-left">
             <div>
               <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Volume</p>
               <p className="mt-0.5 text-[15px] font-extrabold text-[var(--text)] tabular-nums sm:text-base">
@@ -2956,42 +3027,77 @@ export function TrainPage() {
             </div>
           </div>
 
-          <div className="mt-3 flex flex-wrap gap-2">
+          {/* Ações principais sempre visíveis: Voltar + Finalizar.
+              Pausar/Retomar e Editar tempo (raros, fluxo de borda) ficam
+              no menu "⋯" pra não competir visualmente com o CTA. */}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={backToDashboardFromActive}
-              className="rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--text)]"
+              aria-label="Voltar"
+              className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--line)] text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
             >
-              {'<- Voltar'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsWorkoutRunning((prev) => !prev)}
-              className="rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--text)]"
-            >
-              {isWorkoutRunning ? 'Pausar cronometro' : 'Retomar cronometro'}
-            </button>
-
-            <input
-              value={manualTimerMinutes}
-              onChange={(event) => setManualTimerMinutes(event.target.value.replace(/[^\d]/g, ''))}
-              placeholder="min"
-              className="w-20 rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
-            />
-            <button
-              type="button"
-              onClick={applyManualTimerEdit}
-              className="rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--text)]"
-            >
-              Editar tempo
+              <ArrowLeft size={16} />
             </button>
             <button
               type="button"
               onClick={finalizeTraining}
-              className="rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white"
+              className="flex-1 rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)] sm:flex-none"
             >
               Finalizar Treino
             </button>
+            <div className="relative">
+              <button
+                type="button"
+                aria-label="Mais opções do cronômetro"
+                onClick={() => setAdvancedTimerOpen((v) => !v)}
+                className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--line)] text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
+              >
+                <MoreHorizontal size={16} />
+              </button>
+              {advancedTimerOpen && (
+                <>
+                  {/* Backdrop pra fechar clicando fora — sem portal pra
+                      manter o popover ancorado relativamente ao botão. */}
+                  <button
+                    type="button"
+                    aria-hidden
+                    tabIndex={-1}
+                    onClick={() => setAdvancedTimerOpen(false)}
+                    className="fixed inset-0 z-30 cursor-default"
+                  />
+                  <div className="absolute right-0 top-12 z-40 w-64 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] p-2 shadow-2xl">
+                    <button
+                      type="button"
+                      onClick={() => { setIsWorkoutRunning((prev) => !prev); setAdvancedTimerOpen(false) }}
+                      className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-[13px] font-medium text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
+                    >
+                      {isWorkoutRunning ? 'Pausar cronômetro' : 'Retomar cronômetro'}
+                    </button>
+                    <div className="mt-1 rounded-lg border border-[var(--line)] p-2">
+                      <label className="block text-[11px] font-mono uppercase tracking-wider text-[var(--muted)]">
+                        Ajustar tempo (min)
+                      </label>
+                      <div className="mt-1 flex gap-1.5">
+                        <input
+                          value={manualTimerMinutes}
+                          onChange={(event) => setManualTimerMinutes(event.target.value.replace(/[^\d]/g, ''))}
+                          placeholder="min"
+                          className="w-full rounded-md border border-[var(--line)] bg-transparent px-2 py-1.5 text-sm tabular-nums"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => { applyManualTimerEdit(); setAdvancedTimerOpen(false) }}
+                          className="rounded-md bg-[var(--brand)] px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-[var(--brand-strong)]"
+                        >
+                          OK
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </motion.header>
 
@@ -3639,7 +3745,7 @@ export function TrainPage() {
           </span>
           Treino · monte ou escolha
         </div>
-        <h1 className="mt-1.5 text-2xl font-semibold tracking-tight text-[var(--text)] sm:text-4xl">
+        <h1 className="mt-1.5 text-2xl font-bold tracking-tight text-[var(--text)] sm:text-3xl">
           Treinar <span className="font-serif-accent text-[var(--brand-strong)]">agora</span>
         </h1>
         <p className="mt-1.5 text-[13px] text-[var(--muted)] sm:text-sm">
@@ -3647,51 +3753,85 @@ export function TrainPage() {
         </p>
       </motion.header>
 
-      {/* ───── QUICK ACTIONS ─────────────────────────────────────── */}
+      {/* ───── SMART CTA ──────────────────────────────────────────────
+          Card primário inteligente — decide entre Retomar, Iniciar
+          última rotina, ou Iniciar Vazio. O caminho dominante deveria
+          ser "continuar minha rotina" e não "começar do zero", então
+          esse CTA respeita o histórico do usuário em vez de empurrar
+          "Vazio" pra todo mundo. */}
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.05 }}
-        className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-[1.6fr_1fr_1fr]"
       >
-        <button
-          type="button"
-          onClick={beginEmptyTraining}
-          className="group relative flex min-h-[96px] flex-col items-start gap-2.5 overflow-hidden rounded-xl border border-[var(--brand-strong)] bg-gradient-to-br from-[#ff7a5a] to-[var(--brand)] p-4 text-left text-white shadow-[0_14px_26px_-16px_rgba(255,90,60,0.55)] transition-transform hover:translate-y-[-2px] sm:col-span-2 lg:col-span-1"
-        >
-          {/* Decorative radial highlight — same effect as the mock's ::after */}
-          <span
-            aria-hidden
-            className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full"
-            style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.18) 0%, transparent 70%)' }}
-          />
-          <span className="grid h-8 w-8 place-items-center rounded-lg border border-white/25 bg-white/15">
-            <Play size={16} fill="currentColor" />
-          </span>
-          <strong className="text-[15px] font-semibold tracking-tight">Iniciar Vazio</strong>
-        </button>
+        {(() => {
+          const hasOngoingWorkout = hydrated && activeExercises.length > 0
+          const lastPlan =
+            !hasOngoingWorkout && mostRecentSession
+              ? plans.find((p) => p.id === mostRecentSession.planId)
+              : null
+          const ctaPrimary = hasOngoingWorkout
+            ? { label: 'Retomar Treino', sub: activePlanName, onClick: () => setScreen('ACTIVE') }
+            : lastPlan
+              ? { label: `Iniciar ${lastPlan.name}`, sub: `Último treino ${relativeDaysFromNow(mostRecentSession!.endedAt)}`, onClick: () => beginRoutineTraining(lastPlan) }
+              : { label: 'Iniciar Treino Vazio', sub: 'Monte os exercícios na hora', onClick: beginEmptyTraining }
+          return (
+            <button
+              type="button"
+              onClick={ctaPrimary.onClick}
+              className="group relative flex w-full items-center gap-4 overflow-hidden rounded-2xl border border-[var(--brand-strong)] bg-gradient-to-br from-[#ff7a5a] to-[var(--brand)] p-5 text-left text-white shadow-[0_14px_26px_-16px_rgba(255,90,60,0.55)] transition-transform hover:translate-y-[-2px]"
+            >
+              <span
+                aria-hidden
+                className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full"
+                style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.18) 0%, transparent 70%)' }}
+              />
+              <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border border-white/25 bg-white/15">
+                <Play size={20} fill="currentColor" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <strong className="block truncate text-[16px] font-semibold tracking-tight sm:text-[18px]">
+                  {ctaPrimary.label}
+                </strong>
+                <span className="block truncate text-[12px] text-white/80 sm:text-[13px]">
+                  {ctaPrimary.sub}
+                </span>
+              </span>
+            </button>
+          )
+        })()}
 
-        <button
-          type="button"
-          onClick={() => setScreen('RECOMMENDATIONS')}
-          className="group flex min-h-[96px] flex-col items-start gap-2.5 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 text-left transition-all hover:-translate-y-px hover:border-[var(--brand)]/30 hover:bg-[var(--surface-hover)]"
-        >
-          <span className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] text-[var(--text)]">
-            <Sparkles size={16} />
-          </span>
-          <strong className="text-[13.5px] font-semibold tracking-tight text-[var(--text)]">Recomendações</strong>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setScreen('NEW_ROUTINE')}
-          className="group flex min-h-[96px] flex-col items-start gap-2.5 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 text-left transition-all hover:-translate-y-px hover:border-[var(--brand)]/30 hover:bg-[var(--surface-hover)]"
-        >
-          <span className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] text-[var(--text)]">
-            <Plus size={16} />
-          </span>
-          <strong className="text-[13.5px] font-semibold tracking-tight text-[var(--text)]">Nova Rotina</strong>
-        </button>
+        {/* Ações secundárias — chips menores que não competem com o CTA.
+            "Iniciar Vazio" só aparece como chip quando o CTA não é
+            o vazio (pra continuar sendo acessível em 1 tap). */}
+        <div className="mt-2.5 flex flex-wrap gap-2">
+          {(hydrated && activeExercises.length > 0) || mostRecentSession ? (
+            <button
+              type="button"
+              onClick={beginEmptyTraining}
+              className="inline-flex items-center gap-1.5 rounded-full border border-[var(--line)] bg-[var(--surface)] px-3 py-1.5 text-[12px] font-semibold text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
+            >
+              <Play size={12} />
+              Treino vazio
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => setScreen('RECOMMENDATIONS')}
+            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--line)] bg-[var(--surface)] px-3 py-1.5 text-[12px] font-semibold text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
+          >
+            <Sparkles size={12} />
+            Recomendações
+          </button>
+          <button
+            type="button"
+            onClick={() => setScreen('NEW_ROUTINE')}
+            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--line)] bg-[var(--surface)] px-3 py-1.5 text-[12px] font-semibold text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
+          >
+            <Plus size={12} />
+            Nova rotina
+          </button>
+        </div>
       </motion.div>
 
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
@@ -3705,29 +3845,35 @@ export function TrainPage() {
               {plans.length}
             </span>
           </h2>
-          <div className="flex gap-1">
-            {([
-              { id: 'ALL', label: 'TODAS' },
-              { id: 'AI', label: 'IA' },
-              { id: 'CUSTOM', label: 'MINHAS' },
-            ] as Array<{ id: RoutineFilter; label: string }>).map((f) => {
-              const active = routineFilter === f.id
-              return (
-                <button
-                  key={f.id}
-                  type="button"
-                  onClick={() => setRoutineFilter(f.id)}
-                  className={`rounded-md border px-2.5 py-1 font-mono text-[11px] font-medium tracking-wider transition-colors ${
-                    active
-                      ? 'border-[var(--line)] bg-[var(--surface)] text-[var(--text)]'
-                      : 'border-transparent text-[var(--muted)] hover:text-[var(--text)]'
-                  }`}
-                >
-                  {f.label}
-                </button>
-              )
-            })}
-          </div>
+          {/* Smart-hide: o filtro só vale a pena com 4+ rotinas. Abaixo
+              disso polui e ninguém usa. Labels renomeadas: "Sugeridas"
+              (IA) e "Personalizadas" (CUSTOM) são mais claras que
+              siglas técnicas. */}
+          {plans.length >= 4 ? (
+            <div className="flex gap-1">
+              {([
+                { id: 'ALL', label: 'Todas' },
+                { id: 'AI', label: 'Sugeridas' },
+                { id: 'CUSTOM', label: 'Personalizadas' },
+              ] as Array<{ id: RoutineFilter; label: string }>).map((f) => {
+                const active = routineFilter === f.id
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setRoutineFilter(f.id)}
+                    className={`rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                      active
+                        ? 'border-[var(--line)] bg-[var(--surface)] text-[var(--text)]'
+                        : 'border-transparent text-[var(--muted)] hover:text-[var(--text)]'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                )
+              })}
+            </div>
+          ) : null}
         </div>
 
         {loadingPlans ? (
@@ -3739,9 +3885,29 @@ export function TrainPage() {
 
         {!loadingPlans && plans.length === 0 ? (
           <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-8 text-center">
-            <Dumbbell size={32} className="mx-auto mb-3 text-[var(--muted)]" strokeWidth={1.5} />
-            <p className="text-sm font-bold text-[var(--text)]">Nenhuma rotina criada ainda</p>
-            <p className="mt-1 text-xs text-[var(--muted)]">Crie sua primeira rotina para começar a treinar.</p>
+            <Dumbbell size={36} className="mx-auto mb-3 text-[var(--brand)]" strokeWidth={1.5} />
+            <p className="text-base font-bold text-[var(--text)]">Comece criando sua primeira rotina</p>
+            <p className="mx-auto mt-1.5 max-w-xs text-[12px] text-[var(--muted)]">
+              Uma rotina agrupa exercícios e séries pra você repetir sem montar tudo do zero toda vez.
+            </p>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => setScreen('NEW_ROUTINE')}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--brand)] px-4 py-2 text-[13px] font-bold text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)]"
+              >
+                <Plus size={14} />
+                Criar minha primeira rotina
+              </button>
+              <button
+                type="button"
+                onClick={() => setScreen('RECOMMENDATIONS')}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--line)] px-4 py-2 text-[13px] font-semibold text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
+              >
+                <Sparkles size={14} />
+                Ver sugestões
+              </button>
+            </div>
           </div>
         ) : null}
 
@@ -3756,6 +3922,7 @@ export function TrainPage() {
             const exerciseCount = plan.exercises.length
             const estMin = estimatePlanMinutes(plan)
             const isAi = isAiSourcedPlan(plan)
+            const lastUse = lastUseByPlanId[plan.id]
             return (
               <article
                 key={plan.id}
@@ -3865,18 +4032,37 @@ export function TrainPage() {
                   </div>
                 </div>
 
-                {/* Stats line — exercises count, est. minutes, created-relative date */}
-                <div className="mb-3.5 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-[var(--muted)]">
+                {/* Stats: exercícios + min estimados. Data de criação
+                    saiu — quase ninguém liga, e quando importa, é a
+                    última EXECUÇÃO que dá contexto ("não treino isso
+                    há um tempo"). */}
+                <div className="mb-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-[var(--muted)]">
                   <span>
                     <b className="font-semibold text-[var(--text)]">{exerciseCount}</b> ex
                   </span>
                   <span>
                     <b className="font-semibold text-[var(--text)]">{estMin}</b> min
                   </span>
-                  <span>
-                    criada <b className="font-semibold text-[var(--text)]">{relativeDaysFromNow(plan.createdAt)}</b>
-                  </span>
                 </div>
+
+                {/* Última execução — só aparece se a rotina já foi
+                    treinada pelo menos uma vez. Mostra "quando" + a
+                    duração real do treino, pra o usuário ter referência. */}
+                <p className="mb-3 text-[11px] text-[var(--muted)]">
+                  {lastUse ? (
+                    <>
+                      Último treino <b className="font-semibold text-[var(--text)]">{relativeDaysFromNow(lastUse.endedAt)}</b>
+                      {lastUse.durationSec ? (
+                        <>
+                          {' · '}
+                          <b className="font-semibold text-[var(--text)]">{formatDurationCompact(lastUse.durationSec)}</b>
+                        </>
+                      ) : null}
+                    </>
+                  ) : (
+                    <span className="italic text-[var(--muted)]">Nunca treinada ainda</span>
+                  )}
+                </p>
 
                 {/* Actions: Iniciar (primary, flex-1) + Editar */}
                 <div className="flex gap-1.5">
