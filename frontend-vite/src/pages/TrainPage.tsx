@@ -21,7 +21,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useScrollLock } from '../hooks/useScrollLock'
 import {
   Flame, Layers, Dumbbell, Plus, Play, Pencil, Sparkles, MoreHorizontal,
-  MoreVertical, ArrowLeft,
+  MoreVertical, ArrowLeft, Check,
   Activity, X,
 } from 'lucide-react'
 import { SkeletonCard } from '../components/common/Skeleton'
@@ -32,6 +32,7 @@ import { SubstituteExerciseModal } from './train/SubstituteExerciseModal'
 import { RestTimePickerSheet } from './train/RestTimePickerSheet'
 import { AddExerciseModal } from './train/AddExerciseModal'
 import { InfoDialog } from '../components/common/InfoDialog'
+import { ConfirmDialog } from '../components/common/ConfirmDialog'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPost, sharePlan, type PostPrivacy } from '../services/socialService'
 import { WorkoutsPage } from './WorkoutsPage'
@@ -43,6 +44,7 @@ import {
 } from '../lib/exercise-explorer'
 import { isBodyweightEquipment, resolveBodyweightFlag } from '../lib/exercise-meta'
 import { pushRecentExerciseId } from '../lib/recent-exercises'
+import { getIntensityMode, setIntensityMode, type IntensityMode } from '../lib/intensity-preference'
 import { formatClock } from '../lib/workout-timing'
 import { saveWorkoutSessionImage } from '../lib/workout-session-image'
 import { optimizeImageFileToDataUrl } from '../lib/image-processing'
@@ -150,17 +152,6 @@ function createSet(reps = '', weightKg = '', rir = '', rpe = ''): ExerciseSetInp
   return { reps, weightKg, rir, rpe, setType: 'normal', dropSets: [{ weightKg: '', reps: '' }], clusterReps: '', clusterCount: '', checked: false }
 }
 
-function formatDateTime(value: Date | null): string {
-  if (!value) {
-    return '-'
-  }
-
-  return new Intl.DateTimeFormat('pt-BR', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(value)
-}
-
 function parsePositiveInt(value: string, fallback = 0): number {
   const n = Number(value)
   if (!Number.isFinite(n) || n <= 0) {
@@ -168,6 +159,40 @@ function parsePositiveInt(value: string, fallback = 0): number {
   }
 
   return Math.floor(n)
+}
+
+// Parser de duração flexível pra o input de "Duração" no SUMMARY.
+// Aceita variações comuns que o usuário pode escrever sem pensar:
+//   "65"         → 65 min
+//   "1h05"       → 65 min
+//   "1h"         → 60 min
+//   "1:05"       → 65 min
+//   "90min"      → 90 min
+//   "1.5h"       → 90 min  (raro mas inofensivo)
+// Retorna fallback (geralmente o derivado do cronômetro) se nada
+// parsear como duração positiva.
+function parseDurationMin(raw: string, fallback: number): number {
+  const t = raw.trim().toLowerCase().replace(',', '.')
+  if (!t) return fallback
+  // formato HH:MM ou H:MM
+  const colonMatch = t.match(/^(\d+):(\d+)$/)
+  if (colonMatch) {
+    return Math.max(0, parseInt(colonMatch[1], 10) * 60 + parseInt(colonMatch[2], 10))
+  }
+  // formato 1h05 ou 1h
+  const hMatch = t.match(/^(\d+(?:\.\d+)?)h(\d{0,2})?$/)
+  if (hMatch) {
+    const h = parseFloat(hMatch[1])
+    const m = hMatch[2] ? parseInt(hMatch[2], 10) : 0
+    return Math.round(h * 60 + m)
+  }
+  // formato 90min ou 90 m
+  const minMatch = t.match(/^(\d+(?:\.\d+)?)\s*m(in)?$/)
+  if (minMatch) return Math.round(parseFloat(minMatch[1]))
+  // formato inteiro/decimal puro = minutos
+  const numMatch = t.match(/^(\d+(?:\.\d+)?)$/)
+  if (numMatch) return Math.round(parseFloat(numMatch[1]))
+  return fallback
 }
 
 function toFiniteNumber(value: unknown): number | null {
@@ -1056,10 +1081,25 @@ export function TrainPage() {
   // AddExerciseModal (estilo Hevy) — busca live + Recentes pra inserir
   // novo exercício no treino ativo.
   const [addExerciseOpen, setAddExerciseOpen] = useState(false)
+  // Preferência de intensidade (RIR / RPE / Ambos). Persiste em
+  // localStorage. Default 'BOTH' até o usuário escolher.
+  const [intensityMode, setIntensityModeState] = useState<IntensityMode>(() => getIntensityMode())
+  const showRir = intensityMode === 'RIR' || intensityMode === 'BOTH'
+  const showRpe = intensityMode === 'RPE' || intensityMode === 'BOTH'
   // Diálogo de aviso pra duplicatas (e outros casos similares). Trocou
   // o setError vermelho fixo na tela por um modal claramente acionável —
   // o erro ficava pendurado entre header e lista até trocar de tela.
   const [infoDialog, setInfoDialog] = useState<{ title: string; message: string } | null>(null)
+  // Diálogo de confirmação genérico (descartar treino, finalizar com
+  // sets em branco, etc.). O onConfirm é guardado pra disparar quando
+  // o usuário aceita.
+  const [confirmDialog, setConfirmDialog] = useState<{
+    title: string
+    message: string
+    confirmLabel?: string
+    destructive?: boolean
+    onConfirm: () => void
+  } | null>(null)
   // Quando aberto a partir do "Criar" do substitute modal, indica que
   // o exercício criado deve substituir o atual em vez de só virar
   // disponível no catálogo. Null = abriu standalone (substitui nada).
@@ -1087,7 +1127,30 @@ export function TrainPage() {
   const [summaryNotes, setSummaryNotes] = useState('')
   const [summaryImageFile, setSummaryImageFile] = useState<File | null>(null)
   const [summaryImagePreview, setSummaryImagePreview] = useState<string | null>(null)
-  const [postPrivacy, setPostPrivacy] = useState<PostPrivacy>(defaultPrivacy)
+  // Wellness picker — chips clicáveis pra registrar como você se sentia
+  // no treino. Valores são embutidos nas notas via tags pra o backend
+  // não precisar de novas colunas (vai pro `notes` da session).
+  const [wellnessEnergy, setWellnessEnergy] = useState<number | null>(null) // 1-5
+  const [wellnessSleep, setWellnessSleep] = useState<number | null>(null)   // 1-5
+  const [wellnessBodyWeightKg, setWellnessBodyWeightKg] = useState<string>('')
+  const [wellnessPain, setWellnessPain] = useState<boolean>(false)
+  // Snapshot dos PRs ANTES do treino — pra detectar quantos PRs novos
+  // foram batidos comparando com prByExerciseId atual no SUMMARY.
+  // Setado quando o usuário entra na tela ACTIVE (não quando finaliza).
+  const [prSnapshotAtStart, setPrSnapshotAtStart] = useState<Record<string, number>>({})
+  // Última privacy usada por este usuário — lê uma vez do localStorage
+  // pra inicializar postPrivacy. Atualiza quando posta com sucesso.
+  const [postPrivacy, setPostPrivacy] = useState<PostPrivacy>(() => {
+    try {
+      const raw = window.localStorage.getItem('acad:last-post-privacy')
+      if (raw === 'PUBLIC' || raw === 'FRIENDS' || raw === 'PRIVATE') {
+        return isProfilePrivate && raw === 'PUBLIC' ? 'FRIENDS' : raw
+      }
+    } catch {
+      // ignora
+    }
+    return defaultPrivacy
+  })
   const [postCaption, setPostCaption] = useState('')
   const [savedSessionId, setSavedSessionId] = useState<string | null>(null)
   // Active competition (if any) — used by the "Enviar para desafio" button
@@ -1113,14 +1176,26 @@ export function TrainPage() {
   type LastUseInfo = { endedAt: string; durationSec: number | null; planId: string; planName: string }
   const [lastUseByPlanId, setLastUseByPlanId] = useState<Record<string, LastUseInfo>>({})
   const [mostRecentSession, setMostRecentSession] = useState<LastUseInfo | null>(null)
+  // Streak = dias consecutivos com pelo menos 1 treino. Conta a partir
+  // de hoje pra trás; quebra na primeira data com gap > 1 dia. Aceita
+  // que "hoje sem treino" ainda mantenha o streak (só não incrementa).
+  const [streakDays, setStreakDays] = useState(0)
 
   const reloadHistorySummary = useCallback(async () => {
     try {
       const { items } = await listWorkoutHistory(authorizedFetch, 1, 50)
       const byPlan: Record<string, LastUseInfo> = {}
       let mostRecent: LastUseInfo | null = null
+
+      // Set de dias únicos com treino (YYYY-MM-DD). Permite calcular
+      // streak mesmo com múltiplos treinos no mesmo dia (conta como 1).
+      const dayKeys = new Set<string>()
+
       for (const session of items) {
         if (!session.endedAt) continue
+        const dayKey = new Date(session.endedAt).toISOString().slice(0, 10)
+        dayKeys.add(dayKey)
+
         if (!session.workoutPlanId || !session.workoutPlan) continue
         const info: LastUseInfo = {
           endedAt: session.endedAt,
@@ -1135,6 +1210,23 @@ export function TrainPage() {
       }
       setLastUseByPlanId(byPlan)
       setMostRecentSession(mostRecent)
+
+      // Calcula streak: começa em "hoje" e vai pra trás contando dias
+      // com treino. Se o último treino foi ontem, conta o streak a
+      // partir dele (não zera só porque hoje você ainda não treinou).
+      let streak = 0
+      const cursor = new Date()
+      cursor.setHours(0, 0, 0, 0)
+      // Se hoje não tem treino, dá 1 dia de tolerância (começa em ontem).
+      const todayKey = cursor.toISOString().slice(0, 10)
+      if (!dayKeys.has(todayKey)) {
+        cursor.setDate(cursor.getDate() - 1)
+      }
+      while (dayKeys.has(cursor.toISOString().slice(0, 10))) {
+        streak += 1
+        cursor.setDate(cursor.getDate() - 1)
+      }
+      setStreakDays(streak)
     } catch {
       // silencioso — info nice-to-have
     }
@@ -1520,10 +1612,14 @@ export function TrainPage() {
         const data = await getExercisePersonalRecords(authorizedFetch, exerciseIds)
         if (cancelled) return
         const next: Record<string, number | null> = {}
+        const snapshot: Record<string, number> = {}
         for (const item of data.items) {
           next[item.exerciseId] = item.maxLoadKg
+          if (item.maxLoadKg != null) snapshot[item.exerciseId] = item.maxLoadKg
         }
         setPrByExerciseId(next)
+        // Snapshot do PR "antes" pra contar PRs novos no SUMMARY.
+        setPrSnapshotAtStart(snapshot)
       } catch {
         // Soft fail — missing PR data just means no celebration, the
         // workout itself isn't impacted.
@@ -1738,9 +1834,9 @@ export function TrainPage() {
     const clockMin = Math.round(elapsedSec / 60)
     setSummaryDurationMin(String(Math.max(1, clockMin, cardioMin)))
     setScreen('SUMMARY')
-    // Workout is no longer "active" — drop the snapshot so the mini bar
-    // disappears even before the user finishes the summary screen.
-    clearActiveWorkout()
+    // NÃO limpamos clearActiveWorkout() aqui — se o usuário fechar o tab
+    // entre Finalizar e Salvar, perderia o tracking inteiro. O snapshot
+    // é limpo só depois do save bem-sucedido (ver saveTraining).
   }
 
   // "Voltar" no header do treino ativo agora apenas volta pra dashboard
@@ -1755,6 +1851,34 @@ export function TrainPage() {
     setEndedAt(null)
     setIsWorkoutRunning(true)
     setScreen('ACTIVE')
+  }
+
+  // Wrapper que checa sets em branco antes de finalizar. Conta sets que
+  // têm algum dado preenchido mas não foram marcados como concluídos
+  // (checked=false), o que indica "ia fazer mas esqueci de bater o ✓".
+  // Pra sets totalmente vazios não avisa — o usuário só programou mais
+  // séries do que executou, é comportamento normal.
+  const finalizeWithSafetyCheck = () => {
+    let unchecked = 0
+    for (const exercise of activeExercises) {
+      for (const set of exercise.sets) {
+        if (set.checked) continue
+        const hasInput =
+          set.reps.trim() !== '' || set.weightKg.trim() !== '' ||
+          set.rir.trim() !== '' || set.rpe.trim() !== ''
+        if (hasInput) unchecked += 1
+      }
+    }
+    if (unchecked > 0) {
+      setConfirmDialog({
+        title: 'Finalizar com séries pendentes?',
+        message: `Você tem ${unchecked} série(s) com valores preenchidos mas sem o ✓ de concluída. Elas não vão ser contabilizadas no histórico nem no volume. Finalizar mesmo assim?`,
+        confirmLabel: 'Finalizar',
+        onConfirm: finalizeTraining,
+      })
+      return
+    }
+    finalizeTraining()
   }
 
   const toggleRestTimer = (exerciseIndex: number) => {
@@ -2108,6 +2232,27 @@ export function TrainPage() {
     )
   }
 
+  // Adiciona uma série já preenchida com os valores do último set
+  // editado pelo usuário (reps + peso + RIR + RPE). Acelera tracking
+  // de séries "iguais" — comum em volume work onde 4 séries são
+  // idênticas e o usuário só altera se algo mudou.
+  const addSetCopyingPrevious = (exerciseIndex: number) => {
+    setActiveExercises((current) =>
+      current.map((exercise, idx) => {
+        if (idx !== exerciseIndex) return exercise
+        const last = exercise.sets[exercise.sets.length - 1]
+        if (!last) return { ...exercise, sets: [createSet()] }
+        return {
+          ...exercise,
+          sets: [
+            ...exercise.sets,
+            createSet(last.reps, last.weightKg, last.rir, last.rpe),
+          ],
+        }
+      }),
+    )
+  }
+
   const removeSet = (exerciseIndex: number, setIndex: number) => {
     setActiveExercises((current) =>
       current.map((exercise, idx) => {
@@ -2204,7 +2349,10 @@ export function TrainPage() {
     }
 
     const cardioFallbackMin = Math.round(cardioEntries.reduce((s, c) => s + c.durationSec, 0) / 60)
-    const durationMin = parsePositiveInt(summaryDurationMin, Math.max(1, Math.round(elapsedSec / 60), cardioFallbackMin))
+    const fallbackMin = Math.max(1, Math.round(elapsedSec / 60), cardioFallbackMin)
+    // Aceita formatos flexíveis ("1h05", "65", "1:30"). Cai no fallback
+    // (derivado do cronômetro + cardio) se o texto não parsear.
+    const durationMin = parseDurationMin(summaryDurationMin, fallbackMin)
     const durationSec = Math.max(60, durationMin * 60)
 
     const exercisesWithDisplayIndex = activeExercises.map((exercise, displayIndex) => ({
@@ -2393,6 +2541,15 @@ export function TrainPage() {
       if (summaryImageFile) {
         notesSegments.push(`[Imagem anexada localmente: ${summaryImageFile.name}]`)
       }
+      // Wellness tags embutidas — extraíveis via regex no histórico/feed
+      // sem precisar de novas colunas. Só anexa o que foi preenchido.
+      const wellnessTags: string[] = []
+      if (wellnessEnergy != null) wellnessTags.push(`[energia:${wellnessEnergy}]`)
+      if (wellnessSleep != null) wellnessTags.push(`[sono:${wellnessSleep}]`)
+      const bw = wellnessBodyWeightKg.trim()
+      if (bw) wellnessTags.push(`[peso:${bw}]`)
+      if (wellnessPain) wellnessTags.push(`[dor:true]`)
+      if (wellnessTags.length > 0) notesSegments.unshift(wellnessTags.join(' '))
 
       await completeWorkoutSession(authorizedFetch, started.id, {
         durationSec,
@@ -2402,6 +2559,10 @@ export function TrainPage() {
       })
 
       setSavedSessionId(started.id)
+      // Save bem-sucedido — agora sim limpa o snapshot do treino ativo.
+      // Daqui em diante a tela de SUMMARY trabalha com `savedSessionId`
+      // pra qualquer ação subsequente (post, share, competition).
+      clearActiveWorkout()
 
       // Fetch the active competition silently so the "Enviar para desafio"
       // button knows whether to render. We accept LOBBY too so we can show
@@ -2554,6 +2715,30 @@ export function TrainPage() {
         {error ? <p className="text-sm text-red-400">{error}</p> : null}
 
         <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 space-y-4">
+          {/* Chips de início/fim no topo — substitui o cartão cinza
+              com texto pequeno que ninguém lia. Mostra horários puros
+              em vez de data full pra economizar espaço. */}
+          {(startedAt || endedAt) && (
+            <div className="flex flex-wrap gap-2 text-[11px] font-mono text-[var(--muted)]">
+              {startedAt && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] px-2.5 py-1">
+                  <span className="text-[var(--muted)]">Início</span>
+                  <b className="text-[var(--text)]">
+                    {new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(startedAt)}
+                  </b>
+                </span>
+              )}
+              {endedAt && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] px-2.5 py-1">
+                  <span className="text-[var(--muted)]">Fim</span>
+                  <b className="text-[var(--text)]">
+                    {new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(endedAt)}
+                  </b>
+                </span>
+              )}
+            </div>
+          )}
+
           <label className="block text-sm font-semibold text-[var(--text)]">
             Nome do treino
             <input
@@ -2563,96 +2748,301 @@ export function TrainPage() {
             />
           </label>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block text-sm font-semibold text-[var(--text)]">
-              Duracao total (minutos)
-              <input
-                value={summaryDurationMin}
-                onChange={(event) => setSummaryDurationMin(event.target.value.replace(/[^\d]/g, ''))}
-                className="mt-1 w-full rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
-              />
-            </label>
-            <div className="rounded-xl border border-[var(--line)] p-3 text-sm text-[var(--muted)]">
-              <p>Inicio: {formatDateTime(startedAt)}</p>
-              <p className="mt-1">Termino: {formatDateTime(endedAt)}</p>
-            </div>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="relative overflow-hidden rounded-2xl border border-[var(--brand)]/20 bg-gradient-to-br from-[color-mix(in_srgb,var(--brand)_12%,var(--surface))] to-[var(--surface)] p-4">
-              <div className="flex items-center gap-2 text-[var(--brand)]">
-                <Flame size={16} />
-                <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">Volume total</p>
-              </div>
-              <p className="mt-2 text-3xl font-black text-[var(--text)]">{totals.totalVolumeKg} <span className="text-lg font-semibold text-[var(--muted)]">kg</span></p>
-            </div>
-            <div className="relative overflow-hidden rounded-2xl border border-[var(--accent-blue)]/20 bg-gradient-to-br from-[color-mix(in_srgb,var(--accent-blue)_10%,var(--surface))] to-[var(--surface)] p-4">
-              <div className="flex items-center gap-2 text-[var(--accent-blue)]">
-                <Layers size={16} />
-                <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">Séries realizadas</p>
-              </div>
-              <p className="mt-2 text-3xl font-black text-[var(--text)]">{totals.totalSeries}</p>
-            </div>
-          </div>
-
+          {/* Input de duração agora aceita formatos flexíveis: "65",
+              "1h05", "1:05", "1h", "90min" — o parser normaliza tudo
+              pra minutos. Mostra dica abaixo do campo pra usuários novos. */}
           <label className="block text-sm font-semibold text-[var(--text)]">
-            Upload de imagem
+            Duração
             <input
-              type="file"
-              accept="image/*"
-              onChange={(event) => handleSummaryImage(event.target.files?.[0] ?? null)}
+              value={summaryDurationMin}
+              onChange={(event) => setSummaryDurationMin(event.target.value)}
+              placeholder="Ex.: 1h05, 65, 1:30"
               className="mt-1 w-full rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
             />
+            <span className="mt-0.5 block text-[11px] font-normal text-[var(--muted)]">
+              Aceita: 65 (min), 1h05, 1:30, 90min
+            </span>
           </label>
 
-          {summaryImagePreview ? (
-            <img
-              src={summaryImagePreview}
-              alt="Preview do treino"
-              className="mx-auto w-full max-w-[20rem] rounded-xl border border-[var(--line)] object-cover sm:max-w-[24rem]"
-              style={{ aspectRatio: '4 / 5', maxHeight: '20rem' }}
-            />
-          ) : null}
+          {/* Cards de métricas — 2x2 grid com Volume + Séries (calculadas
+              em tempo real do state) e PRs novos + Sets concluídos
+              (derivados). vs último treino mostra delta se a rotina já
+              foi treinada antes. */}
+          {(() => {
+            const newPrs = Object.entries(prByExerciseId).reduce<{ name: string; load: number; previous: number | null }[]>((acc, [exId, currentPr]) => {
+              if (currentPr == null) return acc
+              const previous = prSnapshotAtStart[exId] ?? null
+              if (previous == null || currentPr > previous) {
+                const ex = activeExercises.find((e) => e.exerciseId === exId)
+                if (ex) acc.push({ name: ex.exerciseName, load: currentPr, previous })
+              }
+              return acc
+            }, [])
+
+            const totalSetsAttempted = activeExercises.reduce((s, ex) => s + ex.sets.length, 0)
+            const completedSetsCount = activeExercises.reduce((s, ex) => s + ex.sets.filter((set) => set.checked).length, 0)
+            const completePct = totalSetsAttempted > 0 ? Math.round((completedSetsCount / totalSetsAttempted) * 100) : 0
+
+            const lastSession = originMode === 'ROUTINE' && activePlanId ? lastUseByPlanId[activePlanId] : null
+            const lastDurationMin = lastSession?.durationSec ? Math.round(lastSession.durationSec / 60) : null
+            const currentDurationMin = Math.max(1, Math.round(elapsedSec / 60))
+            const durationDelta = lastDurationMin ? currentDurationMin - lastDurationMin : null
+
+            return (
+              <>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="relative overflow-hidden rounded-2xl border border-[var(--brand)]/20 bg-gradient-to-br from-[color-mix(in_srgb,var(--brand)_12%,var(--surface))] to-[var(--surface)] p-4">
+                    <div className="flex items-center gap-2 text-[var(--brand)]">
+                      <Flame size={16} />
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">Volume total</p>
+                    </div>
+                    <p className="mt-2 text-3xl font-black text-[var(--text)]">
+                      {Math.round(totals.totalVolumeKg).toLocaleString('pt-BR')}{' '}
+                      <span className="text-lg font-semibold text-[var(--muted)]">kg</span>
+                    </p>
+                  </div>
+                  <div className="relative overflow-hidden rounded-2xl border border-[var(--accent-blue)]/20 bg-gradient-to-br from-[color-mix(in_srgb,var(--accent-blue)_10%,var(--surface))] to-[var(--surface)] p-4">
+                    <div className="flex items-center gap-2 text-[var(--accent-blue)]">
+                      <Layers size={16} />
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">Séries realizadas</p>
+                    </div>
+                    <p className="mt-2 text-3xl font-black text-[var(--text)]">{totals.totalSeries}</p>
+                  </div>
+                </div>
+
+                {/* Segunda linha de métricas — só aparece se tem algo útil:
+                    PR novo OU comparação com último treino OU % concluído != 100. */}
+                {(newPrs.length > 0 || durationDelta != null || completePct < 100) && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {newPrs.length > 0 && (
+                      <div className="rounded-2xl border border-amber-400/30 bg-gradient-to-br from-amber-500/10 to-[var(--surface)] p-4">
+                        <div className="flex items-center gap-2 text-amber-500">
+                          <Sparkles size={16} />
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">PRs novos</p>
+                        </div>
+                        <p className="mt-2 text-3xl font-black text-[var(--text)]">{newPrs.length}</p>
+                        <ul className="mt-1.5 space-y-0.5 text-[11px] text-[var(--muted)]">
+                          {newPrs.slice(0, 3).map((pr) => (
+                            <li key={pr.name} className="truncate">
+                              • {pr.name}: <b className="text-amber-600">{pr.load}kg</b>
+                              {pr.previous != null ? <span className="text-[var(--muted)]"> (era {pr.previous}kg)</span> : null}
+                            </li>
+                          ))}
+                          {newPrs.length > 3 && <li className="italic">+ {newPrs.length - 3} mais</li>}
+                        </ul>
+                      </div>
+                    )}
+                    {completePct < 100 && (
+                      <div className="rounded-2xl border border-[var(--line)] p-4">
+                        <div className="flex items-center gap-2 text-[var(--text)]">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">Sets concluídos</p>
+                        </div>
+                        <p className="mt-2 text-3xl font-black text-[var(--text)]">
+                          {completedSetsCount}<span className="text-lg font-semibold text-[var(--muted)]">/{totalSetsAttempted}</span>
+                        </p>
+                        <p className="mt-1 text-[11px] text-[var(--muted)]">{completePct}% das séries marcadas</p>
+                      </div>
+                    )}
+                    {durationDelta != null && (
+                      <div className="rounded-2xl border border-[var(--line)] p-4">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">vs último treino</p>
+                        <p className={`mt-2 text-3xl font-black tabular-nums ${
+                          durationDelta < 0 ? 'text-emerald-500' : durationDelta > 0 ? 'text-[var(--text)]' : 'text-[var(--muted)]'
+                        }`}>
+                          {durationDelta > 0 ? '+' : ''}{durationDelta}<span className="text-lg font-semibold text-[var(--muted)]"> min</span>
+                        </p>
+                        <p className="mt-1 text-[11px] text-[var(--muted)]">
+                          Anterior: {lastDurationMin}min · {relativeDaysFromNow(lastSession!.endedAt)}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )
+          })()}
+
+          {/* Upload bonito — dropzone com label-as-button + preview
+              dentro do mesmo card. Bem mais agradável que <input type=file>
+              cru. Clica em qualquer lugar pra trocar a imagem. */}
+          <div>
+            <p className="text-sm font-semibold text-[var(--text)]">Foto do treino</p>
+            <label
+              className="mt-1.5 block cursor-pointer overflow-hidden rounded-2xl border-2 border-dashed border-[var(--line)] bg-[var(--surface-hover)]/40 transition-colors hover:border-[var(--brand)]/40 hover:bg-[var(--surface-hover)]"
+            >
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(event) => handleSummaryImage(event.target.files?.[0] ?? null)}
+                className="hidden"
+              />
+              {summaryImagePreview ? (
+                <div className="relative">
+                  <img
+                    src={summaryImagePreview}
+                    alt="Preview do treino"
+                    className="mx-auto block w-full max-h-80 object-cover"
+                    style={{ aspectRatio: '4 / 5' }}
+                  />
+                  <span className="absolute right-3 top-3 rounded-full bg-black/60 px-3 py-1 text-[11px] font-semibold text-white backdrop-blur-sm">
+                    Trocar foto
+                  </span>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center gap-2 px-4 py-10 text-center">
+                  <div className="grid h-12 w-12 place-items-center rounded-full bg-[var(--surface)] text-[var(--muted)]">
+                    <Plus size={20} />
+                  </div>
+                  <p className="text-[13px] font-semibold text-[var(--text)]">Adicionar foto</p>
+                  <p className="text-[11px] text-[var(--muted)]">JPG ou PNG · proporção 4:5 recomendada</p>
+                </div>
+              )}
+            </label>
+          </div>
+
+          {/* Wellness chips — registrar como você se sentia. Os dados
+              entram nas notas via tags ([energia:4][sono:3][peso:75,5]
+              [dor:true]) pra serem extraídos do feed/histórico depois
+              sem precisar de novas colunas no schema. */}
+          <div>
+            <p className="text-sm font-semibold text-[var(--text)]">Como foi hoje? <span className="text-[11px] font-normal text-[var(--muted)]">(opcional)</span></p>
+            <div className="mt-2 space-y-2">
+              <div>
+                <p className="text-[11px] font-mono uppercase tracking-wider text-[var(--muted)]">Energia</p>
+                <div className="mt-1 flex gap-1.5">
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setWellnessEnergy(wellnessEnergy === n ? null : n)}
+                      className={`h-9 w-9 rounded-full border text-[12px] font-bold tabular-nums transition-colors ${
+                        wellnessEnergy === n
+                          ? 'border-[var(--brand)] bg-[var(--brand)] text-white'
+                          : 'border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-hover)]'
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="text-[11px] font-mono uppercase tracking-wider text-[var(--muted)]">Sono</p>
+                <div className="mt-1 flex gap-1.5">
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setWellnessSleep(wellnessSleep === n ? null : n)}
+                      className={`h-9 w-9 rounded-full border text-[12px] font-bold tabular-nums transition-colors ${
+                        wellnessSleep === n
+                          ? 'border-[var(--brand)] bg-[var(--brand)] text-white'
+                          : 'border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-hover)]'
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-[1fr_auto] gap-2">
+                <label className="text-[11px] font-mono uppercase tracking-wider text-[var(--muted)]">
+                  Peso corporal (kg)
+                  <input
+                    value={wellnessBodyWeightKg}
+                    inputMode="decimal"
+                    placeholder="Ex.: 75,5"
+                    onChange={(event) => setWellnessBodyWeightKg(sanitizeDecimalInput(event.target.value))}
+                    className="mt-1 w-full rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm font-normal tabular-nums text-[var(--text)]"
+                  />
+                </label>
+                <label className="flex flex-col text-[11px] font-mono uppercase tracking-wider text-[var(--muted)]">
+                  Dor / lesão
+                  <button
+                    type="button"
+                    onClick={() => setWellnessPain((v) => !v)}
+                    className={`mt-1 inline-flex items-center justify-center rounded-xl border px-4 py-2 text-[12px] font-bold transition-colors ${
+                      wellnessPain
+                        ? 'border-rose-500 bg-rose-500/10 text-rose-500'
+                        : 'border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-hover)]'
+                    }`}
+                  >
+                    {wellnessPain ? 'Sim' : 'Não'}
+                  </button>
+                </label>
+              </div>
+            </div>
+          </div>
 
           <label className="block text-sm font-semibold text-[var(--text)]">
-            Anotacoes do treino
+            Anotações do treino
             <textarea
               value={summaryNotes}
               onChange={(event) => setSummaryNotes(event.target.value)}
               rows={4}
-              placeholder="Como foi o treino hoje?"
+              placeholder="Como foi o treino hoje? Foco, observações, ajustes…"
               className="mt-1 w-full rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
             />
           </label>
 
           {!savedSessionId ? (
-            <div className="flex flex-wrap gap-2">
+            // Pré-save: CTA primário grande + Descartar pequeno e fora
+            // do alcance natural do polegar. Hierarquia explícita pra
+            // o usuário não confundir "salvar" com "descartar".
+            <div className="space-y-2">
               <button
                 type="button"
                 onClick={() => void saveTraining()}
                 disabled={saving}
-                className="rounded-xl bg-[var(--brand)] px-5 py-2 text-sm font-bold text-white disabled:opacity-60"
+                style={{ touchAction: 'manipulation' }}
+                className="w-full rounded-xl bg-[var(--brand)] py-3 text-[15px] font-bold text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)] disabled:opacity-60"
               >
-                {saving ? 'Salvando...' : 'Salvar Treino'}
+                {saving ? 'Salvando…' : 'Salvar Treino'}
               </button>
               <button
                 type="button"
-                onClick={resetWorkflow}
-                className="rounded-xl border border-red-500/60 px-5 py-2 text-sm font-bold text-red-300"
+                onClick={() => {
+                  const min = Math.max(1, Math.round(elapsedSec / 60))
+                  setConfirmDialog({
+                    title: 'Descartar treino?',
+                    message: `Você vai perder ${min} minuto(s) de tracking + as séries marcadas até agora. Esta ação não pode ser desfeita.`,
+                    confirmLabel: 'Descartar',
+                    destructive: true,
+                    onConfirm: () => {
+                      clearActiveWorkout()
+                      resetWorkflow()
+                    },
+                  })
+                }}
+                className="block w-full rounded-xl border border-[var(--line)] py-2 text-[12px] font-semibold text-[var(--muted)] transition-colors hover:border-rose-500/40 hover:text-rose-400"
               >
-                Descartar Treinamento
+                Descartar treino
               </button>
             </div>
           ) : (
-            <div className="space-y-3">
-              <p className="text-sm font-semibold text-green-400">Treino salvo com sucesso!</p>
+            // Pós-save: hierarquia em 3 níveis pra eliminar a confusão.
+            // Nível 1: Confirmação grande "Treino salvo!" com troféu
+            // Nível 2: Competição (apenas se houver, banner laranja)
+            // Nível 3: Compartilhar imagem + Postar — em cards visuais
+            //          paralelos, e "Concluir" sempre acessível.
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-emerald-500/30 bg-gradient-to-br from-emerald-500/10 to-[var(--surface)] p-4">
+                <div className="flex items-center gap-2.5">
+                  <span aria-hidden className="grid h-8 w-8 place-items-center rounded-full bg-emerald-500/20 text-emerald-500">
+                    <Check size={18} strokeWidth={3} />
+                  </span>
+                  <div>
+                    <p className="text-[14px] font-bold text-emerald-500">Treino salvo!</p>
+                    <p className="text-[11px] text-[var(--muted)]">
+                      {Math.round(totals.totalVolumeKg).toLocaleString('pt-BR')} kg de volume · {totals.totalSeries} séries
+                    </p>
+                  </div>
+                </div>
+              </div>
 
-              {/* Send to competition — only show when user has an active comp
-                  and actually did something that matches the comp type. */}
+              {/* Nível 2: Competição (banner laranja) — só se houver
+                  competição ativa e treino válido. */}
               {activeCompetition && (() => {
-                // Detect from local state. A "training entry" requires at
-                // least one exercise with a confirmed (checked) set. A
-                // "cardio entry" requires at least one CardioEntry.
                 const didTraining = activeExercises.some((ex) => ex.sets.some((s) => s.checked))
                 const didCardio = cardioEntries.length > 0
                 return (
@@ -2676,9 +3066,6 @@ export function TrainPage() {
                         })
                         const hash = await sha256OfDataUrl(dataUrl)
                         const { photoUrl, photoPath } = await uploadCompetitionPhoto(authorizedFetch, dataUrl)
-                        // Post each requested kind sequentially. The backend
-                        // allows same photo hash across kinds when both come
-                        // from the same workoutSessionId.
                         for (const kind of kinds) {
                           await postCompetitionEntry(authorizedFetch, activeCompetition.id, {
                             kind,
@@ -2697,114 +3084,136 @@ export function TrainPage() {
                   />
                 )
               })()}
-              <button
-                type="button"
-                disabled={loadingShare || !savedSessionId}
-                onClick={async () => {
-                  if (!savedSessionId) return
-                  try {
-                    setLoadingShare(true)
-                    setError(null)
-                    // Converte a foto (se houver) para dataURL — blob: URL pode
-                    // falhar no html2canvas.
-                    if (summaryImageFile) {
-                      try {
-                        setSharePhoto(await optimizeImageFileToDataUrl(summaryImageFile, { maxEdge: 1600, quality: 0.88 }))
-                      } catch { setSharePhoto(null) }
-                    } else {
-                      setSharePhoto(null)
-                    }
-                    const highlights = await getSessionHighlights(authorizedFetch, savedSessionId)
-                    setShareHighlights(highlights)
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : 'Erro ao preparar imagem')
-                  } finally {
-                    setLoadingShare(false)
-                  }
-                }}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--brand)] bg-[var(--brand)]/10 px-4 py-2.5 text-sm font-bold text-[var(--brand)] disabled:opacity-60"
-              >
-                {loadingShare ? 'Preparando…' : 'Compartilhar imagem (Instagram, Stories…)'}
-              </button>
+
+              {/* Nível 3: ações sociais — Postar + Compartilhar lado a
+                  lado em mobile (stack) e duas colunas no desktop. */}
               {!postDone ? (
-                <>
-                  <p className="text-sm font-semibold text-[var(--text)]">Deseja postar este treino?</p>
-                  <div className="flex gap-2 flex-wrap">
-                    {allowedPrivacies.map((p) => (
-                      <button
-                        key={p}
-                        type="button"
-                        onClick={() => setPostPrivacy(p)}
-                        className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition-colors ${
-                          postPrivacy === p
-                            ? 'border-[var(--brand)] bg-[var(--brand)]/10 text-[var(--brand)]'
-                            : 'border-[var(--line)] text-[var(--muted)]'
-                        }`}
-                      >
-                        {p === 'PUBLIC' ? 'Público' : p === 'FRIENDS' ? 'Amigos' : 'Privado'}
-                      </button>
-                    ))}
-                  </div>
-                  {isProfilePrivate ? (
-                    <p className="text-[11px] text-[var(--muted)]">
-                      Sua conta está privada — posts públicos ficam disponíveis apenas como "Amigos" ou "Privado".
+                <div className="space-y-3">
+                  <div className="rounded-2xl border border-[var(--line)] p-4">
+                    <p className="text-sm font-semibold text-[var(--text)]">Postar este treino?</p>
+                    <p className="mt-0.5 text-[11px] text-[var(--muted)]">
+                      Aparece no seu feed. Você pode controlar quem vê embaixo.
                     </p>
-                  ) : null}
-                  <textarea
-                    value={postCaption}
-                    onChange={(e) => setPostCaption(e.target.value)}
-                    placeholder="Legenda do post (opcional)"
-                    rows={2}
-                    className="w-full rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
-                  />
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      disabled={posting}
-                      onClick={async () => {
-                        try {
-                          setPosting(true)
-                          let photoDataUrl: string | undefined
-                          if (summaryImageFile) {
-                            photoDataUrl = await optimizeImageFileToDataUrl(summaryImageFile, {
-                              maxEdge: 1200,
-                              quality: 0.82,
-                              maxOutputBytes: 1_500_000,
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {allowedPrivacies.map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => setPostPrivacy(p)}
+                          className={`rounded-full border px-2.5 py-1 text-[11px] font-bold transition-colors ${
+                            postPrivacy === p
+                              ? 'border-[var(--brand)] bg-[var(--brand)]/10 text-[var(--brand)]'
+                              : 'border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-hover)]'
+                          }`}
+                        >
+                          {p === 'PUBLIC' ? 'Público' : p === 'FRIENDS' ? 'Amigos' : 'Privado'}
+                        </button>
+                      ))}
+                    </div>
+                    {isProfilePrivate ? (
+                      <p className="mt-1.5 text-[10px] text-[var(--muted)]">
+                        Sua conta está privada — posts públicos ficam disponíveis apenas como "Amigos" ou "Privado".
+                      </p>
+                    ) : null}
+                    {/* Caption escondida atrás de "+" pra reduzir o
+                        número de campos visíveis. Quem quer caption
+                        clica; quem não quer, posta direto. */}
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-[11px] font-semibold text-[var(--brand)] hover:text-[var(--brand-strong)]">
+                        + Adicionar legenda
+                      </summary>
+                      <textarea
+                        value={postCaption}
+                        onChange={(e) => setPostCaption(e.target.value)}
+                        placeholder="O que você quer compartilhar?"
+                        rows={2}
+                        className="mt-1.5 w-full rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
+                      />
+                    </details>
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        type="button"
+                        disabled={posting}
+                        onClick={async () => {
+                          try {
+                            setPosting(true)
+                            let photoDataUrl: string | undefined
+                            if (summaryImageFile) {
+                              photoDataUrl = await optimizeImageFileToDataUrl(summaryImageFile, {
+                                maxEdge: 1200,
+                                quality: 0.82,
+                                maxOutputBytes: 1_500_000,
+                              })
+                            }
+                            await createPost(authorizedFetch, {
+                              workoutSessionId: savedSessionId,
+                              caption: postCaption.trim() || undefined,
+                              photoUrl: photoDataUrl,
+                              privacy: postPrivacy,
                             })
+                            // Lembra a última privacy escolhida pra
+                            // o próximo treino abrir já marcado nela.
+                            try { window.localStorage.setItem('acad:last-post-privacy', postPrivacy) } catch { /* ignora */ }
+                            setPostDone(true)
+                          } catch (err) {
+                            setError(err instanceof Error ? err.message : 'Erro ao postar')
+                          } finally {
+                            setPosting(false)
                           }
-                          await createPost(authorizedFetch, {
-                            workoutSessionId: savedSessionId,
-                            caption: postCaption.trim() || undefined,
-                            photoUrl: photoDataUrl,
-                            privacy: postPrivacy,
-                          })
-                          setPostDone(true)
-                        } catch (err) {
-                          setError(err instanceof Error ? err.message : 'Erro ao postar')
-                        } finally {
-                          setPosting(false)
-                        }
-                      }}
-                      className="rounded-xl bg-[var(--brand)] px-5 py-2 text-sm font-bold text-white disabled:opacity-60"
-                    >
-                      {posting ? 'Postando...' : 'Postar treino'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={resetWorkflow}
-                      className="rounded-xl border border-[var(--line)] px-5 py-2 text-sm font-semibold text-[var(--text)]"
-                    >
-                      Pular
-                    </button>
+                        }}
+                        style={{ touchAction: 'manipulation' }}
+                        className="flex-1 rounded-xl bg-[var(--brand)] py-2.5 text-sm font-bold text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] disabled:opacity-60"
+                      >
+                        {posting ? 'Postando…' : 'Postar treino'}
+                      </button>
+                    </div>
                   </div>
-                </>
-              ) : (
-                <div className="space-y-2">
-                  <p className="text-sm text-green-400">Post publicado!</p>
+
+                  <button
+                    type="button"
+                    disabled={loadingShare || !savedSessionId}
+                    onClick={async () => {
+                      if (!savedSessionId) return
+                      try {
+                        setLoadingShare(true)
+                        setError(null)
+                        if (summaryImageFile) {
+                          try {
+                            setSharePhoto(await optimizeImageFileToDataUrl(summaryImageFile, { maxEdge: 1600, quality: 0.88 }))
+                          } catch { setSharePhoto(null) }
+                        } else {
+                          setSharePhoto(null)
+                        }
+                        const highlights = await getSessionHighlights(authorizedFetch, savedSessionId)
+                        setShareHighlights(highlights)
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : 'Erro ao preparar imagem')
+                      } finally {
+                        setLoadingShare(false)
+                      }
+                    }}
+                    style={{ touchAction: 'manipulation' }}
+                    className="w-full rounded-xl border border-[var(--brand)]/40 bg-[var(--brand)]/5 py-2.5 text-sm font-bold text-[var(--brand)] transition-colors hover:bg-[var(--brand)]/10 disabled:opacity-60"
+                  >
+                    {loadingShare ? 'Preparando…' : 'Compartilhar imagem (Instagram, Stories…)'}
+                  </button>
+
                   <button
                     type="button"
                     onClick={resetWorkflow}
-                    className="rounded-xl bg-[var(--brand)] px-5 py-2 text-sm font-bold text-white"
+                    className="block w-full rounded-xl py-2 text-[12px] font-semibold text-[var(--muted)] transition-colors hover:text-[var(--text)]"
+                  >
+                    Pular e concluir
+                  </button>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 text-center">
+                  <p className="text-sm font-semibold text-emerald-500">Post publicado!</p>
+                  <button
+                    type="button"
+                    onClick={resetWorkflow}
+                    style={{ touchAction: 'manipulation' }}
+                    className="mt-2 rounded-xl bg-[var(--brand)] px-5 py-2 text-sm font-bold text-white"
                   >
                     Concluir
                   </button>
@@ -2819,6 +3228,21 @@ export function TrainPage() {
             highlights={shareHighlights}
             initialPhoto={sharePhoto}
             onClose={() => setShareHighlights(null)}
+          />
+        )}
+        {confirmDialog && (
+          <ConfirmDialog
+            open
+            title={confirmDialog.title}
+            message={confirmDialog.message}
+            confirmLabel={confirmDialog.confirmLabel}
+            destructive={confirmDialog.destructive}
+            onConfirm={() => {
+              const handler = confirmDialog.onConfirm
+              setConfirmDialog(null)
+              handler()
+            }}
+            onCancel={() => setConfirmDialog(null)}
           />
         )}
       </section>
@@ -3052,23 +3476,52 @@ export function TrainPage() {
             <p className="text-3xl font-bold tabular-nums text-[var(--text)]">{formatClock(elapsedSec)}</p>
           </div>
 
-          {/* Mini-summary — só Volume e Séries (Duração já está no
-              cronômetro grande no canto direito do header, repetir era
-              ruído). Volume e Séries são derivados, não duplicam nada. */}
-          <div className="mt-4 grid grid-cols-2 gap-3 border-t border-dashed border-[var(--line)] pt-3 text-center sm:text-left">
-            <div>
-              <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Volume</p>
-              <p className="mt-0.5 text-[15px] font-extrabold text-[var(--text)] tabular-nums sm:text-base">
-                {Math.round(totals.totalVolumeKg).toLocaleString('pt-BR')} <span className="text-[10px] font-mono text-[var(--muted)]">kg</span>
-              </p>
-            </div>
-            <div>
-              <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Séries</p>
-              <p className="mt-0.5 text-[15px] font-extrabold text-[var(--text)] tabular-nums sm:text-base">
-                {totals.totalSeries}
-              </p>
-            </div>
-          </div>
+          {/* Mini-summary — Volume + Séries + Progresso. Cronômetro
+              já está no canto direito do header, não repete aqui.
+              Progresso usa "exercícios com pelo menos uma série
+              concluída" como sinal de avanço prático. */}
+          {(() => {
+            const totalExercises = activeExercises.length
+            const completedExercises = activeExercises.filter(
+              (ex) => ex.sets.some((s) => s.checked)
+            ).length
+            const progressPct = totalExercises > 0
+              ? Math.round((completedExercises / totalExercises) * 100)
+              : 0
+            return (
+              <div className="mt-4 border-t border-dashed border-[var(--line)] pt-3">
+                <div className="grid grid-cols-3 gap-3 text-center sm:text-left">
+                  <div>
+                    <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Volume</p>
+                    <p className="mt-0.5 text-[15px] font-extrabold tabular-nums text-[var(--text)] sm:text-base">
+                      {Math.round(totals.totalVolumeKg).toLocaleString('pt-BR')} <span className="font-mono text-[10px] text-[var(--muted)]">kg</span>
+                    </p>
+                  </div>
+                  <div>
+                    <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Séries</p>
+                    <p className="mt-0.5 text-[15px] font-extrabold tabular-nums text-[var(--text)] sm:text-base">
+                      {totals.totalSeries}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Progresso</p>
+                    <p className="mt-0.5 text-[15px] font-extrabold tabular-nums text-[var(--text)] sm:text-base">
+                      {completedExercises}<span className="font-mono text-[10px] text-[var(--muted)]">/{totalExercises}</span>
+                    </p>
+                  </div>
+                </div>
+                {totalExercises > 0 && (
+                  <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-[var(--surface-hover)]">
+                    <div
+                      className="h-full rounded-full bg-[var(--brand)] transition-all duration-300"
+                      style={{ width: `${progressPct}%` }}
+                      aria-label={`Progresso: ${progressPct}%`}
+                    />
+                  </div>
+                )}
+              </div>
+            )
+          })()}
 
           {/* Ações principais sempre visíveis: Voltar + Finalizar.
               Pausar/Retomar e Editar tempo (raros, fluxo de borda) ficam
@@ -3084,7 +3537,7 @@ export function TrainPage() {
             </button>
             <button
               type="button"
-              onClick={finalizeTraining}
+              onClick={finalizeWithSafetyCheck}
               className="flex-1 rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)] sm:flex-none"
             >
               Finalizar Treino
@@ -3137,6 +3590,32 @@ export function TrainPage() {
                         </button>
                       </div>
                     </div>
+                    {/* Toggle de intensidade — sou persistido em localStorage,
+                        afeta quais campos (RIR/RPE) aparecem em cada set. */}
+                    <div className="mt-1 rounded-lg border border-[var(--line)] p-2">
+                      <label className="block text-[11px] font-mono uppercase tracking-wider text-[var(--muted)]">
+                        Eu rastreio intensidade por
+                      </label>
+                      <div className="mt-1.5 flex gap-1">
+                        {(['RIR', 'RPE', 'BOTH'] as IntensityMode[]).map((m) => (
+                          <button
+                            key={m}
+                            type="button"
+                            onClick={() => {
+                              setIntensityModeState(m)
+                              setIntensityMode(m)
+                            }}
+                            className={`flex-1 rounded-md px-2 py-1 text-[11px] font-bold transition-colors ${
+                              intensityMode === m
+                                ? 'bg-[var(--brand)] text-white'
+                                : 'border border-[var(--line)] text-[var(--muted)] hover:text-[var(--text)]'
+                            }`}
+                          >
+                            {m === 'BOTH' ? 'Ambos' : m}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 </>
               )}
@@ -3149,7 +3628,7 @@ export function TrainPage() {
         <article className="space-y-3">
           {activeExercises.length === 0 ? (
             <p className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-3 text-sm text-[var(--muted)]">
-              Nenhum exercicio adicionado ainda.
+              Nenhum exercício adicionado ainda.
             </p>
           ) : null}
 
@@ -3188,7 +3667,7 @@ export function TrainPage() {
                     {exercise.thumbnailUrl ? (
                       <img
                         src={exercise.thumbnailUrl}
-                        alt={`Imagem do exercicio ${exercise.exerciseName}`}
+                        alt={`Imagem do exercício ${exercise.exerciseName}`}
                         className="h-full w-full object-cover"
                       />
                     ) : (
@@ -3209,7 +3688,7 @@ export function TrainPage() {
                       }}
                       className="mt-1 rounded-lg border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {exercise.videoUrl ? 'Ver video do exercicio' : 'Video em breve'}
+                      {exercise.videoUrl ? 'Ver vídeo do exercício' : 'Vídeo em breve'}
                     </button>
                   </div>
                 </div>
@@ -3238,7 +3717,7 @@ export function TrainPage() {
 
               <label className="mt-3 block">
                 <span className="text-[11px] uppercase tracking-wide text-[var(--muted)]">
-                  Notas do exercicio (opcional)
+                  Notas do exercício (opcional)
                 </span>
                 <textarea
                   value={exercise.userNote}
@@ -3377,7 +3856,7 @@ export function TrainPage() {
                               }
                               className="w-[52px] shrink-0 rounded-md border border-[var(--line)] bg-transparent px-1 py-1 text-center text-[12.5px] font-semibold tabular-nums sm:w-[64px]"
                             />
-                            {!isTimeOrDist && (
+                            {!isTimeOrDist && showRir && (
                               <input
                                 value={setInput.rir}
                                 placeholder={rirPlaceholder}
@@ -3391,19 +3870,21 @@ export function TrainPage() {
                                 className="w-[44px] shrink-0 rounded-md border border-[var(--line)] bg-transparent px-0.5 py-1 text-center text-[12px] font-semibold tabular-nums sm:w-[48px]"
                               />
                             )}
-                            <input
-                              value={setInput.rpe}
-                              placeholder={rpePlaceholder}
-                              inputMode="numeric"
-                              maxLength={2}
-                              aria-label="RPE"
-                              onChange={(event) =>
-                                patchSet(exerciseIndex, setIndex, {
-                                  rpe: event.target.value.replace(/[^\d]/g, '').slice(0, 2),
-                                })
-                              }
-                              className="w-[44px] shrink-0 rounded-md border border-[var(--line)] bg-transparent px-0.5 py-1 text-center text-[12px] font-semibold tabular-nums sm:w-[48px]"
-                            />
+                            {showRpe && (
+                              <input
+                                value={setInput.rpe}
+                                placeholder={rpePlaceholder}
+                                inputMode="numeric"
+                                maxLength={2}
+                                aria-label="RPE"
+                                onChange={(event) =>
+                                  patchSet(exerciseIndex, setIndex, {
+                                    rpe: event.target.value.replace(/[^\d]/g, '').slice(0, 2),
+                                  })
+                                }
+                                className="w-[44px] shrink-0 rounded-md border border-[var(--line)] bg-transparent px-0.5 py-1 text-center text-[12px] font-semibold tabular-nums sm:w-[48px]"
+                              />
+                            )}
                             <button
                               type="button"
                               onClick={() => completeSet(exerciseIndex, setIndex)}
@@ -3565,34 +4046,38 @@ export function TrainPage() {
                             className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
                           />
                         </label>
-                        <label className="text-[11px] uppercase text-[var(--muted)]">
-                          RIR
-                          <input
-                            value={setInput.rir}
-                            placeholder={rirPlaceholder}
-                            onChange={(event) =>
-                              patchSet(exerciseIndex, setIndex, {
-                                rir: event.target.value.replace(/[^\d]/g, ''),
-                              })
-                            }
-                            className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
-                          />
-                        </label>
-                        <label className="text-[11px] uppercase text-[var(--muted)]">
-                          RPE
-                          <input
-                            value={setInput.rpe}
-                            placeholder={rpePlaceholder}
-                            inputMode="numeric"
-                            maxLength={2}
-                            onChange={(event) =>
-                              patchSet(exerciseIndex, setIndex, {
-                                rpe: event.target.value.replace(/[^\d]/g, '').slice(0, 2),
-                              })
-                            }
-                            className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
-                          />
-                        </label>
+                        {showRir && (
+                          <label className="text-[11px] uppercase text-[var(--muted)]">
+                            RIR
+                            <input
+                              value={setInput.rir}
+                              placeholder={rirPlaceholder}
+                              onChange={(event) =>
+                                patchSet(exerciseIndex, setIndex, {
+                                  rir: event.target.value.replace(/[^\d]/g, ''),
+                                })
+                              }
+                              className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                            />
+                          </label>
+                        )}
+                        {showRpe && (
+                          <label className="text-[11px] uppercase text-[var(--muted)]">
+                            RPE
+                            <input
+                              value={setInput.rpe}
+                              placeholder={rpePlaceholder}
+                              inputMode="numeric"
+                              maxLength={2}
+                              onChange={(event) =>
+                                patchSet(exerciseIndex, setIndex, {
+                                  rpe: event.target.value.replace(/[^\d]/g, '').slice(0, 2),
+                                })
+                              }
+                              className="mt-1 w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
+                            />
+                          </label>
+                        )}
                       </div>
                     ) : null /* normal/warmup/failure is rendered by the compact
                               row above; RIR/RPE moved to the per-exercise expander. */}
@@ -3602,13 +4087,39 @@ export function TrainPage() {
                   })()
                 ))}
 
-                <button
-                  type="button"
-                  onClick={() => addSet(exerciseIndex)}
-                  className="mt-1 inline-flex items-center rounded-lg border border-[var(--line)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
-                >
-                  + Adicionar série
-                </button>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => addSet(exerciseIndex)}
+                    className="inline-flex items-center rounded-lg border border-[var(--line)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
+                  >
+                    + Adicionar série
+                  </button>
+                  {/* Atalho pra repetir os valores do último set —
+                      útil em volume work onde várias séries são iguais.
+                      Só aparece se a série anterior tem ALGUM dado
+                      preenchido (não vale a pena clonar tudo vazio). */}
+                  {(() => {
+                    const lastSet = exercise.sets[exercise.sets.length - 1]
+                    const hasData = lastSet && (
+                      lastSet.reps.trim() !== '' ||
+                      lastSet.weightKg.trim() !== '' ||
+                      lastSet.rir.trim() !== '' ||
+                      lastSet.rpe.trim() !== ''
+                    )
+                    if (!hasData) return null
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => addSetCopyingPrevious(exerciseIndex)}
+                        className="inline-flex items-center rounded-lg border border-[var(--line)] px-3 py-1.5 text-xs font-semibold text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                        title="Adiciona série com os mesmos valores da anterior"
+                      >
+                        ↳ Repetir anterior
+                      </button>
+                    )
+                  })()}
+                </div>
               </div>
               </SortableExerciseCard>
             )
@@ -3790,6 +4301,21 @@ export function TrainPage() {
             onClose={() => setInfoDialog(null)}
           />
         )}
+        {confirmDialog && (
+          <ConfirmDialog
+            open
+            title={confirmDialog.title}
+            message={confirmDialog.message}
+            confirmLabel={confirmDialog.confirmLabel}
+            destructive={confirmDialog.destructive}
+            onConfirm={() => {
+              const handler = confirmDialog.onConfirm
+              setConfirmDialog(null)
+              handler()
+            }}
+            onCancel={() => setConfirmDialog(null)}
+          />
+        )}
       </section>
     )
   }
@@ -3815,9 +4341,24 @@ export function TrainPage() {
           </span>
           Treino · monte ou escolha
         </div>
-        <h1 className="mt-1.5 text-2xl font-bold tracking-tight text-[var(--text)] sm:text-3xl">
-          Treinar <span className="font-serif-accent text-[var(--brand-strong)]">agora</span>
-        </h1>
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <h1 className="mt-1.5 text-2xl font-bold tracking-tight text-[var(--text)] sm:text-3xl">
+            Treinar <span className="font-serif-accent text-[var(--brand-strong)]">agora</span>
+          </h1>
+          {/* Streak — só aparece com 2+ dias pra evitar "1 dia" que é
+              ruidoso e não motiva (todo mundo está em 1 dia quando
+              treinou hoje). Ícone de chama + número grande na laranja. */}
+          {streakDays >= 2 && (
+            <div
+              className="inline-flex items-center gap-1.5 rounded-full border border-orange-500/30 bg-orange-500/10 px-3 py-1.5 text-orange-500"
+              title={`${streakDays} dias consecutivos com treino`}
+            >
+              <Flame size={14} fill="currentColor" />
+              <span className="text-[13px] font-extrabold tabular-nums">{streakDays}</span>
+              <span className="text-[11px] font-semibold">{streakDays === 1 ? 'dia' : 'dias'}</span>
+            </div>
+          )}
+        </div>
         <p className="mt-1.5 text-[13px] text-[var(--muted)] sm:text-sm">
           Inicie rápido, escolha uma rotina ou monte seu treino na hora.
         </p>
