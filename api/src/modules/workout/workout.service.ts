@@ -697,7 +697,10 @@ export async function searchExercisesForPlan(userId: string, query: SearchExerci
       allowsExtraLoad: true,
       trackingType: true,
       thumbnailUrl: true,
-      videoUrl: true
+      videoUrl: true,
+      // scope vai pro client pra ele separar exercícios "Personalizados"
+      // (PRIVATE = criados pelo próprio usuário) de "Globais" no picker.
+      scope: true
     }
   });
 }

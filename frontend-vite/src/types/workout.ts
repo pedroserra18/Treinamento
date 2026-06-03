@@ -70,6 +70,10 @@ export type ExerciseOption = {
   trackingType: 'REPS' | 'TIME' | 'DISTANCE' | 'REPS_AND_TIME'
   thumbnailUrl: string | null
   videoUrl: string | null
+  // Opcional pra retro-compat com respostas antigas. PRIVATE = criado
+  // pelo próprio usuário; GLOBAL = catálogo padrão. Usado pelo picker
+  // pra agrupar em "Personalizados" vs "Todos".
+  scope?: 'GLOBAL' | 'PRIVATE'
 }
 
 export type CardioType =
