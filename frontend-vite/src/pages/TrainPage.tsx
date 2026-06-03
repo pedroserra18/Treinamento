@@ -276,9 +276,15 @@ function calculateTotals(exercises: ActiveExercise[]): { totalSeries: number; to
 
   exercises.forEach((exercise) => {
     exercise.sets.forEach((setInput) => {
+      // CRITÉRIO ÚNICO: série só conta se foi marcada como concluída
+      // (checked = true). Antes contava também sets com reps preenchido
+      // mas isso causava o "fantasma da série marcada-e-desmarcada" —
+      // o completeSet auto-preenche reps quando marca, e não limpa
+      // quando desmarca, então a série continuava no totalSeries mesmo
+      // após o usuário tirar o ✓. "Séries realizadas" = séries com ✓.
+      if (!setInput.checked) return
+
       if (setInput.setType === 'drop') {
-        const hasAnyDrop = setInput.checked || setInput.dropSets.some((d) => Number(d.reps) > 0)
-        if (!hasAnyDrop) return
         totalSeries += 1
         setInput.dropSets.forEach((drop) => {
           const r = Number(drop.reps)
@@ -291,11 +297,9 @@ function calculateTotals(exercises: ActiveExercise[]): { totalSeries: number; to
       }
 
       if (setInput.setType === 'cluster') {
+        totalSeries += 1
         const cr = Number(setInput.clusterReps)
         const cc = Number(setInput.clusterCount)
-        const isValid = (Number.isFinite(cr) && cr > 0 && Number.isFinite(cc) && cc > 0) || setInput.checked
-        if (!isValid) return
-        totalSeries += 1
         const weight = toFiniteNumber(setInput.weightKg) ?? 0
         if (weight > 0 && Number.isFinite(cr) && cr > 0 && Number.isFinite(cc) && cc > 0) {
           totalVolumeKg += weight * cr * cc
@@ -305,9 +309,6 @@ function calculateTotals(exercises: ActiveExercise[]): { totalSeries: number; to
 
       const reps = Number(setInput.reps)
       const effectiveReps = Number.isFinite(reps) && reps > 0 ? reps : Number(exercise.suggestedReps)
-      if (!setInput.checked && (!Number.isFinite(reps) || reps <= 0)) {
-        return
-      }
 
       totalSeries += 1
       const weight = toFiniteNumber(setInput.weightKg) ?? 0
@@ -2486,13 +2487,12 @@ export function TrainPage() {
         const rirRaw = setInput.rir.trim()
         const rpeRaw = setInput.rpe.trim()
 
-        const hasAnyInput =
-          setInput.checked ||
-          repsRaw.length > 0 ||
-          weightRaw.length > 0 ||
-          rirRaw.length > 0 ||
-          rpeRaw.length > 0
-        if (!hasAnyInput) {
+        // Só persiste séries marcadas como concluídas (✓). Sets com
+        // valores preenchidos mas sem o check NÃO viram histórico —
+        // isso resolve o bug de "desmarquei mas continuou contando"
+        // e fica coerente com o totalSeries (que conta só checked).
+        // A safety-check do finalizar avisa antes se houver pendentes.
+        if (!setInput.checked) {
           return acc
         }
 

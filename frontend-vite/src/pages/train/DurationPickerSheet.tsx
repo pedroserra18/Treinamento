@@ -96,14 +96,28 @@ export function DurationPickerSheet({
           </div>
 
           {/* Wheel picker — lista scrollável com snap. O destaque do
-              item central usa um overlay absoluto pra parecer com o
-              picker nativo iOS sem precisar mexer no scroll handler. */}
+              item central é renderizado ATRÁS dos itens (z-index 0) pra
+              não tampar o texto; os botões ficam no z-index 1 e exibem
+              normalmente sobre o highlight. overscroll-x-none impede
+              o body de scrollar horizontal quando o gesto chega no
+              extremo do scroll vertical (causa do "tela mexendo"). */}
           <div className="relative shrink-0">
+            {/* Highlight do item central — z-index 0, abaixo dos botões.
+                Posicionado exatamente em cima do item snap-centralizado. */}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute left-3 right-3 z-0 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)]"
+              style={{
+                top: `calc(50% - ${ITEM_HEIGHT / 2}px)`,
+                height: `${ITEM_HEIGHT}px`,
+              }}
+            />
+
             <div
               ref={listRef}
               onScroll={handleScroll}
-              className="relative h-[260px] overflow-y-auto overscroll-contain"
-              style={{ scrollSnapType: 'y mandatory' }}
+              className="relative z-10 h-[260px] overflow-y-auto overflow-x-hidden"
+              style={{ scrollSnapType: 'y mandatory', overscrollBehavior: 'contain' }}
             >
               {/* Padding de cima + baixo de ~104px (= 2 itens) pra o primeiro
                   e o último elemento conseguirem centralizar */}
@@ -121,7 +135,7 @@ export function DurationPickerSheet({
                       }
                     }}
                     style={{ scrollSnapAlign: 'center', height: `${ITEM_HEIGHT}px`, touchAction: 'manipulation' }}
-                    className={`flex w-full items-center justify-center text-center text-[18px] font-semibold tabular-nums transition-colors ${
+                    className={`relative flex w-full items-center justify-center text-center text-[18px] font-semibold tabular-nums transition-colors ${
                       isCurrent
                         ? 'text-[var(--text)]'
                         : 'text-[var(--muted)] opacity-60'
@@ -133,17 +147,6 @@ export function DurationPickerSheet({
               })}
               <div style={{ height: '104px' }} aria-hidden />
             </div>
-
-            {/* Highlight do item central — não captura clique, só visual.
-                Posicionado exatamente em cima do item snap-centralizado. */}
-            <div
-              aria-hidden
-              className="pointer-events-none absolute left-3 right-3 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)]"
-              style={{
-                top: `calc(50% - ${ITEM_HEIGHT / 2}px)`,
-                height: `${ITEM_HEIGHT}px`,
-              }}
-            />
           </div>
 
           <div className="shrink-0 border-t border-[var(--line)] bg-[var(--surface)] p-3">
