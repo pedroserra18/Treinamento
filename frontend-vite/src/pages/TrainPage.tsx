@@ -20,7 +20,7 @@ import { useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useScrollLock } from '../hooks/useScrollLock'
 import {
-  Flame, Layers, Dumbbell, Plus, Play, Search, Pencil, Sparkles, MoreHorizontal,
+  Flame, Layers, Dumbbell, Plus, Play, Pencil, Sparkles, MoreHorizontal,
   MoreVertical,
   Activity, X,
 } from 'lucide-react'
@@ -38,7 +38,6 @@ import { WorkoutRecommendationsPage } from './WorkoutRecommendationsPage'
 import { type SetType, type DropEntry } from '../components/common/setTypeOptions'
 import {
   getExerciseExplorerSelectionEventName,
-  openExerciseExplorer,
   type ExerciseExplorerSelection,
 } from '../lib/exercise-explorer'
 import { isBodyweightEquipment, resolveBodyweightFlag } from '../lib/exercise-meta'
@@ -3653,7 +3652,7 @@ export function TrainPage() {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.05 }}
-        className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr]"
+        className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-[1.6fr_1fr_1fr]"
       >
         <button
           type="button"
@@ -3692,17 +3691,6 @@ export function TrainPage() {
             <Plus size={16} />
           </span>
           <strong className="text-[13.5px] font-semibold tracking-tight text-[var(--text)]">Nova Rotina</strong>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => openExerciseExplorer({ context: undefined })}
-          className="group flex min-h-[96px] flex-col items-start gap-2.5 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 text-left transition-all hover:-translate-y-px hover:border-[var(--brand)]/30 hover:bg-[var(--surface-hover)]"
-        >
-          <span className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] text-[var(--text)]">
-            <Search size={16} />
-          </span>
-          <strong className="text-[13.5px] font-semibold tracking-tight text-[var(--text)]">Explorar Exercícios</strong>
         </button>
       </motion.div>
 
