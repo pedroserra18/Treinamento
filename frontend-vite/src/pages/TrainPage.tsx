@@ -3671,7 +3671,17 @@ export function TrainPage() {
         {addExerciseOpen && (
           <AddExerciseModal
             open
-            onPick={(option) => addExerciseToActiveWorkout(option)}
+            onPickBatch={(options) => {
+              // Filtra ANTES de chamar pra não disparar setError pra
+              // cada duplicata (que era a UX feia quando o usuário
+              // marcava em batch um exercício que já estava no treino).
+              const presentIds = new Set(activeExercises.map((ex) => ex.exerciseId))
+              const toAdd = options.filter((opt) => !presentIds.has(opt.id))
+              for (const option of toAdd) addExerciseToActiveWorkout(option)
+              if (toAdd.length < options.length) {
+                setError(`${options.length - toAdd.length} exercício(s) já estavam no treino e foram ignorados.`)
+              }
+            }}
             onCreateRequest={() => {
               setAddExerciseOpen(false)
               setCreateExerciseForAdd(true)

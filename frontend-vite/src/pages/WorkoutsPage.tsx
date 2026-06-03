@@ -1449,11 +1449,34 @@ export function WorkoutsPage({
         <AddExerciseModal
           key={`add-${addExerciseTargetPlanId}`}
           open
-          onPick={(option) => {
+          onPickBatch={async (options) => {
             const targetPlan = plans.find((p) => p.id === addExerciseTargetPlanId)
-            if (targetPlan) {
-              pushRecentExerciseId(option.id)
-              void addToPlan(targetPlan, option)
+            if (!targetPlan) return
+            // Filtra duplicatas em relação ao que JÁ está no plano —
+            // evita ter que disparar alert por item e dá feedback agregado.
+            const presentIds = new Set(targetPlan.exercises.map((entry) => entry.exercise.id))
+            const toAdd = options.filter((opt) => !presentIds.has(opt.id))
+            const skipped = options.length - toAdd.length
+
+            // Add em série pro backend sequenciar o orderIndex sem
+            // colisão. Um único loadAll no final (em vez de N), evitando
+            // refetch repetido enquanto o usuário espera.
+            try {
+              for (const option of toAdd) {
+                pushRecentExerciseId(option.id)
+                await addExerciseToPlan(authorizedFetch, targetPlan.id, {
+                  exerciseId: option.id,
+                  sets: 3,
+                  repsMin: 8,
+                  repsMax: 12,
+                })
+              }
+              await loadAll()
+              if (skipped > 0) {
+                setError(`${skipped} exercício(s) já estavam na rotina e foram ignorados.`)
+              }
+            } catch (err) {
+              setError(err instanceof Error ? err.message : 'Erro ao adicionar exercícios à rotina')
             }
           }}
           onCreateRequest={() => {

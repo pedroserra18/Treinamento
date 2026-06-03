@@ -1,29 +1,30 @@
 import { motion } from 'framer-motion'
 import { createPortal } from 'react-dom'
-import { useEffect, useMemo, useState } from 'react'
-import { Search, Activity, Dumbbell } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Search, Dumbbell, Check } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useScrollLock } from '../../hooks/useScrollLock'
 import { getRecentExerciseIds } from '../../lib/recent-exercises'
 import { searchExercisesForPlan } from '../../services/workoutService'
 import type { ExerciseOption } from '../../types/workout'
 
-// Modal full-screen pra adicionar um exercício (estilo Hevy). Mesma
-// estrutura do SubstituteExerciseModal, mas sem `source` — então:
-//   • Recentes vai no topo (lista do localStorage)
-//   • Quando o usuário digita algo na busca, aparece "Resultados da
-//     busca" no lugar de Recentes (sem duplicar item)
-//   • "Criar" no header dispara onCreateRequest pra o parent abrir o
-//     CreateExerciseModal
+// Modal full-screen pra adicionar UM OU MAIS exercícios de uma vez
+// (estilo Hevy). Tap em uma row marca/desmarca; botão sticky no rodapé
+// "Adicionar N exercícios" só aparece quando há seleção. Multi-seleção
+// elimina o re-render N vezes do parent (que era a maior causa do delay
+// percebido no celular) e respeita o gesto natural do usuário que quer
+// montar o treino antes de sair do picker.
 //
-// Compartilhado entre TrainPage (treino ativo + dashboard) e
-// WorkoutsPage (editar rotina, nova rotina) pra UX uniforme em todo
-// fluxo de adição.
+// Compartilhado entre TrainPage (treino ativo) e WorkoutsPage (editar
+// rotina, nova rotina) pra UX uniforme em todo fluxo de adição.
 export function AddExerciseModal({
-  open, onPick, onCreateRequest, onClose, title = 'Adicionar Exercício',
+  open, onPickBatch, onCreateRequest, onClose, title = 'Adicionar Exercício',
 }: {
   open: boolean
-  onPick: (option: ExerciseOption) => void
+  // Recebe TODOS os exercícios marcados de uma vez. O caller decide
+  // como aplicar (sync no estado local pro treino ativo, ou async serial
+  // pra rotina em edição — onde cada add é uma chamada de API).
+  onPickBatch: (options: ExerciseOption[]) => void
   onCreateRequest: () => void
   onClose: () => void
   title?: string
@@ -39,6 +40,19 @@ export function AddExerciseModal({
   // react-hooks/set-state-in-effect proíbe).
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Conjunto dos exercícios marcados. Set pra checagem O(1) e dedupe
+  // natural; o array final pra onPickBatch preserva a ordem do catálogo
+  // filtrado pra o resultado ser previsível.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
+
+  const toggleSelected = useCallback((id: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
 
   useEffect(() => {
     if (!open) return
@@ -113,31 +127,69 @@ export function AddExerciseModal({
 
   if (!open) return null
 
-  const renderRow = (option: ExerciseOption) => (
-    <button
-      key={option.id}
-      type="button"
-      onClick={() => { onPick(option); onClose() }}
-      className="flex w-full items-center gap-3 border-b border-[var(--line)] px-4 py-3 text-left transition-colors hover:bg-[var(--surface-hover)]"
-    >
-      <div className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full bg-white">
-        {option.thumbnailUrl ? (
-          <img src={option.thumbnailUrl} alt="" className="h-full w-full object-cover" />
-        ) : (
-          <Dumbbell size={20} className="text-[var(--muted)]" />
+  // Renderiza uma row do picker. `touch-action: manipulation` desliga o
+  // 300ms tap delay do iOS Safari (zoom-on-double-tap heuristic) e dá
+  // resposta instantânea pro tap. Quando marcada, mostra a barra brand
+  // do lado esquerdo + check à direita pra deixar o estado óbvio.
+  const renderRow = (option: ExerciseOption) => {
+    const selected = selectedIds.has(option.id)
+    return (
+      <button
+        key={option.id}
+        type="button"
+        onClick={() => toggleSelected(option.id)}
+        style={{ touchAction: 'manipulation' }}
+        className={`relative flex w-full items-center gap-3 border-b border-[var(--line)] px-4 py-3 text-left transition-colors ${
+          selected ? 'bg-[var(--brand)]/8' : 'hover:bg-[var(--surface-hover)]'
+        }`}
+      >
+        {selected && (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 left-0 w-[3px] bg-[var(--brand)]"
+          />
         )}
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-[14px] font-medium text-[var(--text)]">{option.name}</p>
-        {option.primaryMuscleGroup && (
-          <p className="truncate text-[12px] text-[var(--muted)]">{option.primaryMuscleGroup}</p>
-        )}
-      </div>
-      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-[var(--line)] text-[var(--muted)]" aria-hidden>
-        <Activity size={13} />
-      </span>
-    </button>
-  )
+        <div className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full bg-white">
+          {option.thumbnailUrl ? (
+            <img src={option.thumbnailUrl} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <Dumbbell size={20} className="text-[var(--muted)]" />
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[14px] font-medium text-[var(--text)]">{option.name}</p>
+          {option.primaryMuscleGroup && (
+            <p className="truncate text-[12px] text-[var(--muted)]">{option.primaryMuscleGroup}</p>
+          )}
+        </div>
+        <span
+          aria-label={selected ? 'Selecionado' : 'Selecionar'}
+          className={`grid h-7 w-7 shrink-0 place-items-center rounded-full transition-colors ${
+            selected
+              ? 'border-2 border-[var(--brand)] bg-[var(--brand)] text-white'
+              : 'border border-[var(--line)] text-[var(--muted)]'
+          }`}
+        >
+          {selected ? <Check size={14} strokeWidth={3} /> : null}
+        </span>
+      </button>
+    )
+  }
+
+  // Confirma todas as marcações: resolve os Sets em uma lista ordenada
+  // pela ordem do catálogo filtrado (estável e previsível) e dispara
+  // o batch handler. Limpa seleção antes de fechar pra próxima abertura
+  // começar fresca.
+  const confirmBatch = () => {
+    if (selectedIds.size === 0) return
+    const picked: ExerciseOption[] = []
+    for (const ex of filtered) {
+      if (selectedIds.has(ex.id)) picked.push(ex)
+    }
+    onPickBatch(picked)
+    setSelectedIds(new Set())
+    onClose()
+  }
 
   return createPortal(
     <motion.div
@@ -156,7 +208,7 @@ export function AddExerciseModal({
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: 30, opacity: 0 }}
         transition={{ type: 'spring', stiffness: 320, damping: 30 }}
-        className="flex h-full w-full flex-col bg-[var(--surface)] sm:h-auto sm:max-h-[85vh] sm:max-w-md sm:rounded-2xl sm:border sm:border-[var(--line)] sm:shadow-2xl"
+        className="relative flex h-full w-full flex-col bg-[var(--surface)] sm:h-auto sm:max-h-[85vh] sm:max-w-md sm:rounded-2xl sm:border sm:border-[var(--line)] sm:shadow-2xl"
       >
         <header className="flex shrink-0 items-center justify-between border-b border-[var(--line)] px-4 py-3">
           <button
@@ -280,7 +332,32 @@ export function AddExerciseModal({
               )}
             </>
           )}
+          {/* Espaço pra a lista não ficar coberta pelo footer sticky
+              quando há seleção (footer entra com altura ~64px). */}
+          {selectedIds.size > 0 && <div aria-hidden className="h-20" />}
         </div>
+
+        {/* Footer sticky de confirmação — só aparece quando há seleção.
+            Estilo de CTA primário pra deixar óbvio o próximo passo.
+            "1 exercício" sem 's' final pra o singular ficar gramatical. */}
+        {selectedIds.size > 0 && (
+          <motion.div
+            initial={{ y: 80, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 80, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 360, damping: 30 }}
+            className="absolute inset-x-0 bottom-0 border-t border-[var(--line)] bg-[var(--surface)] p-3 pb-safe"
+          >
+            <button
+              type="button"
+              onClick={confirmBatch}
+              style={{ touchAction: 'manipulation' }}
+              className="w-full rounded-xl bg-[var(--brand)] py-3 text-[14px] font-bold text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)]"
+            >
+              Adicionar {selectedIds.size} {selectedIds.size === 1 ? 'exercício' : 'exercícios'}
+            </button>
+          </motion.div>
+        )}
       </motion.div>
     </motion.div>,
     document.body,
