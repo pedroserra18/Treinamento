@@ -1129,16 +1129,8 @@ export function TrainPage() {
 
   const [summaryName, setSummaryName] = useState('')
   const [summaryDurationMin, setSummaryDurationMin] = useState('')
-  const [summaryNotes, setSummaryNotes] = useState('')
   const [summaryImageFile, setSummaryImageFile] = useState<File | null>(null)
   const [summaryImagePreview, setSummaryImagePreview] = useState<string | null>(null)
-  // Wellness picker — chips clicáveis pra registrar como você se sentia
-  // no treino. Valores são embutidos nas notas via tags pra o backend
-  // não precisar de novas colunas (vai pro `notes` da session).
-  const [wellnessEnergy, setWellnessEnergy] = useState<number | null>(null) // 1-5
-  const [wellnessSleep, setWellnessSleep] = useState<number | null>(null)   // 1-5
-  const [wellnessBodyWeightKg, setWellnessBodyWeightKg] = useState<string>('')
-  const [wellnessPain, setWellnessPain] = useState<boolean>(false)
   // Snapshot dos PRs ANTES do treino — pra detectar quantos PRs novos
   // foram batidos comparando com prByExerciseId atual no SUMMARY.
   // Setado quando o usuário entra na tela ACTIVE (não quando finaliza).
@@ -1773,7 +1765,6 @@ export function TrainPage() {
     setEndedAt(null)
     setSummaryName('')
     setSummaryDurationMin('')
-    setSummaryNotes('')
     setSummaryImageFile(null)
     if (summaryImagePreview) {
       URL.revokeObjectURL(summaryImagePreview)
@@ -2564,19 +2555,10 @@ export function TrainPage() {
         workoutPlanId: originMode === 'ROUTINE' ? activePlanId : undefined,
       })
 
-      const notesSegments = [summaryNotes.trim()].filter(Boolean)
+      const notesSegments: string[] = []
       if (summaryImageFile) {
         notesSegments.push(`[Imagem anexada localmente: ${summaryImageFile.name}]`)
       }
-      // Wellness tags embutidas — extraíveis via regex no histórico/feed
-      // sem precisar de novas colunas. Só anexa o que foi preenchido.
-      const wellnessTags: string[] = []
-      if (wellnessEnergy != null) wellnessTags.push(`[energia:${wellnessEnergy}]`)
-      if (wellnessSleep != null) wellnessTags.push(`[sono:${wellnessSleep}]`)
-      const bw = wellnessBodyWeightKg.trim()
-      if (bw) wellnessTags.push(`[peso:${bw}]`)
-      if (wellnessPain) wellnessTags.push(`[dor:true]`)
-      if (wellnessTags.length > 0) notesSegments.unshift(wellnessTags.join(' '))
 
       await completeWorkoutSession(authorizedFetch, started.id, {
         durationSec,
@@ -2938,91 +2920,6 @@ export function TrainPage() {
               )}
             </label>
           </div>
-
-          {/* Wellness chips — registrar como você se sentia. Os dados
-              entram nas notas via tags ([energia:4][sono:3][peso:75,5]
-              [dor:true]) pra serem extraídos do feed/histórico depois
-              sem precisar de novas colunas no schema. */}
-          <div>
-            <p className="text-sm font-semibold text-[var(--text)]">Como foi hoje? <span className="text-[11px] font-normal text-[var(--muted)]">(opcional)</span></p>
-            <div className="mt-2 space-y-2">
-              <div>
-                <p className="text-[11px] font-mono uppercase tracking-wider text-[var(--muted)]">Energia</p>
-                <div className="mt-1 flex gap-1.5">
-                  {[1, 2, 3, 4, 5].map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      onClick={() => setWellnessEnergy(wellnessEnergy === n ? null : n)}
-                      className={`h-9 w-9 rounded-full border text-[12px] font-bold tabular-nums transition-colors ${
-                        wellnessEnergy === n
-                          ? 'border-[var(--brand)] bg-[var(--brand)] text-white'
-                          : 'border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-hover)]'
-                      }`}
-                    >
-                      {n}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <p className="text-[11px] font-mono uppercase tracking-wider text-[var(--muted)]">Sono</p>
-                <div className="mt-1 flex gap-1.5">
-                  {[1, 2, 3, 4, 5].map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      onClick={() => setWellnessSleep(wellnessSleep === n ? null : n)}
-                      className={`h-9 w-9 rounded-full border text-[12px] font-bold tabular-nums transition-colors ${
-                        wellnessSleep === n
-                          ? 'border-[var(--brand)] bg-[var(--brand)] text-white'
-                          : 'border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-hover)]'
-                      }`}
-                    >
-                      {n}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="grid grid-cols-[1fr_auto] gap-2">
-                <label className="text-[11px] font-mono uppercase tracking-wider text-[var(--muted)]">
-                  Peso corporal (kg)
-                  <input
-                    value={wellnessBodyWeightKg}
-                    inputMode="decimal"
-                    placeholder="Ex.: 75,5"
-                    onChange={(event) => setWellnessBodyWeightKg(sanitizeDecimalInput(event.target.value))}
-                    className="mt-1 w-full rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm font-normal tabular-nums text-[var(--text)]"
-                  />
-                </label>
-                <label className="flex flex-col text-[11px] font-mono uppercase tracking-wider text-[var(--muted)]">
-                  Dor / lesão
-                  <button
-                    type="button"
-                    onClick={() => setWellnessPain((v) => !v)}
-                    className={`mt-1 inline-flex items-center justify-center rounded-xl border px-4 py-2 text-[12px] font-bold transition-colors ${
-                      wellnessPain
-                        ? 'border-rose-500 bg-rose-500/10 text-rose-500'
-                        : 'border-[var(--line)] text-[var(--muted)] hover:bg-[var(--surface-hover)]'
-                    }`}
-                  >
-                    {wellnessPain ? 'Sim' : 'Não'}
-                  </button>
-                </label>
-              </div>
-            </div>
-          </div>
-
-          <label className="block text-sm font-semibold text-[var(--text)]">
-            Anotações do treino
-            <textarea
-              value={summaryNotes}
-              onChange={(event) => setSummaryNotes(event.target.value)}
-              rows={4}
-              placeholder="Como foi o treino hoje? Foco, observações, ajustes…"
-              className="mt-1 w-full rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
-            />
-          </label>
 
           {!savedSessionId ? (
             // Pré-save: CTA primário grande + Descartar pequeno e fora
