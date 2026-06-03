@@ -31,6 +31,7 @@ import { ReorderExercisesSheet, type ReorderItem } from './train/ReorderExercise
 import { SubstituteExerciseModal } from './train/SubstituteExerciseModal'
 import { RestTimePickerSheet } from './train/RestTimePickerSheet'
 import { AddExerciseModal } from './train/AddExerciseModal'
+import { DurationPickerSheet } from './train/DurationPickerSheet'
 import { InfoDialog } from '../components/common/InfoDialog'
 import { ConfirmDialog } from '../components/common/ConfirmDialog'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -1090,6 +1091,9 @@ export function TrainPage() {
   // o setError vermelho fixo na tela por um modal claramente acionável —
   // o erro ficava pendurado entre header e lista até trocar de tela.
   const [infoDialog, setInfoDialog] = useState<{ title: string; message: string } | null>(null)
+  // Picker de duração no resumo (estilo iOS wheel). Substitui o input
+  // livre por uma UX mais previsível.
+  const [durationPickerOpen, setDurationPickerOpen] = useState(false)
   // Diálogo de confirmação genérico (descartar treino, finalizar com
   // sets em branco, etc.). O onConfirm é guardado pra disparar quando
   // o usuário aceita.
@@ -2771,21 +2775,33 @@ export function TrainPage() {
             />
           </label>
 
-          {/* Input de duração agora aceita formatos flexíveis: "65",
-              "1h05", "1:05", "1h", "90min" — o parser normaliza tudo
-              pra minutos. Mostra dica abaixo do campo pra usuários novos. */}
-          <label className="block text-sm font-semibold text-[var(--text)]">
-            Duração
-            <input
-              value={summaryDurationMin}
-              onChange={(event) => setSummaryDurationMin(event.target.value)}
-              placeholder="Ex.: 1h05, 65, 1:30"
-              className="mt-1 w-full rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
-            />
-            <span className="mt-0.5 block text-[11px] font-normal text-[var(--muted)]">
-              Aceita: 65 (min), 1h05, 1:30, 90min
-            </span>
-          </label>
+          {/* Duração — abre o wheel picker (estilo iOS) em vez do input
+              livre. Mais previsível, sem chance de erro de digitação.
+              O texto formatado mostra h+min pra ficar legível ("1h 5min"
+              em vez de "65"). */}
+          {(() => {
+            const fallbackMin = Math.max(1, Math.round(elapsedSec / 60))
+            const currentMin = parseDurationMin(summaryDurationMin, fallbackMin)
+            const display = currentMin === 0
+              ? '0min'
+              : currentMin < 60
+                ? `${currentMin}min`
+                : `${Math.floor(currentMin / 60)}h ${currentMin % 60}min`
+            return (
+              <div>
+                <p className="text-sm font-semibold text-[var(--text)]">Duração</p>
+                <button
+                  type="button"
+                  onClick={() => setDurationPickerOpen(true)}
+                  style={{ touchAction: 'manipulation' }}
+                  className="mt-1 flex w-full items-center justify-between rounded-xl border border-[var(--line)] bg-transparent px-3 py-2.5 text-left text-sm font-semibold text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
+                >
+                  <span className="tabular-nums">{display}</span>
+                  <span className="text-[11px] font-normal text-[var(--muted)]">Tocar pra alterar</span>
+                </button>
+              </div>
+            )
+          })()}
 
           {/* Cards de métricas — 2x2 grid com Volume + Séries (calculadas
               em tempo real do state) e PRs novos + Sets concluídos
@@ -3268,6 +3284,18 @@ export function TrainPage() {
             onCancel={() => setConfirmDialog(null)}
           />
         )}
+        {durationPickerOpen && (() => {
+          const fallbackMin = Math.max(1, Math.round(elapsedSec / 60))
+          const currentMin = parseDurationMin(summaryDurationMin, fallbackMin)
+          return (
+            <DurationPickerSheet
+              open
+              currentMin={currentMin}
+              onConfirm={(min) => setSummaryDurationMin(String(min))}
+              onClose={() => setDurationPickerOpen(false)}
+            />
+          )
+        })()}
       </section>
     )
   }
