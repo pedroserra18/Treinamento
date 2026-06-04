@@ -2,6 +2,8 @@
 // pra o resto do app reagir a eventos importantes (update disponível,
 // app instalado, push permission). Mantém complexidade longe dos
 // componentes React — eles só precisam ouvir 1-2 eventos.
+//
+// Atualização: build #pwa-v1-installable (force-deploy ping)
 
 import { Workbox } from 'workbox-window'
 
