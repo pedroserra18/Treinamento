@@ -18,8 +18,9 @@ import {
 import { sanitiseHandleInput, validateHandle } from '../lib/handle'
 import {
   AtSign, Check, Download, Lock, LogOut, Moon, ShieldAlert, Sun,
-  AlertTriangle, LifeBuoy, ArrowLeft,
+  AlertTriangle, LifeBuoy, ArrowLeft, Smartphone,
 } from 'lucide-react'
+import { InstallAppPanel } from '../components/common/InstallAppPanel'
 
 // ─── Sidebar config ────────────────────────────────────────────────────────
 
@@ -29,6 +30,7 @@ type Section =
   | 'handle'
   | 'privacy'
   | 'theme'
+  | 'install'
   | 'export'
   | 'support'
   | 'logout'
@@ -50,6 +52,7 @@ const SECTIONS: SectionDef[] = [
   { id: 'handle',   group: 'CONTA',         label: '@handle público',  icon: <AtSign size={14} /> },
   { id: 'privacy',  group: 'PREFERÊNCIAS',  label: 'Privacidade',      icon: <ShieldAlert size={14} /> },
   { id: 'theme',    group: 'PREFERÊNCIAS',  label: 'Tema',             icon: <Moon size={14} /> },
+  { id: 'install',  group: 'PREFERÊNCIAS',  label: 'Instalar app',     icon: <Smartphone size={14} /> },
   { id: 'export',   group: 'PREFERÊNCIAS',  label: 'Exportar dados',   icon: <Download size={14} /> },
   { id: 'support',  group: 'PREFERÊNCIAS',  label: 'Ajuda e suporte',  icon: <LifeBuoy size={14} /> },
   { id: 'logout',   group: 'ZONA DE RISCO', label: 'Sair da conta',    icon: <LogOut size={14} /> },
@@ -265,6 +268,7 @@ export function SettingsPage() {
               {section === 'theme' && (
                 <ThemePanel theme={theme} toggleTheme={toggleTheme} />
               )}
+              {section === 'install' && <InstallAppPanel />}
               {section === 'export' && <ExportPanel authorizedFetch={authorizedFetch} />}
               {section === 'support' && <SupportPanel onOpen={() => navigate('/support')} />}
               {section === 'logout' && <LogoutPanel logout={logout} />}
