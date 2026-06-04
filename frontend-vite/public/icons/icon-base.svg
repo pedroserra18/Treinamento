@@ -1,34 +1,37 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- Brand SerraAthlo: gradiente laranja com S estilizado.
-       Mantém área segura de 64px nas bordas (safe zone do maskable). -->
+  <!-- Ícone SerraAthlo: montanhas vermelhas com seta de progressão.
+       Versão SVG aproximada da logo Logo_sem_Fundo.png — usada como
+       fonte pelo pwa-assets-generator pra produzir PNGs em todos os
+       tamanhos. Mantém só o símbolo (sem texto SERRAATHLO) pra ficar
+       legível em ícone pequeno do iOS (180px). -->
   <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#ff7a5a"/>
-      <stop offset="100%" stop-color="#ff5a3c"/>
-    </linearGradient>
-    <linearGradient id="shine" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.18"/>
-      <stop offset="60%" stop-color="#ffffff" stop-opacity="0"/>
+    <linearGradient id="rb" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ff1f2d"/>
+      <stop offset="100%" stop-color="#dc1422"/>
     </linearGradient>
   </defs>
-  <rect width="512" height="512" fill="url(#bg)" rx="96"/>
-  <rect width="512" height="512" fill="url(#shine)" rx="96"/>
-  <!-- Halter estilizado pra remeter ao app de treino -->
-  <g fill="#ffffff" transform="translate(96, 96)">
-    <!-- Barra central -->
-    <rect x="60" y="148" width="200" height="24" rx="6"/>
-    <!-- Pesos esquerdos -->
-    <rect x="20" y="100" width="34" height="120" rx="10"/>
-    <rect x="0" y="124" width="20" height="72" rx="6"/>
-    <!-- Pesos direitos -->
-    <rect x="266" y="100" width="34" height="120" rx="10"/>
-    <rect x="300" y="124" width="20" height="72" rx="6"/>
+  <!-- Fundo branco arredondado (estilo iOS) -->
+  <rect width="512" height="512" fill="#ffffff" rx="96"/>
+
+  <!-- Conjunto de 3 picos de montanha + seta de subida.
+       Centro do desenho em (256, 280). Escala generosa pra ocupar
+       a maior parte do quadrado, com margem de respiro. -->
+  <g transform="translate(256, 280)">
+    <!-- Pico esquerdo (atrás) -->
+    <path d="M -180 100 L -85 -55 L -10 80 L -10 100 Z" fill="url(#rb)"/>
+    <!-- Pico direito (atrás) -->
+    <path d="M 10 80 L 90 -50 L 180 100 L 10 100 Z" fill="url(#rb)"/>
+    <!-- Recorte branco do "V" entre os picos pra dar profundidade -->
+    <path d="M -25 100 L 0 65 L 25 100 Z" fill="#ffffff"/>
+    <!-- Pico central — pequeno triângulo escuro que sobe do meio -->
+    <path d="M -38 100 L 0 -10 L 38 100 Z" fill="url(#rb)"/>
+
+    <!-- Seta de subida saindo do meio pra cima-direita.
+         Composta de uma linha grossa + ponta triangular. -->
+    <!-- Linha da seta -->
+    <path d="M -10 0 L 45 -130 L 65 -120 L 10 10 Z" fill="url(#rb)"/>
+    <!-- Cabeça da seta -->
+    <path d="M 75 -148 L 22 -148 L 38 -110 L 30 -98 L 78 -100 Z" fill="url(#rb)"/>
   </g>
-  <!-- Label SERRA pequeno embaixo -->
-  <text x="256" y="412" text-anchor="middle"
-        font-family="system-ui, -apple-system, sans-serif"
-        font-weight="900" font-size="56" fill="#ffffff" letter-spacing="2">
-    SERRA
-  </text>
 </svg>
