@@ -12,8 +12,6 @@ import { queryClient } from './lib/queryClient'
 import { captureRenderError } from './lib/sentry'
 import { PwaUpdatePrompt } from './components/common/PwaUpdatePrompt'
 import { PwaInstallBanner } from './components/common/PwaInstallBanner'
-import { bumpVisitCount } from './lib/install-prompt'
-import { useEffect } from 'react'
 
 // Eager: pages a user is likely to hit before navigating away. Keeping them
 // in the main chunk avoids a flash of skeleton on the most common landings.
@@ -312,13 +310,6 @@ function AnimatedRoutes() {
 }
 
 function App() {
-  // Conta visitas pro install banner saber se já é "usuário recorrente".
-  // O banner em si só aparece a partir da 2ª visita (filtro contra
-  // visitantes únicos curiosos).
-  useEffect(() => {
-    bumpVisitCount()
-  }, [])
-
   return (
     <ErrorBoundary onError={(error, info) => captureRenderError(error, info.componentStack)}>
       <QueryClientProvider client={queryClient}>

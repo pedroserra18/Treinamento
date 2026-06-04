@@ -29,8 +29,18 @@ export function PwaInstallBanner() {
     // Defesa em camadas: só mostra se atende todos critérios.
     if (typeof window === 'undefined') return
     if (isStandalone()) return
-    if (isSnoozed()) return
-    if (getVisitCount() < 2) return
+
+    // Atalho de testes: ?install=force bypassa snooze + visit count.
+    // Útil pra QA / primeira validação. Sem isso, snooze de 7 dias
+    // efetivamente esconde o banner durante teste.
+    const forced = new URLSearchParams(window.location.search).has('install')
+    if (!forced) {
+      if (isSnoozed()) return
+      // Threshold = 1 (mostra na primeira visita já). Era 2 mas
+      // adia demais a descoberta da feature; com snooze de 7 dias
+      // se o usuário fechar, não fica invasivo.
+      if (getVisitCount() < 1) return
+    }
 
     // Android: aguarda o evento beforeinstallprompt do Chrome.
     const onBeforeInstall = (e: Event) => {
