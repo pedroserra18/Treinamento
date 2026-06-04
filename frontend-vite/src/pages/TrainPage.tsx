@@ -47,6 +47,12 @@ import {
 import { isBodyweightEquipment, resolveBodyweightFlag } from '../lib/exercise-meta'
 import { pushRecentExerciseId } from '../lib/recent-exercises'
 import { getIntensityMode, setIntensityMode, type IntensityMode } from '../lib/intensity-preference'
+import {
+  getNotificationPermission,
+  requestNotificationPermission,
+  showLocalNotification,
+  type NotificationPermissionState,
+} from '../lib/notifications'
 import { formatClock } from '../lib/workout-timing'
 import { saveWorkoutSessionImage } from '../lib/workout-session-image'
 import { optimizeImageFileToDataUrl } from '../lib/image-processing'
@@ -381,6 +387,47 @@ const CARDIO_LABELS: Record<CardioType, string> = {
 const CARDIO_TYPES = Object.keys(CARDIO_LABELS) as CardioType[]
 
 // Floating "novo PR!" banner. Stays visible for ~3s, auto-dismisses,
+// Linha de "ativar notificações" dentro do popover do timer. Mostra
+// estado atual + botão pra pedir permissão. O click no botão é o gesto
+// explícito do usuário que o iOS Safari exige pra atender o request.
+// Renderiza nada quando o browser não suporta Notification API.
+function NotificationsRow({ onClose }: { onClose: () => void }) {
+  const [perm, setPerm] = useState<NotificationPermissionState>(() => getNotificationPermission())
+  if (perm === 'unsupported') return null
+
+  return (
+    <div className="mt-1 rounded-lg border border-[var(--line)] p-2">
+      <label className="block text-[11px] font-mono uppercase tracking-wider text-[var(--muted)]">
+        Notificação de descanso
+      </label>
+      <div className="mt-1.5">
+        {perm === 'granted' ? (
+          <p className="text-[12px] font-semibold text-emerald-500">
+            ✓ Ativada — vai vibrar quando o descanso acabar
+          </p>
+        ) : perm === 'denied' ? (
+          <p className="text-[11px] leading-relaxed text-[var(--muted)]">
+            Bloqueada. Ative nas configurações do navegador (cadeado na URL → Notificações).
+          </p>
+        ) : (
+          <button
+            type="button"
+            onClick={async () => {
+              const next = await requestNotificationPermission()
+              setPerm(next)
+              if (next === 'granted') onClose()
+            }}
+            style={{ touchAction: 'manipulation' }}
+            className="w-full rounded-md bg-[var(--brand)] py-1.5 text-[12px] font-bold text-white shadow-[0_4px_10px_-4px_rgba(255,90,60,0.55)] hover:bg-[var(--brand-strong)]"
+          >
+            Ativar notificações
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // and is rendered through a portal so it floats above the page's
 // framer-motion transform context. The `key` on celebration.id forces
 // a remount when another PR fires while one is still showing, so the
@@ -1427,6 +1474,15 @@ export function TrainPage() {
 
   useEffect(() => {
     if (!restFinishedName) return
+    // Notificação local — funciona com app em background (mostra
+    // notificação do sistema mesmo com tela bloqueada). No-op silencioso
+    // se o usuário não deu permissão; ver SettingsPage pra ativar.
+    void showLocalNotification('Descanso acabou!', {
+      body: `Volta pra ${restFinishedName}`,
+      tag: 'rest-done',
+      url: '/train',
+      vibrate: [80, 40, 80],
+    })
     const id = window.setTimeout(() => setRestFinishedName(null), 3000)
     return () => window.clearTimeout(id)
   }, [restFinishedName])
@@ -3567,6 +3623,15 @@ export function TrainPage() {
                         ))}
                       </div>
                     </div>
+
+                    {/* Toggle de notificação de descanso. Quando 'default'
+                        (não pediu ainda), mostra botão "Ativar" — o click é
+                        gesto explícito do usuário (requirement iOS). Quando
+                        'granted', mostra status verde. Quando 'denied', dá
+                        instrução pra reativar nas config do browser. */}
+                    <NotificationsRow
+                      onClose={() => setAdvancedTimerOpen(false)}
+                    />
                   </div>
                 </>
               )}

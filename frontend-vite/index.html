@@ -1,18 +1,32 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- Instrument Serif is used as an accent face for italic word marks
-         (e.g. "Treinar agora"). Kept preconnected so the swap is invisible. -->
+    <link rel="alternate icon" href="/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+    <!-- Brand -->
+    <title>SerraAthlo · Treine. Acompanhe. Evolua.</title>
+    <meta name="description" content="App de musculação e cardio: rotinas, histórico, PRs, ranking de amigos." />
+    <meta name="theme-color" content="#FF5A3C" />
+    <meta name="color-scheme" content="light dark" />
+
+    <!-- iOS PWA: faz o app abrir em standalone (sem barra do Safari)
+         quando adicionado à tela inicial. status-bar-style controla
+         a cor da status bar quando standalone. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="SerraAthlo" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon-180x180.png" />
+
+    <!-- Fontes - Instrument Serif pra accents itálicos do brand -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap"
       rel="stylesheet"
     />
-    <title>frontend-vite</title>
   </head>
   <body>
     <div id="root"></div>

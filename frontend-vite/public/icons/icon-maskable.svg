@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Maskable icon: o conteúdo precisa caber no círculo interno
+       de 80% (segurança) porque alguns Androids cortam em círculo,
+       outros em squircle. Aumentamos o fundo pra full bleed e
+       mantemos o ícone visualmente menor. -->
+  <defs>
+    <linearGradient id="bg-m" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff7a5a"/>
+      <stop offset="100%" stop-color="#ff5a3c"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#bg-m)"/>
+  <g fill="#ffffff" transform="translate(140, 140)">
+    <rect x="46" y="116" width="140" height="18" rx="4"/>
+    <rect x="20" y="80" width="24" height="90" rx="7"/>
+    <rect x="6" y="98" width="14" height="54" rx="4"/>
+    <rect x="188" y="80" width="24" height="90" rx="7"/>
+    <rect x="212" y="98" width="14" height="54" rx="4"/>
+  </g>
+  <text x="256" y="380" text-anchor="middle"
+        font-family="system-ui, -apple-system, sans-serif"
+        font-weight="900" font-size="44" fill="#ffffff" letter-spacing="1.5">
+    SERRA
+  </text>
+</svg>
