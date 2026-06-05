@@ -2,6 +2,31 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* ─── Safe-area utilities ────────────────────────────────
+   PWA standalone no iOS deixa o app ocupar a tela toda,
+   incluindo a área onde o horário e bateria aparecem (notch).
+   Sem padding-top, conteúdo passa POR BAIXO da status bar.
+   env(safe-area-inset-*) é exposto pelo iOS quando o viewport
+   tem `viewport-fit=cover` (já configurado no index.html).
+
+   As classes pt-safe / pb-safe / pl-safe / pr-safe injetam o
+   padding correto. Em browser/desktop env() retorna 0, então
+   é seguro usar sempre. */
+@layer utilities {
+  .pt-safe { padding-top: env(safe-area-inset-top); }
+  .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+  .pl-safe { padding-left: env(safe-area-inset-left); }
+  .pr-safe { padding-right: env(safe-area-inset-right); }
+  /* Variantes que SOMAM ao padding existente — útil quando
+     a classe Tailwind já define um padding base e queremos
+     adicionar a safe area por cima. */
+  .pt-safe-plus-2 { padding-top: calc(env(safe-area-inset-top) + 0.5rem); }
+  .pt-safe-plus-3 { padding-top: calc(env(safe-area-inset-top) + 0.75rem); }
+  .pt-safe-plus-4 { padding-top: calc(env(safe-area-inset-top) + 1rem); }
+  .top-safe-plus-2 { top: calc(env(safe-area-inset-top) + 0.5rem); }
+  .top-safe-plus-3 { top: calc(env(safe-area-inset-top) + 0.75rem); }
+}
+
 :root {
   --bg: #f7f7f8;
   --surface: #ffffff;

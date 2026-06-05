@@ -217,7 +217,7 @@ export function CreateRoutineScreen({
       <motion.header
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        className="sticky top-2 z-30 flex items-center justify-between gap-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)]/95 px-3 py-2.5 backdrop-blur-md"
+        className="sticky top-safe-plus-2 z-30 flex items-center justify-between gap-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)]/95 px-3 py-2.5 backdrop-blur-md"
       >
         <button
           type="button"

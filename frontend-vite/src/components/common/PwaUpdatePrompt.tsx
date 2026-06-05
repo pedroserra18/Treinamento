@@ -22,7 +22,7 @@ export function PwaUpdatePrompt() {
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: -60, opacity: 0 }}
           transition={{ type: 'spring', stiffness: 340, damping: 30 }}
-          className="fixed inset-x-3 top-3 z-[95] mx-auto max-w-md rounded-2xl border border-[var(--brand)]/40 bg-[var(--surface)] p-3 shadow-2xl backdrop-blur-md"
+          className="fixed inset-x-3 top-safe-plus-3 z-[95] mx-auto max-w-md rounded-2xl border border-[var(--brand)]/40 bg-[var(--surface)] p-3 shadow-2xl backdrop-blur-md"
           role="status"
           aria-live="polite"
         >
