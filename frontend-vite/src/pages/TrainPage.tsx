@@ -33,6 +33,7 @@ import { RestTimePickerSheet } from './train/RestTimePickerSheet'
 import { AddExerciseModal } from './train/AddExerciseModal'
 import { DurationPickerSheet } from './train/DurationPickerSheet'
 import { SwipeableSetRow } from './train/SwipeableSetRow'
+import { CreateRoutineScreen } from './train/CreateRoutineScreen'
 import { InfoDialog } from '../components/common/InfoDialog'
 import { ConfirmDialog } from '../components/common/ConfirmDialog'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -1143,6 +1144,10 @@ export function TrainPage() {
   // Picker de duração no resumo (estilo iOS wheel). Substitui o input
   // livre por uma UX mais previsível.
   const [durationPickerOpen, setDurationPickerOpen] = useState(false)
+  // Contador que dispara o save da rotina no modo EDIT via signal pra
+  // WorkoutsPage. Incrementa quando o usuário toca "Atualizar" no header
+  // sticky — WorkoutsPage observa via useEffect e chama saveFullPlan.
+  const [editSaveSignal, setEditSaveSignal] = useState(0)
   // Diálogo de confirmação genérico (descartar treino, finalizar com
   // sets em branco, etc.). O onConfirm é guardado pra disparar quando
   // o usuário aceita.
@@ -3286,70 +3291,50 @@ export function TrainPage() {
 
   if (screen === 'NEW_ROUTINE') {
     return (
-      <section className="space-y-4">
-        <motion.header
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
-        >
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <h1 className="text-xl font-bold tracking-tight text-[var(--text)] sm:text-2xl">Nova Rotina</h1>
-              <p className="mt-1 text-sm text-[var(--muted)]">Monte uma nova rotina e salve para usar nos treinos.</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setScreen('DASHBOARD')}
-              aria-label="Voltar"
-              className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[var(--line)] text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
-            >
-              <ArrowLeft size={16} />
-            </button>
-          </div>
-        </motion.header>
-        <WorkoutsPage
-          selectedPlanId={activePlanId}
-          onlySelectedPlan={false}
-          showCreateSection
-          createOnlyMode
-          onPlanSaved={async () => {
-            await reloadPlans(activePlanId)
-            setScreen('DASHBOARD')
-          }}
-        />
-      </section>
+      <CreateRoutineScreen
+        onCancel={() => setScreen('DASHBOARD')}
+        onSaved={async (createdPlanId) => {
+          await reloadPlans(createdPlanId)
+          setScreen('DASHBOARD')
+        }}
+      />
     )
   }
 
   if (screen === 'EDIT') {
-    const editingPlan = plans.find((p) => p.id === activePlanId)
     return (
-      <section className="space-y-4">
+      <section className="space-y-3">
+        {/* Header estilo Hevy — Cancelar / Editar Rotina / Atualizar.
+            Atualizar dispara o save dentro do WorkoutsPage via signal. */}
         <motion.header
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
+          className="sticky top-2 z-30 flex items-center justify-between gap-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)]/95 px-3 py-2.5 backdrop-blur-md"
         >
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <h1 className="truncate text-xl font-bold tracking-tight text-[var(--text)] sm:text-2xl">Editando rotina</h1>
-              <p className="mt-1 truncate text-sm text-[var(--muted)]">{editingPlan?.name ?? ''}</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setScreen('DASHBOARD')}
-              aria-label="Voltar"
-              className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[var(--line)] text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
-            >
-              <ArrowLeft size={16} />
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setScreen('DASHBOARD')}
+            className="text-[14px] font-semibold text-[var(--muted)] transition-colors hover:text-[var(--text)]"
+          >
+            Cancelar
+          </button>
+          <h1 className="truncate text-[15px] font-bold text-[var(--text)]">Editar Rotina</h1>
+          <button
+            type="button"
+            onClick={() => setEditSaveSignal((v) => v + 1)}
+            style={{ touchAction: 'manipulation' }}
+            className="rounded-xl bg-[var(--brand)] px-4 py-1.5 text-[13px] font-bold text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)]"
+          >
+            Atualizar
+          </button>
         </motion.header>
         <WorkoutsPage
           selectedPlanId={activePlanId}
           onlySelectedPlan
           showCreateSection={false}
           createOnlyMode={false}
+          hideInlineSaveButton
+          saveSignal={editSaveSignal}
           onPlanSaved={async () => {
             await reloadPlans(activePlanId)
             setScreen('DASHBOARD')

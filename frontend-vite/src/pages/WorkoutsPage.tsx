@@ -338,6 +338,14 @@ type WorkoutsPageProps = {
   showCreateSection?: boolean
   createOnlyMode?: boolean
   onPlanSaved?: (planId: string) => void
+  // Quando true, o botão "Salvar treino completo" do cabeçalho do
+  // plano fica escondido — o caller renderiza o salvar em outro lugar
+  // (ex.: header do TrainPage no modo EDIT, estilo Hevy).
+  hideInlineSaveButton?: boolean
+  // Sinal externo de "salvar agora" — quando o valor numérico muda,
+  // dispara saveFullPlan no plano visível. Usado pelo header externo
+  // do TrainPage. 0 = nunca dispara (default).
+  saveSignal?: number
 }
 
 export function WorkoutsPage({
@@ -346,6 +354,8 @@ export function WorkoutsPage({
   showCreateSection = true,
   createOnlyMode = false,
   onPlanSaved,
+  hideInlineSaveButton = false,
+  saveSignal = 0,
 }: WorkoutsPageProps) {
   const { authorizedFetch } = useAuth()
   const [plans, setPlans] = useState<WorkoutPlan[]>([])
@@ -818,6 +828,21 @@ export function WorkoutsPage({
       ? plans.filter((plan) => (selectedPlanId ? plan.id === selectedPlanId : false))
       : plans
 
+  // Save signal externo — quando o caller (header do TrainPage no EDIT)
+  // incrementa saveSignal, dispara saveFullPlan no primeiro plano
+  // visível. Skippa o primeiro render (saveSignal default = 0) e
+  // qualquer mudança quando não há plano visível.
+  useEffect(() => {
+    if (saveSignal <= 0) return
+    const target = visiblePlans[0]
+    if (!target) return
+    void saveFullPlan(target)
+    // visiblePlans é derivado, mas saveSignal sendo o trigger único
+    // mantém o efeito previsível. Lint desabilitado pra não pedir
+    // saveFullPlan como dep (recriaria a cada render).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saveSignal])
+
   return (
     <section className="space-y-5">
       {loading ? (
@@ -929,15 +954,17 @@ export function WorkoutsPage({
                 <p className="text-sm text-[var(--muted)]">{plan.description ?? 'Sem descricao'}</p>
               </div>
               <div className="flex gap-2">
-                <button
-                  type="button"
-                  className="rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white"
-                  onClick={() => {
-                    void saveFullPlan(plan)
-                  }}
-                >
-                  Salvar treino completo
-                </button>
+                {!hideInlineSaveButton && (
+                  <button
+                    type="button"
+                    className="rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white"
+                    onClick={() => {
+                      void saveFullPlan(plan)
+                    }}
+                  >
+                    Salvar treino completo
+                  </button>
+                )}
                 <button
                   type="button"
                   className="rounded-lg border border-red-500/60 px-3 py-1 text-xs font-semibold text-red-400"
