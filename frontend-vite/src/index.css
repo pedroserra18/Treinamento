@@ -9,23 +9,24 @@
    env(safe-area-inset-*) é exposto pelo iOS quando o viewport
    tem `viewport-fit=cover` (já configurado no index.html).
 
-   As classes pt-safe / pb-safe / pl-safe / pr-safe injetam o
-   padding correto. Em browser/desktop env() retorna 0, então
-   é seguro usar sempre. */
-@layer utilities {
-  .pt-safe { padding-top: env(safe-area-inset-top); }
-  .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
-  .pl-safe { padding-left: env(safe-area-inset-left); }
-  .pr-safe { padding-right: env(safe-area-inset-right); }
-  /* Variantes que SOMAM ao padding existente — útil quando
-     a classe Tailwind já define um padding base e queremos
-     adicionar a safe area por cima. */
-  .pt-safe-plus-2 { padding-top: calc(env(safe-area-inset-top) + 0.5rem); }
-  .pt-safe-plus-3 { padding-top: calc(env(safe-area-inset-top) + 0.75rem); }
-  .pt-safe-plus-4 { padding-top: calc(env(safe-area-inset-top) + 1rem); }
-  .top-safe-plus-2 { top: calc(env(safe-area-inset-top) + 0.5rem); }
-  .top-safe-plus-3 { top: calc(env(safe-area-inset-top) + 0.75rem); }
-}
+   Classes definidas como CSS puro (sem @layer) — Tailwind v4
+   trata @layer utilities diferente e o purge não estava
+   incluindo essas utilities no bundle final. Como CSS plano
+   elas sempre fazem parte da build, são selectores simples
+   que coexistem sem conflito com utilities do Tailwind.
+   Em browser/desktop env() retorna 0, então é seguro usar sempre. */
+.pt-safe { padding-top: env(safe-area-inset-top) !important; }
+.pb-safe { padding-bottom: env(safe-area-inset-bottom) !important; }
+.pl-safe { padding-left: env(safe-area-inset-left); }
+.pr-safe { padding-right: env(safe-area-inset-right); }
+/* Variantes que somam padding base + safe area. !important garante
+   que sobrescreve eventual conflito com utility do Tailwind no
+   mesmo elemento (ex.: pt-4 + pt-safe-plus-4 → vence o seguro). */
+.pt-safe-plus-2 { padding-top: calc(env(safe-area-inset-top) + 0.5rem) !important; }
+.pt-safe-plus-3 { padding-top: calc(env(safe-area-inset-top) + 0.75rem) !important; }
+.pt-safe-plus-4 { padding-top: calc(env(safe-area-inset-top) + 1rem) !important; }
+.top-safe-plus-2 { top: calc(env(safe-area-inset-top) + 0.5rem) !important; }
+.top-safe-plus-3 { top: calc(env(safe-area-inset-top) + 0.75rem) !important; }
 
 :root {
   --bg: #f7f7f8;
