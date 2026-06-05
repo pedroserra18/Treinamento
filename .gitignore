@@ -26,3 +26,6 @@ dist/
 *.dump
 *.sql.gz
 *.sql.bz2
+
+.vercel
+.env*
