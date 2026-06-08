@@ -210,7 +210,7 @@ export function AddExerciseModal({
         transition={{ type: 'spring', stiffness: 320, damping: 30 }}
         className="relative flex h-full w-full flex-col bg-[var(--surface)] sm:h-auto sm:max-h-[85vh] sm:max-w-md sm:rounded-2xl sm:border sm:border-[var(--line)] sm:shadow-2xl"
       >
-        <header className="flex shrink-0 items-center justify-between border-b border-[var(--line)] px-4 py-3">
+        <header className="flex shrink-0 items-center justify-between border-b border-[var(--line)] px-4 py-3 pt-safe-plus-3">
           <button
             type="button"
             onClick={onClose}

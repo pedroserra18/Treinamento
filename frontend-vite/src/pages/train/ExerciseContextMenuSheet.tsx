@@ -75,7 +75,7 @@ export function ExerciseContextMenuSheet({
           exit={{ y: 40, opacity: 0 }}
           transition={{ type: 'spring', stiffness: 340, damping: 28 }}
           onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-md overflow-hidden rounded-t-2xl border border-b-0 border-[var(--line)] bg-[var(--surface)] pb-2 shadow-2xl sm:mb-0 sm:rounded-2xl sm:border-b"
+          className="w-full max-w-md overflow-hidden rounded-t-2xl border border-b-0 border-[var(--line)] bg-[var(--surface)] pb-safe shadow-2xl sm:mb-0 sm:rounded-2xl sm:border-b"
         >
           <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-[var(--line)] sm:hidden" />
           <ul className="border-t border-[var(--line)]">

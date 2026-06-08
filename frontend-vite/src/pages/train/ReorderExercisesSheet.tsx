@@ -171,7 +171,7 @@ export function ReorderExercisesSheet({
               </ul>
             </SortableContext>
           </DndContext>
-          <div className="shrink-0 border-t border-[var(--line)] bg-[var(--surface)] p-3">
+          <div className="shrink-0 border-t border-[var(--line)] bg-[var(--surface)] p-3 pb-safe">
             <button
               type="button"
               onClick={onClose}

@@ -149,7 +149,7 @@ export function DurationPickerSheet({
             </div>
           </div>
 
-          <div className="shrink-0 border-t border-[var(--line)] bg-[var(--surface)] p-3">
+          <div className="shrink-0 border-t border-[var(--line)] bg-[var(--surface)] p-3 pb-safe">
             <button
               type="button"
               onClick={() => { onConfirm(draftMin); onClose() }}

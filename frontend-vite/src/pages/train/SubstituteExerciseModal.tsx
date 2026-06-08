@@ -195,7 +195,7 @@ export function SubstituteExerciseModal({
         {/* Header com Cancelar / Título / Criar — mesma estrutura do
             screenshot do Hevy. "Criar" hoje só fecha + dispara o atalho
             existente de adicionar exercício; refino fica pra depois. */}
-        <header className="flex shrink-0 items-center justify-between border-b border-[var(--line)] px-4 py-3">
+        <header className="flex shrink-0 items-center justify-between border-b border-[var(--line)] px-4 py-3 pt-safe-plus-3">
           <button
             type="button"
             onClick={onClose}

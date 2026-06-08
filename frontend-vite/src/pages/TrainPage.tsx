@@ -743,7 +743,7 @@ function SetTypePickerSheet({
           exit={{ y: 40, opacity: 0 }}
           transition={{ type: 'spring', stiffness: 340, damping: 28 }}
           onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-md overflow-hidden rounded-t-2xl border border-b-0 border-[var(--line)] bg-[var(--surface)] pb-4 shadow-2xl sm:mb-0 sm:rounded-2xl sm:border-b"
+          className="w-full max-w-md overflow-hidden rounded-t-2xl border border-b-0 border-[var(--line)] bg-[var(--surface)] pb-safe shadow-2xl sm:mb-0 sm:rounded-2xl sm:border-b"
         >
           <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-[var(--line)] sm:hidden" />
           <h3 className="px-4 pb-2 pt-3 text-center text-[13px] font-bold text-[var(--text)] sm:text-[14px]">
@@ -886,7 +886,7 @@ function SupersetPickerSheet({
           exit={{ y: 40, opacity: 0 }}
           transition={{ type: 'spring', stiffness: 340, damping: 28 }}
           onClick={(e) => e.stopPropagation()}
-          className="flex w-full max-w-md flex-col overflow-hidden rounded-t-2xl border border-b-0 border-[var(--line)] bg-[var(--surface)] shadow-2xl sm:mb-0 sm:rounded-2xl sm:border-b"
+          className="flex w-full max-w-md flex-col overflow-hidden rounded-t-2xl border border-b-0 border-[var(--line)] bg-[var(--surface)] pb-safe shadow-2xl sm:mb-0 sm:rounded-2xl sm:border-b"
           style={{ maxHeight: 'min(80vh, 640px)' }}
         >
           <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-[var(--line)] sm:hidden" />

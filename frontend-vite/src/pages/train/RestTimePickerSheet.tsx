@@ -93,7 +93,7 @@ export function RestTimePickerSheet({
 
           {/* "Feito" sticky no rodapé — mesma cor do brand, segue o
               padrão dos botões primários do app. */}
-          <div className="shrink-0 border-t border-[var(--line)] bg-[var(--surface)] p-3">
+          <div className="shrink-0 border-t border-[var(--line)] bg-[var(--surface)] p-3 pb-safe">
             <button
               type="button"
               onClick={() => { onConfirm(draft); onClose() }}
