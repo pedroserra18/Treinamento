@@ -203,6 +203,8 @@ model User {
   postComments      PostComment[]
   sharedPlans       SharedPlan[]
   notifications     Notification[]
+  pushSubscriptions PushSubscription[]
+  scheduledNotifications ScheduledNotification[]
   supportTickets    SupportTicket[]
   supportMessages   SupportMessage[]
   supportTemplates  SupportTemplate[]
@@ -632,6 +634,60 @@ model Notification {
   @@index([userId, readAt])
   @@index([userId, createdAt])
   @@map("notifications")
+}
+
+// Cada device que aceitou notificações push tem uma row aqui. A unique
+// é o `endpoint` (URL da push gateway específica do device + browser)
+// porque um usuário pode ter N devices, mas cada endpoint é único no
+// mundo. Quando o endpoint expira (push gateway responde 410), apagamos
+// a row pelo unique.
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_subscriptions")
+}
+
+enum ScheduledNotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  CANCELLED
+}
+
+// Job de notificação agendada. O caso primário hoje é "descanso acabou":
+// frontend cria a row com fireAt = startedAt + restSec quando o timer
+// começa, e cancela se o user pula/recomeça. O worker do backend faz
+// poll a cada 1s buscando rows com status='PENDING' e fireAt <= now,
+// manda o push e marca como SENT. tag agrupa (notificações duplicadas
+// do mesmo descanso colapsam no device); url é o deep-link do tap.
+model ScheduledNotification {
+  id        String                      @id @default(cuid())
+  userId    String
+  fireAt    DateTime
+  title     String
+  body      String
+  url       String?
+  tag       String?
+  status    ScheduledNotificationStatus @default(PENDING)
+  sentAt    DateTime?
+  error     String?
+  createdAt DateTime                    @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, fireAt])
+  @@index([userId, status])
+  @@map("scheduled_notifications")
 }
 
 model SupportTicket {

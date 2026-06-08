@@ -14,6 +14,7 @@ import recommendationRoutes from "../modules/recommendation/recommendation.route
 import aiRoutes from "../modules/ai/ai.routes";
 import { socialRouter } from "../modules/social/social.routes";
 import { notificationRouter } from "../modules/notification/notification.routes";
+import pushRoutes from "../modules/push/push.routes";
 import { Router } from "express";
 
 const router = Router();
@@ -33,6 +34,7 @@ router.use(workoutRoutes);
 router.use(aiRoutes);
 router.use("/social", socialRouter);
 router.use("/notifications", notificationRouter);
+router.use(pushRoutes);
 router.use(securityRoutes);
 
 export default router;

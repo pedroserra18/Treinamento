@@ -2,6 +2,7 @@ import { Router } from "express";
 import { asyncHandler } from "../../shared/utils/async-handler";
 import { logger } from "../../config/logger";
 import { runCompetitionReconcile } from "../competition/competition.service";
+import { processDuePendingNotifications, pruneOldScheduledNotifications } from "../push/push.service";
 import { requireCronSecret } from "./cron.middleware";
 
 const router = Router();
@@ -35,6 +36,54 @@ router.post(
     });
     res.status(200).json({
       data: { ...result, durationMs },
+      meta: { requestId: req.context?.requestId }
+    });
+  })
+);
+
+// POST /cron/process-push — safety net. O worker in-process já processa
+// jobs a cada 1s enquanto a API está acordada, mas Render free tier
+// dorme após 15min idle e o setInterval para junto. Esse endpoint pode
+// ser pingado por cron-job.org a cada 1-2 minutos pra:
+//   1. Manter o processo quente (efeito colateral do request HTTP).
+//   2. Processar qualquer backlog de jobs vencidos enquanto dormíamos.
+// Idempotente — só pega jobs PENDING vencidos.
+router.post(
+  "/cron/process-push",
+  requireCronSecret,
+  asyncHandler(async (req, res) => {
+    const startedAt = Date.now();
+    const result = await processDuePendingNotifications();
+    const durationMs = Date.now() - startedAt;
+    logger.info("cron_process_push_done", {
+      requestId: req.context?.requestId,
+      ...result,
+      durationMs
+    });
+    res.status(200).json({
+      data: { ...result, durationMs },
+      meta: { requestId: req.context?.requestId }
+    });
+  })
+);
+
+// POST /cron/prune-push — limpa jobs antigos (SENT/FAILED/CANCELLED >
+// 7 dias). Pode ser agendado diariamente. Não é crítico — só impede a
+// tabela de crescer infinitamente.
+router.post(
+  "/cron/prune-push",
+  requireCronSecret,
+  asyncHandler(async (req, res) => {
+    const startedAt = Date.now();
+    const deleted = await pruneOldScheduledNotifications();
+    const durationMs = Date.now() - startedAt;
+    logger.info("cron_prune_push_done", {
+      requestId: req.context?.requestId,
+      deleted,
+      durationMs
+    });
+    res.status(200).json({
+      data: { deleted, durationMs },
       meta: { requestId: req.context?.requestId }
     });
   })

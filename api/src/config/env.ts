@@ -127,7 +127,18 @@ const envSchema = z.object({
   // project env; we accept either that header or `x-cron-secret`. The
   // endpoint refuses calls without a matching secret so the public URL
   // can't be abused to repeatedly trigger expensive background work.
-  CRON_SECRET: z.preprocess(emptyToUndefined, z.string().min(32, "CRON_SECRET must have at least 32 chars").optional())
+  CRON_SECRET: z.preprocess(emptyToUndefined, z.string().min(32, "CRON_SECRET must have at least 32 chars").optional()),
+
+  // Web Push (VAPID) — par de chaves usado pra assinar pushes no
+  // padrão da spec. Quando ausentes, o módulo de push fica em modo
+  // no-op (subscribe retorna 503, scheduler não dispara). Pra gerar
+  // localmente: `node -e "const w=require('web-push');console.log(w.generateVAPIDKeys())"`
+  // VAPID_SUBJECT precisa ser uma URL mailto:/https: que identifica
+  // o operador do serviço — APNS e FCM checam isso pra contato em caso
+  // de abuso.
+  VAPID_PUBLIC_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  VAPID_PRIVATE_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  VAPID_SUBJECT: z.preprocess(emptyToUndefined, z.string().optional())
 });
 
 const parsedEnv = envSchema.safeParse(process.env);
@@ -222,4 +233,8 @@ export const env = {
 
   openaiApiKey: data.OPENAI_API_KEY,
   openaiModel: data.OPENAI_MODEL ?? "gpt-4o-mini",
+
+  vapidPublicKey: data.VAPID_PUBLIC_KEY,
+  vapidPrivateKey: data.VAPID_PRIVATE_KEY,
+  vapidSubject: data.VAPID_SUBJECT
 };
