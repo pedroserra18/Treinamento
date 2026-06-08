@@ -23,10 +23,11 @@ import { ConfirmDialog } from '../../components/common/ConfirmDialog'
 // recebe o id via onRequestDelete pra centralizar o dialog (1 instância,
 // não 1 por linha).
 function PersonalizedExerciseRow({
-  option, selected, onToggleSelect, onRequestDelete,
+  option, selected, alreadyIn, onToggleSelect, onRequestDelete,
 }: {
   option: ExerciseOption
   selected: boolean
+  alreadyIn: boolean
   onToggleSelect: () => void
   onRequestDelete: () => void
 }) {
@@ -61,14 +62,19 @@ function PersonalizedExerciseRow({
             setRevealed(false)
             return
           }
+          if (alreadyIn) return
           onToggleSelect()
         }}
         style={{ touchAction: 'pan-y' }}
         className={`relative flex w-full items-center gap-3 bg-[var(--surface)] px-4 py-3 text-left transition-colors ${
-          selected ? 'bg-[var(--brand)]/8' : 'hover:bg-[var(--surface-hover)]'
+          alreadyIn
+            ? 'cursor-default opacity-60'
+            : selected
+              ? 'bg-[var(--brand)]/8'
+              : 'hover:bg-[var(--surface-hover)]'
         }`}
       >
-        {selected && (
+        {selected && !alreadyIn && (
           <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0 w-[3px] bg-[var(--brand)]" />
         )}
         <div className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full bg-white">
@@ -96,16 +102,25 @@ function PersonalizedExerciseRow({
           <Trash2 size={15} />
         </button>
 
-        <span
-          aria-label={selected ? 'Selecionado' : 'Selecionar'}
-          className={`grid h-7 w-7 shrink-0 place-items-center rounded-full transition-colors ${
-            selected
-              ? 'border-2 border-[var(--brand)] bg-[var(--brand)] text-white'
-              : 'border border-[var(--line)] text-[var(--muted)]'
-          }`}
-        >
-          {selected ? <Check size={14} strokeWidth={3} /> : null}
-        </span>
+        {alreadyIn ? (
+          <span
+            aria-label="Já no treino"
+            className="shrink-0 rounded-full border border-[var(--brand)]/40 bg-[var(--brand)]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--brand-strong)]"
+          >
+            No treino
+          </span>
+        ) : (
+          <span
+            aria-label={selected ? 'Selecionado' : 'Selecionar'}
+            className={`grid h-7 w-7 shrink-0 place-items-center rounded-full transition-colors ${
+              selected
+                ? 'border-2 border-[var(--brand)] bg-[var(--brand)] text-white'
+                : 'border border-[var(--line)] text-[var(--muted)]'
+            }`}
+          >
+            {selected ? <Check size={14} strokeWidth={3} /> : null}
+          </span>
+        )}
       </motion.div>
     </div>
   )
@@ -122,6 +137,7 @@ function PersonalizedExerciseRow({
 // rotina, nova rotina) pra UX uniforme em todo fluxo de adição.
 export function AddExerciseModal({
   open, onPickBatch, onCreateRequest, onClose, title = 'Adicionar Exercício',
+  currentExerciseIds = [],
 }: {
   open: boolean
   // Recebe TODOS os exercícios marcados de uma vez. O caller decide
@@ -131,6 +147,11 @@ export function AddExerciseModal({
   onCreateRequest: () => void
   onClose: () => void
   title?: string
+  // IDs dos exercícios que JÁ estão no treino/rotina sendo editado. Esses
+  // aparecem com badge "Já no treino" em vez do círculo de seleção e não
+  // podem ser marcados — evita o usuário tocar e levar um InfoDialog
+  // dizendo "já adicionado" depois.
+  currentExerciseIds?: string[]
 }) {
   const { authorizedFetch } = useAuth()
   useScrollLock(open)
@@ -153,6 +174,11 @@ export function AddExerciseModal({
   const [pendingDelete, setPendingDelete] = useState<ExerciseOption | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  // Set derivado dos IDs já no treino — usado pelos renderRow pra mostrar
+  // o badge "Já no treino" e bloquear seleção. Mantido como prop array
+  // (estável-friendly) e convertido aqui pra checagem O(1) no render.
+  const presentExerciseIds = useMemo(() => new Set(currentExerciseIds), [currentExerciseIds])
 
   const toggleSelected = useCallback((id: string) => {
     setSelectedIds((current) => {
@@ -240,19 +266,29 @@ export function AddExerciseModal({
   // 300ms tap delay do iOS Safari (zoom-on-double-tap heuristic) e dá
   // resposta instantânea pro tap. Quando marcada, mostra a barra brand
   // do lado esquerdo + check à direita pra deixar o estado óbvio.
+  // Se o exercício já está no treino/rotina sendo editado, vira read-only
+  // com badge "Já no treino" e tap desabilitado — evita o usuário tocar
+  // e ser respondido com um InfoDialog redundante de "duplicata".
   const renderRow = (option: ExerciseOption) => {
+    const alreadyIn = presentExerciseIds.has(option.id)
     const selected = selectedIds.has(option.id)
     return (
       <button
         key={option.id}
         type="button"
-        onClick={() => toggleSelected(option.id)}
+        onClick={() => { if (!alreadyIn) toggleSelected(option.id) }}
+        disabled={alreadyIn}
+        aria-disabled={alreadyIn}
         style={{ touchAction: 'manipulation' }}
         className={`relative flex w-full items-center gap-3 border-b border-[var(--line)] px-4 py-3 text-left transition-colors ${
-          selected ? 'bg-[var(--brand)]/8' : 'hover:bg-[var(--surface-hover)]'
+          alreadyIn
+            ? 'cursor-default opacity-60'
+            : selected
+              ? 'bg-[var(--brand)]/8'
+              : 'hover:bg-[var(--surface-hover)]'
         }`}
       >
-        {selected && (
+        {selected && !alreadyIn && (
           <span
             aria-hidden
             className="pointer-events-none absolute inset-y-0 left-0 w-[3px] bg-[var(--brand)]"
@@ -271,16 +307,25 @@ export function AddExerciseModal({
             <p className="truncate text-[12px] text-[var(--muted)]">{option.primaryMuscleGroup}</p>
           )}
         </div>
-        <span
-          aria-label={selected ? 'Selecionado' : 'Selecionar'}
-          className={`grid h-7 w-7 shrink-0 place-items-center rounded-full transition-colors ${
-            selected
-              ? 'border-2 border-[var(--brand)] bg-[var(--brand)] text-white'
-              : 'border border-[var(--line)] text-[var(--muted)]'
-          }`}
-        >
-          {selected ? <Check size={14} strokeWidth={3} /> : null}
-        </span>
+        {alreadyIn ? (
+          <span
+            aria-label="Já no treino"
+            className="shrink-0 rounded-full border border-[var(--brand)]/40 bg-[var(--brand)]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--brand-strong)]"
+          >
+            No treino
+          </span>
+        ) : (
+          <span
+            aria-label={selected ? 'Selecionado' : 'Selecionar'}
+            className={`grid h-7 w-7 shrink-0 place-items-center rounded-full transition-colors ${
+              selected
+                ? 'border-2 border-[var(--brand)] bg-[var(--brand)] text-white'
+                : 'border border-[var(--line)] text-[var(--muted)]'
+            }`}
+          >
+            {selected ? <Check size={14} strokeWidth={3} /> : null}
+          </span>
+        )}
       </button>
     )
   }
@@ -321,7 +366,15 @@ export function AddExerciseModal({
     if (selectedIds.size === 0) return
     const picked: ExerciseOption[] = []
     for (const ex of filtered) {
-      if (selectedIds.has(ex.id)) picked.push(ex)
+      // Defesa em profundidade: o render já bloqueia tap em alreadyIn,
+      // mas se algum item escapou (race com hidratação do treino, etc.)
+      // garantimos que o batch nunca repassa duplicata pro caller.
+      if (selectedIds.has(ex.id) && !presentExerciseIds.has(ex.id)) picked.push(ex)
+    }
+    if (picked.length === 0) {
+      setSelectedIds(new Set())
+      onClose()
+      return
     }
     onPickBatch(picked)
     setSelectedIds(new Set())
@@ -449,6 +502,7 @@ export function AddExerciseModal({
                           key={option.id}
                           option={option}
                           selected={selectedIds.has(option.id)}
+                          alreadyIn={presentExerciseIds.has(option.id)}
                           onToggleSelect={() => toggleSelected(option.id)}
                           onRequestDelete={() => {
                             setDeleteError(null)

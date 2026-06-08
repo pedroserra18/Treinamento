@@ -1489,6 +1489,9 @@ export function WorkoutsPage({
         <AddExerciseModal
           key={`add-${addExerciseTargetPlanId}`}
           open
+          currentExerciseIds={
+            plans.find((p) => p.id === addExerciseTargetPlanId)?.exercises.map((e) => e.exercise.id) ?? []
+          }
           onPickBatch={async (options) => {
             const targetPlan = plans.find((p) => p.id === addExerciseTargetPlanId)
             if (!targetPlan) return

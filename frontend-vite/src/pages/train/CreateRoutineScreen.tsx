@@ -360,6 +360,7 @@ export function CreateRoutineScreen({
       {addOpen && (
         <AddExerciseModal
           open
+          currentExerciseIds={exercises.map((e) => e.exerciseId)}
           onPickBatch={(opts) => handleAddBatch(opts)}
           onCreateRequest={() => {
             setAddOpen(false)

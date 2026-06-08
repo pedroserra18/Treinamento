@@ -2141,16 +2141,19 @@ export function TrainPage() {
     setActiveExercises((current) => current.filter((_, idx) => idx !== exerciseIndex))
   }
 
-  // Adiciona um exercício ao final do treino ativo. Reaproveitado tanto
-  // pelo AddExerciseModal novo quanto pelo explorer global legado (via
-  // evento de seleção). Bloqueia duplicata pra não criar exercício
-  // repetido no mesmo treino.
+  // Adiciona um exercício ao final do treino ativo. Pure — o updater
+  // não tem side effect além do return; a checagem de duplicata é
+  // feita só pra ser idempotente (StrictMode chama o updater 2x em dev
+  // e poderia adicionar 2 cópias). Os callers que precisam avisar o
+  // usuário sobre duplicatas fazem essa checagem ANTES de chamar (ex.:
+  // onPickBatch do AddExerciseModal mostra um InfoDialog agregado pros
+  // skipped). Aqui dentro o silêncio é proposital: o create-flow nunca
+  // tem duplicata real (id é fresco) e o explorer legado faz dedup no
+  // listener.
   const addExerciseToActiveWorkout = (payload: ExerciseOption) => {
     pushRecentExerciseId(payload.id)
-    let added = false
     setActiveExercises((current) => {
       if (current.some((ex) => ex.exerciseId === payload.id)) return current
-      added = true
       return [
         ...current,
         {
@@ -2176,12 +2179,6 @@ export function TrainPage() {
         },
       ]
     })
-    if (!added) {
-      setInfoDialog({
-        title: 'Exercício já no treino',
-        message: `${payload.name} já faz parte deste treino. Para evitar conflito, ele não foi adicionado novamente.`,
-      })
-    }
   }
 
   // Aplica a substituição de um exercício pelo ExerciseOption picado.
@@ -4232,6 +4229,7 @@ export function TrainPage() {
         {addExerciseOpen && (
           <AddExerciseModal
             open
+            currentExerciseIds={activeExercises.map((ex) => ex.exerciseId)}
             onPickBatch={(options) => {
               // Filtra duplicatas antes de chamar pra agregar o aviso
               // em um único diálogo (evita N popups).
