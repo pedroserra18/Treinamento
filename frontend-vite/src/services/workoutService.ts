@@ -354,6 +354,13 @@ export async function searchExercisesForPlan(
       rawTracking === 'TIME' || rawTracking === 'DISTANCE' || rawTracking === 'REPS_AND_TIME'
         ? rawTracking
         : 'REPS'
+    // Preserva o `scope` quando o backend manda — o AddExerciseModal
+    // usa ele pra agrupar a seção Personalizados. Backends antigos
+    // omitiam o campo; nesse caso fica undefined e o picker mostra
+    // tudo em "Todos os Exercícios" (degradação aceitável).
+    const rawScope = value.scope
+    const scope: ExerciseOption['scope'] =
+      rawScope === 'PRIVATE' || rawScope === 'GLOBAL' ? rawScope : undefined
     return {
       id: String(value.id ?? ''),
       name: String(value.name ?? ''),
@@ -365,6 +372,7 @@ export async function searchExercisesForPlan(
       trackingType,
       thumbnailUrl: normalizeMediaUrl(value.thumbnailUrl),
       videoUrl: normalizeMediaUrl(value.videoUrl),
+      scope,
     }
   }
 
@@ -872,6 +880,15 @@ export async function createCustomExercise(
   }
 
   const data = payload.data
+  const rawScope = data.scope
+  const scope: ExerciseOption['scope'] =
+    rawScope === 'PRIVATE' || rawScope === 'GLOBAL'
+      ? rawScope
+      // Backend sempre força scope=PRIVATE no POST /exercises, então
+      // mesmo que o body omita o campo, sabemos que é PRIVATE — assim
+      // o exercício aparece na seção Personalizados sem precisar de
+      // um round-trip pra refetch.
+      : 'PRIVATE'
   return {
     id: String(data.id ?? ''),
     name: String(data.name ?? ''),
@@ -883,6 +900,7 @@ export async function createCustomExercise(
     trackingType: (data.trackingType ?? 'REPS') as ExerciseOption['trackingType'],
     thumbnailUrl: typeof data.thumbnailUrl === 'string' ? data.thumbnailUrl : null,
     videoUrl: typeof data.videoUrl === 'string' ? data.videoUrl : null,
+    scope,
   }
 }
 
