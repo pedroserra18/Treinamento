@@ -50,9 +50,11 @@ function CompareOverlay({
       className="fixed inset-0 z-[9990] flex flex-col overflow-hidden bg-[var(--bg)]"
     >
       {/* Sticky header — small backdrop blur so the page underneath doesn't
-          bleed into the title once the user starts scrolling. */}
+          bleed into the title once the user starts scrolling. pt-safe-plus-3
+          empurra o conteúdo pra baixo do status bar no PWA iOS standalone
+          (status bar cobria o botão Voltar). */}
       <div className="sticky top-0 z-10 border-b border-[var(--line)] bg-[var(--surface)]/90 backdrop-blur-md">
-        <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-3 sm:px-6">
+        <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 pb-3 pt-safe-plus-3 sm:px-6">
           <button
             type="button"
             onClick={onClose}
