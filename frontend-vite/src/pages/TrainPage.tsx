@@ -37,6 +37,8 @@ import { CreateRoutineScreen } from './train/CreateRoutineScreen'
 import { InfoDialog } from '../components/common/InfoDialog'
 import { ConfirmDialog } from '../components/common/ConfirmDialog'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { usePushNotifications } from '../hooks/usePushNotifications'
+import { cancelBackendNotification, scheduleBackendNotification } from '../services/pushService'
 import { createPost, sharePlan, type PostPrivacy } from '../services/socialService'
 import { WorkoutsPage } from './WorkoutsPage'
 import { WorkoutRecommendationsPage } from './WorkoutRecommendationsPage'
@@ -1218,6 +1220,22 @@ export function TrainPage() {
   const interactionOrderByExerciseRef = useRef<Record<string, number>>({})
   const interactionOrderCounterRef = useRef(0)
 
+  // Push notifications — usado pra agendar "Descanso acabou" no backend
+  // quando o user inicia um descanso, pra a notificação chegar mesmo
+  // com o app em segundo plano (ex.: usuário scrollando Instagram).
+  // Quando o estado.subscribed === false, o effect de scheduling abaixo
+  // simplesmente não dispara (degradação graciosa — timer local segue
+  // funcionando enquanto a aba está viva).
+  const pushNotifications = usePushNotifications()
+  // scheduleId por exerciseId do treino ativo. Usado pra cancelar
+  // quando o user para o descanso manualmente (não cancela quando o
+  // timer zera naturalmente — nesse caso queremos que o push dispare).
+  const restScheduleByExerciseIdRef = useRef<Record<string, string>>({})
+  // Estado anterior pra detectar transições restRunning false→true e
+  // true→false sem precisar comparar com estado React (que pode ter
+  // mudado por motivos não relacionados ao timer).
+  const prevRestStateRef = useRef<Record<string, { running: boolean; remaining: number }>>({})
+
   // Histórico recente pra enriquecer os cards de rotina ("último treino:
   // há 3 dias · 1h05") e pra escolher qual rotina destacar no smart-CTA
   // da dashboard ("Iniciar [última rotina]"). Buscamos uma página de 50
@@ -1476,6 +1494,72 @@ export function TrainPage() {
 
     return () => window.clearInterval(id)
   }, [screen])
+
+  // Effect que reage a transições de restRunning por exercício e dispara
+  // schedule/cancel no backend. Só executa o trabalho de fato se o user
+  // optou-in (subscribed=true). Não é cleanup-heavy — só lê do ref de
+  // estado anterior e faz chamadas HTTP fire-and-forget.
+  //
+  // Regras:
+  //   • false → true: agenda push pra Date.now() + remaining*1000.
+  //   • true → false COM remaining > 0: usuário parou manualmente, cancela.
+  //   • true → false COM remaining <= 0: deixa rolar — push do backend
+  //     vai chegar (ou já chegou) por conta própria.
+  useEffect(() => {
+    if (!pushNotifications.state.subscribed) {
+      // Quando o user não está inscrito ou desativou, ainda manteremos
+      // o ref de prev sincronizado pra evitar disparar schedule em
+      // massa quando ele ativar (1 evento por exercício rodando).
+      const updated: typeof prevRestStateRef.current = {}
+      for (const ex of activeExercises) {
+        updated[ex.exerciseId] = { running: ex.restRunning, remaining: ex.restRemainingSec }
+      }
+      prevRestStateRef.current = updated
+      return
+    }
+
+    const updated: typeof prevRestStateRef.current = {}
+    for (const ex of activeExercises) {
+      const prev = prevRestStateRef.current[ex.exerciseId]
+      const now = { running: ex.restRunning, remaining: ex.restRemainingSec }
+      updated[ex.exerciseId] = now
+
+      if (!prev) continue
+
+      // Início do descanso → agenda no backend
+      if (!prev.running && now.running && now.remaining > 0) {
+        const fireAtMs = Date.now() + now.remaining * 1000
+        const fireAt = new Date(fireAtMs).toISOString()
+        const exerciseName = ex.exerciseName
+        const exerciseId = ex.exerciseId
+        void scheduleBackendNotification(authorizedFetch, {
+          fireAt,
+          title: 'Descanso acabou!',
+          body: `Volta pra ${exerciseName}`,
+          url: '/train',
+          tag: `rest-${exerciseId}`,
+        }).then(({ id }) => {
+          restScheduleByExerciseIdRef.current[exerciseId] = id
+        }).catch(() => { /* falha não bloqueia o timer local */ })
+      }
+
+      // Parada manual → cancela no backend (só se ainda havia tempo)
+      if (prev.running && !now.running && now.remaining > 0) {
+        const scheduleId = restScheduleByExerciseIdRef.current[ex.exerciseId]
+        if (scheduleId) {
+          void cancelBackendNotification(authorizedFetch, scheduleId).catch(() => { /* idem */ })
+          delete restScheduleByExerciseIdRef.current[ex.exerciseId]
+        }
+      }
+
+      // Conclusão natural — deixa o push do backend disparar; só limpa
+      // a referência local pra próxima rodada.
+      if (prev.running && !now.running && now.remaining <= 0) {
+        delete restScheduleByExerciseIdRef.current[ex.exerciseId]
+      }
+    }
+    prevRestStateRef.current = updated
+  }, [activeExercises, authorizedFetch, pushNotifications.state.subscribed])
 
   useEffect(() => {
     if (!restFinishedName) return

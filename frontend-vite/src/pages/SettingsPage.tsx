@@ -18,7 +18,7 @@ import {
 import { sanitiseHandleInput, validateHandle } from '../lib/handle'
 import {
   AtSign, Check, Download, Lock, LogOut, Moon, ShieldAlert, Sun,
-  AlertTriangle, LifeBuoy, ArrowLeft, Smartphone, Dumbbell, Trash2,
+  AlertTriangle, LifeBuoy, ArrowLeft, Smartphone, Dumbbell, Trash2, Bell,
 } from 'lucide-react'
 import { InstallAppPanel } from '../components/common/InstallAppPanel'
 import { ConfirmDialog } from '../components/common/ConfirmDialog'
@@ -29,6 +29,7 @@ import {
   type MyExerciseStats,
 } from '../services/workoutService'
 import type { ExerciseOption } from '../types/workout'
+import { usePushNotifications } from '../hooks/usePushNotifications'
 
 // ─── Sidebar config ────────────────────────────────────────────────────────
 
@@ -37,6 +38,7 @@ type Section =
   | 'account'
   | 'handle'
   | 'exercises'
+  | 'notifications'
   | 'privacy'
   | 'theme'
   | 'install'
@@ -60,6 +62,7 @@ const SECTIONS: SectionDef[] = [
   { id: 'account',   group: 'CONTA',         label: 'Conta',            icon: <Lock size={14} /> },
   { id: 'handle',    group: 'CONTA',         label: '@handle público',  icon: <AtSign size={14} /> },
   { id: 'exercises', group: 'CONTA',         label: 'Meus exercícios',  icon: <Dumbbell size={14} /> },
+  { id: 'notifications', group: 'PREFERÊNCIAS', label: 'Notificações',   icon: <Bell size={14} /> },
   { id: 'privacy',   group: 'PREFERÊNCIAS',  label: 'Privacidade',      icon: <ShieldAlert size={14} /> },
   { id: 'theme',     group: 'PREFERÊNCIAS',  label: 'Tema',             icon: <Moon size={14} /> },
   { id: 'install',   group: 'PREFERÊNCIAS',  label: 'Instalar app',     icon: <Smartphone size={14} /> },
@@ -269,6 +272,9 @@ export function SettingsPage() {
               )}
               {section === 'exercises' && (
                 <MyExercisesPanel authorizedFetch={authorizedFetch} />
+              )}
+              {section === 'notifications' && (
+                <NotificationsPanel />
               )}
               {section === 'privacy' && (
                 <PrivacyPanel
@@ -1626,6 +1632,104 @@ function MyExercisesPanel({
           setDeleteError(null)
         }}
       />
+    </div>
+  )
+}
+
+// ─── Notifications Panel ──────────────────────────────────────────────────
+// Controla o opt-in de push notifications. Mostra estado atual (suportado /
+// permitido / inscrito / backend configurado) com mensagens diretas pra o
+// usuário saber EXATAMENTE o que precisa fazer pra ativar. O hook
+// usePushNotifications cuida do fluxo de subscribe/unsubscribe; aqui só
+// renderizamos botão de ação contextual.
+function NotificationsPanel() {
+  const { state, enable, disable } = usePushNotifications()
+
+  const renderStatusPill = () => {
+    if (state.loading) {
+      return <span className="rounded-full bg-[var(--surface-hover)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">Verificando…</span>
+    }
+    if (!state.supported) {
+      return <span className="rounded-full bg-rose-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-500">Não suportado</span>
+    }
+    if (state.subscribed) {
+      return <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-500">Ativado</span>
+    }
+    return <span className="rounded-full bg-[var(--surface-hover)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">Desativado</span>
+  }
+
+  return (
+    <div className="space-y-4">
+      <header>
+        <h2 className="text-base font-bold text-[var(--text)]">Notificações</h2>
+        <p className="mt-1 text-[12px] leading-relaxed text-[var(--muted)]">
+          Receba avisos no celular quando o descanso entre séries terminar, mesmo com o app fechado.
+        </p>
+      </header>
+
+      <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-4">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Bell size={16} className="text-[var(--brand)]" />
+            <span className="text-[14px] font-bold text-[var(--text)]">Push notifications</span>
+          </div>
+          {renderStatusPill()}
+        </div>
+
+        <ul className="mt-3 space-y-1 text-[12px] text-[var(--muted)]">
+          <li className="flex items-center gap-1.5">
+            <span className={state.supported ? 'text-emerald-500' : 'text-rose-500'}>•</span>
+            Suporte do navegador: {state.supported ? 'OK' : 'Indisponível (use iOS 16.4+ ou Android com PWA instalada)'}
+          </li>
+          <li className="flex items-center gap-1.5">
+            <span className={state.permission === 'granted' ? 'text-emerald-500' : state.permission === 'denied' ? 'text-rose-500' : 'text-[var(--muted)]'}>•</span>
+            Permissão: {state.permission === 'granted' ? 'concedida' : state.permission === 'denied' ? 'negada (habilite nas configurações do navegador)' : 'ainda não solicitada'}
+          </li>
+          <li className="flex items-center gap-1.5">
+            <span className={state.backendConfigured ? 'text-emerald-500' : 'text-rose-500'}>•</span>
+            Servidor: {state.backendConfigured ? 'pronto' : 'não configurado (avise o admin)'}
+          </li>
+        </ul>
+
+        {state.error && (
+          <p className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-[11px] text-rose-500">
+            {state.error}
+          </p>
+        )}
+
+        <div className="mt-4 flex justify-end">
+          {state.subscribed ? (
+            <button
+              type="button"
+              onClick={() => void disable()}
+              disabled={state.loading}
+              className="rounded-lg border border-[var(--line)] px-4 py-2 text-[13px] font-semibold text-[var(--text)] transition-colors hover:bg-[var(--surface)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {state.loading ? 'Desativando…' : 'Desativar notificações'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void enable()}
+              disabled={state.loading || !state.supported || state.permission === 'denied' || !state.backendConfigured}
+              className="rounded-lg bg-[var(--brand)] px-4 py-2 text-[13px] font-bold text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {state.loading ? 'Carregando…' : 'Ativar notificações'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-dashed border-[var(--line)] p-4">
+        <p className="text-[12px] font-bold text-[var(--text)]">Como funciona</p>
+        <ul className="mt-2 space-y-1 text-[11px] leading-relaxed text-[var(--muted)]">
+          <li>• Cada vez que você marca uma série e o descanso começa, agendamos a notificação no servidor.</li>
+          <li>• Pode trocar de app, travar o celular ou fechar o navegador — quando o descanso acabar, chega notificação.</li>
+          <li>• Toque na notificação pra voltar direto pro treino.</li>
+          <li>• Quando você para o descanso no meio (ou pula a série), a notificação é cancelada automaticamente.</li>
+          <li>• <strong>iPhone</strong>: a notificação só funciona com o app instalado pela tela inicial (Compartilhar → Adicionar à Tela de Início) e iOS 16.4 ou mais novo.</li>
+        </ul>
+      </div>
     </div>
   )
 }
