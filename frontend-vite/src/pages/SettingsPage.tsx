@@ -18,9 +18,17 @@ import {
 import { sanitiseHandleInput, validateHandle } from '../lib/handle'
 import {
   AtSign, Check, Download, Lock, LogOut, Moon, ShieldAlert, Sun,
-  AlertTriangle, LifeBuoy, ArrowLeft, Smartphone,
+  AlertTriangle, LifeBuoy, ArrowLeft, Smartphone, Dumbbell, Trash2,
 } from 'lucide-react'
 import { InstallAppPanel } from '../components/common/InstallAppPanel'
+import { ConfirmDialog } from '../components/common/ConfirmDialog'
+import {
+  deletePrivateExercise,
+  getMyExerciseStats,
+  getMyPrivateExercises,
+  type MyExerciseStats,
+} from '../services/workoutService'
+import type { ExerciseOption } from '../types/workout'
 
 // ─── Sidebar config ────────────────────────────────────────────────────────
 
@@ -28,6 +36,7 @@ type Section =
   | 'profile'
   | 'account'
   | 'handle'
+  | 'exercises'
   | 'privacy'
   | 'theme'
   | 'install'
@@ -48,15 +57,16 @@ type SectionDef = {
 // botão "Editar perfil" na página de perfil. Mantê-lo como aba duplicaria a
 // função. O painel ainda renderiza via /settings?section=profile.
 const SECTIONS: SectionDef[] = [
-  { id: 'account',  group: 'CONTA',         label: 'Conta',            icon: <Lock size={14} /> },
-  { id: 'handle',   group: 'CONTA',         label: '@handle público',  icon: <AtSign size={14} /> },
-  { id: 'privacy',  group: 'PREFERÊNCIAS',  label: 'Privacidade',      icon: <ShieldAlert size={14} /> },
-  { id: 'theme',    group: 'PREFERÊNCIAS',  label: 'Tema',             icon: <Moon size={14} /> },
-  { id: 'install',  group: 'PREFERÊNCIAS',  label: 'Instalar app',     icon: <Smartphone size={14} /> },
-  { id: 'export',   group: 'PREFERÊNCIAS',  label: 'Exportar dados',   icon: <Download size={14} /> },
-  { id: 'support',  group: 'PREFERÊNCIAS',  label: 'Ajuda e suporte',  icon: <LifeBuoy size={14} /> },
-  { id: 'logout',   group: 'ZONA DE RISCO', label: 'Sair da conta',    icon: <LogOut size={14} /> },
-  { id: 'delete',   group: 'ZONA DE RISCO', label: 'Excluir conta',    icon: <AlertTriangle size={14} />, danger: true },
+  { id: 'account',   group: 'CONTA',         label: 'Conta',            icon: <Lock size={14} /> },
+  { id: 'handle',    group: 'CONTA',         label: '@handle público',  icon: <AtSign size={14} /> },
+  { id: 'exercises', group: 'CONTA',         label: 'Meus exercícios',  icon: <Dumbbell size={14} /> },
+  { id: 'privacy',   group: 'PREFERÊNCIAS',  label: 'Privacidade',      icon: <ShieldAlert size={14} /> },
+  { id: 'theme',     group: 'PREFERÊNCIAS',  label: 'Tema',             icon: <Moon size={14} /> },
+  { id: 'install',   group: 'PREFERÊNCIAS',  label: 'Instalar app',     icon: <Smartphone size={14} /> },
+  { id: 'export',    group: 'PREFERÊNCIAS',  label: 'Exportar dados',   icon: <Download size={14} /> },
+  { id: 'support',   group: 'PREFERÊNCIAS',  label: 'Ajuda e suporte',  icon: <LifeBuoy size={14} /> },
+  { id: 'logout',    group: 'ZONA DE RISCO', label: 'Sair da conta',    icon: <LogOut size={14} /> },
+  { id: 'delete',    group: 'ZONA DE RISCO', label: 'Excluir conta',    icon: <AlertTriangle size={14} />, danger: true },
 ]
 
 // ─── Page ─────────────────────────────────────────────────────────────────
@@ -256,6 +266,9 @@ export function SettingsPage() {
                   updateHandle={updateHandle}
                   onDirtyChange={setDirty}
                 />
+              )}
+              {section === 'exercises' && (
+                <MyExercisesPanel authorizedFetch={authorizedFetch} />
               )}
               {section === 'privacy' && (
                 <PrivacyPanel
@@ -1446,6 +1459,173 @@ function DeletePanel({
           {busy ? 'Excluindo…' : 'Excluir minha conta permanentemente'}
         </button>
       </div>
+    </div>
+  )
+}
+
+// ─── My Exercises Panel ───────────────────────────────────────────────────
+// Gerencia os exercícios PRIVATE criados pelo próprio usuário. Mostra o
+// contador X/Y do plano FREE, lista cada exercício com botão de excluir e
+// um ConfirmDialog destructive como guarda. Exclusão é soft-delete no
+// backend — preserva histórico de treinos antigos que usaram o exercício.
+function MyExercisesPanel({
+  authorizedFetch,
+}: {
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+}) {
+  const [items, setItems] = useState<ExerciseOption[] | null>(null)
+  const [stats, setStats] = useState<MyExerciseStats | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<ExerciseOption | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  // Carrega lista + stats em paralelo. Stats vem por endpoint dedicado
+  // (também usa o backend pra contar) pra ficar consistente com o que o
+  // CreateExerciseModal mostra — assim o usuário vê o mesmo "3/5 criados"
+  // nos dois lugares.
+  useEffect(() => {
+    let cancelled = false
+    void Promise.all([
+      getMyPrivateExercises(authorizedFetch),
+      getMyExerciseStats(authorizedFetch),
+    ])
+      .then(([rows, s]) => {
+        if (cancelled) return
+        setItems(rows)
+        setStats(s)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setError(err instanceof Error ? err.message : 'Falha ao carregar')
+      })
+    return () => { cancelled = true }
+  }, [authorizedFetch])
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return
+    const target = pendingDelete
+    setDeletingId(target.id)
+    setDeleteError(null)
+    try {
+      await deletePrivateExercise(authorizedFetch, target.id)
+      setItems((current) => (current ?? []).filter((ex) => ex.id !== target.id))
+      setStats((current) => (current ? { ...current, created: Math.max(0, current.created - 1) } : current))
+      setPendingDelete(null)
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Falha ao excluir')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  const counterLabel = stats && stats.limit !== null
+    ? `${stats.created}/${stats.limit} criados`
+    : stats ? `${stats.created} criados` : null
+  const atLimit = stats !== null && stats.limit !== null && stats.created >= stats.limit
+
+  return (
+    <div className="space-y-4">
+      <header>
+        <h2 className="text-base font-bold text-[var(--text)]">Meus exercícios</h2>
+        <p className="mt-1 text-[12px] leading-relaxed text-[var(--muted)]">
+          Exercícios que você criou no app. Apague aqui pra liberar espaço pro plano gratuito —
+          treinos e rotinas antigos que usam algum deles continuam funcionando.
+        </p>
+      </header>
+
+      {counterLabel && (
+        <div className="flex items-center justify-between rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-4 py-3">
+          <div>
+            <p className={`text-[14px] font-bold tabular-nums ${atLimit ? 'text-rose-500' : 'text-[var(--text)]'}`}>
+              {counterLabel}
+            </p>
+            <p className="mt-0.5 text-[11px] text-[var(--muted)]">
+              {atLimit
+                ? 'Limite do plano gratuito atingido. Em breve, plano Pro com criação ilimitada.'
+                : 'Plano gratuito permite até 5 exercícios personalizados.'}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <p className="rounded-xl border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-center text-[12px] text-rose-500">
+          {error}
+        </p>
+      )}
+
+      {items === null && !error && (
+        <p className="px-4 py-8 text-center text-[12px] text-[var(--muted)]">Carregando…</p>
+      )}
+
+      {items !== null && items.length === 0 && (
+        <div className="rounded-xl border border-dashed border-[var(--line)] px-4 py-8 text-center">
+          <Dumbbell size={28} className="mx-auto text-[var(--muted)]" />
+          <p className="mt-2 text-[13px] font-medium text-[var(--text)]">
+            Você ainda não criou nenhum exercício
+          </p>
+          <p className="mt-1 text-[11px] text-[var(--muted)]">
+            Crie exercícios personalizados pelo botão "Criar" dentro de "Adicionar Exercício" em qualquer treino.
+          </p>
+        </div>
+      )}
+
+      {items !== null && items.length > 0 && (
+        <ul className="overflow-hidden rounded-xl border border-[var(--line)]">
+          {items.map((option, idx) => (
+            <li
+              key={option.id}
+              className={`flex items-center gap-3 bg-[var(--surface)] px-3 py-3 ${
+                idx < items.length - 1 ? 'border-b border-[var(--line)]' : ''
+              }`}
+            >
+              <div className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-full bg-white">
+                {option.thumbnailUrl ? (
+                  <img src={option.thumbnailUrl} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <Dumbbell size={18} className="text-[var(--muted)]" />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[13px] font-medium text-[var(--text)]">{option.name}</p>
+                {option.primaryMuscleGroup && (
+                  <p className="truncate text-[11px] text-[var(--muted)]">
+                    {option.primaryMuscleGroup}{option.equipment ? ` • ${option.equipment}` : ''}
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => { setDeleteError(null); setPendingDelete(option) }}
+                aria-label={`Excluir ${option.name}`}
+                title="Excluir"
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-[var(--muted)] transition-colors hover:bg-rose-500/10 hover:text-rose-500"
+              >
+                <Trash2 size={16} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Excluir exercício?"
+        message={
+          deleteError
+            ? `Não foi possível excluir "${pendingDelete?.name ?? ''}": ${deleteError}`
+            : `"${pendingDelete?.name ?? ''}" será removido dos seus exercícios personalizados. Treinos e rotinas antigos que usam esse exercício continuam preservados.`
+        }
+        destructive
+        confirmLabel={deletingId !== null ? 'Excluindo…' : 'Excluir'}
+        onConfirm={() => { void confirmDelete() }}
+        onCancel={() => {
+          if (deletingId !== null) return
+          setPendingDelete(null)
+          setDeleteError(null)
+        }}
+      />
     </div>
   )
 }

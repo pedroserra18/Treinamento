@@ -932,6 +932,48 @@ export async function getMyExerciseStats(
   }
 }
 
+// Lista TODOS os exercícios PRIVATE (ativos) do próprio usuário. Usado
+// pela tela "Meus Exercícios" nas Configurações — separada da busca
+// genérica do picker porque o usuário ali quer gerenciar, não montar
+// treino. Retorna [] se ainda não criou nenhum.
+export async function getMyPrivateExercises(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+): Promise<ExerciseOption[]> {
+  const response = await authorizedFetch(`${API_URL}/exercises?scope=PRIVATE`)
+  const payload = await parsePayload<Array<Record<string, unknown>>>(response)
+
+  if (!response.ok || !payload.data) {
+    throw new ApiError(payload.errorMessage ?? 'Falha ao carregar seus exercícios', {
+      code: payload.errorCode,
+      status: response.status,
+    })
+  }
+
+  return payload.data.map((value) => {
+    const rawTracking = String(value.trackingType ?? 'REPS')
+    const trackingType: ExerciseOption['trackingType'] =
+      rawTracking === 'TIME' || rawTracking === 'DISTANCE' || rawTracking === 'REPS_AND_TIME'
+        ? rawTracking
+        : 'REPS'
+    const rawScope = value.scope
+    const scope: ExerciseOption['scope'] =
+      rawScope === 'PRIVATE' || rawScope === 'GLOBAL' ? rawScope : 'PRIVATE'
+    return {
+      id: String(value.id ?? ''),
+      name: String(value.name ?? ''),
+      primaryMuscleGroup: String(value.primaryMuscleGroup ?? ''),
+      difficulty: String(value.difficulty ?? ''),
+      equipment: String(value.equipment ?? ''),
+      isBodyweight: Boolean(value.isBodyweight),
+      allowsExtraLoad: Boolean(value.allowsExtraLoad),
+      trackingType,
+      thumbnailUrl: typeof value.thumbnailUrl === 'string' ? value.thumbnailUrl : null,
+      videoUrl: typeof value.videoUrl === 'string' ? value.videoUrl : null,
+      scope,
+    }
+  })
+}
+
 // Soft-delete de exercício PRIVATE. Backend responde 204 sem body.
 export async function deletePrivateExercise(
   authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,

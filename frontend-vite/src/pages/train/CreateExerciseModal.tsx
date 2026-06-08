@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ArrowLeft, Camera, Check } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
@@ -14,7 +15,7 @@ import {
 } from '../../services/workoutService'
 import { optimizeImageFileToDataUrl } from '../../lib/image-processing'
 import type { ExerciseOption } from '../../types/workout'
-import { InfoDialog } from '../../components/common/InfoDialog'
+import { ConfirmDialog } from '../../components/common/ConfirmDialog'
 
 // Tabela canônica de músculos suportados pelo backend (enum MuscleGroup
 // no Prisma). Labels em PT pro picker — backend recebe a chave em
@@ -174,6 +175,7 @@ export function CreateExerciseModal({
   onClose: () => void
 }) {
   const { authorizedFetch } = useAuth()
+  const navigate = useNavigate()
   useScrollLock(open)
 
   // Estado do formulário. Tudo string/null pra simplificar a validação.
@@ -483,14 +485,23 @@ export function CreateExerciseModal({
         onClose={() => setOpenPicker(null)}
       />
 
-      {/* Limite do tier free atingido. A mensagem antecipa o plano Pro
-          futuro sem prometer ETA. Fechar mantém o modal aberto pra o
-          usuário poder cancelar manualmente. */}
-      <InfoDialog
+      {/* Limite do tier free atingido. Mensagem antecipa o plano Pro
+          futuro (sem ETA) e oferece um caminho de ação claro: ir pra
+          "Meus Exercícios" nas Configurações pra apagar algum. ConfirmDialog
+          não-destructive (botão laranja brand) porque a CTA primária é
+          construtiva, não perigosa. */}
+      <ConfirmDialog
         open={limitDialogOpen}
         title="Limite de exercícios atingido"
-        message={`Você já criou ${stats?.limit ?? 5} exercícios personalizados, o teto do plano gratuito. Em breve haverá um plano Pro que remove esse limite. Por ora, apague algum exercício antigo no buscador pra liberar espaço.`}
-        onClose={() => setLimitDialogOpen(false)}
+        message={`Você já criou ${stats?.limit ?? 5} exercícios personalizados, o teto do plano gratuito. Em breve um plano Pro vai remover esse limite. Por enquanto, apague algum exercício antigo em "Meus Exercícios" pra liberar espaço.`}
+        confirmLabel="Gerenciar exercícios"
+        cancelLabel="Fechar"
+        onConfirm={() => {
+          setLimitDialogOpen(false)
+          onClose()
+          navigate('/settings?section=exercises')
+        }}
+        onCancel={() => setLimitDialogOpen(false)}
       />
     </>,
     document.body,
