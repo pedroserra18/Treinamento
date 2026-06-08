@@ -1,5 +1,12 @@
 import { Request, Response } from "express";
-import { createExercise, getExerciseById, listExercises, updateExercise } from "./exercise.service";
+import {
+  createExercise,
+  deletePrivateExercise,
+  getExerciseById,
+  getMyExerciseStats,
+  listExercises,
+  updateExercise
+} from "./exercise.service";
 import { CreateExerciseBody, ExerciseParams, ListExercisesQuery, UpdateExerciseBody } from "./exercise.schema";
 
 export async function listExercisesController(req: Request, res: Response): Promise<void> {
@@ -43,6 +50,31 @@ export async function createExerciseController(req: Request, res: Response): Pro
 
   res.status(201).json({
     data: exercise,
+    meta: {
+      requestId: req.context.requestId
+    }
+  });
+}
+
+export async function deleteExerciseController(req: Request, res: Response): Promise<void> {
+  const params = req.params as unknown as ExerciseParams;
+
+  await deletePrivateExercise(params.exerciseId, {
+    userId: req.context.userId,
+    userRole: req.context.userRole
+  });
+
+  res.status(204).end();
+}
+
+export async function getMyExerciseStatsController(req: Request, res: Response): Promise<void> {
+  const stats = await getMyExerciseStats({
+    userId: req.context.userId,
+    userRole: req.context.userRole
+  });
+
+  res.status(200).json({
+    data: stats,
     meta: {
       requestId: req.context.requestId
     }

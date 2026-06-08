@@ -1,12 +1,115 @@
 import { motion } from 'framer-motion'
 import { createPortal } from 'react-dom'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Search, Dumbbell, Check } from 'lucide-react'
+import { Search, Dumbbell, Check, Trash2 } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useScrollLock } from '../../hooks/useScrollLock'
 import { getRecentExerciseIds } from '../../lib/recent-exercises'
-import { searchExercisesForPlan } from '../../services/workoutService'
+import {
+  deletePrivateExercise,
+  searchExercisesForPlan,
+} from '../../services/workoutService'
 import type { ExerciseOption } from '../../types/workout'
+import { ConfirmDialog } from '../../components/common/ConfirmDialog'
+
+// Linha da seção Personalizados — espelha o markup de uma row normal,
+// mas adiciona affordances pra deletar o exercício personalizado:
+//   • Mobile: swipe pra esquerda revela um botão "Excluir" vermelho.
+//     Tap em qualquer parte do conteúdo enquanto revelado fecha sem
+//     deletar — UX iOS clássica.
+//   • Desktop: ícone Trash2 visível no canto direito, ao lado do círculo
+//     de seleção. Hover fica vermelho.
+// O delete real só dispara depois do ConfirmDialog destructive — o parent
+// recebe o id via onRequestDelete pra centralizar o dialog (1 instância,
+// não 1 por linha).
+function PersonalizedExerciseRow({
+  option, selected, onToggleSelect, onRequestDelete,
+}: {
+  option: ExerciseOption
+  selected: boolean
+  onToggleSelect: () => void
+  onRequestDelete: () => void
+}) {
+  const REVEAL_PX = 88
+  const [revealed, setRevealed] = useState(false)
+
+  return (
+    <div className="relative overflow-hidden border-b border-[var(--line)]">
+      <button
+        type="button"
+        onClick={() => { onRequestDelete(); setRevealed(false) }}
+        aria-label={`Excluir ${option.name}`}
+        style={{ width: `${REVEAL_PX}px`, touchAction: 'manipulation' }}
+        className="absolute inset-y-0 right-0 flex items-center justify-center bg-red-500 text-[13px] font-bold text-white transition-colors hover:bg-red-600 sm:hidden"
+      >
+        Excluir
+      </button>
+
+      <motion.div
+        drag="x"
+        dragConstraints={{ left: -REVEAL_PX, right: 0 }}
+        dragElastic={0.12}
+        dragMomentum={false}
+        animate={{ x: revealed ? -REVEAL_PX : 0 }}
+        transition={{ type: 'spring', stiffness: 360, damping: 32 }}
+        onDragEnd={(_, info) => {
+          const shouldReveal = info.offset.x < -REVEAL_PX / 2 || info.velocity.x < -300
+          setRevealed(shouldReveal)
+        }}
+        onClick={() => {
+          if (revealed) {
+            setRevealed(false)
+            return
+          }
+          onToggleSelect()
+        }}
+        style={{ touchAction: 'pan-y' }}
+        className={`relative flex w-full items-center gap-3 bg-[var(--surface)] px-4 py-3 text-left transition-colors ${
+          selected ? 'bg-[var(--brand)]/8' : 'hover:bg-[var(--surface-hover)]'
+        }`}
+      >
+        {selected && (
+          <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0 w-[3px] bg-[var(--brand)]" />
+        )}
+        <div className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-full bg-white">
+          {option.thumbnailUrl ? (
+            <img src={option.thumbnailUrl} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <Dumbbell size={20} className="text-[var(--muted)]" />
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[14px] font-medium text-[var(--text)]">{option.name}</p>
+          {option.primaryMuscleGroup && (
+            <p className="truncate text-[12px] text-[var(--muted)]">{option.primaryMuscleGroup}</p>
+          )}
+        </div>
+
+        {/* Trash2 só em desktop — em mobile o swipe cobre essa função. */}
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onRequestDelete() }}
+          aria-label={`Excluir ${option.name}`}
+          title="Excluir exercício"
+          className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--muted)] transition-colors hover:bg-red-500/10 hover:text-red-500 sm:inline-flex"
+        >
+          <Trash2 size={15} />
+        </button>
+
+        <span
+          aria-label={selected ? 'Selecionado' : 'Selecionar'}
+          className={`grid h-7 w-7 shrink-0 place-items-center rounded-full transition-colors ${
+            selected
+              ? 'border-2 border-[var(--brand)] bg-[var(--brand)] text-white'
+              : 'border border-[var(--line)] text-[var(--muted)]'
+          }`}
+        >
+          {selected ? <Check size={14} strokeWidth={3} /> : null}
+        </span>
+      </motion.div>
+    </div>
+  )
+}
 
 // Modal full-screen pra adicionar UM OU MAIS exercícios de uma vez
 // (estilo Hevy). Tap em uma row marca/desmarca; botão sticky no rodapé
@@ -44,6 +147,12 @@ export function AddExerciseModal({
   // natural; o array final pra onPickBatch preserva a ordem do catálogo
   // filtrado pra o resultado ser previsível.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
+  // Estado pro fluxo de delete dos personalizados: pendingDelete guarda
+  // o exercício alvo enquanto o ConfirmDialog está aberto; deletingId
+  // bloqueia cliques durante o request HTTP.
+  const [pendingDelete, setPendingDelete] = useState<ExerciseOption | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const toggleSelected = useCallback((id: string) => {
     setSelectedIds((current) => {
@@ -176,6 +285,34 @@ export function AddExerciseModal({
     )
   }
 
+  // Confirma o delete do exercício personalizado. Atualiza otimisticamente
+  // o catálogo local (remoção da lista) + tira da seleção se estava marcado.
+  // Se o backend retornar erro (403/404/500), reverte a UI mostrando a
+  // mensagem em deleteError — o fetch original era visual, então recolocar
+  // o item no estado seria caro/raro; preferimos sinalizar e deixar o user
+  // tentar de novo.
+  const confirmDelete = async () => {
+    if (!pendingDelete) return
+    const target = pendingDelete
+    setDeletingId(target.id)
+    setDeleteError(null)
+    try {
+      await deletePrivateExercise(authorizedFetch, target.id)
+      setCatalog((current) => current.filter((ex) => ex.id !== target.id))
+      setSelectedIds((current) => {
+        if (!current.has(target.id)) return current
+        const next = new Set(current)
+        next.delete(target.id)
+        return next
+      })
+      setPendingDelete(null)
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Falha ao excluir exercício')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   // Confirma todas as marcações: resolve os Sets em uma lista ordenada
   // pela ordem do catálogo filtrado (estável e previsível) e dispara
   // o batch handler. Limpa seleção antes de fechar pra próxima abertura
@@ -192,6 +329,7 @@ export function AddExerciseModal({
   }
 
   return createPortal(
+    <>
     <motion.div
       key="add-modal"
       initial={{ opacity: 0 }}
@@ -299,13 +437,25 @@ export function AddExerciseModal({
 
                   {/* Seção 2 — Personalizados (scope=PRIVATE), excluindo
                       o que já apareceu em Recentes. Mesmo critério: só
-                      aparece se tem item. */}
+                      aparece se tem item. Cada row tem affordance pra
+                      deletar (swipe no mobile, ícone Trash no desktop). */}
                   {personalized.length > 0 && (
                     <section>
                       <h3 className="bg-[var(--surface-hover)] px-4 py-2 text-[12px] font-bold uppercase tracking-wider text-[var(--muted)]">
                         Exercícios Personalizados
                       </h3>
-                      {personalized.map(renderRow)}
+                      {personalized.map((option) => (
+                        <PersonalizedExerciseRow
+                          key={option.id}
+                          option={option}
+                          selected={selectedIds.has(option.id)}
+                          onToggleSelect={() => toggleSelected(option.id)}
+                          onRequestDelete={() => {
+                            setDeleteError(null)
+                            setPendingDelete(option)
+                          }}
+                        />
+                      ))}
                     </section>
                   )}
 
@@ -359,7 +509,30 @@ export function AddExerciseModal({
           </motion.div>
         )}
       </motion.div>
-    </motion.div>,
+    </motion.div>
+
+    {/* Confirm dialog do delete de personalizado — z-index do componente
+        já é maior que o do modal (z-[90] vs z-[80]). deleteError aparece
+        dentro da própria mensagem caso o request falhe; após sucesso, o
+        próprio dialog é fechado via setPendingDelete(null). */}
+    <ConfirmDialog
+      open={pendingDelete !== null}
+      title="Excluir exercício?"
+      message={
+        deleteError
+          ? `Não foi possível excluir "${pendingDelete?.name ?? ''}": ${deleteError}`
+          : `"${pendingDelete?.name ?? ''}" será removido dos seus exercícios personalizados. Treinos e rotinas antigos que usam esse exercício continuam preservados.`
+      }
+      destructive
+      confirmLabel={deletingId !== null ? 'Excluindo…' : 'Excluir'}
+      onConfirm={() => { void confirmDelete() }}
+      onCancel={() => {
+        if (deletingId !== null) return
+        setPendingDelete(null)
+        setDeleteError(null)
+      }}
+    />
+    </>,
     document.body,
   )
 }

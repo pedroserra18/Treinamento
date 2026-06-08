@@ -8,6 +8,22 @@ type RequestUser = {
   userRole: "USER" | "COACH" | "ADMIN";
 };
 
+// Limite de exercícios PRIVATE (criados pelo usuário) no plano FREE.
+// Quando o usuário tem 5 exercícios ativos próprios, o create retorna
+// 402 Payment Required com code EXERCISE_LIMIT_REACHED — o frontend
+// exibe um InfoDialog explicando o plano Pro futuro.
+//
+// Quando implementarmos o plano pago, basta checar `user.plan === 'PRO'`
+// no resolveExerciseLimit() antes do throw — a constante segue valendo
+// como teto do tier FREE.
+export const MAX_PRIVATE_EXERCISES_FREE = 5;
+
+function resolveExerciseLimit(_user: RequestUser): number | null {
+  // Hook pro futuro: quando houver `user.plan === 'PRO'`, retornar null
+  // (unlimited). Hoje todos caem no teto FREE.
+  return MAX_PRIVATE_EXERCISES_FREE;
+}
+
 function buildScopeCondition(
   scope: ListExercisesQuery["scope"],
   user: RequestUser
@@ -107,6 +123,27 @@ export async function createExercise(input: CreateExerciseBody, user: RequestUse
     throw new AppError("Não autorizado", { statusCode: 401, code: "UNAUTHORIZED" });
   }
 
+  const limit = resolveExerciseLimit(user);
+  if (limit !== null) {
+    const activeCount = await prisma.exercise.count({
+      where: {
+        scope: "PRIVATE",
+        ownerUserId: user.userId,
+        isActive: true
+      }
+    });
+    if (activeCount >= limit) {
+      throw new AppError(
+        `Você atingiu o limite de ${limit} exercícios personalizados do plano gratuito.`,
+        {
+          statusCode: 402,
+          code: "EXERCISE_LIMIT_REACHED",
+          details: { created: activeCount, limit, plan: "FREE" }
+        }
+      );
+    }
+  }
+
   const baseSlug = input.name
     .toLowerCase()
     .normalize("NFD")
@@ -137,6 +174,64 @@ export async function createExercise(input: CreateExerciseBody, user: RequestUse
   });
 
   return exercise;
+}
+
+// Soft-delete: zera isActive em vez de remover. WorkoutPlanExercise e
+// WorkoutSession têm onDelete: Restrict apontando pra Exercise — apagar
+// de verdade quebraria histórico de planos e sessões antigas. O scope
+// PRIVATE + ownerUserId garante que o usuário só apaga seus próprios.
+export async function deletePrivateExercise(exerciseId: string, user: RequestUser) {
+  if (!user.userId) {
+    throw new AppError("Não autorizado", { statusCode: 401, code: "UNAUTHORIZED" });
+  }
+
+  const exercise = await prisma.exercise.findUnique({
+    where: { id: exerciseId },
+    select: { id: true, scope: true, ownerUserId: true, isActive: true }
+  });
+
+  if (!exercise || !exercise.isActive) {
+    throw new AppError("Exercise not found", {
+      statusCode: 404,
+      code: "EXERCISE_NOT_FOUND"
+    });
+  }
+
+  if (exercise.scope !== "PRIVATE" || exercise.ownerUserId !== user.userId) {
+    throw new AppError("Você só pode apagar exercícios criados por você.", {
+      statusCode: 403,
+      code: "FORBIDDEN"
+    });
+  }
+
+  await prisma.exercise.update({
+    where: { id: exerciseId },
+    data: { isActive: false }
+  });
+}
+
+// Estatísticas usadas pelo CreateExerciseModal pra renderizar o contador
+// "X/5 criados". Retorna o estado atual + plano (FREE hoje, PRO no futuro).
+export async function getMyExerciseStats(user: RequestUser) {
+  if (!user.userId) {
+    throw new AppError("Não autorizado", { statusCode: 401, code: "UNAUTHORIZED" });
+  }
+
+  const created = await prisma.exercise.count({
+    where: {
+      scope: "PRIVATE",
+      ownerUserId: user.userId,
+      isActive: true
+    }
+  });
+
+  const limit = resolveExerciseLimit(user);
+
+  return {
+    created,
+    limit,
+    plan: "FREE" as const
+  };
 }
 
 export async function updateExercise(exerciseId: string, input: UpdateExerciseBody) {

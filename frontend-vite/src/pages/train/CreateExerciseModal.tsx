@@ -5,12 +5,16 @@ import { ArrowLeft, Camera, Check } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useScrollLock } from '../../hooks/useScrollLock'
 import {
+  ApiError,
   createCustomExercise,
+  getMyExerciseStats,
   uploadExercisePhoto,
   type CreateExerciseInput,
+  type MyExerciseStats,
 } from '../../services/workoutService'
 import { optimizeImageFileToDataUrl } from '../../lib/image-processing'
 import type { ExerciseOption } from '../../types/workout'
+import { InfoDialog } from '../../components/common/InfoDialog'
 
 // Tabela canônica de músculos suportados pelo backend (enum MuscleGroup
 // no Prisma). Labels em PT pro picker — backend recebe a chave em
@@ -182,6 +186,11 @@ export function CreateExerciseModal({
   const [openPicker, setOpenPicker] = useState<null | 'equipment' | 'primary' | 'secondary' | 'tracking'>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Stats do tier: pra renderizar o contador "X/5 criados" no header e
+  // pra antecipar o aviso de limite caso o usuário já esteja no teto antes
+  // mesmo de clicar em Salvar. Carregadas no open.
+  const [stats, setStats] = useState<MyExerciseStats | null>(null)
+  const [limitDialogOpen, setLimitDialogOpen] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -189,6 +198,22 @@ export function CreateExerciseModal({
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [open, onClose])
+
+  // Carrega stats ao abrir. Erros aqui são silenciosos — se o backend
+  // falhar, o contador não aparece e a validação real continua no POST.
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const s = await getMyExerciseStats(authorizedFetch)
+        if (!cancelled) setStats(s)
+      } catch {
+        if (!cancelled) setStats(null)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [open, authorizedFetch])
 
   if (!open) return null
 
@@ -207,7 +232,11 @@ export function CreateExerciseModal({
     }
   }
 
-  const canSave = name.trim().length >= 2 && equipment && primaryMuscle && !saving
+  // Bloqueia o Salvar quando já está no teto — evita o usuário clicar,
+  // esperar o upload da foto e só então descobrir que vai falhar.
+  const atLimit = stats !== null && stats.limit !== null && stats.created >= stats.limit
+  const counterLabel = stats !== null && stats.limit !== null ? `${stats.created}/${stats.limit}` : null
+  const canSave = name.trim().length >= 2 && equipment && primaryMuscle && !saving && !atLimit
 
   const handleSave = async () => {
     if (!canSave || !equipment || !primaryMuscle) return
@@ -233,7 +262,15 @@ export function CreateExerciseModal({
       onCreated(created)
       onClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao salvar')
+      // Limite do tier free: levanta um InfoDialog explicativo em vez
+      // de empilhar a mensagem vermelha no rodapé — a CTA "Entendi"
+      // fecha o aviso mas mantém o modal aberto pra o usuário rever
+      // ou cancelar manualmente.
+      if (err instanceof ApiError && err.code === 'EXERCISE_LIMIT_REACHED') {
+        setLimitDialogOpen(true)
+      } else {
+        setError(err instanceof Error ? err.message : 'Falha ao salvar')
+      }
     } finally {
       setSaving(false)
     }
@@ -277,11 +314,28 @@ export function CreateExerciseModal({
             >
               <ArrowLeft size={18} />
             </button>
-            <h2 className="text-[14px] font-bold text-[var(--text)]">Criar Exercício</h2>
+            <div className="flex min-w-0 flex-col items-center">
+              <h2 className="text-[14px] font-bold text-[var(--text)]">Criar Exercício</h2>
+              {counterLabel && (
+                <span
+                  className={`mt-0.5 text-[11px] font-semibold tabular-nums ${
+                    atLimit ? 'text-rose-500' : 'text-[var(--muted)]'
+                  }`}
+                >
+                  {counterLabel} criados
+                </span>
+              )}
+            </div>
             <button
               type="button"
-              onClick={() => void handleSave()}
-              disabled={!canSave}
+              onClick={() => {
+                if (atLimit) {
+                  setLimitDialogOpen(true)
+                  return
+                }
+                void handleSave()
+              }}
+              disabled={!canSave && !atLimit}
               className="rounded-lg bg-[var(--brand)] px-3 py-1.5 text-[13px] font-bold text-white shadow-[0_4px_10px_-4px_rgba(255,90,60,0.55)] hover:bg-[var(--brand-strong)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving ? 'Salvando…' : 'Salvar'}
@@ -427,6 +481,16 @@ export function CreateExerciseModal({
         currentValue={trackingType}
         onPick={(value) => value && setTrackingType(value as typeof trackingType)}
         onClose={() => setOpenPicker(null)}
+      />
+
+      {/* Limite do tier free atingido. A mensagem antecipa o plano Pro
+          futuro sem prometer ETA. Fechar mantém o modal aberto pra o
+          usuário poder cancelar manualmente. */}
+      <InfoDialog
+        open={limitDialogOpen}
+        title="Limite de exercícios atingido"
+        message={`Você já criou ${stats?.limit ?? 5} exercícios personalizados, o teto do plano gratuito. Em breve haverá um plano Pro que remove esse limite. Por ora, apague algum exercício antigo no buscador pra liberar espaço.`}
+        onClose={() => setLimitDialogOpen(false)}
       />
     </>,
     document.body,

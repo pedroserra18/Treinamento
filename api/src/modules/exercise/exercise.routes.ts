@@ -11,7 +11,9 @@ import {
 } from "./exercise.schema";
 import {
   createExerciseController,
+  deleteExerciseController,
   getExerciseByIdController,
+  getMyExerciseStatsController,
   listExercisesController,
   updateExerciseController
 } from "./exercise.controller";
@@ -22,6 +24,15 @@ router.get(
   "/exercises",
   validateRequest({ query: listExercisesQuerySchema }),
   asyncHandler(async (req, res) => listExercisesController(req, res))
+);
+
+// Estatísticas dos exercícios PRIVATE do próprio usuário — usado pelo
+// CreateExerciseModal pra renderizar o contador "X/5 criados". Vem antes
+// de /:exerciseId pra não casar com a rota dinâmica.
+router.get(
+  "/exercises/me/stats",
+  requireAuth,
+  asyncHandler(async (req, res) => getMyExerciseStatsController(req, res))
 );
 
 router.get(
@@ -45,6 +56,15 @@ router.patch(
   requireAdminRole,
   validateRequest({ params: exerciseParamsSchema, body: updateExerciseBodySchema }),
   asyncHandler(async (req, res) => updateExerciseController(req, res))
+);
+
+// Soft-delete de exercício PRIVATE — o service valida owner + scope, então
+// chamadas em exercícios GLOBAL ou de outro usuário retornam 403/404.
+router.delete(
+  "/exercises/:exerciseId",
+  requireAuth,
+  validateRequest({ params: exerciseParamsSchema }),
+  asyncHandler(async (req, res) => deleteExerciseController(req, res))
 );
 
 export default router;

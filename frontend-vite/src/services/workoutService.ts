@@ -112,14 +112,34 @@ async function getLatestExercisePerformanceFallback(
   }
 }
 
-async function parsePayload<T>(response: Response): Promise<{ data?: T; errorMessage?: string }> {
+async function parsePayload<T>(
+  response: Response,
+): Promise<{ data?: T; errorMessage?: string; errorCode?: string; errorDetails?: unknown }> {
   const payload = (await response.json().catch(() => null)) as
-    | { data?: T; error?: { message?: string } }
+    | { data?: T; error?: { message?: string; code?: string; details?: unknown } }
     | null
 
   return {
     data: payload?.data,
     errorMessage: payload?.error?.message,
+    errorCode: payload?.error?.code,
+    errorDetails: payload?.error?.details,
+  }
+}
+
+// Erro de domínio que preserva o `code` retornado pelo backend (ex.:
+// EXERCISE_LIMIT_REACHED). O caller verifica `err.code` pra decidir
+// se renderiza um InfoDialog específico ou só mostra a mensagem padrão.
+export class ApiError extends Error {
+  code?: string
+  details?: unknown
+  status: number
+  constructor(message: string, opts?: { code?: string; details?: unknown; status?: number }) {
+    super(message)
+    this.name = 'ApiError'
+    this.code = opts?.code
+    this.details = opts?.details
+    this.status = opts?.status ?? 0
   }
 }
 
@@ -844,7 +864,11 @@ export async function createCustomExercise(
   const payload = await parsePayload<Record<string, unknown>>(response)
 
   if (!response.ok || !payload.data) {
-    throw new Error(payload.errorMessage ?? 'Falha ao criar exercício')
+    throw new ApiError(payload.errorMessage ?? 'Falha ao criar exercício', {
+      code: payload.errorCode,
+      details: payload.errorDetails,
+      status: response.status,
+    })
   }
 
   const data = payload.data
@@ -859,6 +883,52 @@ export async function createCustomExercise(
     trackingType: (data.trackingType ?? 'REPS') as ExerciseOption['trackingType'],
     thumbnailUrl: typeof data.thumbnailUrl === 'string' ? data.thumbnailUrl : null,
     videoUrl: typeof data.videoUrl === 'string' ? data.videoUrl : null,
+  }
+}
+
+// Estatísticas do user pra o CreateExerciseModal: created/limit/plan.
+// limit=null indica plano ilimitado (futuro PRO).
+export type MyExerciseStats = {
+  created: number
+  limit: number | null
+  plan: 'FREE' | 'PRO'
+}
+
+export async function getMyExerciseStats(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+): Promise<MyExerciseStats> {
+  const response = await authorizedFetch(`${API_URL}/exercises/me/stats`)
+  const payload = await parsePayload<MyExerciseStats>(response)
+
+  if (!response.ok || !payload.data) {
+    throw new ApiError(payload.errorMessage ?? 'Falha ao carregar estatísticas', {
+      code: payload.errorCode,
+      status: response.status,
+    })
+  }
+
+  return {
+    created: Number(payload.data.created ?? 0),
+    limit: payload.data.limit === null ? null : Number(payload.data.limit ?? 0),
+    plan: (payload.data.plan ?? 'FREE') as MyExerciseStats['plan'],
+  }
+}
+
+// Soft-delete de exercício PRIVATE. Backend responde 204 sem body.
+export async function deletePrivateExercise(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  exerciseId: string,
+): Promise<void> {
+  const response = await authorizedFetch(`${API_URL}/exercises/${exerciseId}`, {
+    method: 'DELETE',
+  })
+
+  if (!response.ok && response.status !== 204) {
+    const payload = await parsePayload<unknown>(response)
+    throw new ApiError(payload.errorMessage ?? 'Falha ao excluir exercício', {
+      code: payload.errorCode,
+      status: response.status,
+    })
   }
 }
 
