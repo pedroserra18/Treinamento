@@ -1,7 +1,7 @@
 import { prisma } from "../../config/prisma";
 import { AppError } from "../../shared/errors/app-error";
 import { CreatePostBody } from "./social.schema";
-import { createNotification } from "../notification/notification.service";
+import { createNotification, notifyUser } from "../notification/notification.service";
 
 const POST_SELECT = {
   id: true,
@@ -345,6 +345,27 @@ export async function toggleLike(userId: string, postId: string) {
     prisma.postLike.create({ data: { postId, userId } }),
     prisma.workoutPost.update({ where: { id: postId }, data: { likesCount: { increment: 1 } } }),
   ]);
+
+  // Notifica o autor — pula se for o próprio user curtindo o próprio post.
+  // Best-effort: erros aqui não fazem o like falhar (already curtido no DB).
+  if (post.userId !== userId) {
+    const liker = await prisma.user.findUnique({ where: { id: userId }, select: { name: true, handle: true } });
+    const likerLabel = liker?.name?.split(" ")[0] || (liker?.handle ? `@${liker.handle}` : "Alguém");
+    await notifyUser({
+      userId: post.userId,
+      type: "POST_LIKE",
+      title: "Curtiram seu post",
+      body: `${likerLabel} curtiu seu treino`,
+      metadata: { postId, likerUserId: userId },
+      // Deep link pro feed — não temos rota pra post individual ainda,
+      // /feed leva o user pra ver tudo.
+      url: "/feed",
+      // Mesma tag por post coalesce múltiplos likes recentes em uma
+      // notificação visual (mais N curtidas em vez de 10 banners).
+      tag: `like-${postId}`
+    });
+  }
+
   return { liked: true };
 }
 
@@ -429,11 +450,30 @@ export async function followUser(followerId: string, followingId: string) {
   const target = await prisma.user.findUnique({ where: { id: followingId, isDeleted: false }, select: { id: true } });
   if (!target) throw new AppError("Usuário não encontrado", { statusCode: 404, code: "USER_NOT_FOUND" });
 
-  await prisma.follow.upsert({
+  // Detecta se é primeiro follow vs re-follow pra não spammar quando o
+  // usuário fica re-clicando. upsert.create rola só quando a row nasce.
+  const result = await prisma.follow.upsert({
     where: { followerId_followingId: { followerId, followingId } },
     create: { followerId, followingId },
     update: {},
   });
+
+  // Heurística simples — só notifica se a row foi recém-criada (createdAt
+  // dentro dos últimos 5s). Re-follow é no-op de notificação.
+  const wasJustCreated = Date.now() - result.createdAt.getTime() < 5000;
+  if (wasJustCreated) {
+    const follower = await prisma.user.findUnique({ where: { id: followerId }, select: { name: true, handle: true } });
+    const followerLabel = follower?.name?.split(" ")[0] || (follower?.handle ? `@${follower.handle}` : "Alguém");
+    await notifyUser({
+      userId: followingId,
+      type: "USER_FOLLOWED",
+      title: "Novo seguidor",
+      body: `${followerLabel} começou a te seguir`,
+      metadata: { followerUserId: followerId },
+      url: `/u/${followerId}`,
+      tag: `follow-${followerId}`
+    });
+  }
 }
 
 export async function unfollowUser(followerId: string, followingId: string) {
@@ -825,14 +865,18 @@ export async function createComment(userId: string, postId: string, content: str
 
   // Notify the post owner (skip self-comments to avoid noise).
   if (post.userId !== userId) {
-    const author = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
-    await createNotification({
+    const commenter = await prisma.user.findUnique({ where: { id: userId }, select: { name: true, handle: true } });
+    const commenterLabel = commenter?.name?.split(" ")[0] || (commenter?.handle ? `@${commenter.handle}` : "Alguém");
+    const preview = content.length > 80 ? `${content.slice(0, 77)}...` : content;
+    await notifyUser({
       userId: post.userId,
       type: "POST_COMMENT",
-      title: "Novo comentário",
-      body: `${author?.name ?? "Alguém"} comentou no seu post.`,
+      title: `${commenterLabel} comentou no seu post`,
+      body: preview,
       metadata: { postId, commentId: created.id },
-    }).catch(() => undefined);
+      url: "/feed",
+      tag: `comment-${postId}`
+    });
   }
 
   return created;

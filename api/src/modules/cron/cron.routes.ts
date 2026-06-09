@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { asyncHandler } from "../../shared/utils/async-handler";
 import { logger } from "../../config/logger";
-import { runCompetitionReconcile } from "../competition/competition.service";
+import { notifyCompetitionsEndingSoon, runCompetitionReconcile } from "../competition/competition.service";
 import { processDuePendingNotifications, pruneOldScheduledNotifications } from "../push/push.service";
+import { runEngagementCron } from "../engagement/engagement.service";
 import { requireCronSecret } from "./cron.middleware";
 
 const router = Router();
@@ -84,6 +85,51 @@ router.post(
     });
     res.status(200).json({
       data: { deleted, durationMs },
+      meta: { requestId: req.context?.requestId }
+    });
+  })
+);
+
+// POST /cron/competitions-ending-soon — checa competições ACTIVE que
+// vão acabar nas próximas 2h e dispara push pros membros que ainda
+// não foram avisados. Idempotente (skip de quem já tem notification do
+// tipo). Agende a cada 30-60 min via cron-job.org.
+router.post(
+  "/cron/competitions-ending-soon",
+  requireCronSecret,
+  asyncHandler(async (req, res) => {
+    const startedAt = Date.now();
+    const result = await notifyCompetitionsEndingSoon();
+    const durationMs = Date.now() - startedAt;
+    logger.info("cron_competitions_ending_soon_done", {
+      requestId: req.context?.requestId,
+      ...result,
+      durationMs
+    });
+    res.status(200).json({
+      data: { ...result, durationMs },
+      meta: { requestId: req.context?.requestId }
+    });
+  })
+);
+
+// POST /cron/engagement — composto: streak-at-risk + inactive + weekly-recap
+// (só dom) + anniversary. Roda 1-2x por dia (idealmente de manhã, ~9h local
+// do user). Throttles internos garantem idempotência se chamar várias vezes.
+router.post(
+  "/cron/engagement",
+  requireCronSecret,
+  asyncHandler(async (req, res) => {
+    const startedAt = Date.now();
+    const result = await runEngagementCron();
+    const durationMs = Date.now() - startedAt;
+    logger.info("cron_engagement_done", {
+      requestId: req.context?.requestId,
+      ...result,
+      durationMs
+    });
+    res.status(200).json({
+      data: { ...result, durationMs },
       meta: { requestId: req.context?.requestId }
     });
   })

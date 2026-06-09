@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/prisma";
 import { AppError } from "../../shared/errors/app-error";
-import { createNotification } from "../notification/notification.service";
+import { createNotification, notifyUser } from "../notification/notification.service";
 import { trackEvent } from "../../shared/services/event-log.service";
 import type {
   CreateCompetitionBody,
@@ -845,6 +845,22 @@ export async function postCompetitionEntry(userId: string, competitionId: string
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
 
+  // Snapshot do ranking ANTES da entry pra comparar depois e detectar
+  // ultrapassagens. Ordenação igual à dos standings (days › points › time
+  // › volume), descendente. Uma query simples — barata mesmo com 30 membros.
+  const preStandings = await prisma.competitionMemberStats.findMany({
+    where: { competitionId },
+    orderBy: [
+      { daysActive: "desc" },
+      { points: "desc" },
+      { totalDurationSec: "desc" },
+      { volumeKg: "desc" }
+    ],
+    select: { userId: true }
+  });
+  const preOrder = preStandings.map((s) => s.userId);
+  const prePosition = preOrder.indexOf(userId);
+
   try {
     // Create + recompute stats in the same transaction so the
     // standings stay in sync with the entry table. Without the wrap a
@@ -866,6 +882,13 @@ export async function postCompetitionEntry(userId: string, competitionId: string
       await recomputeMemberStats(tx, competitionId, userId);
       return created;
     });
+
+    // Detecta ultrapassagens: pega o ranking novo, compara com o pré, e
+    // notifica quem perdeu posição pra esse poster. Fora da transação
+    // pra não bloquear o response — entry já está commit, notification
+    // é melhoria. Erros aqui não propagam.
+    void notifyOvertakesAfterEntry(competitionId, userId, preOrder, prePosition).catch(() => undefined);
+
     return entry;
   } catch (err) {
     // Prisma unique violation = already posted this kind today.
@@ -1685,4 +1708,146 @@ export async function listMyInvites(userId: string) {
   });
 
   return { items };
+}
+
+// Detecta usuários ultrapassados após um post de entry e dispara notificação
+// pra cada um. Roda fora da transação do entry — best-effort, falhas logam
+// e seguem. Algoritmo: recalcula o ranking pós-entry, acha a posição nova
+// do poster; quem estava entre nova-posição e velha-posição (no ranking
+// PRÉ-entry) foi ultrapassado. Cobre também o caso do poster que não estava
+// na tabela de stats antes (prePosition=-1) — nesse cenário, todos que
+// estavam à frente da nova posição foram ultrapassados.
+async function notifyOvertakesAfterEntry(
+  competitionId: string,
+  posterUserId: string,
+  preOrder: string[],
+  prePosition: number
+): Promise<void> {
+  const postStandings = await prisma.competitionMemberStats.findMany({
+    where: { competitionId },
+    orderBy: [
+      { daysActive: "desc" },
+      { points: "desc" },
+      { totalDurationSec: "desc" },
+      { volumeKg: "desc" }
+    ],
+    select: { userId: true }
+  });
+  const postOrder = postStandings.map((s) => s.userId);
+  const postPosition = postOrder.indexOf(posterUserId);
+
+  // Sem movimento (mesma posição) ou poster nem entrou no ranking — nada
+  // a notificar.
+  if (postPosition === -1) return;
+  if (prePosition !== -1 && postPosition >= prePosition) return;
+
+  const overtakenIds = preOrder.slice(
+    postPosition,
+    prePosition === -1 ? preOrder.length : prePosition
+  );
+  if (overtakenIds.length === 0) return;
+
+  const [poster, competition] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: posterUserId },
+      select: { name: true, handle: true }
+    }),
+    prisma.competition.findUnique({
+      where: { id: competitionId },
+      select: { name: true }
+    })
+  ]);
+
+  const posterLabel =
+    poster?.name?.split(" ")[0] ||
+    (poster?.handle ? `@${poster.handle}` : "Alguém");
+  const compLabel = competition?.name ?? "desafio";
+
+  for (const overtakenId of overtakenIds) {
+    // Sem self-notify (não deveria acontecer já que o slice exclui o
+    // poster, mas defensivo).
+    if (overtakenId === posterUserId) continue;
+
+    await notifyUser({
+      userId: overtakenId,
+      type: "COMPETITION_RANKING_OVERTAKEN",
+      title: "Você foi ultrapassado",
+      body: `${posterLabel} passou na sua frente em "${compLabel}"`,
+      metadata: { competitionId, posterUserId },
+      url: `/competition/${competitionId}`,
+      tag: `overtake-${competitionId}`
+    }).catch(() => undefined);
+  }
+}
+
+// Detecta competições ACTIVE que vão acabar nas próximas N horas e ainda
+// não tiveram aviso. Dispara push pra cada membro ativo com tag única —
+// reentregas (cron rodando 2x sem state) coalesce visualmente. Marca via
+// presença de Notification do tipo COMPETITION_ENDING_SOON por
+// competition+user pra ser idempotente.
+export async function notifyCompetitionsEndingSoon(): Promise<{
+  competitionsChecked: number;
+  notificationsSent: number;
+}> {
+  const now = new Date();
+  const windowEnd = new Date(now.getTime() + 2 * 60 * 60 * 1000); // 2h
+
+  const ending = await prisma.competition.findMany({
+    where: {
+      status: "ACTIVE",
+      endsAt: { gt: now, lte: windowEnd }
+    },
+    select: {
+      id: true,
+      name: true,
+      endsAt: true,
+      members: {
+        where: { abandonedAt: null },
+        select: { userId: true }
+      }
+    }
+  });
+
+  let notificationsSent = 0;
+
+  for (const comp of ending) {
+    const memberIds = comp.members.map((m) => m.userId);
+    if (memberIds.length === 0) continue;
+
+    // Achar membros que JÁ receberam aviso pra esta competição. Usamos
+    // metadata.competitionId pra filtrar — o índice padrão do JSON é
+    // suficiente pro volume aqui (poucas competições por noite).
+    const existing = await prisma.notification.findMany({
+      where: {
+        userId: { in: memberIds },
+        type: "COMPETITION_ENDING_SOON",
+        metadata: { path: ["competitionId"], equals: comp.id } as never
+      },
+      select: { userId: true }
+    });
+    const alreadyNotified = new Set(existing.map((e) => e.userId));
+    const toNotify = memberIds.filter((id) => !alreadyNotified.has(id));
+    if (toNotify.length === 0) continue;
+
+    const compName = comp.name ?? "Seu desafio";
+    const hoursLeft = Math.max(
+      1,
+      Math.round((comp.endsAt!.getTime() - now.getTime()) / (60 * 60 * 1000))
+    );
+
+    for (const uid of toNotify) {
+      await notifyUser({
+        userId: uid,
+        type: "COMPETITION_ENDING_SOON",
+        title: "Competição acabando",
+        body: `"${compName}" termina em ${hoursLeft}h. Bate a última prova!`,
+        metadata: { competitionId: comp.id, hoursLeft },
+        url: `/competition/${comp.id}`,
+        tag: `ending-${comp.id}`
+      }).catch(() => undefined);
+      notificationsSent += 1;
+    }
+  }
+
+  return { competitionsChecked: ending.length, notificationsSent };
 }

@@ -203,6 +203,7 @@ model User {
   postComments      PostComment[]
   sharedPlans       SharedPlan[]
   notifications     Notification[]
+  notificationPreferences NotificationPreferences?
   pushSubscriptions PushSubscription[]
   scheduledNotifications ScheduledNotification[]
   supportTickets    SupportTicket[]
@@ -662,6 +663,25 @@ enum ScheduledNotificationStatus {
   SENT
   FAILED
   CANCELLED
+}
+
+// Preferências granulares de push notification, 1 row por usuário (1-1
+// com User via @id). Default tudo true — usuário que ativa push no global
+// recebe de todas categorias até desligar individualmente. lastInactivePushAt
+// é usado pelo cron de "saudades" pra throttle (1 push a cada 7 dias máx).
+model NotificationPreferences {
+  userId                String   @id
+  pushSocial            Boolean  @default(true)
+  pushCompetition       Boolean  @default(true)
+  pushSupport           Boolean  @default(true)
+  pushEngagement        Boolean  @default(true)
+  lastInactivePushAt    DateTime?
+  lastAnniversaryPushAt DateTime?
+  updatedAt             DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_preferences")
 }
 
 // Job de notificação agendada. O caso primário hoje é "descanso acabou":
