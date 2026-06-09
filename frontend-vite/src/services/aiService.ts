@@ -207,7 +207,15 @@ export async function swapExerciseAI(
 
 export async function saveAIWorkout(
   authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
-  input: { planName: string; exercises: AIExercise[] },
+  input: {
+    planName: string
+    exercises: AIExercise[]
+    // Opcionais — quando passados, agrupam saves da mesma geração no backend.
+    // O cliente gera o aiGenerationId 1x por geração (todos os N dias do
+    // plano completo usam o mesmo) e calcula um aiGenerationLabel humano.
+    aiGenerationId?: string
+    aiGenerationLabel?: string
+  },
 ): Promise<SaveAIWorkoutResult> {
   const response = await authorizedFetch(`${API_URL}/ai/save-workout`, {
     method: 'POST',
@@ -226,4 +234,31 @@ export async function saveAIWorkout(
   }
 
   return payload
+}
+
+// ─── Recent AI generations ────────────────────────────────────────────────
+
+export type RecentAIGeneration = {
+  aiGenerationId: string
+  aiGenerationLabel: string | null
+  generatedAt: string // ISO
+  plans: Array<{
+    id: string
+    name: string
+    exerciseCount: number
+  }>
+}
+
+// GET /workouts/plans/ai/recent — últimas N gerações de IA do usuário,
+// agrupadas. Usado pelo botão "Ver treinos gerados" do AIWorkoutPage.
+export async function listRecentAIGenerations(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  limit = 3,
+): Promise<RecentAIGeneration[]> {
+  const response = await authorizedFetch(`${API_URL}/workouts/plans/ai/recent?limit=${limit}`)
+  const payload = await parseJsonSafe<{ data?: RecentAIGeneration[] }>(response)
+  if (!response.ok) {
+    throw new Error(extractApiError(payload, response.status))
+  }
+  return payload?.data ?? []
 }

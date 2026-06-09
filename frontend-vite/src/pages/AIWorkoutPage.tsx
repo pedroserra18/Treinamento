@@ -4,13 +4,16 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import {
   generateAIWorkout,
+  listRecentAIGenerations,
   parseCustomSplitAI,
   saveAIWorkout,
   swapExerciseAI,
+  type RecentAIGeneration,
   type WorkoutSection,
 } from '../services/aiService'
 import { getProfileDefaults, updateBirthDate, updateGender, type ProfileDefaults } from '../services/authService'
-import { Bot, ChevronLeft, Clock, Sparkles, CheckCircle2, Pencil, ChevronUp, ChevronDown, RefreshCw, AlertTriangle, X, ArrowRight, Activity } from 'lucide-react'
+import { Bot, ChevronLeft, Clock, Sparkles, CheckCircle2, Pencil, ChevronUp, ChevronDown, RefreshCw, AlertTriangle, X, ArrowRight, Activity, History } from 'lucide-react'
+import { RecentAIGenerationsSheet } from './ai/RecentAIGenerationsSheet'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -486,6 +489,42 @@ function getEffectiveSplit(
   if (days <= 4) return 'Upper/Lower'
   if (days === 5) return 'Push/Pull/Legs'
   return 'Bro Split'
+}
+
+// Label legível pra "Treinos gerados pela IA" — armazena junto com o
+// aiGenerationId no save pra a UI mostrar "Full Body 3x · há 2 semanas"
+// sem precisar reconstruir das respostas do quiz depois (que podem ter
+// mudado se o user re-fez o quiz). Mapeia splits canônicos pra labels
+// curtos; "Bro Split" e "Lower Focus" usam abreviações reconhecíveis.
+function buildAIGenerationLabel(split: string, days: number, customSplit: string = ''): string {
+  // Custom split — usa o texto do user truncado pra evitar labels enormes.
+  if (split === 'Outro') {
+    const trimmed = customSplit.trim().slice(0, 60)
+    return trimmed ? `${trimmed} ${days}x` : `Personalizado ${days}x`
+  }
+  const SPLIT_SHORT: Record<string, string> = {
+    'Full Body': 'Full Body',
+    'Upper/Lower': 'Upper Lower',
+    'Push/Pull/Legs': 'PPL',
+    'Bro Split': 'Bro Split',
+    'PPL + Lower Specialization': 'PPL + Lower',
+    'Lower Focus': 'Lower Focus',
+  }
+  const label = SPLIT_SHORT[split] ?? split
+  return `${label} ${days}x`
+}
+
+// Gera ID único pra agrupar saves da mesma geração. Preferência por
+// crypto.randomUUID quando disponível (todos browsers atuais); fallback
+// pseudo-aleatório pra ambientes que não tem (test envs, browsers antigos).
+function newAIGenerationId(): string {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID()
+    }
+  } catch { /* ignora — vai pro fallback */ }
+  // Fallback: timestamp + random pra unicidade prática (não criptográfica).
+  return `gen-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 function getWorkoutLabels(split: string, days: number, customSplit: string = ''): string[] {
@@ -974,6 +1013,17 @@ export function AIWorkoutPage() {
   const [error, setError] = useState<string | null>(null)
   const [savingIndex, setSavingIndex] = useState<number | null>(null)
   const [saveResults, setSaveResults] = useState<Record<number, SaveResult>>({})
+  // Identidade da geração corrente — set em handleGenerate, reset quando
+  // o user volta pro WELCOME. Compartilhado entre todos os saves dessa
+  // geração pra agrupar em "Treinos gerados".
+  const [currentGeneration, setCurrentGeneration] = useState<{ id: string; label: string } | null>(null)
+  // Histórico das últimas 3 gerações — usado pelo botão "Ver treinos gerados"
+  // no WELCOME + pela sheet. Carregado on-mount do WELCOME (não fica re-
+  // pollando) e refrescado quando uma nova generation é salva.
+  const [recentGenerations, setRecentGenerations] = useState<RecentAIGeneration[]>([])
+  const [recentGenerationsLoading, setRecentGenerationsLoading] = useState(false)
+  const [recentGenerationsError, setRecentGenerationsError] = useState<string | null>(null)
+  const [recentSheetOpen, setRecentSheetOpen] = useState(false)
   const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null)
   const [extraHistory, setExtraHistory] = useState<string[]>([])
   // Rótulos resolvidos do plano gerado (especialmente p/ divisão "Outro"
@@ -1018,6 +1068,28 @@ export function AIWorkoutPage() {
     return () => clearInterval(interval)
   }, [appScreen])
 
+  // Carrega o histórico de gerações da IA sempre que voltamos ao WELCOME
+  // (incluindo na montagem inicial). Cobre o caso do user salvar uma
+  // geração e voltar — a lista reflete imediato sem refresh manual.
+  // Não fica em loop porque appScreen só muda em interações de fato.
+  const fetchRecentGenerations = useCallback(async () => {
+    setRecentGenerationsLoading(true)
+    setRecentGenerationsError(null)
+    try {
+      const result = await listRecentAIGenerations(authorizedFetch, 3)
+      setRecentGenerations(result)
+    } catch (err) {
+      setRecentGenerationsError(err instanceof Error ? err.message : 'Falha ao carregar histórico')
+    } finally {
+      setRecentGenerationsLoading(false)
+    }
+  }, [authorizedFetch])
+
+  useEffect(() => {
+    if (appScreen !== 'WELCOME') return
+    void fetchRecentGenerations()
+  }, [appScreen, fetchRecentGenerations])
+
   // Guarda os dados do perfil pra reaplicar ao recomeçar o quiz do zero (a
   // requisição só roda uma vez na montagem; o reset não pode re-buscar de forma
   // síncrona).
@@ -1049,6 +1121,9 @@ export function AIWorkoutPage() {
     setAnswers(applyProfileDefaults({ ...DEFAULT_ANSWERS }, profileDefaultsRef.current))
     setIsEditMode(false)
     setAppScreen('QUIZ')
+    // Reset da geração — próximo generate cria um id novo. Sem isso,
+    // saves do plano antigo se misturariam com o novo.
+    setCurrentGeneration(null)
   }, [])
 
   const advanceStep = useCallback(() => {
@@ -1136,6 +1211,13 @@ export function AIWorkoutPage() {
     setSections([])
     setSaveResults({})
     setGeneratingStep(null)
+    // Nova geração — fresh ID + label pra todos os saves desse plano.
+    // Regenerar 1 dia (handleRegenerateDay) MANTÉM o mesmo id; só uma
+    // geração completa nova (esse handler) reseta.
+    setCurrentGeneration({
+      id: newAIGenerationId(),
+      label: buildAIGenerationLabel(split, days, answers.customSplit),
+    })
     // New plan → start on first day with no exercises expanded.
     setActiveDayIndex(0)
     setExpandedExerciseKey(null)
@@ -1246,7 +1328,15 @@ export function AIWorkoutPage() {
     setSavingIndex(index)
     setError(null)
     try {
-      const result = await saveAIWorkout(authorizedFetch, { planName: wd.planName, exercises: wd.exercises })
+      const result = await saveAIWorkout(authorizedFetch, {
+        planName: wd.planName,
+        exercises: wd.exercises,
+        // Agrupamento — quando todos os N saves dessa geração usam o
+        // mesmo aiGenerationId, o backend consegue listar como "1
+        // geração de N dias" no endpoint /workouts/plans/ai/recent.
+        aiGenerationId: currentGeneration?.id,
+        aiGenerationLabel: currentGeneration?.label,
+      })
       setSaveResults(prev => ({
         ...prev,
         [index]: {
@@ -1261,7 +1351,7 @@ export function AIWorkoutPage() {
     } finally {
       setSavingIndex(null)
     }
-  }, [authorizedFetch, sections])
+  }, [authorizedFetch, sections, currentGeneration])
 
   const handleRegenerateDay = useCallback(async (index: number) => {
     const days = parseInt(answers.daysPerWeek, 10) || 4
@@ -1473,7 +1563,28 @@ export function AIWorkoutPage() {
               Começar
             </button>
           )}
+
+          {/* "Ver treinos gerados" — só aparece quando há histórico. Estilo
+              outline pra não competir visualmente com a ação primária acima. */}
+          {recentGenerations.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setRecentSheetOpen(true)}
+              className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-[var(--line)] py-3 text-[13px] font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
+            >
+              <History size={14} />
+              Ver treinos gerados ({recentGenerations.length})
+            </button>
+          )}
         </motion.div>
+
+        <RecentAIGenerationsSheet
+          open={recentSheetOpen}
+          generations={recentGenerations}
+          loading={recentGenerationsLoading}
+          error={recentGenerationsError}
+          onClose={() => setRecentSheetOpen(false)}
+        />
       </section>
     )
   }
