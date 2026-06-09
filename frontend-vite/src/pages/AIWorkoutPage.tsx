@@ -4,11 +4,12 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import {
   generateAIWorkout,
-  listRecentAIGenerations,
+  listAIHistory,
   parseCustomSplitAI,
+  saveAIGenerationHistory,
   saveAIWorkout,
   swapExerciseAI,
-  type RecentAIGeneration,
+  type AIHistoryGeneration,
   type WorkoutSection,
 } from '../services/aiService'
 import { getProfileDefaults, updateBirthDate, updateGender, type ProfileDefaults } from '../services/authService'
@@ -1020,7 +1021,7 @@ export function AIWorkoutPage() {
   // Histórico das últimas 3 gerações — usado pelo botão "Ver treinos gerados"
   // no WELCOME + pela sheet. Carregado on-mount do WELCOME (não fica re-
   // pollando) e refrescado quando uma nova generation é salva.
-  const [recentGenerations, setRecentGenerations] = useState<RecentAIGeneration[]>([])
+  const [recentGenerations, setRecentGenerations] = useState<AIHistoryGeneration[]>([])
   const [recentGenerationsLoading, setRecentGenerationsLoading] = useState(false)
   const [recentGenerationsError, setRecentGenerationsError] = useState<string | null>(null)
   const [recentSheetOpen, setRecentSheetOpen] = useState(false)
@@ -1076,7 +1077,7 @@ export function AIWorkoutPage() {
     setRecentGenerationsLoading(true)
     setRecentGenerationsError(null)
     try {
-      const result = await listRecentAIGenerations(authorizedFetch, 3)
+      const result = await listAIHistory(authorizedFetch, 3)
       setRecentGenerations(result)
     } catch (err) {
       setRecentGenerationsError(err instanceof Error ? err.message : 'Falha ao carregar histórico')
@@ -1211,13 +1212,14 @@ export function AIWorkoutPage() {
     setSections([])
     setSaveResults({})
     setGeneratingStep(null)
-    // Nova geração — fresh ID + label pra todos os saves desse plano.
-    // Regenerar 1 dia (handleRegenerateDay) MANTÉM o mesmo id; só uma
-    // geração completa nova (esse handler) reseta.
-    setCurrentGeneration({
-      id: newAIGenerationId(),
-      label: buildAIGenerationLabel(split, days, answers.customSplit),
-    })
+    // Nova geração — fresh ID + label compartilhado entre o auto-save do
+    // histórico (logo abaixo após gerar todas as seções) E os saves manuais
+    // de planos individuais (handleSaveOne). Mantém consistência: a row
+    // do histórico e os WorkoutPlan que o user salvar manualmente referem
+    // a MESMA generation.
+    const generationId = newAIGenerationId()
+    const generationLabel = buildAIGenerationLabel(split, days, answers.customSplit)
+    setCurrentGeneration({ id: generationId, label: generationLabel })
     // New plan → start on first day with no exercises expanded.
     setActiveDayIndex(0)
     setExpandedExerciseKey(null)
@@ -1312,6 +1314,33 @@ export function AIWorkoutPage() {
           setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100)
         }
       }
+
+      // Auto-save no histórico — funciona MESMO se o user não clicar Salvar
+      // depois. Pega só sections com workoutData válido; se IA falhou em
+      // algum dia, esse dia simplesmente fica de fora. Falha aqui não
+      // bloqueia a UI — user continua vendo o resultado normalmente.
+      try {
+        const daysPayload = accumulated
+          .map((sec, idx) => ({
+            dayIndex: idx,
+            dayLabel: labels[idx] ?? sec.workoutData?.planName ?? `Dia ${idx + 1}`,
+            workoutData: sec.workoutData,
+          }))
+          .filter((d): d is { dayIndex: number; dayLabel: string; workoutData: NonNullable<typeof d.workoutData> } => d.workoutData !== null)
+          .map((d) => ({
+            dayIndex: d.dayIndex,
+            dayLabel: d.dayLabel,
+            planName: d.workoutData.planName,
+            exercises: d.workoutData.exercises,
+          }))
+        if (daysPayload.length > 0) {
+          await saveAIGenerationHistory(authorizedFetch, {
+            generationId,
+            generationLabel,
+            days: daysPayload,
+          }).catch(() => { /* silencioso — histórico é melhoria, não crítico */ })
+        }
+      } catch { /* idem */ }
 
       setAppScreen('RESULT')
     } catch (err) {

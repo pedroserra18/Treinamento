@@ -1,28 +1,37 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { createPortal } from 'react-dom'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { X, ArrowRight, Bot, Calendar } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useScrollLock } from '../../hooks/useScrollLock'
-import type { RecentAIGeneration } from '../../services/aiService'
+import { useAuth } from '../../hooks/useAuth'
+import { cloneAIHistoryPlan, type AIHistoryGeneration } from '../../services/aiService'
+import { InfoDialog } from '../../components/common/InfoDialog'
 
-// Sheet bottom que lista as últimas N gerações de IA (1 row = 1 geração,
-// expandível pra mostrar os dias dela). Mesmo padrão visual dos outros
-// sheets do app (RestTimePickerSheet, ReorderExercisesSheet, etc.).
+// Sheet bottom que lista as últimas N gerações de IA do AIGeneratedPlan
+// (histórico INDEPENDENTE de /workouts). Cada dia tem botão "Usar este
+// treino" que clona o snapshot pra um WorkoutPlan novo e navega pro /train.
 //
-// Cada dia tem um botão "Abrir" que navega pro /train com o planId — o
-// TrainPage decide se continua daquele plano ou só mostra como rotina.
+// Loading per-item via planUseLoadingId — desabilita os outros botões
+// enquanto um está em uso pra evitar double-tap em conexões lentas.
 export function RecentAIGenerationsSheet({
   open, generations, loading, error, onClose,
 }: {
   open: boolean
-  generations: RecentAIGeneration[]
+  generations: AIHistoryGeneration[]
   loading: boolean
   error: string | null
   onClose: () => void
 }) {
   useScrollLock(open)
   const navigate = useNavigate()
+  const { authorizedFetch } = useAuth()
+
+  const [planUseLoadingId, setPlanUseLoadingId] = useState<string | null>(null)
+  const [useError, setUseError] = useState<string | null>(null)
+  // Alerta "X exercícios não foram encontrados no catálogo" — mostra antes
+  // de navegar pra /train pra o user saber o que esperar.
+  const [notFoundDialog, setNotFoundDialog] = useState<{ planId: string; planName: string; missing: string[] } | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -33,7 +42,32 @@ export function RecentAIGenerationsSheet({
 
   if (!open) return null
 
+  const handleUsePlan = async (historyPlanId: string): Promise<void> => {
+    setPlanUseLoadingId(historyPlanId)
+    setUseError(null)
+    try {
+      const result = await cloneAIHistoryPlan(authorizedFetch, historyPlanId)
+      if (result.notFoundExercises.length > 0) {
+        // Avisa o user antes de navegar — alguns exercícios podem ter
+        // sido removidos do catálogo entre a geração e o uso.
+        setNotFoundDialog({
+          planId: result.planId,
+          planName: result.planName,
+          missing: result.notFoundExercises,
+        })
+      } else {
+        onClose()
+        navigate(`/train?planId=${result.planId}`)
+      }
+    } catch (err) {
+      setUseError(err instanceof Error ? err.message : 'Erro ao usar treino')
+    } finally {
+      setPlanUseLoadingId(null)
+    }
+  }
+
   return createPortal(
+    <>
     <AnimatePresence>
       <motion.div
         key="recent-ai-backdrop"
@@ -76,11 +110,11 @@ export function RecentAIGenerationsSheet({
               </button>
             </div>
             <p className="mt-1 text-[11px] text-[var(--muted)]">
-              As últimas {generations.length > 0 ? generations.length : 3} gerações que a IA criou pra você.
+              Histórico das suas {generations.length > 0 ? generations.length : 'últimas'} gerações. Toque em "Usar este treino" pra criar uma rotina.
             </p>
           </div>
 
-          {/* Body — lista de generations */}
+          {/* Body */}
           <div className="flex-1 overflow-y-auto overscroll-contain">
             {loading && (
               <p className="px-4 py-10 text-center text-[12px] text-[var(--muted)]">Carregando…</p>
@@ -89,6 +123,12 @@ export function RecentAIGenerationsSheet({
             {error && (
               <div className="m-3 rounded-xl border border-rose-500/30 bg-rose-500/5 p-3 text-center">
                 <p className="text-[12px] text-rose-500">{error}</p>
+              </div>
+            )}
+
+            {useError && (
+              <div className="m-3 rounded-xl border border-rose-500/30 bg-rose-500/5 p-3 text-center">
+                <p className="text-[12px] text-rose-500">{useError}</p>
               </div>
             )}
 
@@ -107,11 +147,11 @@ export function RecentAIGenerationsSheet({
             {!loading && !error && generations.length > 0 && (
               <ul className="divide-y divide-[var(--line)]">
                 {generations.map((gen) => (
-                  <li key={gen.aiGenerationId} className="p-4 sm:p-5">
+                  <li key={gen.generationId} className="p-4 sm:p-5">
                     <header className="mb-3 flex items-center justify-between gap-2">
                       <div className="min-w-0">
                         <p className="truncate text-[14px] font-bold text-[var(--text)]">
-                          {gen.aiGenerationLabel ?? 'Treino IA'}
+                          {gen.generationLabel}
                         </p>
                         <p className="mt-0.5 flex items-center gap-1 text-[11px] text-[var(--muted)]">
                           <Calendar size={11} />
@@ -124,23 +164,35 @@ export function RecentAIGenerationsSheet({
                     </header>
 
                     <ul className="space-y-1.5">
-                      {gen.plans.map((p) => (
-                        <li key={p.id}>
-                          <button
-                            type="button"
-                            onClick={() => { onClose(); navigate(`/train?planId=${p.id}`) }}
-                            className="flex w-full items-center justify-between gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2.5 text-left transition-colors hover:bg-[var(--surface)]"
-                          >
-                            <div className="min-w-0">
-                              <p className="truncate text-[13px] font-semibold text-[var(--text)]">{p.name}</p>
-                              <p className="mt-0.5 text-[11px] text-[var(--muted)]">
-                                {p.exerciseCount} {p.exerciseCount === 1 ? 'exercício' : 'exercícios'}
-                              </p>
+                      {gen.plans.map((p) => {
+                        const isLoading = planUseLoadingId === p.id
+                        const isDisabled = planUseLoadingId !== null
+                        return (
+                          <li key={p.id}>
+                            <div className="flex items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2.5">
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-[13px] font-semibold text-[var(--text)]">{p.dayLabel}</p>
+                                <p className="mt-0.5 text-[11px] text-[var(--muted)]">
+                                  {p.exerciseCount} {p.exerciseCount === 1 ? 'exercício' : 'exercícios'}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => void handleUsePlan(p.id)}
+                                disabled={isDisabled}
+                                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-[var(--brand)] px-3 py-2 text-[12px] font-bold text-white shadow-[0_4px_10px_-4px_rgba(255,90,60,0.55)] hover:bg-[var(--brand-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {isLoading ? 'Criando…' : (
+                                  <>
+                                    Usar este treino
+                                    <ArrowRight size={12} />
+                                  </>
+                                )}
+                              </button>
                             </div>
-                            <ArrowRight size={14} className="shrink-0 text-[var(--muted)]" />
-                          </button>
-                        </li>
-                      ))}
+                          </li>
+                        )
+                      })}
                     </ul>
                   </li>
                 ))}
@@ -148,7 +200,7 @@ export function RecentAIGenerationsSheet({
             )}
           </div>
 
-          {/* Footer fechar — disponível mesmo em estado vazio/erro */}
+          {/* Footer fechar */}
           <div className="shrink-0 border-t border-[var(--line)] bg-[var(--surface)] p-3 pb-safe">
             <button
               type="button"
@@ -160,14 +212,31 @@ export function RecentAIGenerationsSheet({
           </div>
         </motion.div>
       </motion.div>
-    </AnimatePresence>,
+    </AnimatePresence>
+
+    <InfoDialog
+      open={notFoundDialog !== null}
+      title="Alguns exercícios não foram encontrados"
+      message={
+        notFoundDialog
+          ? `O treino "${notFoundDialog.planName}" foi criado, mas ${notFoundDialog.missing.length} ${notFoundDialog.missing.length === 1 ? 'exercício não foi adicionado' : 'exercícios não foram adicionados'} porque não estão mais no catálogo:\n\n${notFoundDialog.missing.slice(0, 5).map((n) => `• ${n}`).join('\n')}${notFoundDialog.missing.length > 5 ? `\n• ... +${notFoundDialog.missing.length - 5} outros` : ''}\n\nVocê pode adicioná-los manualmente no treino.`
+          : ''
+      }
+      onClose={() => {
+        const target = notFoundDialog
+        setNotFoundDialog(null)
+        if (target) {
+          onClose()
+          navigate(`/train?planId=${target.planId}`)
+        }
+      }}
+    />
+    </>,
     document.body,
   )
 }
 
 // Formata "há X tempo" em PT-BR, escolhendo unidade certa (min/h/dia/semana/mês).
-// Mantido inline porque é específico desse componente e o app não tem helper
-// genérico equivalente.
 function formatTimeAgo(iso: string): string {
   const then = new Date(iso).getTime()
   const now = Date.now()
@@ -186,3 +255,4 @@ function formatTimeAgo(iso: string): string {
   const years = Math.floor(days / 365)
   return `${years} ${years === 1 ? 'ano' : 'anos'} atrás`
 }
+

@@ -236,29 +236,82 @@ export async function saveAIWorkout(
   return payload
 }
 
-// ─── Recent AI generations ────────────────────────────────────────────────
+// ─── AI History (independente de WorkoutPlan) ───────────────────────────
+//
+// Histórico de gerações da IA — auto-salvo após cada geração (não depende
+// de "Salvar" do user). Usado pelo botão "Ver treinos gerados" e pelo
+// fluxo "Usar este treino" que clona um plano antigo pra /workouts.
 
-export type RecentAIGeneration = {
-  aiGenerationId: string
-  aiGenerationLabel: string | null
+export type AIHistoryGeneration = {
+  generationId: string
+  generationLabel: string
   generatedAt: string // ISO
   plans: Array<{
-    id: string
-    name: string
+    id: string // AIGeneratedPlan.id (não WorkoutPlan.id)
+    dayLabel: string
+    dayIndex: number
+    planName: string
     exerciseCount: number
   }>
 }
 
-// GET /workouts/plans/ai/recent — últimas N gerações de IA do usuário,
-// agrupadas. Usado pelo botão "Ver treinos gerados" do AIWorkoutPage.
-export async function listRecentAIGenerations(
+// POST /ai/history — chamado AUTOMATICAMENTE pelo AIWorkoutPage logo
+// após gerar com sucesso. Persiste o snapshot completo.
+export async function saveAIGenerationHistory(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  input: {
+    generationId: string
+    generationLabel: string
+    days: Array<{
+      dayIndex: number
+      dayLabel: string
+      planName: string
+      exercises: AIExercise[]
+    }>
+  },
+): Promise<{ saved: number }> {
+  const response = await authorizedFetch(`${API_URL}/ai/history`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  const payload = await parseJsonSafe<{ data?: { saved: number } }>(response)
+  if (!response.ok) {
+    throw new Error(extractApiError(payload, response.status))
+  }
+  return payload?.data ?? { saved: 0 }
+}
+
+// GET /ai/history?limit=3 — últimas N gerações agrupadas.
+export async function listAIHistory(
   authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
   limit = 3,
-): Promise<RecentAIGeneration[]> {
-  const response = await authorizedFetch(`${API_URL}/workouts/plans/ai/recent?limit=${limit}`)
-  const payload = await parseJsonSafe<{ data?: RecentAIGeneration[] }>(response)
+): Promise<AIHistoryGeneration[]> {
+  const response = await authorizedFetch(`${API_URL}/ai/history?limit=${limit}`)
+  const payload = await parseJsonSafe<{ data?: AIHistoryGeneration[] }>(response)
   if (!response.ok) {
     throw new Error(extractApiError(payload, response.status))
   }
   return payload?.data ?? []
+}
+
+// POST /ai/history/:historyPlanId/use — clona o snapshot pra um WorkoutPlan
+// novo. Retorna o planId pra navegar no /train. Nome do helper começa com
+// "clone" (não "use") pra evitar a regra do react-hooks/rules-of-hooks
+// que trata identificadores que começam com "use" como hooks.
+export async function cloneAIHistoryPlan(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  historyPlanId: string,
+): Promise<{ planId: string; planName: string; notFoundExercises: string[] }> {
+  const response = await authorizedFetch(`${API_URL}/ai/history/${historyPlanId}/use`, {
+    method: 'POST',
+  })
+  const payload = await parseJsonSafe<{ data?: { planId: string; planName: string; notFoundExercises: string[] } }>(response)
+  if (!response.ok) {
+    throw new Error(extractApiError(payload, response.status))
+  }
+  if (!payload?.data) {
+    throw new Error('Resposta inválida do servidor')
+  }
+  return payload.data
 }
