@@ -383,6 +383,32 @@ function formatDurationCompact(sec: number): string {
   return `${h}h${String(m).padStart(2, '0')}`
 }
 
+// Monta a string "124 kg × 4 reps" pra usar no body do push de descanso.
+// Cuida dos casos especiais:
+//   • bodyweight (sem barra/halter): só "4 reps", sem peso
+//   • só peso preenchido: "124 kg"
+//   • só reps preenchido: "4 reps"
+//   • nada preenchido: null (caller omite a parte "última: ...")
+// Normaliza ponto pra vírgula (formato BR) e remove decimais redundantes.
+function formatSetPerformanceLabel(
+  set: { weightKg: string; reps: string },
+  isBodyweight: boolean,
+): string | null {
+  const reps = (set.reps ?? '').trim()
+  const weight = (set.weightKg ?? '').trim()
+  if (!reps && !weight) return null
+
+  const repsLabel = reps ? `${reps} reps` : null
+  if (isBodyweight) return repsLabel
+
+  if (!weight) return repsLabel
+  // Substitui o ponto decimal por vírgula (formato BR) e tira o ".0"
+  // que aparece quando o user digitou 100,0 — fica só "100 kg".
+  const trimmedWeight = weight.replace('.', ',').replace(/,0+$/, '')
+  const weightLabel = `${trimmedWeight} kg`
+  return repsLabel ? `${weightLabel} × ${repsLabel}` : weightLabel
+}
+
 const CARDIO_LABELS: Record<CardioType, string> = {
   WALK: 'Caminhada', RUN: 'Corrida', BIKE: 'Bicicleta', STAIRS: 'Escada',
   ELLIPTICAL: 'Elíptico', ROW: 'Remo', JUMP_ROPE: 'Corda', SWIM: 'Natação', OTHER: 'Outro',
@@ -1236,6 +1262,15 @@ export function TrainPage() {
   // mudado por motivos não relacionados ao timer).
   const prevRestStateRef = useRef<Record<string, { running: boolean; remaining: number }>>({})
 
+  // Idle reminder — se o user fica X min sem nenhuma atividade no treino
+  // ativo (sem marcar série, sem adicionar/remover exercício), dispara
+  // um push lembrando que tem treino aberto. Implementação: cada "ato
+  // de engajamento" cancela o schedule pendente e cria um novo pra
+  // agora+IDLE_REMINDER_MIN min. O fato de o lembrete viver no backend
+  // garante que mesmo com o app fechado/celular travado, o push chega.
+  const IDLE_REMINDER_MIN = 30
+  const idleReminderScheduleIdRef = useRef<string | null>(null)
+
   // Histórico recente pra enriquecer os cards de rotina ("último treino:
   // há 3 dias · 1h05") e pra escolher qual rotina destacar no smart-CTA
   // da dashboard ("Iniciar [última rotina]"). Buscamos uma página de 50
@@ -1526,16 +1561,46 @@ export function TrainPage() {
 
       if (!prev) continue
 
-      // Início do descanso → agenda no backend
+      // Início do descanso → agenda no backend com payload "rico":
+      // título traz o nome do exercício, body traz qual a próxima série
+      // e (quando disponível) o desempenho da que acabou de ser feita.
+      // Notificação chega no lock screen do iOS com toda info pra o user
+      // não precisar abrir o app pra lembrar onde parou.
       if (!prev.running && now.running && now.remaining > 0) {
         const fireAtMs = Date.now() + now.remaining * 1000
         const fireAt = new Date(fireAtMs).toISOString()
         const exerciseName = ex.exerciseName
         const exerciseId = ex.exerciseId
+
+        // Encontra a série marcada como concluída mais recente (em ordem
+        // de array). Heurística simples — o usuário tipicamente checa
+        // séries em ordem, então a última marcada é a que acabou.
+        let lastCheckedIdx = -1
+        for (let i = 0; i < ex.sets.length; i += 1) {
+          if (ex.sets[i].checked === true) lastCheckedIdx = i
+        }
+        const totalSets = ex.sets.length
+        const lastSet = lastCheckedIdx >= 0 ? ex.sets[lastCheckedIdx] : null
+        const performance = lastSet ? formatSetPerformanceLabel(lastSet, ex.isBodyweight) : null
+
+        const nextSetNumber = lastCheckedIdx + 2 // 1-indexed
+        const isLastSet = nextSetNumber > totalSets
+
+        const title = `Descanso acabou — ${exerciseName}`
+        let body: string
+        if (isLastSet) {
+          body = performance
+            ? `Última série feita ✓ ${performance}`
+            : 'Última série concluída'
+        } else {
+          const nextLabel = `Próxima: Set ${nextSetNumber} de ${totalSets}`
+          body = performance ? `${nextLabel} · última: ${performance}` : nextLabel
+        }
+
         void scheduleBackendNotification(authorizedFetch, {
           fireAt,
-          title: 'Descanso acabou!',
-          body: `Volta pra ${exerciseName}`,
+          title,
+          body,
           url: '/train',
           tag: `rest-${exerciseId}`,
         }).then(({ id }) => {
@@ -1560,6 +1625,46 @@ export function TrainPage() {
     }
     prevRestStateRef.current = updated
   }, [activeExercises, authorizedFetch, pushNotifications.state.subscribed])
+
+  // Cancela o lembrete pendente (no-op se nada agendado) e cria um novo
+  // pra agora+30min. Idempotente — chamar 10 vezes em sequência só deixa
+  // o último ativo. Fire-and-forget: falhas HTTP não bloqueiam o app.
+  // Sai cedo se o user não optou-in (subscribed=false) pra não ficar
+  // batendo no backend inutilmente.
+  const rescheduleIdleReminder = useCallback(() => {
+    if (!pushNotifications.state.subscribed) return
+
+    const prevId = idleReminderScheduleIdRef.current
+    idleReminderScheduleIdRef.current = null
+    if (prevId) {
+      void cancelBackendNotification(authorizedFetch, prevId).catch(() => { /* silencioso */ })
+    }
+
+    const fireAt = new Date(Date.now() + IDLE_REMINDER_MIN * 60 * 1000).toISOString()
+    void scheduleBackendNotification(authorizedFetch, {
+      fireAt,
+      title: 'Treino ainda rolando',
+      body: `Tá com um treino aberto há uns ${IDLE_REMINDER_MIN} min. Volta pra finalizar ou descartar.`,
+      url: '/train',
+      // Mesma tag pra todas as notificações de "idle" — no caso raro de
+      // duas dispararem em sequência (race entre cancel/schedule), o
+      // device coalesce visualmente em uma só.
+      tag: 'idle-workout',
+    }).then(({ id }) => {
+      idleReminderScheduleIdRef.current = id
+    }).catch(() => { /* silencioso */ })
+  }, [pushNotifications.state.subscribed, authorizedFetch])
+
+  // Cancela o lembrete pendente sem reagendar. Usado quando o treino
+  // acaba (finalizar ou descartar) — não queremos lembrar de algo que
+  // já foi resolvido.
+  const cancelIdleReminder = useCallback(() => {
+    const prevId = idleReminderScheduleIdRef.current
+    idleReminderScheduleIdRef.current = null
+    if (prevId) {
+      void cancelBackendNotification(authorizedFetch, prevId).catch(() => { /* silencioso */ })
+    }
+  }, [authorizedFetch])
 
   useEffect(() => {
     if (!restFinishedName) return
@@ -1924,6 +2029,8 @@ export function TrainPage() {
     interactionOrderByExerciseRef.current = {}
     interactionOrderCounterRef.current = 0
     clearActiveWorkout()
+    // Workout encerrou — não queremos um lembrete pendurado.
+    cancelIdleReminder()
   }
 
   const beginEmptyTraining = () => {
@@ -1939,6 +2046,9 @@ export function TrainPage() {
     setStartedAt(new Date())
     setEndedAt(null)
     setScreen('ACTIVE')
+    // Inicia o relógio de inatividade — se o user abandonar agora sem
+    // marcar nem adicionar nada, leva o lembrete em 30 min.
+    rescheduleIdleReminder()
   }
 
   const beginRoutineTraining = (plan: WorkoutPlan) => {
@@ -1962,12 +2072,17 @@ export function TrainPage() {
     setStartedAt(new Date())
     setEndedAt(null)
     setScreen('ACTIVE')
+    rescheduleIdleReminder()
   }
 
   const finalizeTraining = () => {
     const end = new Date()
     setEndedAt(end)
     setIsWorkoutRunning(false)
+    // Tela de Resumo é estado terminal — usuário tá pra salvar ou
+    // descartar, não tá mais "treinando". Cancela o lembrete pra não
+    // soltar "treino ainda rolando" enquanto ele preenche o resumo.
+    cancelIdleReminder()
 
     setSummaryName(activePlanName)
     // Inclui o tempo de cardio no padrão da duração — sem isso, registrar
@@ -2145,8 +2260,13 @@ export function TrainPage() {
           return exercise
         }),
       )
+
+      // Atividade significativa — adia o lembrete de "treino parado" pra
+      // mais 30 min. Vale tanto pra checar quanto pra desmarcar (qualquer
+      // toque mostra que o user ainda tá engajado).
+      rescheduleIdleReminder()
     },
-    [lastPerformanceByExercise, activeExercises, prByExerciseId],
+    [lastPerformanceByExercise, activeExercises, prByExerciseId, rescheduleIdleReminder],
   )
 
   const startRestEdit = (exerciseIndex: number) => {
@@ -2223,6 +2343,7 @@ export function TrainPage() {
     )
     if (!confirmed) return
     setActiveExercises((current) => current.filter((_, idx) => idx !== exerciseIndex))
+    rescheduleIdleReminder()
   }
 
   // Adiciona um exercício ao final do treino ativo. Pure — o updater
@@ -2263,6 +2384,7 @@ export function TrainPage() {
         },
       ]
     })
+    rescheduleIdleReminder()
   }
 
   // Aplica a substituição de um exercício pelo ExerciseOption picado.
