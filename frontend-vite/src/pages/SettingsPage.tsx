@@ -21,6 +21,7 @@ import { sanitiseHandleInput, validateHandle } from '../lib/handle'
 import {
   AtSign, Check, Download, Lock, LogOut, Moon, ShieldAlert, Sun,
   AlertTriangle, LifeBuoy, ArrowLeft, Smartphone, Dumbbell, Trash2, Bell, Activity, Crown,
+  Shield, Users as UsersIcon, ChevronRight,
 } from 'lucide-react'
 import { InstallAppPanel } from '../components/common/InstallAppPanel'
 import { ConfirmDialog } from '../components/common/ConfirmDialog'
@@ -60,15 +61,17 @@ type Section =
   | 'install'
   | 'export'
   | 'support'
+  | 'admin'
   | 'logout'
   | 'delete'
 
 type SectionDef = {
   id: Section
   label: string
-  group: 'CONTA' | 'PREFERÊNCIAS' | 'ZONA DE RISCO'
+  group: 'CONTA' | 'PREFERÊNCIAS' | 'ADMIN' | 'ZONA DE RISCO'
   icon: React.ReactNode
   danger?: boolean
+  adminOnly?: boolean
 }
 
 // "Perfil" (editar avatar/nome) NÃO entra aqui de propósito: é acessado pelo
@@ -86,6 +89,7 @@ const SECTIONS: SectionDef[] = [
   { id: 'install',   group: 'PREFERÊNCIAS',  label: 'Instalar app',     icon: <Smartphone size={14} /> },
   { id: 'export',    group: 'PREFERÊNCIAS',  label: 'Exportar dados',   icon: <Download size={14} /> },
   { id: 'support',   group: 'PREFERÊNCIAS',  label: 'Ajuda e suporte',  icon: <LifeBuoy size={14} /> },
+  { id: 'admin',     group: 'ADMIN',         label: 'Ferramentas admin', icon: <Shield size={14} />, adminOnly: true },
   { id: 'logout',    group: 'ZONA DE RISCO', label: 'Sair da conta',    icon: <LogOut size={14} /> },
   { id: 'delete',    group: 'ZONA DE RISCO', label: 'Excluir conta',    icon: <AlertTriangle size={14} />, danger: true },
 ]
@@ -104,9 +108,14 @@ export function SettingsPage() {
   // Lets us deep-link to a specific section via `?section=handle`.
   // 'profile' é válido por deep-link (botão "Editar perfil"), mesmo não sendo
   // uma aba listada. As demais vêm de SECTIONS. Padrão = Conta.
+  // Items adminOnly só aparecem se o user for ADMIN. Filtro único usado em
+  // sidebar, chips do mobile e validação do deep-link via ?section=.
+  const isAdmin = user?.role === 'ADMIN'
+  const visibleSections = SECTIONS.filter((s) => !s.adminOnly || isAdmin)
+
   const sectionFromUrl = params.get('section') as Section | null
   const initialSection: Section =
-    sectionFromUrl && (sectionFromUrl === 'profile' || SECTIONS.some((s) => s.id === sectionFromUrl))
+    sectionFromUrl && (sectionFromUrl === 'profile' || visibleSections.some((s) => s.id === sectionFromUrl))
       ? sectionFromUrl
       : 'account'
   const [section, setSection] = useState<Section>(initialSection)
@@ -189,7 +198,7 @@ export function SettingsPage() {
       {/* Seletor de seção no mobile/tablet — chips on-brand (sidebar fica < lg) */}
       {!isProfileEdit && (
       <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 lg:hidden">
-        {SECTIONS.map((s) => {
+        {visibleSections.map((s) => {
           const active = section === s.id
           return (
             <button
@@ -218,13 +227,16 @@ export function SettingsPage() {
         {/* ────────── SIDEBAR (oculta no modo editar perfil) ────────── */}
         {!isProfileEdit && (
         <aside className="hidden space-y-4 lg:block">
-          {(['CONTA', 'PREFERÊNCIAS', 'ZONA DE RISCO'] as const).map((group) => (
+          {(['CONTA', 'PREFERÊNCIAS', 'ADMIN', 'ZONA DE RISCO'] as const).map((group) => {
+            const groupItems = visibleSections.filter((s) => s.group === group)
+            if (groupItems.length === 0) return null
+            return (
             <div key={group}>
               <p className="mb-1.5 px-2 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">
                 {group}
               </p>
               <nav className="flex flex-col gap-0.5">
-                {SECTIONS.filter((s) => s.group === group).map((s) => {
+                {groupItems.map((s) => {
                   const active = section === s.id
                   return (
                     <button
@@ -248,7 +260,8 @@ export function SettingsPage() {
                 })}
               </nav>
             </div>
-          ))}
+            )
+          })}
         </aside>
         )}
 
@@ -322,6 +335,7 @@ export function SettingsPage() {
               {section === 'install' && <InstallAppPanel />}
               {section === 'export' && <ExportPanel authorizedFetch={authorizedFetch} />}
               {section === 'support' && <SupportPanel onOpen={() => navigate('/support')} />}
+              {section === 'admin' && isAdmin && <AdminToolsPanel onNavigate={navigate} />}
               {section === 'logout' && <LogoutPanel logout={logout} />}
               {section === 'delete' && (
                 <DeletePanel
@@ -1405,6 +1419,58 @@ function SupportPanel({ onOpen }: { onOpen: () => void }) {
         <LifeBuoy size={14} />
         Abrir central de suporte
       </button>
+    </div>
+  )
+}
+
+// ─── Admin tools ──────────────────────────────────────────────────────────
+// Painel só visível pra ADMIN (filtro na sidebar/chips garante isso). Concentra
+// links pras páginas administrativas que não cabem no navbar principal,
+// especialmente útil no PWA mobile onde não há barra de URL.
+
+function AdminToolsPanel({ onNavigate }: { onNavigate: (path: string) => void }) {
+  const items = [
+    {
+      to: '/admin/pro-invites',
+      label: 'Convites PRO',
+      desc: 'Criar e gerenciar links de upgrade gratuito.',
+      icon: <Crown size={16} />,
+    },
+    {
+      to: '/admin/users',
+      label: 'Usuários',
+      desc: 'Listar, banir e gerenciar contas.',
+      icon: <UsersIcon size={16} />,
+    },
+    {
+      to: '/admin/support',
+      label: 'Tickets de suporte',
+      desc: 'Responder dúvidas e contestar decisões.',
+      icon: <LifeBuoy size={16} />,
+    },
+  ]
+  return (
+    <div>
+      <PanelTitle title="Ferramentas admin" subtitle="Atalhos pras páginas administrativas." />
+      <div className="space-y-2">
+        {items.map((it) => (
+          <button
+            key={it.to}
+            type="button"
+            onClick={() => onNavigate(it.to)}
+            className="flex w-full items-center gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-3 text-left transition-colors hover:bg-[var(--surface-hover)]"
+          >
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[var(--brand)]/10 text-[var(--brand)]">
+              {it.icon}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13px] font-semibold text-[var(--text)]">{it.label}</span>
+              <span className="block truncate text-[11.5px] text-[var(--muted)]">{it.desc}</span>
+            </span>
+            <ChevronRight size={14} className="shrink-0 text-[var(--muted)]" />
+          </button>
+        ))}
+      </div>
     </div>
   )
 }
