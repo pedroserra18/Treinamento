@@ -201,6 +201,7 @@ model User {
 
   authProviders     AuthProvider[]
   workoutPlans      WorkoutPlan[]
+  aiGeneratedPlans  AIGeneratedPlan[]
   workoutSessions   WorkoutSession[]
   workoutHistories  WorkoutHistory[]
   cardioEntries     CardioEntry[]
@@ -352,6 +353,50 @@ model WorkoutPlan {
   // aiGenerationId not null, agrupa, ordena por createdAt desc.
   @@index([userId, aiGenerationId, createdAt])
   @@map("workout_plans")
+}
+
+// Histórico INDEPENDENTE de planos gerados pela IA. Auto-salvo sempre que
+// o user gera um plano via quiz (não depende de clicar Salvar). 1 row =
+// 1 dia da geração; planos multi-dia compartilham generationId. Mantém
+// snapshot completo (planSnapshot Json) pra ser imune a mudanças no
+// catálogo de Exercise depois — se o user voltar ano que vem e usar
+// um plano antigo, ele aparece como foi gerado, não com nomes editados.
+//
+// SEPARADO de WorkoutPlan porque "rotinas" = só treinos que o user curou
+// pra si; AI history fica isolado pra o user poder limpar /workouts sem
+// perder o histórico. Quando user clica "Usar este treino" no AIWorkoutPage,
+// um WorkoutPlan novo nasce a partir do snapshot (clone).
+//
+// Prune: o backend mantém só as últimas 20 gerações por user (pra evitar
+// inflação infinita) — descartando as mais antigas no save.
+model AIGeneratedPlan {
+  id              String   @id @default(cuid())
+  userId          String
+  // Agrupa todos os dias de uma mesma geração ("FB 3x" = 3 rows com mesmo
+  // generationId). Mesmo padrão do WorkoutPlan.aiGenerationId mas neste
+  // modelo é obrigatório.
+  generationId    String
+  // Forma legível pra UI ("Full Body 3x"). Igual em todos os dias da
+  // mesma geração.
+  generationLabel String
+  // Nome do dia específico (ex.: "Full Body A", "Push", "Lower").
+  dayLabel        String
+  // Posição do dia dentro da geração (0-indexed).
+  dayIndex        Int
+  // Nome do plano sugerido pela IA (igual planSnapshot.planName, em coluna
+  // pra busca rápida sem ler JSON).
+  planName        String
+  // Snapshot completo: { planName, exercises: [{name, sets, repsMin,
+  // repsMax, restSec, notes, muscleGroup, secondaryMuscleGroup}] }
+  planSnapshot    Json
+  generatedAt     DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, generatedAt])
+  @@index([userId, generationId])
+  @@map("ai_generated_plans")
 }
 
 // Cardio que faz parte do template da rotina (não de uma sessão concreta).

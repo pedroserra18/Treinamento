@@ -5,8 +5,23 @@ import { requireAuth } from "../../middlewares/auth.middleware";
 import { asyncHandler } from "../../shared/utils/async-handler";
 import { validateRequest } from "../../middlewares/validation.middleware";
 import { requireCompletedOnboarding } from "../../middlewares/onboarding.middleware";
-import { generateWorkoutBodySchema, parseSplitBodySchema, saveAIWorkoutBodySchema, swapExerciseBodySchema } from "./ai.schema";
-import { generateWorkoutController, parseSplitController, saveAIWorkoutController, swapExerciseController } from "./ai.controller";
+import {
+  aiHistoryParamsSchema,
+  generateWorkoutBodySchema,
+  parseSplitBodySchema,
+  saveAIHistoryBodySchema,
+  saveAIWorkoutBodySchema,
+  swapExerciseBodySchema
+} from "./ai.schema";
+import {
+  generateWorkoutController,
+  listAIHistoryController,
+  parseSplitController,
+  saveAIHistoryController,
+  saveAIWorkoutController,
+  swapExerciseController,
+  useAIHistoryPlanController
+} from "./ai.controller";
 import { redisClient } from "../../config/redis";
 
 // Rate limit das gerações de treino IA. Migrado de Map em memória para o
@@ -81,6 +96,33 @@ router.post(
   requireCompletedOnboarding,
   validateRequest({ body: swapExerciseBodySchema }),
   asyncHandler((req, res) => swapExerciseController(req, res))
+);
+
+// ─── AI History (independente de WorkoutPlan) ─────────────────────────
+// Frontend auto-salva no /ai/history depois de gerar (sem ação do user),
+// lista no /ai/history?limit=3 e clona com POST /ai/history/:id/use.
+
+router.post(
+  "/ai/history",
+  requireAuth,
+  requireCompletedOnboarding,
+  validateRequest({ body: saveAIHistoryBodySchema }),
+  asyncHandler((req, res) => saveAIHistoryController(req, res))
+);
+
+router.get(
+  "/ai/history",
+  requireAuth,
+  requireCompletedOnboarding,
+  asyncHandler((req, res) => listAIHistoryController(req, res))
+);
+
+router.post(
+  "/ai/history/:historyPlanId/use",
+  requireAuth,
+  requireCompletedOnboarding,
+  validateRequest({ params: aiHistoryParamsSchema }),
+  asyncHandler((req, res) => useAIHistoryPlanController(req, res))
 );
 
 export default router;

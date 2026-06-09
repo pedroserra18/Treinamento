@@ -1,7 +1,8 @@
 import OpenAI from "openai";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/prisma";
 import { AppError } from "../../shared/errors/app-error";
-import { GenerateWorkoutBody, SaveAIWorkoutBody } from "./ai.schema";
+import { GenerateWorkoutBody, SaveAIHistoryBody, SaveAIWorkoutBody } from "./ai.schema";
 
 // DB enum → label PT-BR (única fonte de verdade na pipeline).
 const MUSCLE_GROUP_LABELS: Record<string, string> = {
@@ -1209,4 +1210,247 @@ export async function saveAIWorkout(
   }
 
   return { planId: plan.id, planName: plan.name, savedExercises };
+}
+
+// ─── AI History (independente de WorkoutPlan) ───────────────────────────
+//
+// Persiste o snapshot completo do plano gerado pela IA SEMPRE, sem precisar
+// que o user clique "Salvar". Permite browsing posterior em "Ver treinos
+// gerados" mesmo se /workouts estiver vazio. Quando o user quiser usar
+// um treino antigo, useAIHistoryPlan clona o snapshot pra um WorkoutPlan
+// novo (mantendo o histórico intacto).
+
+const MAX_HISTORY_PER_USER = 20;
+
+export async function saveAIGenerationHistory(
+  userId: string,
+  body: SaveAIHistoryBody
+): Promise<{ saved: number }> {
+  // Bulk create — 1 row por dia da geração. Mesmo generationId em todos,
+  // pra o list endpoint agrupar.
+  await prisma.aIGeneratedPlan.createMany({
+    data: body.days.map((d) => ({
+      userId,
+      generationId: body.generationId,
+      generationLabel: body.generationLabel,
+      dayLabel: d.dayLabel,
+      dayIndex: d.dayIndex,
+      planName: d.planName,
+      planSnapshot: {
+        planName: d.planName,
+        exercises: d.exercises
+      } as unknown as Prisma.InputJsonValue
+    }))
+  });
+
+  // Prune: mantém só as últimas MAX_HISTORY_PER_USER gerações por user.
+  // Identifica as gerações mais antigas via min(generatedAt) por
+  // generationId e apaga TODAS as rows dessas gerações.
+  await pruneOldAIHistory(userId);
+
+  return { saved: body.days.length };
+}
+
+async function pruneOldAIHistory(userId: string): Promise<void> {
+  // Lista todas as gerações do user com min(generatedAt) (representa
+  // quando a geração foi criada). groupBy retorna gerações distintas.
+  const generations = await prisma.aIGeneratedPlan.groupBy({
+    by: ["generationId"],
+    where: { userId },
+    _min: { generatedAt: true }
+  });
+  if (generations.length <= MAX_HISTORY_PER_USER) return;
+
+  // Ordena por mais antigo primeiro e apaga as gerações em excesso.
+  generations.sort((a, b) => {
+    const aMs = a._min.generatedAt?.getTime() ?? 0;
+    const bMs = b._min.generatedAt?.getTime() ?? 0;
+    return aMs - bMs;
+  });
+  const toDelete = generations
+    .slice(0, generations.length - MAX_HISTORY_PER_USER)
+    .map((g) => g.generationId);
+  if (toDelete.length === 0) return;
+
+  await prisma.aIGeneratedPlan.deleteMany({
+    where: { userId, generationId: { in: toDelete } }
+  });
+}
+
+export type AIHistoryGeneration = {
+  generationId: string;
+  generationLabel: string;
+  generatedAt: string;
+  plans: Array<{
+    id: string;
+    dayLabel: string;
+    dayIndex: number;
+    planName: string;
+    exerciseCount: number;
+  }>;
+};
+
+export async function listAIHistory(
+  userId: string,
+  limit: number
+): Promise<AIHistoryGeneration[]> {
+  // Pega todas as rows do user, ordenadas por mais recente. Agrupa em
+  // memória pelo generationId. Volume é pequeno (cap 20 gerações × até
+  // 7 dias = 140 rows no máximo), agrupar em SQL não vale a complexidade.
+  const rows = await prisma.aIGeneratedPlan.findMany({
+    where: { userId },
+    orderBy: { generatedAt: "desc" },
+    select: {
+      id: true,
+      generationId: true,
+      generationLabel: true,
+      generatedAt: true,
+      dayLabel: true,
+      dayIndex: true,
+      planName: true,
+      planSnapshot: true
+    }
+  });
+
+  type Bucket = {
+    generationId: string;
+    generationLabel: string;
+    generatedAt: Date;
+    plans: AIHistoryGeneration["plans"];
+  };
+  const byGen = new Map<string, Bucket>();
+  for (const r of rows) {
+    let bucket = byGen.get(r.generationId);
+    if (!bucket) {
+      bucket = {
+        generationId: r.generationId,
+        generationLabel: r.generationLabel,
+        generatedAt: r.generatedAt,
+        plans: []
+      };
+      byGen.set(r.generationId, bucket);
+    }
+    // generatedAt do bucket = mais antigo entre os dias (quando a geração
+    // efetivamente começou).
+    if (r.generatedAt < bucket.generatedAt) bucket.generatedAt = r.generatedAt;
+    // Conta exercícios do snapshot (não precisa de query extra).
+    const snapshot = r.planSnapshot as { exercises?: Array<unknown> } | null;
+    const exerciseCount = Array.isArray(snapshot?.exercises) ? snapshot.exercises.length : 0;
+    bucket.plans.push({
+      id: r.id,
+      dayLabel: r.dayLabel,
+      dayIndex: r.dayIndex,
+      planName: r.planName,
+      exerciseCount
+    });
+  }
+
+  // Ordena planos dentro de cada bucket por dayIndex pra exibir em
+  // ordem natural (Dia 1, Dia 2, Dia 3).
+  for (const bucket of byGen.values()) {
+    bucket.plans.sort((a, b) => a.dayIndex - b.dayIndex);
+  }
+
+  // Ordena gerações pelas mais recentes primeiro.
+  const generations = Array.from(byGen.values());
+  generations.sort((a, b) => b.generatedAt.getTime() - a.generatedAt.getTime());
+
+  return generations.slice(0, limit).map((b) => ({
+    generationId: b.generationId,
+    generationLabel: b.generationLabel,
+    generatedAt: b.generatedAt.toISOString(),
+    plans: b.plans
+  }));
+}
+
+// "Usar este treino" — clona o snapshot da AIGeneratedPlan pra um
+// WorkoutPlan novo (mantém histórico intacto). Tenta resolver os
+// nomes dos exercícios no catálogo pra criar WorkoutPlanExercise com
+// FK válido; nomes que não casam no catálogo são pulados (registrados
+// no campo `notFoundExercises` do retorno).
+export async function useAIHistoryPlan(
+  userId: string,
+  historyPlanId: string
+): Promise<{ planId: string; planName: string; notFoundExercises: string[] }> {
+  const row = await prisma.aIGeneratedPlan.findUnique({
+    where: { id: historyPlanId },
+    select: {
+      userId: true,
+      planName: true,
+      planSnapshot: true
+    }
+  });
+
+  if (!row || row.userId !== userId) {
+    throw new AppError("Plano não encontrado", {
+      statusCode: 404,
+      code: "AI_HISTORY_PLAN_NOT_FOUND"
+    });
+  }
+
+  const snapshot = row.planSnapshot as {
+    planName?: string;
+    exercises?: Array<{
+      name: string;
+      sets?: number;
+      repsMin?: number;
+      repsMax?: number;
+      restSec?: number;
+      notes?: string;
+    }>;
+  } | null;
+  const exercises = Array.isArray(snapshot?.exercises) ? snapshot.exercises : [];
+
+  const plan = await prisma.workoutPlan.create({
+    data: {
+      userId,
+      name: row.planName,
+      description: "Gerado por IA",
+      status: "ACTIVE"
+    }
+  });
+
+  const notFound: string[] = [];
+  let orderIndex = 1;
+
+  for (const ex of exercises) {
+    // Mesma estratégia do saveAIWorkout: busca exata, depois contém.
+    const found =
+      (await prisma.exercise.findFirst({
+        where: {
+          isActive: true,
+          OR: [{ scope: "GLOBAL" }, { scope: "PRIVATE", ownerUserId: userId }],
+          name: { equals: ex.name, mode: "insensitive" }
+        },
+        select: { id: true }
+      })) ??
+      (await prisma.exercise.findFirst({
+        where: {
+          isActive: true,
+          OR: [{ scope: "GLOBAL" }, { scope: "PRIVATE", ownerUserId: userId }],
+          name: { contains: ex.name, mode: "insensitive" }
+        },
+        select: { id: true }
+      }));
+
+    if (!found) {
+      notFound.push(ex.name);
+      continue;
+    }
+
+    await prisma.workoutPlanExercise.create({
+      data: {
+        workoutPlanId: plan.id,
+        exerciseId: found.id,
+        orderIndex: orderIndex++,
+        sets: ex.sets ?? 3,
+        repsMin: ex.repsMin ?? null,
+        repsMax: ex.repsMax ?? null,
+        restSec: ex.restSec ?? null,
+        notes: ex.notes ?? null
+      }
+    });
+  }
+
+  return { planId: plan.id, planName: plan.name, notFoundExercises: notFound };
 }

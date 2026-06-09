@@ -106,6 +106,52 @@ export const saveAIWorkoutBodySchema = z.object({
   aiGenerationLabel: z.string().trim().min(1).max(120).optional(),
 });
 
+// ─── AI History ──────────────────────────────────────────────────────────
+//
+// Schemas pro histórico de gerações independente do save em /workouts.
+// Frontend chama POST /ai/history APÓS gerar (e antes da tela de RESULT)
+// pra persistir o snapshot completo. Funciona mesmo se o user não clicar
+// "Salvar" depois.
+
+const aiExerciseSnapshotSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  sets: z.number().int().min(1).max(12).optional(),
+  repsMin: z.number().int().min(1).max(100).optional(),
+  repsMax: z.number().int().min(1).max(100).optional(),
+  restSec: z.number().int().min(0).max(600).optional(),
+  notes: z.string().trim().max(300).optional(),
+  muscleGroup: z.string().trim().max(80).optional(),
+  secondaryMuscleGroup: z.string().trim().max(80).optional()
+});
+
+export const saveAIHistoryBodySchema = z.object({
+  generationId: z.string().trim().min(1).max(40),
+  generationLabel: z.string().trim().min(1).max(120),
+  // 1 entrada por dia da geração. dayIndex preservado pra ordem.
+  days: z
+    .array(
+      z.object({
+        dayIndex: z.number().int().min(0).max(20),
+        dayLabel: z.string().trim().min(1).max(80),
+        planName: z.string().trim().min(1).max(100),
+        exercises: z.array(aiExerciseSnapshotSchema).max(20)
+      })
+    )
+    .min(1)
+    .max(10)
+});
+
+// POST /ai/history/:id/use — clona o snapshot daquele dia pra um WorkoutPlan
+// novo. Sem body extra.
+export const aiHistoryParamsSchema = z
+  .object({
+    historyPlanId: z.string().cuid()
+  })
+  .strict();
+
+export type SaveAIHistoryBody = z.infer<typeof saveAIHistoryBodySchema>;
+export type AIHistoryParams = z.infer<typeof aiHistoryParamsSchema>;
+
 export type GenerateWorkoutBody = z.infer<typeof generateWorkoutBodySchema>;
 export type SaveAIWorkoutBody = z.infer<typeof saveAIWorkoutBodySchema>;
 export type ParseSplitBody = z.infer<typeof parseSplitBodySchema>;
