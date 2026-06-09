@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useTheme } from '../hooks/useTheme'
@@ -20,7 +20,7 @@ import type { AuthUser, ExperienceLevel, PrimaryGoal } from '../types/auth'
 import { sanitiseHandleInput, validateHandle } from '../lib/handle'
 import {
   AtSign, Check, Download, Lock, LogOut, Moon, ShieldAlert, Sun,
-  AlertTriangle, LifeBuoy, ArrowLeft, Smartphone, Dumbbell, Trash2, Bell, Activity,
+  AlertTriangle, LifeBuoy, ArrowLeft, Smartphone, Dumbbell, Trash2, Bell, Activity, Crown,
 } from 'lucide-react'
 import { InstallAppPanel } from '../components/common/InstallAppPanel'
 import { ConfirmDialog } from '../components/common/ConfirmDialog'
@@ -37,11 +37,19 @@ import {
   updateNotificationPreferences,
   type NotificationPreferences,
 } from '../services/pushService'
+import {
+  getPlanSummary,
+  redeemProInvite,
+  type PlanFeatureKey,
+  type PlanSummary,
+} from '../services/subscriptionService'
+import { Sparkles, CheckCircle2 } from 'lucide-react'
 
 // ─── Sidebar config ────────────────────────────────────────────────────────
 
 type Section =
   | 'profile'
+  | 'plan'
   | 'account'
   | 'handle'
   | 'training'
@@ -69,6 +77,7 @@ type SectionDef = {
 const SECTIONS: SectionDef[] = [
   { id: 'account',   group: 'CONTA',         label: 'Conta',            icon: <Lock size={14} /> },
   { id: 'handle',    group: 'CONTA',         label: '@handle público',  icon: <AtSign size={14} /> },
+  { id: 'plan',      group: 'CONTA',         label: 'Plano',            icon: <Crown size={14} /> },
   { id: 'exercises', group: 'CONTA',         label: 'Meus exercícios',  icon: <Dumbbell size={14} /> },
   { id: 'training',  group: 'PREFERÊNCIAS',  label: 'Perfil de treino', icon: <Activity size={14} /> },
   { id: 'notifications', group: 'PREFERÊNCIAS', label: 'Notificações',   icon: <Bell size={14} /> },
@@ -283,6 +292,13 @@ export function SettingsPage() {
                 <TrainingProfilePanel
                   authorizedFetch={authorizedFetch}
                   applyUserPatch={applyUserPatch}
+                  user={user}
+                />
+              )}
+              {section === 'plan' && (
+                <PlanPanel
+                  authorizedFetch={authorizedFetch}
+                  refreshUser={refreshUser}
                   user={user}
                 />
               )}
@@ -2093,6 +2109,208 @@ function TrainingProfilePanel({
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─── Plan Panel ───────────────────────────────────────────────────────────
+// Mostra o tier atual + uso/limites por feature + campo "Tenho um convite"
+// pra colar o token. Em FREE, exibe CTA "Em breve com plano pago" como
+// placeholder pro futuro checkout.
+const FEATURE_LABELS: Record<PlanFeatureKey, string> = {
+  workoutPlans: 'Rotinas',
+  aiGenerations: 'Gerações de IA',
+  aiHistoryEntries: 'Histórico de IA',
+  customExercises: 'Exercícios personalizados',
+  competitionsOwned: 'Competições como dono',
+  pinnedExercises: 'Exercícios fixados',
+}
+
+function PlanPanel({
+  authorizedFetch, refreshUser, user,
+}: {
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+  refreshUser: () => Promise<void>
+  user: AuthUser | null
+}) {
+  const [summary, setSummary] = useState<PlanSummary | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const [inviteToken, setInviteToken] = useState('')
+  const [redeeming, setRedeeming] = useState(false)
+  const [redeemMsg, setRedeemMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  const load = useCallback(async () => {
+    try {
+      const data = await getPlanSummary(authorizedFetch)
+      setSummary(data)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao carregar plano')
+    } finally {
+      setLoading(false)
+    }
+  }, [authorizedFetch])
+
+  useEffect(() => { void load() }, [load])
+
+  const handleRedeem = async () => {
+    const trimmed = inviteToken.trim()
+    if (trimmed.length < 8) {
+      setRedeemMsg({ type: 'error', text: 'Token muito curto — confirme o que você colou.' })
+      return
+    }
+    // Aceita tanto token puro quanto URL completa — extrai o último segmento.
+    const token = trimmed.includes('/') ? trimmed.split('/').filter(Boolean).pop() ?? trimmed : trimmed
+    setRedeeming(true)
+    setRedeemMsg(null)
+    try {
+      await redeemProInvite(authorizedFetch, token)
+      await refreshUser()
+      await load()
+      setInviteToken('')
+      setRedeemMsg({ type: 'success', text: '✨ Você agora é PRO! Todos os limites foram liberados.' })
+    } catch (err) {
+      setRedeemMsg({ type: 'error', text: err instanceof Error ? err.message : 'Falha ao resgatar convite' })
+    } finally {
+      setRedeeming(false)
+    }
+  }
+
+  const effectivePlan = user?.plan ?? 'FREE'
+  const isPro = effectivePlan === 'PRO'
+
+  return (
+    <div className="space-y-5">
+      <header>
+        <h2 className="text-base font-bold text-[var(--text)]">Plano</h2>
+        <p className="mt-1 text-[12px] leading-relaxed text-[var(--muted)]">
+          Veja o seu tier atual, o quanto já usou de cada feature e como liberar mais recursos.
+        </p>
+      </header>
+
+      {/* Card do tier atual */}
+      <div className={`relative overflow-hidden rounded-xl border p-5 ${isPro ? 'border-amber-500/40 bg-gradient-to-br from-amber-500/10 to-[var(--brand)]/10' : 'border-[var(--line)] bg-[var(--surface-hover)]'}`}>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Crown size={18} className={isPro ? 'text-amber-500' : 'text-[var(--muted)]'} />
+            <span className="text-[15px] font-bold text-[var(--text)]">
+              {isPro ? 'Plano PRO' : 'Plano grátis'}
+            </span>
+          </div>
+          {isPro && (
+            <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-500">
+              Ativo
+            </span>
+          )}
+        </div>
+        <p className="mt-2 text-[12px] leading-relaxed text-[var(--muted)]">
+          {isPro
+            ? 'Você tem acesso a todas as features sem limite.'
+            : 'O plano grátis tem limites em algumas features. Faça upgrade pra PRO pra liberar tudo.'}
+        </p>
+      </div>
+
+      {/* Uso / limites */}
+      {loading && (
+        <p className="text-[12px] text-[var(--muted)]">Carregando uso atual…</p>
+      )}
+      {error && (
+        <p className="rounded-lg border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-[11px] text-rose-500">{error}</p>
+      )}
+      {summary && (
+        <div className="space-y-2">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--muted)]">Uso atual</p>
+          <ul className="overflow-hidden rounded-xl border border-[var(--line)]">
+            {(Object.keys(FEATURE_LABELS) as PlanFeatureKey[]).map((key, idx) => {
+              const used = summary.usage[key]
+              const limit = summary.limits[key]
+              const unlimited = limit === null
+              const atLimit = !unlimited && used >= limit
+              return (
+                <li
+                  key={key}
+                  className={`flex items-center justify-between gap-2 bg-[var(--surface)] px-4 py-3 ${idx < Object.keys(FEATURE_LABELS).length - 1 ? 'border-b border-[var(--line)]' : ''}`}
+                >
+                  <span className="text-[13px] text-[var(--text)]">{FEATURE_LABELS[key]}</span>
+                  <span className={`text-[12px] font-bold tabular-nums ${atLimit ? 'text-rose-500' : 'text-[var(--muted)]'}`}>
+                    {used}{unlimited ? ' / ∞' : ` / ${limit}`}
+                  </span>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      )}
+
+      {/* Convite — só pra free */}
+      {!isPro && (
+        <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-4">
+          <p className="text-[13px] font-bold text-[var(--text)]">Tem um convite?</p>
+          <p className="mt-1 text-[11px] text-[var(--muted)]">
+            Cole o link completo ou só o token recebido pra fazer upgrade gratuito pro PRO.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <input
+              type="text"
+              value={inviteToken}
+              onChange={(e) => setInviteToken(e.target.value)}
+              placeholder="abc123… ou link completo"
+              className="flex-1 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--muted)]"
+            />
+            <button
+              type="button"
+              onClick={() => void handleRedeem()}
+              disabled={redeeming || inviteToken.trim().length === 0}
+              className="rounded-xl bg-[var(--brand)] px-4 py-2 text-[13px] font-bold text-white hover:bg-[var(--brand-strong)] disabled:opacity-50"
+            >
+              {redeeming ? 'Resgatando…' : 'Resgatar'}
+            </button>
+          </div>
+          {redeemMsg && (
+            <p
+              className={`mt-2 rounded-lg border px-3 py-2 text-[11px] ${
+                redeemMsg.type === 'success'
+                  ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-500'
+                  : 'border-rose-500/30 bg-rose-500/5 text-rose-500'
+              }`}
+            >
+              {redeemMsg.text}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Benefícios PRO */}
+      {!isPro && (
+        <div className="rounded-xl border border-[var(--line)] p-4">
+          <p className="flex items-center gap-2 text-[13px] font-bold text-[var(--text)]">
+            <Sparkles size={14} className="text-[var(--brand)]" />
+            O que muda no PRO
+          </p>
+          <ul className="mt-2 space-y-1.5 text-[12px] text-[var(--muted)]">
+            <li className="flex items-start gap-2">
+              <CheckCircle2 size={13} className="mt-0.5 shrink-0 text-emerald-500" />
+              Gerações de IA <strong>ilimitadas</strong> (FREE = 3 totais)
+            </li>
+            <li className="flex items-start gap-2">
+              <CheckCircle2 size={13} className="mt-0.5 shrink-0 text-emerald-500" />
+              <strong>Rotinas e exercícios sem limite</strong>
+            </li>
+            <li className="flex items-start gap-2">
+              <CheckCircle2 size={13} className="mt-0.5 shrink-0 text-emerald-500" />
+              Histórico de IA mais longo (50 gerações)
+            </li>
+            <li className="flex items-start gap-2">
+              <CheckCircle2 size={13} className="mt-0.5 shrink-0 text-emerald-500" />
+              Mais exercícios fixados na Progress (até 20)
+            </li>
+          </ul>
+          <p className="mt-3 text-[11px] italic text-[var(--muted)]">
+            Em breve: plano PRO pago direto pelo app. Por enquanto, só com convite de admin.
+          </p>
+        </div>
+      )}
     </div>
   )
 }

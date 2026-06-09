@@ -62,6 +62,8 @@ function asAuthUser(value: Record<string, unknown>): AuthUser {
     weightKg: typeof value.weightKg === 'number' ? value.weightKg : null,
     experienceLevel: asExperience(value.experienceLevel),
     primaryGoal: asGoal(value.primaryGoal),
+    plan: value.plan === 'PRO' ? 'PRO' : 'FREE',
+    planExpiresAt: typeof value.planExpiresAt === 'string' ? value.planExpiresAt : null,
     onboardingCompleted: Boolean(value.onboardingCompleted),
     avatarUrl: typeof value.avatarUrl === 'string' ? value.avatarUrl : null,
     isPrivate: Boolean(value.isPrivate),

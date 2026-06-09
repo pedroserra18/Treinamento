@@ -6,6 +6,10 @@ export type PrimaryGoal =
   | 'ENDURANCE'
   | 'GENERAL_FITNESS'
 
+// Tier comercial. ADMIN é tratado como PRO no payload do backend
+// (resolveEffectivePlan), então o client vê só 2 valores.
+export type PlanTier = 'FREE' | 'PRO'
+
 export type AuthUser = {
   id: string
   name: string | null
@@ -22,6 +26,10 @@ export type AuthUser = {
   weightKg: number | null
   experienceLevel: ExperienceLevel | null
   primaryGoal: PrimaryGoal | null
+  // Tier comercial — usado pra renderizar badge, esconder upsell, etc.
+  // ADMIN aparece como 'PRO' (resolução é no backend).
+  plan: PlanTier
+  planExpiresAt: string | null
   onboardingCompleted: boolean
   avatarUrl?: string | null
   isPrivate?: boolean

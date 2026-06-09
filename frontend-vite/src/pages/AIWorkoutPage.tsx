@@ -15,6 +15,8 @@ import {
 import { getProfileDefaults, updateBirthDate, updateGender, type ProfileDefaults } from '../services/authService'
 import { Bot, ChevronLeft, Clock, Sparkles, CheckCircle2, Pencil, ChevronUp, ChevronDown, RefreshCw, AlertTriangle, X, ArrowRight, Activity, History } from 'lucide-react'
 import { RecentAIGenerationsSheet } from './ai/RecentAIGenerationsSheet'
+import { useShowPlanLimit } from '../components/plan/use-plan-limit'
+import { catchPlanLimitError } from '../lib/plan-features'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -981,6 +983,7 @@ function LegendItem({ tone, label }: { tone: ChipTone; label: string }) {
 
 export function AIWorkoutPage() {
   const { authorizedFetch } = useAuth()
+  const showPlanLimit = useShowPlanLimit()
   const navigate = useNavigate()
 
   const [appScreen, setAppScreen] = useState<AppScreen>('WELCOME')
@@ -1344,12 +1347,19 @@ export function AIWorkoutPage() {
 
       setAppScreen('RESULT')
     } catch (err) {
+      // PLAN_LIMIT_REACHED é intercept aqui — abre o PlanLimitDialog em
+      // vez do mensagem vermelha genérica, e volta pra WELCOME pra o user
+      // ver o histórico (que pode incluir gerações antigas pra clonar).
+      if (catchPlanLimitError(err, showPlanLimit)) {
+        setAppScreen('WELCOME')
+        return
+      }
       setError(err instanceof Error ? err.message : 'Erro ao gerar treino. Tente novamente.')
       setAppScreen('REVIEW')
     } finally {
       setGeneratingStep(null)
     }
-  }, [authorizedFetch, answers, pushExtraHistory])
+  }, [authorizedFetch, answers, pushExtraHistory, showPlanLimit])
 
   const handleSaveOne = useCallback(async (index: number) => {
     const wd = sections[index]?.workoutData

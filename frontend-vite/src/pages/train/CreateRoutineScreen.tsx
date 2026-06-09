@@ -5,6 +5,8 @@ import {
 } from 'lucide-react'
 import type { ExerciseOption } from '../../types/workout'
 import { useAuth } from '../../hooks/useAuth'
+import { useShowPlanLimit } from '../../components/plan/use-plan-limit'
+import { catchPlanLimitError } from '../../lib/plan-features'
 import {
   addExerciseToPlan,
   createWorkoutPlan,
@@ -72,6 +74,7 @@ export function CreateRoutineScreen({
   onSaved: (createdPlanId: string) => void
 }) {
   const { authorizedFetch } = useAuth()
+  const showPlanLimit = useShowPlanLimit()
 
   // Rascunho da rotina sendo construída. Tudo client-side até clicar
   // Salvar — se o usuário cancela, nada vai pro backend.
@@ -188,6 +191,10 @@ export function CreateRoutineScreen({
       }
       onSaved(created.id)
     } catch (err) {
+      if (catchPlanLimitError(err, showPlanLimit)) {
+        setSaving(false)
+        return
+      }
       setInfoDialog({
         title: 'Erro ao salvar rotina',
         message: err instanceof Error ? err.message : 'Falha desconhecida — tente novamente.',

@@ -144,10 +144,19 @@ export async function generateAIWorkout(
     body: JSON.stringify(input),
   })
 
-  const payload = await parseJsonSafe<{ text?: string; message?: string; error?: string }>(response)
+  // Backend manda { error: { message, code, details } } no formato padrão.
+  // Lemos como ApiError pra preservar code/details — o PlanLimitDialogProvider
+  // intercepta PLAN_LIMIT_REACHED via catchPlanLimitError no caller.
+  const payload = await parseJsonSafe<{ text?: string; error?: { message?: string; code?: string; details?: unknown } }>(response)
 
   if (!response.ok) {
-    throw new Error(extractApiError(payload, response.status))
+    const errObj = payload?.error
+    throw new ApiErrorFromAi(
+      errObj?.message ?? extractApiError(payload, response.status),
+      errObj?.code,
+      errObj?.details,
+      response.status,
+    )
   }
 
   if (!payload?.text) {
@@ -155,6 +164,21 @@ export async function generateAIWorkout(
   }
 
   return parseAIResponse(payload.text)
+}
+
+// Reexporta ApiError local pra não criar import circular com workoutService.
+// Mantém a shape esperada pelo catchPlanLimitError.
+class ApiErrorFromAi extends Error {
+  code?: string
+  details?: unknown
+  status: number
+  constructor(message: string, code: string | undefined, details: unknown, status: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.code = code
+    this.details = details
+    this.status = status
+  }
 }
 
 export type ParsedSplitDay = { label: string; weekday: string }

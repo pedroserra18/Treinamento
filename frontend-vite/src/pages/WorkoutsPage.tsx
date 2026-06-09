@@ -1,4 +1,6 @@
 import { useAuth } from '../hooks/useAuth'
+import { useShowPlanLimit } from '../components/plan/use-plan-limit'
+import { catchPlanLimitError } from '../lib/plan-features'
 import { useCallback, useEffect, useState } from 'react'
 import {
   getExerciseExplorerSelectionEventName,
@@ -358,6 +360,7 @@ export function WorkoutsPage({
   saveSignal = 0,
 }: WorkoutsPageProps) {
   const { authorizedFetch } = useAuth()
+  const showPlanLimit = useShowPlanLimit()
   const [plans, setPlans] = useState<WorkoutPlan[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -476,6 +479,7 @@ export function WorkoutsPage({
       }
       await loadAll()
     } catch (err) {
+      if (catchPlanLimitError(err, showPlanLimit)) return
       setError(err instanceof Error ? err.message : 'Erro ao criar treino')
     }
   }

@@ -293,7 +293,13 @@ export async function createWorkoutPlan(
   const payload = await parsePayload<WorkoutPlan>(response)
 
   if (!response.ok || !payload.data) {
-    throw new Error(payload.errorMessage ?? 'Falha ao criar treino')
+    // ApiError preserva code+details — PlanLimitDialogProvider intercepta
+    // PLAN_LIMIT_REACHED via catchPlanLimitError(err, showLimit).
+    throw new ApiError(payload.errorMessage ?? 'Falha ao criar treino', {
+      code: payload.errorCode,
+      details: payload.errorDetails,
+      status: response.status,
+    })
   }
 
   return payload.data

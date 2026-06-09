@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ArrowLeft, Camera, Check } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
+import { useShowPlanLimit } from '../../components/plan/use-plan-limit'
+import { catchPlanLimitError } from '../../lib/plan-features'
 import { useScrollLock } from '../../hooks/useScrollLock'
 import {
   ApiError,
@@ -175,6 +177,7 @@ export function CreateExerciseModal({
   onClose: () => void
 }) {
   const { authorizedFetch } = useAuth()
+  const showPlanLimit = useShowPlanLimit()
   const navigate = useNavigate()
   useScrollLock(open)
 
@@ -264,10 +267,13 @@ export function CreateExerciseModal({
       onCreated(created)
       onClose()
     } catch (err) {
-      // Limite do tier free: levanta um InfoDialog explicativo em vez
-      // de empilhar a mensagem vermelha no rodapé — a CTA "Entendi"
-      // fecha o aviso mas mantém o modal aberto pra o usuário rever
-      // ou cancelar manualmente.
+      // Limite do tier free — backend hoje emite PLAN_LIMIT_REACHED
+      // (mais genérico), mas mantemos o legacy EXERCISE_LIMIT_REACHED
+      // como fallback pra caso o backend esteja desatualizado.
+      if (catchPlanLimitError(err, showPlanLimit)) {
+        onClose()
+        return
+      }
       if (err instanceof ApiError && err.code === 'EXERCISE_LIMIT_REACHED') {
         setLimitDialogOpen(true)
       } else {

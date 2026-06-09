@@ -5,6 +5,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { ErrorBoundary } from './components/common/ErrorBoundary'
 import { AuthProvider } from './context/AuthContext'
 import { AppShell } from './components/layout/AppShell'
+import { PlanLimitDialogProvider } from './components/plan/PlanLimitDialogProvider'
 import { AdminRoute } from './components/auth/AdminRoute'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { Skeleton } from './components/common/Skeleton'
@@ -20,6 +21,7 @@ import { LoginPage } from './pages/LoginPage'
 import { RegisterPage } from './pages/RegisterPage'
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
 import { GoogleCallbackPage } from './pages/GoogleCallbackPage'
+import { ProInvitePage } from './pages/subscription/ProInvitePage'
 
 // Detects the "stale chunk" failure mode: a user had the app open when
 // we deployed, the old chunk hashes no longer exist on the CDN, the SPA
@@ -82,6 +84,7 @@ const SharedPlanPage = lazyNamed(() => import('./pages/SharedPlanPage'), 'Shared
 const SupportPage = lazyNamed(() => import('./pages/SupportPage'), 'SupportPage')
 const SupportTicketPage = lazyNamed(() => import('./pages/SupportTicketPage'), 'SupportTicketPage')
 const AdminUsersPage = lazyNamed(() => import('./pages/AdminUsersPage'), 'AdminUsersPage')
+const AdminProInvitesPage = lazyNamed(() => import('./pages/AdminProInvitesPage'), 'AdminProInvitesPage')
 const AdminSupportPage = lazyNamed(() => import('./pages/AdminSupportPage'), 'AdminSupportPage')
 const AdminSupportTicketPage = lazyNamed(() => import('./pages/AdminSupportTicketPage'), 'AdminSupportTicketPage')
 const AdminSupportTemplatesPage = lazyNamed(() => import('./pages/AdminSupportTemplatesPage'), 'AdminSupportTemplatesPage')
@@ -128,6 +131,9 @@ function AnimatedRoutes() {
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
               <Route path="/register" element={<RegisterPage />} />
               <Route path="/auth/google/callback" element={<GoogleCallbackPage />} />
+              {/* Página pública de convite PRO — aceita user logado ou não.
+                  Internamente decide se mostra "Entrar" ou "Resgatar". */}
+              <Route path="/pro-invite/:token" element={<ProInvitePage />} />
               <Route
                 path="/dashboard"
                 element={
@@ -262,6 +268,14 @@ function AnimatedRoutes() {
                 }
               />
               <Route
+                path="/admin/pro-invites"
+                element={
+                  <AdminRoute>
+                    <AdminProInvitesPage />
+                  </AdminRoute>
+                }
+              />
+              <Route
                 path="/support"
                 element={
                   <ProtectedRoute>
@@ -315,14 +329,19 @@ function App() {
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <BrowserRouter>
-            <AppShell>
-              <AnimatedRoutes />
-            </AppShell>
-            {/* Componentes globais PWA — montados fora do AppShell pra
-                não dependerem de routing/auth. Cada um decide internamente
-                se renderiza ou não (snooze, standalone, etc.). */}
-            <PwaUpdatePrompt />
-            <PwaInstallBanner />
+            {/* PlanLimitDialogProvider — wrappa o app inteiro pra qualquer
+                caller poder chamar useShowPlanLimit() e abrir o dialog
+                contextual quando bater 402 PLAN_LIMIT_REACHED do backend. */}
+            <PlanLimitDialogProvider>
+              <AppShell>
+                <AnimatedRoutes />
+              </AppShell>
+              {/* Componentes globais PWA — montados fora do AppShell pra
+                  não dependerem de routing/auth. Cada um decide internamente
+                  se renderiza ou não (snooze, standalone, etc.). */}
+              <PwaUpdatePrompt />
+              <PwaInstallBanner />
+            </PlanLimitDialogProvider>
           </BrowserRouter>
         </AuthProvider>
       </QueryClientProvider>
