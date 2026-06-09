@@ -39,6 +39,11 @@ type SafeUser = {
   weightKg: number | null;
   experienceLevel: "BEGINNER" | "INTERMEDIATE" | "ADVANCED" | null;
   primaryGoal: "STRENGTH" | "HYPERTROPHY" | "WEIGHT_LOSS" | "ENDURANCE" | "GENERAL_FITNESS" | null;
+  // Tier comercial — usado pelo client pra renderizar badge PRO, esconder
+  // upsell pra quem já é PRO, e mostrar limites corretos. ADMIN é resolvido
+  // pra "PRO" automaticamente (vide resolveEffectivePlan no backend).
+  plan: "FREE" | "PRO";
+  planExpiresAt: string | null;
   onboardingCompleted: boolean;
   isPrivate: boolean;
   showFollowLists: boolean;
@@ -221,10 +226,18 @@ function toSafeUser(user: {
   weightKg?: number | null;
   experienceLevel?: "BEGINNER" | "INTERMEDIATE" | "ADVANCED" | null;
   primaryGoal?: "STRENGTH" | "HYPERTROPHY" | "WEIGHT_LOSS" | "ENDURANCE" | "GENERAL_FITNESS" | null;
+  // Tier comercial — opcionais no SELECT pra compat. Default FREE quando
+  // ausente. ADMIN é promovido a "PRO" no payload (assim o client renderiza
+  // direto sem precisar saber que admins têm benefícios).
+  plan?: "FREE" | "PRO";
+  planExpiresAt?: Date | null;
   isPrivate?: boolean;
   showFollowLists?: boolean;
   avatarUrl?: string | null;
 }): SafeUser {
+  // ADMIN herda PRO em runtime — vide resolveEffectivePlan no plan-limits.
+  const effectivePlan: "FREE" | "PRO" =
+    user.role === "ADMIN" ? "PRO" : user.plan ?? "FREE";
   return {
     id: user.id,
     name: user.name,
@@ -240,6 +253,8 @@ function toSafeUser(user: {
     weightKg: user.weightKg ?? null,
     experienceLevel: user.experienceLevel ?? null,
     primaryGoal: user.primaryGoal ?? null,
+    plan: effectivePlan,
+    planExpiresAt: user.planExpiresAt ? user.planExpiresAt.toISOString() : null,
     onboardingCompleted: Boolean(user.onboardingCompletedAt && user.availableDaysPerWeek),
     isPrivate: user.isPrivate ?? false,
     showFollowLists: user.showFollowLists ?? true,
@@ -289,6 +304,8 @@ export async function registerWithEmail(data: RegisterBody, context: EventContex
       weightKg: true,
       experienceLevel: true,
       primaryGoal: true,
+      plan: true,
+      planExpiresAt: true,
       onboardingCompletedAt: true,
       isPrivate: true, showFollowLists: true, avatarUrl: true
     }
@@ -354,6 +371,8 @@ export async function loginWithEmail(data: LoginBody, context: EventContext = {}
       weightKg: true,
       experienceLevel: true,
       primaryGoal: true,
+      plan: true,
+      planExpiresAt: true,
       onboardingCompletedAt: true,
       isPrivate: true, showFollowLists: true, avatarUrl: true,
       passwordHash: true,
@@ -626,6 +645,8 @@ export async function getAuthenticatedProfile(userId: string): Promise<SafeUser>
       weightKg: true,
       experienceLevel: true,
       primaryGoal: true,
+      plan: true,
+      planExpiresAt: true,
       onboardingCompletedAt: true,
       isPrivate: true, showFollowLists: true, avatarUrl: true,
       isDeleted: true,
@@ -659,6 +680,8 @@ export async function getOnboardingStatus(userId: string): Promise<{
       weightKg: true,
       experienceLevel: true,
       primaryGoal: true,
+      plan: true,
+      planExpiresAt: true,
       onboardingCompletedAt: true,
       isDeleted: true,
       status: true
@@ -712,7 +735,7 @@ export async function updateAvatar(userId: string, avatarUrl: string | null): Pr
     data: { avatarUrl },
     select: {
       id: true, name: true, handle: true, email: true, role: true,
-      sex: true, availableDaysPerWeek: true, birthDate: true, heightCm: true, weightKg: true, experienceLevel: true, primaryGoal: true, onboardingCompletedAt: true, isPrivate: true, showFollowLists: true, avatarUrl: true
+      sex: true, availableDaysPerWeek: true, birthDate: true, heightCm: true, weightKg: true, experienceLevel: true, primaryGoal: true, plan: true, planExpiresAt: true, onboardingCompletedAt: true, isPrivate: true, showFollowLists: true, avatarUrl: true,
     },
   });
   return toSafeUser(updated);
@@ -737,7 +760,7 @@ export async function updateHandle(userId: string, newHandle: string): Promise<S
     data: { handle: newHandle },
     select: {
       id: true, name: true, handle: true, email: true, role: true,
-      sex: true, availableDaysPerWeek: true, birthDate: true, heightCm: true, weightKg: true, experienceLevel: true, primaryGoal: true, onboardingCompletedAt: true,
+      sex: true, availableDaysPerWeek: true, birthDate: true, heightCm: true, weightKg: true, experienceLevel: true, primaryGoal: true, plan: true, planExpiresAt: true, onboardingCompletedAt: true,
       isPrivate: true, showFollowLists: true, avatarUrl: true,
     },
   });
@@ -752,7 +775,7 @@ export async function updateName(userId: string, newName: string): Promise<SafeU
     data: { name: newName },
     select: {
       id: true, name: true, handle: true, email: true, role: true,
-      sex: true, availableDaysPerWeek: true, birthDate: true, heightCm: true, weightKg: true, experienceLevel: true, primaryGoal: true, onboardingCompletedAt: true,
+      sex: true, availableDaysPerWeek: true, birthDate: true, heightCm: true, weightKg: true, experienceLevel: true, primaryGoal: true, plan: true, planExpiresAt: true, onboardingCompletedAt: true,
       isPrivate: true, showFollowLists: true, avatarUrl: true,
     },
   });
@@ -789,7 +812,7 @@ export async function confirmEmailChange(
     data: { email: newEmail },
     select: {
       id: true, name: true, handle: true, email: true, role: true,
-      sex: true, availableDaysPerWeek: true, birthDate: true, heightCm: true, weightKg: true, experienceLevel: true, primaryGoal: true, onboardingCompletedAt: true,
+      sex: true, availableDaysPerWeek: true, birthDate: true, heightCm: true, weightKg: true, experienceLevel: true, primaryGoal: true, plan: true, planExpiresAt: true, onboardingCompletedAt: true,
       isPrivate: true, showFollowLists: true, avatarUrl: true,
     },
   });
@@ -977,6 +1000,8 @@ export async function completeOnboarding(
       weightKg: true,
       experienceLevel: true,
       primaryGoal: true,
+      plan: true,
+      planExpiresAt: true,
       onboardingCompletedAt: true,
       isPrivate: true, showFollowLists: true, avatarUrl: true
     }
@@ -1020,6 +1045,8 @@ export async function updateProfile(userId: string, patch: ProfileUpdateBody): P
       weightKg: true,
       experienceLevel: true,
       primaryGoal: true,
+      plan: true,
+      planExpiresAt: true,
       onboardingCompletedAt: true,
       isPrivate: true, showFollowLists: true, avatarUrl: true
     }

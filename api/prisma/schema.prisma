@@ -162,6 +162,25 @@ enum SupportMessageAuthorRole {
   SYSTEM
 }
 
+// Tier comercial — ORTOGONAL ao UserRole (USER/COACH/ADMIN).
+// Um ADMIN é sempre tratado como PRO no runtime (vide assertWithinLimit
+// no shared/plan-limits.ts), independente desta coluna. PRO vem via:
+//   • DEFAULT — todo user nasce FREE
+//   • ADMIN_LINK — convite single-use criado por um admin (parceria/gratis)
+//   • PAYMENT — futuro, plano pago
+//   • GIFT — futuro, grant manual
+enum PlanTier {
+  FREE
+  PRO
+}
+
+enum SubscriptionSource {
+  DEFAULT
+  ADMIN_LINK
+  PAYMENT
+  GIFT
+}
+
 model User {
   id                  String          @id @default(cuid())
   email               String          @unique
@@ -184,6 +203,15 @@ model User {
   weightKg            Float?
   experienceLevel     ExperienceLevel?
   primaryGoal         PrimaryGoal?
+  // Tier comercial — FREE por padrão; promovido pra PRO via ADMIN_LINK
+  // ou (futuro) PAYMENT. ADMINs herdam PRO em runtime sem precisar deste
+  // campo. planExpiresAt null = lifetime (link admin) ou FREE.
+  plan                PlanTier        @default(FREE)
+  planExpiresAt       DateTime?
+  // Contador LIFETIME de gerações de IA. Não reseta — é o gate do limite
+  // FREE de 3 gerações totais. Incrementado dentro da transação do save
+  // pra evitar race. PROs ignoram este check.
+  aiGenerationsTotal  Int             @default(0)
   onboardingCompletedAt DateTime?
   role                UserRole        @default(USER)
   status              AccountStatus   @default(PENDING)
@@ -202,6 +230,9 @@ model User {
   authProviders     AuthProvider[]
   workoutPlans      WorkoutPlan[]
   aiGeneratedPlans  AIGeneratedPlan[]
+  subscriptionEvents      SubscriptionEvent[]
+  proInvitesCreated       ProUpgradeInvite[]   @relation("ProInvitesCreated")
+  proInvitesUsed          ProUpgradeInvite[]   @relation("ProInvitesUsed")
   workoutSessions   WorkoutSession[]
   workoutHistories  WorkoutHistory[]
   cardioEntries     CardioEntry[]
@@ -397,6 +428,54 @@ model AIGeneratedPlan {
   @@index([userId, generatedAt])
   @@index([userId, generationId])
   @@map("ai_generated_plans")
+}
+
+// Log de alterações do plano comercial do user. User.plan é a SOURCE OF
+// TRUTH pro runtime (1 read por request); SubscriptionEvent é o histórico
+// pra auditoria, billing futura e relatórios admin ("quem virou PRO esse
+// mês?"). Inserido em transação junto com o User.update.
+model SubscriptionEvent {
+  id        String             @id @default(cuid())
+  userId    String
+  fromPlan  PlanTier
+  toPlan    PlanTier
+  source    SubscriptionSource
+  expiresAt DateTime?
+  // metadata fica livre pra dados do gateway de pagamento (futuro) ou
+  // contexto do convite (inviteId, adminId que criou, etc.).
+  metadata  Json?
+  createdAt DateTime           @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("subscription_events")
+}
+
+// Convites single-use criados por ADMIN pra dar PRO de graça
+// (parcerias, gifts). token vai pro URL público; usedAt marca consumo.
+// Token é cuid (impossível adivinhar), revogável via DELETE.
+model ProUpgradeInvite {
+  id          String    @id @default(cuid())
+  token       String    @unique @default(cuid())
+  createdById String
+  usedById    String?
+  usedAt      DateTime?
+  // Opcional — admin pode pôr deadline. Default null = não expira.
+  expiresAt   DateTime?
+  // Nota livre pro admin lembrar pra quem foi ("Parceria João da X").
+  note        String?
+  // Revogação manual — admin pode desativar sem deletar pra preservar log.
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  createdBy User  @relation("ProInvitesCreated", fields: [createdById], references: [id], onDelete: Cascade)
+  usedBy    User? @relation("ProInvitesUsed", fields: [usedById], references: [id], onDelete: SetNull)
+
+  // Hot paths: por token (resgate público) e por admin (lista).
+  @@index([token])
+  @@index([createdById, createdAt])
+  @@map("pro_upgrade_invites")
 }
 
 // Cardio que faz parte do template da rotina (não de uma sessão concreta).

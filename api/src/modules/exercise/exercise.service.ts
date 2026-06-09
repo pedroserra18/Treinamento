@@ -2,6 +2,7 @@ import { MuscleGroup, Prisma } from "@prisma/client";
 import { prisma } from "../../config/prisma";
 import { CreateExerciseBody, ListExercisesQuery, UpdateExerciseBody } from "./exercise.schema";
 import { AppError } from "../../shared/errors/app-error";
+import { assertWithinLimit, PLAN_LIMITS } from "../../shared/plan-limits";
 
 type RequestUser = {
   userId?: string;
@@ -12,17 +13,10 @@ type RequestUser = {
 // Quando o usuário tem 5 exercícios ativos próprios, o create retorna
 // 402 Payment Required com code EXERCISE_LIMIT_REACHED — o frontend
 // exibe um InfoDialog explicando o plano Pro futuro.
-//
-// Quando implementarmos o plano pago, basta checar `user.plan === 'PRO'`
-// no resolveExerciseLimit() antes do throw — a constante segue valendo
-// como teto do tier FREE.
-export const MAX_PRIVATE_EXERCISES_FREE = 5;
-
-function resolveExerciseLimit(_user: RequestUser): number | null {
-  // Hook pro futuro: quando houver `user.plan === 'PRO'`, retornar null
-  // (unlimited). Hoje todos caem no teto FREE.
-  return MAX_PRIVATE_EXERCISES_FREE;
-}
+// Mantemos a constante exportada por compat (alguns lugares importavam
+// pra mostrar o limite na UI). Valor agora vem do PLAN_LIMITS centralizado
+// — mudança aqui propaga pra todos os checks.
+export const MAX_PRIVATE_EXERCISES_FREE = PLAN_LIMITS.FREE.customExercises;
 
 function buildScopeCondition(
   scope: ListExercisesQuery["scope"],
@@ -123,26 +117,16 @@ export async function createExercise(input: CreateExerciseBody, user: RequestUse
     throw new AppError("Não autorizado", { statusCode: 401, code: "UNAUTHORIZED" });
   }
 
-  const limit = resolveExerciseLimit(user);
-  if (limit !== null) {
-    const activeCount = await prisma.exercise.count({
-      where: {
-        scope: "PRIVATE",
-        ownerUserId: user.userId,
-        isActive: true
-      }
-    });
-    if (activeCount >= limit) {
-      throw new AppError(
-        `Você atingiu o limite de ${limit} exercícios personalizados do plano gratuito.`,
-        {
-          statusCode: 402,
-          code: "EXERCISE_LIMIT_REACHED",
-          details: { created: activeCount, limit, plan: "FREE" }
-        }
-      );
+  // Gate via helper centralizado — emite PLAN_LIMIT_REACHED (402) que o
+  // frontend captura no PlanLimitDialogProvider e mostra o dialog padrão.
+  const activeCount = await prisma.exercise.count({
+    where: {
+      scope: "PRIVATE",
+      ownerUserId: user.userId,
+      isActive: true
     }
-  }
+  });
+  await assertWithinLimit(user.userId, "customExercises", activeCount);
 
   const baseSlug = input.name
     .toLowerCase()
@@ -217,20 +201,31 @@ export async function getMyExerciseStats(user: RequestUser) {
     throw new AppError("Não autorizado", { statusCode: 401, code: "UNAUTHORIZED" });
   }
 
-  const created = await prisma.exercise.count({
-    where: {
-      scope: "PRIVATE",
-      ownerUserId: user.userId,
-      isActive: true
-    }
-  });
+  const [created, userPlan] = await Promise.all([
+    prisma.exercise.count({
+      where: {
+        scope: "PRIVATE",
+        ownerUserId: user.userId,
+        isActive: true
+      }
+    }),
+    prisma.user.findUnique({
+      where: { id: user.userId },
+      select: { plan: true, role: true }
+    })
+  ]);
 
-  const limit = resolveExerciseLimit(user);
+  // ADMIN herda PRO; PRO já é PRO; FREE é FREE.
+  const effectivePlan: "FREE" | "PRO" =
+    userPlan?.role === "ADMIN" ? "PRO" : userPlan?.plan ?? "FREE";
+  const rawLimit = PLAN_LIMITS[effectivePlan].customExercises;
+  // POSITIVE_INFINITY → null no payload pra UI interpretar como ilimitado.
+  const limit = Number.isFinite(rawLimit) ? rawLimit : null;
 
   return {
     created,
     limit,
-    plan: "FREE" as const
+    plan: effectivePlan
   };
 }
 

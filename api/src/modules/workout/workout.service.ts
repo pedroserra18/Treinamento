@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { logger } from "../../config/logger";
 import { prisma } from "../../config/prisma";
 import { AppError } from "../../shared/errors/app-error";
+import { assertWithinLimit } from "../../shared/plan-limits";
 import { trackEvent } from "../../shared/services/event-log.service";
 import { getWorkoutRecommendationsForUser } from "../recommendation/recommendation.service";
 import {
@@ -369,6 +370,13 @@ export async function listRecentAIGenerations(
 }
 
 export async function createWorkoutPlan(userId: string, payload: CreateWorkoutPlanBody) {
+  // Tier gate: conta rotinas ATIVAS+não-archived do user. Archived/deleted
+  // não contam (libera slot). PRO bypassa via assertWithinLimit.
+  const currentCount = await prisma.workoutPlan.count({
+    where: { userId, archivedAt: null, status: { in: ["ACTIVE", "DRAFT"] } }
+  });
+  await assertWithinLimit(userId, "workoutPlans", currentCount);
+
   return prisma.workoutPlan.create({
     data: {
       userId,

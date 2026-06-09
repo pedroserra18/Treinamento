@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/prisma";
 import { AppError } from "../../shared/errors/app-error";
+import { assertWithinLimitForUser, PLAN_LIMITS, resolveEffectivePlan } from "../../shared/plan-limits";
 import { GenerateWorkoutBody, SaveAIHistoryBody, SaveAIWorkoutBody } from "./ai.schema";
 
 // DB enum → label PT-BR (única fonte de verdade na pipeline).
@@ -858,6 +859,19 @@ async function callOpenAI(
 }
 
 export async function generateWorkout(payload: GenerateWorkoutBody, userId?: string): Promise<string> {
+  // Tier gate — só roda na PRIMEIRA chamada de uma geração (isFirstDay=true).
+  // Regenerar 1 dia individual não conta como geração nova. Sem userId
+  // (caso impossível em produção, requireAuth roda antes) pula o check.
+  if (userId && payload.isFirstDay) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { plan: true, role: true, aiGenerationsTotal: true }
+    });
+    if (user) {
+      assertWithinLimitForUser(user, "aiGenerations", user.aiGenerationsTotal);
+    }
+  }
+
   const client = getOpenAIClient();
 
   const exercises = await fetchExercises(userId, payload.equipment);
@@ -1220,38 +1234,48 @@ export async function saveAIWorkout(
 // um treino antigo, useAIHistoryPlan clona o snapshot pra um WorkoutPlan
 // novo (mantendo o histórico intacto).
 
-const MAX_HISTORY_PER_USER = 20;
-
 export async function saveAIGenerationHistory(
   userId: string,
   body: SaveAIHistoryBody
 ): Promise<{ saved: number }> {
-  // Bulk create — 1 row por dia da geração. Mesmo generationId em todos,
-  // pra o list endpoint agrupar.
-  await prisma.aIGeneratedPlan.createMany({
-    data: body.days.map((d) => ({
-      userId,
-      generationId: body.generationId,
-      generationLabel: body.generationLabel,
-      dayLabel: d.dayLabel,
-      dayIndex: d.dayIndex,
-      planName: d.planName,
-      planSnapshot: {
+  // Atômico: insert das rows do history + increment do counter lifetime
+  // do user (pra o gate de 3 gerações FREE). Sem essa transação, um crash
+  // entre os dois deixaria histórico salvo mas counter desincronizado.
+  const user = await prisma.$transaction(async (tx) => {
+    await tx.aIGeneratedPlan.createMany({
+      data: body.days.map((d) => ({
+        userId,
+        generationId: body.generationId,
+        generationLabel: body.generationLabel,
+        dayLabel: d.dayLabel,
+        dayIndex: d.dayIndex,
         planName: d.planName,
-        exercises: d.exercises
-      } as unknown as Prisma.InputJsonValue
-    }))
+        planSnapshot: {
+          planName: d.planName,
+          exercises: d.exercises
+        } as unknown as Prisma.InputJsonValue
+      }))
+    });
+
+    return tx.user.update({
+      where: { id: userId },
+      data: { aiGenerationsTotal: { increment: 1 } },
+      select: { plan: true, role: true }
+    });
   });
 
-  // Prune: mantém só as últimas MAX_HISTORY_PER_USER gerações por user.
-  // Identifica as gerações mais antigas via min(generatedAt) por
-  // generationId e apaga TODAS as rows dessas gerações.
-  await pruneOldAIHistory(userId);
+  // Prune: mantém só as últimas N gerações de acordo com o tier do user.
+  // FREE: 5 | PRO: 50 (vide PLAN_LIMITS.aiHistoryEntries).
+  const effectivePlan = resolveEffectivePlan(user);
+  const limit = PLAN_LIMITS[effectivePlan].aiHistoryEntries;
+  if (Number.isFinite(limit)) {
+    await pruneOldAIHistory(userId, limit as number);
+  }
 
   return { saved: body.days.length };
 }
 
-async function pruneOldAIHistory(userId: string): Promise<void> {
+async function pruneOldAIHistory(userId: string, maxGenerations: number): Promise<void> {
   // Lista todas as gerações do user com min(generatedAt) (representa
   // quando a geração foi criada). groupBy retorna gerações distintas.
   const generations = await prisma.aIGeneratedPlan.groupBy({
@@ -1259,7 +1283,7 @@ async function pruneOldAIHistory(userId: string): Promise<void> {
     where: { userId },
     _min: { generatedAt: true }
   });
-  if (generations.length <= MAX_HISTORY_PER_USER) return;
+  if (generations.length <= maxGenerations) return;
 
   // Ordena por mais antigo primeiro e apaga as gerações em excesso.
   generations.sort((a, b) => {
@@ -1268,7 +1292,7 @@ async function pruneOldAIHistory(userId: string): Promise<void> {
     return aMs - bMs;
   });
   const toDelete = generations
-    .slice(0, generations.length - MAX_HISTORY_PER_USER)
+    .slice(0, generations.length - maxGenerations)
     .map((g) => g.generationId);
   if (toDelete.length === 0) return;
 

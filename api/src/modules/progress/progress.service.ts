@@ -1,5 +1,6 @@
 import { prisma } from "../../config/prisma";
 import { AppError } from "../../shared/errors/app-error";
+import { assertWithinLimit } from "../../shared/plan-limits";
 import {
   BodyMeasurementParams,
   CreateBodyMeasurementBody,
@@ -96,15 +97,10 @@ export async function addPinnedExercise(userId: string, payload: PinnedExerciseB
     });
   }
 
-  if (count >= PINNED_EXERCISE_LIMIT) {
-    throw new AppError("Pinned exercise limit reached", {
-      statusCode: 400,
-      code: "PINNED_EXERCISE_LIMIT_REACHED",
-      details: {
-        limit: PINNED_EXERCISE_LIMIT
-      }
-    });
-  }
+  // Gate via helper centralizado — FREE 5 / PRO 20. Lança
+  // PLAN_LIMIT_REACHED (402); PlanLimitDialogProvider no front mostra o
+  // dialog padrão com texto contextual da feature "pinnedExercises".
+  await assertWithinLimit(userId, "pinnedExercises", count);
 
   // New pins go to the end of the list so existing manual ordering is
   // never disturbed by adding another exercise.
