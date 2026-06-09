@@ -266,6 +266,108 @@ export async function listUserWorkoutPlans(userId: string) {
   return plans;
 }
 
+// Últimas N "gerações de IA" do usuário, agrupadas pelo aiGenerationId.
+// Cada generation traz a lista de planos-dia que nasceram juntos +
+// metadados (label legível, timestamp da geração). Usada pelo botão
+// "Ver treinos gerados" do AIWorkoutPage. Filtra ACTIVE+não-archived
+// pra alinhar com listUserWorkoutPlans (não mostra plano que o user
+// apagou manualmente em /workouts).
+export type RecentAIGeneration = {
+  aiGenerationId: string;
+  aiGenerationLabel: string | null;
+  generatedAt: string; // ISO — createdAt do plano mais antigo da geração
+  plans: Array<{
+    id: string;
+    name: string;
+    exerciseCount: number;
+  }>;
+};
+
+export async function listRecentAIGenerations(
+  userId: string,
+  limit: number
+): Promise<RecentAIGeneration[]> {
+  // Estratégia: buscar TODOS planos com aiGenerationId not null do user
+  // (ACTIVE+não-archived), agrupar em memória pelo id, ordenar gerações
+  // por max(createdAt) desc, take limit. Volume real é pequeno (~50 planos
+  // por user no extremo), agrupar em SQL com Prisma raw seria mais código
+  // sem ganho mensurável.
+  const plans = await prisma.workoutPlan.findMany({
+    where: {
+      userId,
+      aiGenerationId: { not: null },
+      status: { in: ["ACTIVE", "DRAFT"] },
+      archivedAt: null
+    },
+    orderBy: [{ createdAt: "desc" }],
+    select: {
+      id: true,
+      name: true,
+      createdAt: true,
+      aiGenerationId: true,
+      aiGenerationLabel: true,
+      _count: { select: { exercises: true } }
+    }
+  });
+
+  type Bucket = {
+    aiGenerationId: string;
+    aiGenerationLabel: string | null;
+    generatedAt: Date;
+    plans: Array<{ id: string; name: string; exerciseCount: number }>;
+  };
+  const byGen = new Map<string, Bucket>();
+  for (const p of plans) {
+    const gid = p.aiGenerationId!;
+    let bucket = byGen.get(gid);
+    if (!bucket) {
+      bucket = {
+        aiGenerationId: gid,
+        aiGenerationLabel: p.aiGenerationLabel,
+        generatedAt: p.createdAt,
+        plans: []
+      };
+      byGen.set(gid, bucket);
+    }
+    // Mantém o createdAt mais ANTIGO como "generatedAt" (representa o
+    // momento que a geração começou). createdAt mais recente também
+    // serve, mas o antigo evita drift quando saves vão um após outro.
+    if (p.createdAt < bucket.generatedAt) bucket.generatedAt = p.createdAt;
+    // Label idealmente é igual em todos os planos do mesmo id; usamos
+    // o primeiro não-null como fallback se algum row vier sem.
+    if (!bucket.aiGenerationLabel && p.aiGenerationLabel) {
+      bucket.aiGenerationLabel = p.aiGenerationLabel;
+    }
+    bucket.plans.push({
+      id: p.id,
+      name: p.name,
+      exerciseCount: p._count.exercises
+    });
+  }
+
+  // Ordena gerações por mais recente primeiro (baseado no mais NOVO de
+  // cada bucket, pra "última geração" subir).
+  const generations = Array.from(byGen.values());
+  generations.sort((a, b) => {
+    const aLatest = Math.max(...a.plans.map((_) => 0), a.generatedAt.getTime());
+    const bLatest = Math.max(...b.plans.map((_) => 0), b.generatedAt.getTime());
+    return bLatest - aLatest;
+  });
+
+  // Re-ordena planos dentro de cada bucket por createdAt asc (Plan A,
+  // Plan B, Plan C…). Prisma já trouxe desc; ordenamos local.
+  for (const bucket of generations) {
+    bucket.plans.sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  return generations.slice(0, limit).map((b) => ({
+    aiGenerationId: b.aiGenerationId,
+    aiGenerationLabel: b.aiGenerationLabel,
+    generatedAt: b.generatedAt.toISOString(),
+    plans: b.plans
+  }));
+}
+
 export async function createWorkoutPlan(userId: string, payload: CreateWorkoutPlanBody) {
   return prisma.workoutPlan.create({
     data: {

@@ -1140,6 +1140,11 @@ export async function saveAIWorkout(
       name: payload.planName,
       description: "Gerado por IA",
       status: "ACTIVE",
+      // Tag de agrupamento — quando o cliente envia o mesmo aiGenerationId
+      // em múltiplos saves, os planos passam a ser listáveis como UMA
+      // geração no endpoint /workouts/plans/ai/recent.
+      aiGenerationId: payload.aiGenerationId ?? null,
+      aiGenerationLabel: payload.aiGenerationLabel ?? null,
     },
   });
 

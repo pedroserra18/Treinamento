@@ -42,6 +42,7 @@ import {
   getSessionHighlightsController,
   listWorkoutHistoryController,
   latestExerciseHistoryController,
+  listRecentAIGenerationsController,
   listWorkoutPlansController,
   personalRecordsController,
   recommendationTemplatesController,
@@ -76,6 +77,15 @@ router.get(
   requireAuth,
   requireCompletedOnboarding,
   asyncHandler(async (req, res) => listWorkoutPlansController(req, res))
+);
+
+// Últimas N gerações de IA agrupadas (1 row = 1 generation, com N planos
+// dentro). Vem antes da rota dinâmica /:planId pra não casar com o param.
+router.get(
+  "/workouts/plans/ai/recent",
+  requireAuth,
+  requireCompletedOnboarding,
+  asyncHandler(async (req, res) => listRecentAIGenerationsController(req, res))
 );
 
 router.post(

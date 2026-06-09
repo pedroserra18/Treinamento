@@ -333,6 +333,12 @@ model WorkoutPlan {
   archivedAt  DateTime?
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
+  // Marca planos criados na mesma "geração de IA" (ex.: FB 3x = 3 planos
+  // com o mesmo aiGenerationId). aiGenerationLabel guarda a forma legível
+  // pra UI ("Full Body 3x") sem precisar reconstruir do quiz. Ambos null
+  // pra planos criados manualmente ou anteriores ao feature.
+  aiGenerationId    String?
+  aiGenerationLabel String?
 
   user     User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   sessions WorkoutSession[]
@@ -342,6 +348,9 @@ model WorkoutPlan {
 
   @@index([userId, status])
   @@index([startsAt, endsAt])
+  // Hot path do endpoint "últimas N gerações de IA": filtra por userId +
+  // aiGenerationId not null, agrupa, ordena por createdAt desc.
+  @@index([userId, aiGenerationId, createdAt])
   @@map("workout_plans")
 }
 

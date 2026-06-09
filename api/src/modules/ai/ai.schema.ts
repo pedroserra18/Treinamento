@@ -97,6 +97,13 @@ export const saveAIWorkoutBodySchema = z.object({
       })
     )
     .max(20),
+  // Opcionais — quando ambos preenchidos, agrupam planos da mesma "geração"
+  // (ex.: FB 3x = 3 chamadas saveAIWorkout com o mesmo aiGenerationId).
+  // O cliente gera o id 1x e reusa nos N saves. aiGenerationLabel é a
+  // forma legível pra UI ("Full Body 3x") armazenada pra evitar
+  // reconstrução posterior das respostas do quiz.
+  aiGenerationId: z.string().trim().min(1).max(40).optional(),
+  aiGenerationLabel: z.string().trim().min(1).max(120).optional(),
 });
 
 export type GenerateWorkoutBody = z.infer<typeof generateWorkoutBodySchema>;

@@ -17,6 +17,7 @@ import {
   listExercisePersonalRecords,
   listWorkoutHistory,
   listLatestExerciseHistory,
+  listRecentAIGenerations,
   listUserWorkoutPlans,
   reorderPlanExercises,
   searchExercisesForPlan,
@@ -88,6 +89,21 @@ export async function listWorkoutPlansController(req: Request, res: Response): P
 
   res.status(200).json({
     data: plans,
+    meta: {
+      requestId: req.context.requestId
+    }
+  });
+}
+
+export async function listRecentAIGenerationsController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  // Limit clampado em 1..10 — UI hoje pede 3 mas deixamos config via query.
+  const rawLimit = typeof req.query.limit === "string" ? parseInt(req.query.limit, 10) : 3;
+  const limit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(10, rawLimit)) : 3;
+  const generations = await listRecentAIGenerations(userId, limit);
+
+  res.status(200).json({
+    data: generations,
     meta: {
       requestId: req.context.requestId
     }
