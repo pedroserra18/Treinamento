@@ -114,3 +114,37 @@ export async function cancelBackendNotification(
     throw new Error(await parseError(res))
   }
 }
+
+// Preferências granulares de notificação por categoria. Lidas/escritas
+// no endpoint /notifications/preferences. Defaults (quando user nunca
+// teve a row) são tudo true — quem opt-in global e nunca tocou nos
+// toggles recebe push de tudo.
+export type NotificationPreferences = {
+  pushSocial: boolean
+  pushCompetition: boolean
+  pushSupport: boolean
+  pushEngagement: boolean
+}
+
+export async function getNotificationPreferences(
+  authorizedFetch: AuthorizedFetch,
+): Promise<NotificationPreferences> {
+  const res = await authorizedFetch(`${API_URL}/notifications/preferences`)
+  if (!res.ok) throw new Error(await parseError(res))
+  const json = (await res.json()) as { data: NotificationPreferences }
+  return json.data
+}
+
+export async function updateNotificationPreferences(
+  authorizedFetch: AuthorizedFetch,
+  patch: Partial<NotificationPreferences>,
+): Promise<NotificationPreferences> {
+  const res = await authorizedFetch(`${API_URL}/notifications/preferences`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+  if (!res.ok) throw new Error(await parseError(res))
+  const json = (await res.json()) as { data: NotificationPreferences }
+  return json.data
+}

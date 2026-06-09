@@ -30,6 +30,11 @@ import {
 } from '../services/workoutService'
 import type { ExerciseOption } from '../types/workout'
 import { usePushNotifications } from '../hooks/usePushNotifications'
+import {
+  getNotificationPreferences,
+  updateNotificationPreferences,
+  type NotificationPreferences,
+} from '../services/pushService'
 
 // ─── Sidebar config ────────────────────────────────────────────────────────
 
@@ -1643,7 +1648,48 @@ function MyExercisesPanel({
 // usePushNotifications cuida do fluxo de subscribe/unsubscribe; aqui só
 // renderizamos botão de ação contextual.
 function NotificationsPanel() {
+  const { authorizedFetch } = useAuth()
   const { state, enable, disable } = usePushNotifications()
+  // Toggles granulares por categoria — só fazem sentido quando o user já
+  // tá inscrito pra push (subscribed=true). Carregamos no mount; updates
+  // são otimistas (atualiza UI imediato, reverte se backend negar).
+  const [prefs, setPrefs] = useState<NotificationPreferences | null>(null)
+  const [prefsLoading, setPrefsLoading] = useState(true)
+  const [prefsError, setPrefsError] = useState<string | null>(null)
+  const [pendingKey, setPendingKey] = useState<keyof NotificationPreferences | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const data = await getNotificationPreferences(authorizedFetch)
+        if (!cancelled) setPrefs(data)
+      } catch (err) {
+        if (!cancelled) setPrefsError(err instanceof Error ? err.message : 'Falha ao carregar preferências')
+      } finally {
+        if (!cancelled) setPrefsLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [authorizedFetch])
+
+  const togglePref = async (key: keyof NotificationPreferences, value: boolean): Promise<void> => {
+    if (!prefs) return
+    // Optimistic update
+    const previous = prefs
+    setPrefs({ ...prefs, [key]: value })
+    setPendingKey(key)
+    setPrefsError(null)
+    try {
+      const updated = await updateNotificationPreferences(authorizedFetch, { [key]: value })
+      setPrefs(updated)
+    } catch (err) {
+      setPrefs(previous) // rollback
+      setPrefsError(err instanceof Error ? err.message : 'Falha ao salvar preferência')
+    } finally {
+      setPendingKey(null)
+    }
+  }
 
   const renderStatusPill = () => {
     if (state.loading) {
@@ -1718,6 +1764,80 @@ function NotificationsPanel() {
             </button>
           )}
         </div>
+      </div>
+
+      {/* Toggles granulares — visíveis sempre, mas só viram push quando
+          o user tem subscribed=true. Caso contrário só governam o sininho
+          in-app. Carrega/edita via /notifications/preferences. */}
+      <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-4">
+        <div className="flex items-center gap-2">
+          <span className="text-[14px] font-bold text-[var(--text)]">O que você recebe</span>
+        </div>
+        <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted)]">
+          Desligue categorias específicas se elas estiverem incomodando. Vale tanto pro sininho do app quanto pro push do celular.
+        </p>
+
+        {prefsLoading && (
+          <p className="mt-3 text-[12px] text-[var(--muted)]">Carregando preferências…</p>
+        )}
+
+        {prefsError && (
+          <p className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-[11px] text-rose-500">
+            {prefsError}
+          </p>
+        )}
+
+        {prefs && !prefsLoading && (
+          <div className="mt-4 space-y-1">
+            {(
+              [
+                {
+                  key: 'pushSocial' as const,
+                  title: 'Social',
+                  desc: 'Curtidas, comentários e novos seguidores',
+                },
+                {
+                  key: 'pushCompetition' as const,
+                  title: 'Competições',
+                  desc: 'Convites, início, fim, ranking e ultrapassagens',
+                },
+                {
+                  key: 'pushSupport' as const,
+                  title: 'Suporte e moderação',
+                  desc: 'Respostas em tickets e avisos sobre seus posts',
+                },
+                {
+                  key: 'pushEngagement' as const,
+                  title: 'Engajamento',
+                  desc: 'Streak em risco, saudades, resumo semanal e aniversário',
+                },
+              ]
+            ).map(({ key, title, desc }) => {
+              const value = prefs[key]
+              const isPending = pendingKey === key
+              return (
+                <label
+                  key={key}
+                  className={`flex cursor-pointer items-center justify-between gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-[var(--surface)] ${
+                    isPending ? 'opacity-60' : ''
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-semibold text-[var(--text)]">{title}</p>
+                    <p className="text-[11px] text-[var(--muted)]">{desc}</p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={value}
+                    disabled={isPending}
+                    onChange={(e) => { void togglePref(key, e.target.checked) }}
+                    className="h-5 w-5 shrink-0 cursor-pointer accent-[var(--brand)]"
+                  />
+                </label>
+              )
+            })}
+          </div>
+        )}
       </div>
 
       <div className="rounded-xl border border-dashed border-[var(--line)] p-4">
