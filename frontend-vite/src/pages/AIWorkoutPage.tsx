@@ -152,12 +152,20 @@ function isStepVisible(stepId: number, a: QuizAnswers): boolean {
   //   • Em recuperação de lesão, técnicas avançadas são contraindicadas.
   if (stepId === 12 && (isBodyweight || isBeginner || isInjuryRecovery)) return false
 
+  // step 1 — experiência: salva no perfil (onboarding v2); pulamos se
+  // já conhecido. Editável em Configurações → Perfil quando mudar.
+  if (stepId === 1 && a.experience) return false
+
   // step 2 — idade: se já temos a data de nascimento (do perfil), a idade é
   // calculada automaticamente e a pergunta é pulada.
   if (stepId === 2 && a.birthDate) return false
 
   // step 3 — gênero: salvo no perfil; se já conhecido, não pergunta de novo.
   if (stepId === 3 && a.gender) return false
+
+  // step 4 — altura: salva no perfil (onboarding v2); pulamos se já conhecida.
+  // Altura muda muito raramente — fica em Configurações → Perfil.
+  if (stepId === 4 && a.heightCm) return false
 
   // step 9 — frequência muscular: só pergunta quando a divisão (step 19) está
   // em "IA decide". Se o usuário escolheu uma divisão específica, a frequência
@@ -326,6 +334,23 @@ function ageBucketFromBirthDate(birthDate: string): string {
 // campos VAZIOS (não sobrescreve o que o usuário já respondeu). Usado tanto no
 // pré-preenchimento inicial quanto ao recomeçar o quiz do zero, pra que a data
 // de nascimento (e demais dados do perfil) volte em vez de ser perguntada de novo.
+// Mapa do enum do perfil pros labels do quiz. PrimaryGoal só pré-preenche
+// o quiz; o user pode trocar pra "Recuperação de lesão" ou outro que seja
+// específico do plano que tá montando agora.
+const GOAL_ENUM_TO_QUIZ_LABEL: Record<string, string> = {
+  STRENGTH: 'Força',
+  HYPERTROPHY: 'Hipertrofia',
+  WEIGHT_LOSS: 'Emagrecimento',
+  ENDURANCE: 'Resistência',
+  GENERAL_FITNESS: 'Hipertrofia', // saúde geral não tem opção dedicada no quiz; cai em hipertrofia leve
+}
+
+const EXPERIENCE_ENUM_TO_QUIZ_LABEL: Record<string, string> = {
+  BEGINNER: 'Iniciante',
+  INTERMEDIATE: 'Intermediário',
+  ADVANCED: 'Avançado',
+}
+
 function applyProfileDefaults(base: QuizAnswers, d: ProfileDefaults | null): QuizAnswers {
   if (!d) return base
   const next = { ...base }
@@ -335,6 +360,15 @@ function applyProfileDefaults(base: QuizAnswers, d: ProfileDefaults | null): Qui
   if (!next.birthDate && d.birthDate) {
     next.birthDate = d.birthDate
     next.age = ageBucketFromBirthDate(d.birthDate)
+  }
+  // Onboarding v2 — pré-preenche os novos campos. Step 1 (experience)
+  // será pulado por isStepVisible; step 7 (goal) só vem pré-preenchido
+  // e o user pode trocar.
+  if (!next.experience && d.experienceLevel) {
+    next.experience = EXPERIENCE_ENUM_TO_QUIZ_LABEL[d.experienceLevel] ?? ''
+  }
+  if (!next.goal && d.primaryGoal) {
+    next.goal = GOAL_ENUM_TO_QUIZ_LABEL[d.primaryGoal] ?? ''
   }
   return next
 }
@@ -1065,7 +1099,7 @@ export function AIWorkoutPage() {
   // ref dos defaults (caso recomece o quiz na mesma sessão) e avança.
   const selectGender = useCallback((value: 'Masculino' | 'Feminino') => {
     profileDefaultsRef.current = {
-      ...(profileDefaultsRef.current ?? { weightKg: null, heightCm: null, gender: null, birthDate: null, age: null }),
+      ...(profileDefaultsRef.current ?? { weightKg: null, heightCm: null, gender: null, birthDate: null, age: null, experienceLevel: null, primaryGoal: null }),
       gender: value,
     }
     void updateGender(authorizedFetch, value).catch(() => {})
@@ -1558,7 +1592,7 @@ export function AIWorkoutPage() {
                       // Persiste no perfil pra não perguntar de novo, e atualiza
                       // o ref pra que "começar do zero" na mesma sessão não
                       // reperguntar (o ref foi populado na montagem, antes disto).
-                      profileDefaultsRef.current = { ...(profileDefaultsRef.current ?? { weightKg: null, heightCm: null, gender: null, birthDate: null, age: null }), birthDate: bd }
+                      profileDefaultsRef.current = { ...(profileDefaultsRef.current ?? { weightKg: null, heightCm: null, gender: null, birthDate: null, age: null, experienceLevel: null, primaryGoal: null }), birthDate: bd }
                       void updateBirthDate(authorizedFetch, bd).catch(() => {})
                     }
                   }}

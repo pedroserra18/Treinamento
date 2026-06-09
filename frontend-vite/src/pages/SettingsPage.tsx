@@ -14,11 +14,13 @@ import {
   requestForgotPasswordCode,
   updateBirthDate,
   updateGender,
+  updateProfileFields,
 } from '../services/authService'
+import type { AuthUser, ExperienceLevel, PrimaryGoal } from '../types/auth'
 import { sanitiseHandleInput, validateHandle } from '../lib/handle'
 import {
   AtSign, Check, Download, Lock, LogOut, Moon, ShieldAlert, Sun,
-  AlertTriangle, LifeBuoy, ArrowLeft, Smartphone, Dumbbell, Trash2, Bell,
+  AlertTriangle, LifeBuoy, ArrowLeft, Smartphone, Dumbbell, Trash2, Bell, Activity,
 } from 'lucide-react'
 import { InstallAppPanel } from '../components/common/InstallAppPanel'
 import { ConfirmDialog } from '../components/common/ConfirmDialog'
@@ -42,6 +44,7 @@ type Section =
   | 'profile'
   | 'account'
   | 'handle'
+  | 'training'
   | 'exercises'
   | 'notifications'
   | 'privacy'
@@ -67,6 +70,7 @@ const SECTIONS: SectionDef[] = [
   { id: 'account',   group: 'CONTA',         label: 'Conta',            icon: <Lock size={14} /> },
   { id: 'handle',    group: 'CONTA',         label: '@handle público',  icon: <AtSign size={14} /> },
   { id: 'exercises', group: 'CONTA',         label: 'Meus exercícios',  icon: <Dumbbell size={14} /> },
+  { id: 'training',  group: 'PREFERÊNCIAS',  label: 'Perfil de treino', icon: <Activity size={14} /> },
   { id: 'notifications', group: 'PREFERÊNCIAS', label: 'Notificações',   icon: <Bell size={14} /> },
   { id: 'privacy',   group: 'PREFERÊNCIAS',  label: 'Privacidade',      icon: <ShieldAlert size={14} /> },
   { id: 'theme',     group: 'PREFERÊNCIAS',  label: 'Tema',             icon: <Moon size={14} /> },
@@ -273,6 +277,13 @@ export function SettingsPage() {
                   currentHandle={user?.handle ?? ''}
                   updateHandle={updateHandle}
                   onDirtyChange={setDirty}
+                />
+              )}
+              {section === 'training' && (
+                <TrainingProfilePanel
+                  authorizedFetch={authorizedFetch}
+                  applyUserPatch={applyUserPatch}
+                  user={user}
                 />
               )}
               {section === 'exercises' && (
@@ -1853,3 +1864,236 @@ function NotificationsPanel() {
     </div>
   )
 }
+
+// ─── Training Profile Panel ───────────────────────────────────────────────
+// Edita os campos do perfil profissional definidos no onboarding v2:
+// altura, peso atual, nível de experiência, objetivo principal e
+// dias por semana. Cada bloco salva independente via PATCH /auth/profile
+// (partial update). Mudanças pré-preenchem o quiz da IA automaticamente
+// na próxima geração de plano.
+const EXPERIENCE_LABELS_PT: Record<ExperienceLevel, string> = {
+  BEGINNER: 'Iniciante',
+  INTERMEDIATE: 'Intermediário',
+  ADVANCED: 'Avançado',
+}
+const GOAL_LABELS_PT: Record<PrimaryGoal, string> = {
+  STRENGTH: 'Força',
+  HYPERTROPHY: 'Hipertrofia',
+  WEIGHT_LOSS: 'Emagrecimento',
+  ENDURANCE: 'Resistência',
+  GENERAL_FITNESS: 'Saúde geral',
+}
+
+function TrainingProfilePanel({
+  authorizedFetch, applyUserPatch, user,
+}: {
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+  applyUserPatch: (patch: Partial<AuthUser>) => void
+  user: AuthUser | null
+}) {
+  // Estado local "draft" pra cada campo. Inicializa do user; quando muda
+  // (login em outra aba, refresh), useEffect re-sincroniza.
+  const [heightCm, setHeightCm] = useState<string>(user?.heightCm != null ? String(user.heightCm) : '')
+  const [weightKg, setWeightKg] = useState<string>(user?.weightKg != null ? String(user.weightKg) : '')
+  const [experienceLevel, setExperienceLevel] = useState<ExperienceLevel | null>(user?.experienceLevel ?? null)
+  const [primaryGoal, setPrimaryGoal] = useState<PrimaryGoal | null>(user?.primaryGoal ?? null)
+  const [daysPerWeek, setDaysPerWeek] = useState<number>(user?.availableDaysPerWeek ?? 4)
+
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [savedField, setSavedField] = useState<string | null>(null)
+
+  useEffect(() => {
+    setHeightCm(user?.heightCm != null ? String(user.heightCm) : '')
+    setWeightKg(user?.weightKg != null ? String(user.weightKg) : '')
+    setExperienceLevel(user?.experienceLevel ?? null)
+    setPrimaryGoal(user?.primaryGoal ?? null)
+    setDaysPerWeek(user?.availableDaysPerWeek ?? 4)
+  }, [user?.heightCm, user?.weightKg, user?.experienceLevel, user?.primaryGoal, user?.availableDaysPerWeek])
+
+  // Helper genérico de save — recebe o patch a aplicar, faz fetch, refresca
+  // estado local da sessão e marca o feedback visual.
+  const savePatch = async (patch: Parameters<typeof updateProfileFields>[1], fieldLabel: string): Promise<void> => {
+    setSaving(true)
+    setError(null)
+    setSavedField(null)
+    try {
+      const updated = await updateProfileFields(authorizedFetch, patch)
+      applyUserPatch(updated)
+      setSavedField(fieldLabel)
+      window.setTimeout(() => setSavedField(null), 2000)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao salvar')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const saveHeight = async (): Promise<void> => {
+    const trimmed = heightCm.trim()
+    if (trimmed === '') return savePatch({ heightCm: null }, 'altura')
+    const v = Number(trimmed.replace(',', '.'))
+    if (!Number.isFinite(v) || v < 100 || v > 250) {
+      setError('Altura inválida (entre 100 e 250 cm).')
+      return
+    }
+    return savePatch({ heightCm: v }, 'altura')
+  }
+
+  const saveWeight = async (): Promise<void> => {
+    const trimmed = weightKg.trim()
+    if (trimmed === '') return savePatch({ weightKg: null }, 'peso')
+    const v = Number(trimmed.replace(',', '.'))
+    if (!Number.isFinite(v) || v < 25 || v > 300) {
+      setError('Peso inválido (entre 25 e 300 kg).')
+      return
+    }
+    return savePatch({ weightKg: v }, 'peso')
+  }
+
+  return (
+    <div className="space-y-6">
+      <header>
+        <h2 className="text-base font-bold text-[var(--text)]">Perfil de treino</h2>
+        <p className="mt-1 text-[12px] leading-relaxed text-[var(--muted)]">
+          Essas informações pré-preenchem o quiz da IA e personalizam recomendações. Pode atualizar quando precisar.
+        </p>
+      </header>
+
+      {error && (
+        <p className="rounded-lg border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-[11px] text-rose-500">{error}</p>
+      )}
+      {savedField && (
+        <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-[11px] text-emerald-500">
+          {savedField} salvo ✓
+        </p>
+      )}
+
+      {/* Altura */}
+      <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-4">
+        <label className="block text-[12px] font-bold uppercase tracking-wider text-[var(--muted)]">Altura (cm)</label>
+        <div className="mt-2 flex gap-2">
+          <input
+            type="number"
+            inputMode="decimal"
+            placeholder="Ex.: 175"
+            value={heightCm}
+            onChange={(e) => setHeightCm(e.target.value)}
+            className="flex-1 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--muted)]"
+          />
+          <button
+            type="button"
+            onClick={() => void saveHeight()}
+            disabled={saving}
+            className="rounded-xl bg-[var(--brand)] px-4 py-2 text-[13px] font-bold text-white hover:bg-[var(--brand-strong)] disabled:opacity-50"
+          >
+            Salvar
+          </button>
+        </div>
+      </div>
+
+      {/* Peso */}
+      <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-4">
+        <label className="block text-[12px] font-bold uppercase tracking-wider text-[var(--muted)]">Peso atual (kg)</label>
+        <div className="mt-2 flex gap-2">
+          <input
+            type="number"
+            inputMode="decimal"
+            step={0.1}
+            placeholder="Ex.: 72"
+            value={weightKg}
+            onChange={(e) => setWeightKg(e.target.value)}
+            className="flex-1 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--muted)]"
+          />
+          <button
+            type="button"
+            onClick={() => void saveWeight()}
+            disabled={saving}
+            className="rounded-xl bg-[var(--brand)] px-4 py-2 text-[13px] font-bold text-white hover:bg-[var(--brand-strong)] disabled:opacity-50"
+          >
+            Salvar
+          </button>
+        </div>
+        <p className="mt-2 text-[11px] text-[var(--muted)]">
+          Você também pode registrar peso na página de Progresso, com data e foto.
+        </p>
+      </div>
+
+      {/* Nível de experiência */}
+      <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-4">
+        <label className="block text-[12px] font-bold uppercase tracking-wider text-[var(--muted)]">Nível de experiência</label>
+        <div className="mt-2 grid gap-2 sm:grid-cols-3">
+          {(Object.keys(EXPERIENCE_LABELS_PT) as ExperienceLevel[]).map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => {
+                setExperienceLevel(opt)
+                void savePatch({ experienceLevel: opt }, 'experiência')
+              }}
+              disabled={saving}
+              className={`rounded-xl border px-3 py-2 text-sm transition ${
+                experienceLevel === opt
+                  ? 'border-[var(--brand)] bg-[var(--brand)]/10 text-[var(--text)]'
+                  : 'border-[var(--line)] text-[var(--muted)] hover:border-[var(--brand)]/40'
+              } disabled:opacity-50`}
+            >
+              {EXPERIENCE_LABELS_PT[opt]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Objetivo principal */}
+      <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-4">
+        <label className="block text-[12px] font-bold uppercase tracking-wider text-[var(--muted)]">Objetivo principal</label>
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          {(Object.keys(GOAL_LABELS_PT) as PrimaryGoal[]).map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => {
+                setPrimaryGoal(opt)
+                void savePatch({ primaryGoal: opt }, 'objetivo')
+              }}
+              disabled={saving}
+              className={`rounded-xl border px-3 py-2 text-sm transition ${
+                primaryGoal === opt
+                  ? 'border-[var(--brand)] bg-[var(--brand)]/10 text-[var(--text)]'
+                  : 'border-[var(--line)] text-[var(--muted)] hover:border-[var(--brand)]/40'
+              } disabled:opacity-50`}
+            >
+              {GOAL_LABELS_PT[opt]}
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-[11px] text-[var(--muted)]">
+          Pode ser ajustado por plano específico no quiz da IA.
+        </p>
+      </div>
+
+      {/* Dias por semana */}
+      <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-4">
+        <label className="block text-[12px] font-bold uppercase tracking-wider text-[var(--muted)]">Dias disponíveis por semana</label>
+        <div className="mt-2 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4">
+          <input
+            type="range"
+            min={1}
+            max={7}
+            value={daysPerWeek}
+            onChange={(e) => setDaysPerWeek(Number(e.target.value))}
+            onMouseUp={() => void savePatch({ availableDaysPerWeek: daysPerWeek }, 'dias')}
+            onTouchEnd={() => void savePatch({ availableDaysPerWeek: daysPerWeek }, 'dias')}
+            className="w-full"
+            disabled={saving}
+          />
+          <div className="mt-3 flex items-center justify-between">
+            <p className="text-2xl font-black text-[var(--text)]">{daysPerWeek} dias</p>
+            <p className="text-xs text-[var(--muted)]">Salvo ao soltar o slider</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+

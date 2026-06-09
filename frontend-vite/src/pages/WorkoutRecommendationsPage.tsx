@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion'
 import { useAuth } from '../hooks/useAuth'
+import { updateProfileFields } from '../services/authService'
 import { useCallback, useEffect, useState } from 'react'
 import { WorkoutsPage } from './WorkoutsPage'
 import { createWorkoutPlan, getRecommendationTemplates } from '../services/workoutService'
@@ -83,7 +84,7 @@ function buildTemplateDayItems(template: RecommendationTemplateView): Recommenda
 }
 
 export function WorkoutRecommendationsPage() {
-  const { authorizedFetch, completeOnboarding, user } = useAuth()
+  const { authorizedFetch, applyUserPatch, user } = useAuth()
   const [daysPerWeek, setDaysPerWeek] = useState<number>(user?.availableDaysPerWeek ?? 4)
   const [sex, setSex] = useState<'MALE' | 'FEMALE' | 'OTHER'>(user?.sex ?? 'OTHER')
   const [templates, setTemplates] = useState<RecommendationTemplateView[]>([])
@@ -140,10 +141,15 @@ export function WorkoutRecommendationsPage() {
       setError(null)
       setSuccess(null)
 
-      await completeOnboarding({
+      // Migrado de completeOnboarding pra updateProfileFields: estamos
+      // editando preferências de quem já passou pelo onboarding, não
+      // refazendo onboarding. Atualiza local via applyUserPatch pra
+      // refletir na sessão sem ter que dar refresh.
+      const updated = await updateProfileFields(authorizedFetch, {
         sex,
         availableDaysPerWeek: daysPerWeek,
       })
+      applyUserPatch(updated)
 
       await loadTemplates(daysPerWeek, sex)
       setSuccess('Preferencias atualizadas com sucesso. Recomendacoes sincronizadas no app.')

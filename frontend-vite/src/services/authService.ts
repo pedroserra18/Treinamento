@@ -38,6 +38,16 @@ function extractApiErrorMessage(payload: { error?: ApiErrorPayload } | null | un
 }
 
 function asAuthUser(value: Record<string, unknown>): AuthUser {
+  // Helper pra coerção segura de enums conhecidos. Se o backend mandar
+  // um valor estranho (versão desincronizada), cai pra null — a UI lida
+  // com isso renderizando "não definido" em vez de quebrar.
+  const asExperience = (v: unknown): AuthUser['experienceLevel'] =>
+    v === 'BEGINNER' || v === 'INTERMEDIATE' || v === 'ADVANCED' ? v : null
+  const asGoal = (v: unknown): AuthUser['primaryGoal'] =>
+    v === 'STRENGTH' || v === 'HYPERTROPHY' || v === 'WEIGHT_LOSS' || v === 'ENDURANCE' || v === 'GENERAL_FITNESS'
+      ? v
+      : null
+
   return {
     id: String(value.id ?? ''),
     name: typeof value.name === 'string' ? value.name : null,
@@ -47,6 +57,11 @@ function asAuthUser(value: Record<string, unknown>): AuthUser {
     sex: (value.sex ?? 'OTHER') as AuthUser['sex'],
     availableDaysPerWeek:
       typeof value.availableDaysPerWeek === 'number' ? value.availableDaysPerWeek : null,
+    birthDate: typeof value.birthDate === 'string' ? value.birthDate : null,
+    heightCm: typeof value.heightCm === 'number' ? value.heightCm : null,
+    weightKg: typeof value.weightKg === 'number' ? value.weightKg : null,
+    experienceLevel: asExperience(value.experienceLevel),
+    primaryGoal: asGoal(value.primaryGoal),
     onboardingCompleted: Boolean(value.onboardingCompleted),
     avatarUrl: typeof value.avatarUrl === 'string' ? value.avatarUrl : null,
     isPrivate: Boolean(value.isPrivate),
@@ -322,6 +337,16 @@ export type ProfileDefaults = {
   gender: string | null
   birthDate: string | null // YYYY-MM-DD
   age: number | null
+  // Onboarding v2 — quiz da IA usa pra pular steps já conhecidos e
+  // pré-preencher o "objetivo" (editável por plano).
+  experienceLevel: 'BEGINNER' | 'INTERMEDIATE' | 'ADVANCED' | null
+  primaryGoal:
+    | 'STRENGTH'
+    | 'HYPERTROPHY'
+    | 'WEIGHT_LOSS'
+    | 'ENDURANCE'
+    | 'GENERAL_FITNESS'
+    | null
 }
 
 // GET /auth/profile/defaults — valores p/ pré-preencher o quiz da IA
@@ -539,6 +564,16 @@ export async function completeOnboardingProfile(
   input: {
     sex: 'MALE' | 'FEMALE' | 'OTHER'
     availableDaysPerWeek: number
+    birthDate: string // YYYY-MM-DD
+    experienceLevel: 'BEGINNER' | 'INTERMEDIATE' | 'ADVANCED'
+    primaryGoal:
+      | 'STRENGTH'
+      | 'HYPERTROPHY'
+      | 'WEIGHT_LOSS'
+      | 'ENDURANCE'
+      | 'GENERAL_FITNESS'
+    heightCm?: number
+    weightKg?: number
   },
 ): Promise<AuthUser> {
   const response = await authorizedFetch(`${API_URL}/auth/onboarding/complete`, {
@@ -554,6 +589,46 @@ export async function completeOnboardingProfile(
 
   if (!response.ok || !payload.data?.user) {
     throw new Error(payload.error?.message ?? 'Falha ao concluir onboarding')
+  }
+
+  return asAuthUser(payload.data.user)
+}
+
+// PATCH /auth/profile — edita perfil em Settings ou WorkoutRecommendations
+// sem refazer onboarding. Aceita partial; undefined = não mexe, null =
+// limpa o campo (só pros que aceitam null no backend).
+export type ProfileUpdatePatch = {
+  sex?: 'MALE' | 'FEMALE' | 'OTHER'
+  availableDaysPerWeek?: number
+  heightCm?: number | null
+  weightKg?: number | null
+  experienceLevel?: 'BEGINNER' | 'INTERMEDIATE' | 'ADVANCED' | null
+  primaryGoal?:
+    | 'STRENGTH'
+    | 'HYPERTROPHY'
+    | 'WEIGHT_LOSS'
+    | 'ENDURANCE'
+    | 'GENERAL_FITNESS'
+    | null
+}
+
+export async function updateProfileFields(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  patch: ProfileUpdatePatch,
+): Promise<AuthUser> {
+  const response = await authorizedFetch(`${API_URL}/auth/profile`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+
+  const payload = (await response.json()) as {
+    data?: { user?: Record<string, unknown> }
+    error?: { message?: string }
+  }
+
+  if (!response.ok || !payload.data?.user) {
+    throw new Error(payload.error?.message ?? 'Falha ao atualizar perfil')
   }
 
   return asAuthUser(payload.data.user)

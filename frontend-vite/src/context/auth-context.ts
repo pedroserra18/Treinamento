@@ -32,6 +32,16 @@ export type AuthState = {
   completeOnboarding: (input: {
     sex: 'MALE' | 'FEMALE' | 'OTHER'
     availableDaysPerWeek: number
+    birthDate: string
+    experienceLevel: 'BEGINNER' | 'INTERMEDIATE' | 'ADVANCED'
+    primaryGoal:
+      | 'STRENGTH'
+      | 'HYPERTROPHY'
+      | 'WEIGHT_LOSS'
+      | 'ENDURANCE'
+      | 'GENERAL_FITNESS'
+    heightCm?: number
+    weightKg?: number
   }) => Promise<void>
   refreshUser: () => Promise<void>
   applyUserPatch: (patch: Partial<AuthUser>) => void
