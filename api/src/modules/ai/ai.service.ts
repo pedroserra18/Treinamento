@@ -1277,6 +1277,20 @@ async function pruneOldAIHistory(userId: string): Promise<void> {
   });
 }
 
+// Preview do exercício no histórico — extraído do planSnapshot e devolvido
+// no listAIHistory pra UI poder mostrar o conteúdo do treino antes de
+// clonar pra /workouts. Campos opcionais porque a IA pode omitir sets/reps
+// quando o user escolheu "IA decide".
+export type AIHistoryExercisePreview = {
+  name: string;
+  sets?: number;
+  repsMin?: number;
+  repsMax?: number;
+  restSec?: number;
+  notes?: string;
+  muscleGroup?: string;
+};
+
 export type AIHistoryGeneration = {
   generationId: string;
   generationLabel: string;
@@ -1287,6 +1301,11 @@ export type AIHistoryGeneration = {
     dayIndex: number;
     planName: string;
     exerciseCount: number;
+    // Exercícios extraídos do planSnapshot pra preview no front. Sem
+    // round-trip extra — o snapshot já tá em memória aqui. Volume real:
+    // ~20 exercícios × 140 rows = ~2800 itens no pior caso, ainda
+    // dentro de ~50KB JSON.
+    exercises: AIHistoryExercisePreview[];
   }>;
 };
 
@@ -1333,15 +1352,28 @@ export async function listAIHistory(
     // generatedAt do bucket = mais antigo entre os dias (quando a geração
     // efetivamente começou).
     if (r.generatedAt < bucket.generatedAt) bucket.generatedAt = r.generatedAt;
-    // Conta exercícios do snapshot (não precisa de query extra).
-    const snapshot = r.planSnapshot as { exercises?: Array<unknown> } | null;
-    const exerciseCount = Array.isArray(snapshot?.exercises) ? snapshot.exercises.length : 0;
+    // Extrai exercícios do snapshot pra preview no front (sem round-trip
+    // extra). Tipa defensivamente — JSONB do Postgres pode vir em formato
+    // inesperado se uma versão antiga gravou diferente.
+    const snapshot = r.planSnapshot as { exercises?: Array<Record<string, unknown>> } | null;
+    const exercises: AIHistoryExercisePreview[] = Array.isArray(snapshot?.exercises)
+      ? snapshot.exercises.map((ex) => ({
+          name: typeof ex.name === "string" ? ex.name : "",
+          sets: typeof ex.sets === "number" ? ex.sets : undefined,
+          repsMin: typeof ex.repsMin === "number" ? ex.repsMin : undefined,
+          repsMax: typeof ex.repsMax === "number" ? ex.repsMax : undefined,
+          restSec: typeof ex.restSec === "number" ? ex.restSec : undefined,
+          notes: typeof ex.notes === "string" ? ex.notes : undefined,
+          muscleGroup: typeof ex.muscleGroup === "string" ? ex.muscleGroup : undefined
+        }))
+      : [];
     bucket.plans.push({
       id: r.id,
       dayLabel: r.dayLabel,
       dayIndex: r.dayIndex,
       planName: r.planName,
-      exerciseCount
+      exerciseCount: exercises.length,
+      exercises
     });
   }
 

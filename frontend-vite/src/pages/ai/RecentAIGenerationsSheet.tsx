@@ -1,11 +1,11 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { createPortal } from 'react-dom'
 import { useEffect, useState } from 'react'
-import { X, ArrowRight, Bot, Calendar } from 'lucide-react'
+import { X, ArrowRight, Bot, Calendar, ChevronDown, ChevronUp, Eye, Dumbbell } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useScrollLock } from '../../hooks/useScrollLock'
 import { useAuth } from '../../hooks/useAuth'
-import { cloneAIHistoryPlan, type AIHistoryGeneration } from '../../services/aiService'
+import { cloneAIHistoryPlan, type AIHistoryExercisePreview, type AIHistoryGeneration } from '../../services/aiService'
 import { InfoDialog } from '../../components/common/InfoDialog'
 
 // Sheet bottom que lista as últimas N gerações de IA do AIGeneratedPlan
@@ -29,9 +29,21 @@ export function RecentAIGenerationsSheet({
 
   const [planUseLoadingId, setPlanUseLoadingId] = useState<string | null>(null)
   const [useError, setUseError] = useState<string | null>(null)
+  // Set de IDs expandidos (preview aberto) — multi-select pra user poder
+  // comparar 2 dias da mesma geração antes de escolher um.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
   // Alerta "X exercícios não foram encontrados no catálogo" — mostra antes
   // de navegar pra /train pra o user saber o que esperar.
   const [notFoundDialog, setNotFoundDialog] = useState<{ planId: string; planName: string; missing: string[] } | null>(null)
+
+  const toggleExpanded = (planId: string): void => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(planId)) next.delete(planId)
+      else next.add(planId)
+      return next
+    })
+  }
 
   useEffect(() => {
     if (!open) return
@@ -110,7 +122,7 @@ export function RecentAIGenerationsSheet({
               </button>
             </div>
             <p className="mt-1 text-[11px] text-[var(--muted)]">
-              Histórico das suas {generations.length > 0 ? generations.length : 'últimas'} gerações. Toque em "Usar este treino" pra criar uma rotina.
+              Toque em "Ver" pra conferir os exercícios antes de usar.
             </p>
           </div>
 
@@ -167,28 +179,62 @@ export function RecentAIGenerationsSheet({
                       {gen.plans.map((p) => {
                         const isLoading = planUseLoadingId === p.id
                         const isDisabled = planUseLoadingId !== null
+                        const isExpanded = expandedIds.has(p.id)
                         return (
                           <li key={p.id}>
-                            <div className="flex items-center gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2.5">
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate text-[13px] font-semibold text-[var(--text)]">{p.dayLabel}</p>
-                                <p className="mt-0.5 text-[11px] text-[var(--muted)]">
-                                  {p.exerciseCount} {p.exerciseCount === 1 ? 'exercício' : 'exercícios'}
-                                </p>
+                            <div className="overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface-hover)]">
+                              {/* Linha principal: nome do dia + Ver + Usar */}
+                              <div className="flex items-center gap-2 px-3 py-2.5">
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-[13px] font-semibold text-[var(--text)]">{p.dayLabel}</p>
+                                  <p className="mt-0.5 text-[11px] text-[var(--muted)]">
+                                    {p.exerciseCount} {p.exerciseCount === 1 ? 'exercício' : 'exercícios'}
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleExpanded(p.id)}
+                                  aria-expanded={isExpanded}
+                                  aria-label={isExpanded ? 'Esconder exercícios' : 'Ver exercícios'}
+                                  className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-2.5 py-2 text-[12px] font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
+                                >
+                                  <Eye size={12} />
+                                  Ver
+                                  {isExpanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleUsePlan(p.id)}
+                                  disabled={isDisabled}
+                                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-[var(--brand)] px-3 py-2 text-[12px] font-bold text-white shadow-[0_4px_10px_-4px_rgba(255,90,60,0.55)] hover:bg-[var(--brand-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {isLoading ? 'Criando…' : (
+                                    <>
+                                      Usar
+                                      <ArrowRight size={12} />
+                                    </>
+                                  )}
+                                </button>
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => void handleUsePlan(p.id)}
-                                disabled={isDisabled}
-                                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-[var(--brand)] px-3 py-2 text-[12px] font-bold text-white shadow-[0_4px_10px_-4px_rgba(255,90,60,0.55)] hover:bg-[var(--brand-strong)] disabled:cursor-not-allowed disabled:opacity-60"
-                              >
-                                {isLoading ? 'Criando…' : (
-                                  <>
-                                    Usar este treino
-                                    <ArrowRight size={12} />
-                                  </>
+
+                              {/* Preview expandida — lista de exercícios. Anima
+                                  com height auto via AnimatePresence pra ficar
+                                  fluido em mobile. Borda superior separa do
+                                  header da row. */}
+                              <AnimatePresence initial={false}>
+                                {isExpanded && (
+                                  <motion.div
+                                    key="preview"
+                                    initial={{ height: 0, opacity: 0 }}
+                                    animate={{ height: 'auto', opacity: 1 }}
+                                    exit={{ height: 0, opacity: 0 }}
+                                    transition={{ duration: 0.18, ease: 'easeOut' }}
+                                    className="overflow-hidden border-t border-[var(--line)]"
+                                  >
+                                    <ExerciseListPreview exercises={p.exercises} />
+                                  </motion.div>
                                 )}
-                              </button>
+                              </AnimatePresence>
                             </div>
                           </li>
                         )
@@ -234,6 +280,68 @@ export function RecentAIGenerationsSheet({
     </>,
     document.body,
   )
+}
+
+// Renderiza a lista de exercícios extraída do snapshot. Mostra nome,
+// "sets × reps" (range repsMin-repsMax) e descanso. Notas e grupo muscular
+// renderizados como linhas auxiliares quando presentes.
+function ExerciseListPreview({ exercises }: { exercises: AIHistoryExercisePreview[] }) {
+  if (exercises.length === 0) {
+    return (
+      <p className="px-3 py-3 text-center text-[11px] text-[var(--muted)]">
+        Sem detalhes salvos pra esse treino.
+      </p>
+    )
+  }
+  return (
+    <ol className="space-y-2 px-3 py-3">
+      {exercises.map((ex, i) => (
+        <li key={`${i}-${ex.name}`} className="flex items-start gap-2">
+          <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-md bg-[var(--brand)]/10 font-mono text-[10px] font-bold text-[var(--brand-strong)]">
+            {i + 1}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[12px] font-semibold text-[var(--text)]">{ex.name}</p>
+            <p className="mt-0.5 text-[11px] text-[var(--muted)]">{formatSetSpec(ex)}</p>
+            {ex.muscleGroup && (
+              <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-[var(--surface)] px-2 py-0.5 text-[10px] font-semibold text-[var(--muted)]">
+                <Dumbbell size={9} />
+                {ex.muscleGroup}
+              </span>
+            )}
+            {ex.notes && (
+              <p className="mt-1 text-[10px] italic leading-snug text-[var(--muted)]">{ex.notes}</p>
+            )}
+          </div>
+        </li>
+      ))}
+    </ol>
+  )
+}
+
+// Constrói "3 × 8-10 reps · 90s descanso" pulando partes faltantes.
+function formatSetSpec(ex: AIHistoryExercisePreview): string {
+  const parts: string[] = []
+  if (ex.sets != null) {
+    const reps = ex.repsMin != null && ex.repsMax != null
+      ? ex.repsMin === ex.repsMax ? `${ex.repsMin}` : `${ex.repsMin}-${ex.repsMax}`
+      : ex.repsMin != null ? `${ex.repsMin}+` : ex.repsMax != null ? `até ${ex.repsMax}` : null
+    parts.push(reps ? `${ex.sets} × ${reps} reps` : `${ex.sets} séries`)
+  } else if (ex.repsMin != null || ex.repsMax != null) {
+    const reps = ex.repsMin != null && ex.repsMax != null
+      ? `${ex.repsMin}-${ex.repsMax}`
+      : ex.repsMin ?? ex.repsMax
+    parts.push(`${reps} reps`)
+  }
+  if (ex.restSec != null && ex.restSec > 0) {
+    if (ex.restSec < 60) parts.push(`${ex.restSec}s descanso`)
+    else {
+      const m = Math.floor(ex.restSec / 60)
+      const s = ex.restSec % 60
+      parts.push(s === 0 ? `${m}min descanso` : `${m}min${s}s descanso`)
+    }
+  }
+  return parts.length > 0 ? parts.join(' · ') : 'Sem detalhes'
 }
 
 // Formata "há X tempo" em PT-BR, escolhendo unidade certa (min/h/dia/semana/mês).

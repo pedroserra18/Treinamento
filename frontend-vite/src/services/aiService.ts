@@ -242,6 +242,19 @@ export async function saveAIWorkout(
 // de "Salvar" do user). Usado pelo botão "Ver treinos gerados" e pelo
 // fluxo "Usar este treino" que clona um plano antigo pra /workouts.
 
+// Preview de exercício do histórico — bate com AIHistoryExercisePreview
+// do backend. Campos opcionais porque o quiz "IA decide" pode omitir
+// sets/reps específicos.
+export type AIHistoryExercisePreview = {
+  name: string
+  sets?: number
+  repsMin?: number
+  repsMax?: number
+  restSec?: number
+  notes?: string
+  muscleGroup?: string
+}
+
 export type AIHistoryGeneration = {
   generationId: string
   generationLabel: string
@@ -252,6 +265,9 @@ export type AIHistoryGeneration = {
     dayIndex: number
     planName: string
     exerciseCount: number
+    // Snapshot dos exercícios pra preview no front (expand inline na sheet).
+    // Vem no mesmo response do list — sem round-trip extra.
+    exercises: AIHistoryExercisePreview[]
   }>
 }
 
