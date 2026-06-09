@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { BrandLogo } from '../components/common/BrandLogo'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Input } from '../components/common/Input'
 import { sanitiseHandleInput, validateHandle } from '../lib/handle'
 
@@ -29,6 +29,12 @@ export function RegisterPage() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const navigate = useNavigate()
+  const location = useLocation()
+
+  // Convite PRO passa ?next=/pro-invite/:token. Depois do cadastro,
+  // volta pra essa URL pra completar o redeem em vez de cair no /dashboard.
+  const queryNext = new URLSearchParams(location.search).get('next')
+  const redirectTo = queryNext ?? '/dashboard'
 
   // Live validation feedback for the handle. Empty → no hint (avoids
   // shouting at the user before they've typed anything).
@@ -59,7 +65,7 @@ export function RegisterPage() {
     setLoading(true)
     try {
       await signUp({ name, handle, email, password, verificationCode })
-      navigate('/dashboard', { replace: true })
+      navigate(redirectTo, { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao validar código')
     } finally {

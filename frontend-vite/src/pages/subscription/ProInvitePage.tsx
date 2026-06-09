@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { Crown, Sparkles, AlertTriangle, CheckCircle2, ArrowRight } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
@@ -31,6 +31,7 @@ export function ProInvitePage() {
   const [redeeming, setRedeeming] = useState(false)
   const [redeemed, setRedeemed] = useState(false)
   const [redeemError, setRedeemError] = useState<string | null>(null)
+  const [autoRedeemTried, setAutoRedeemTried] = useState(false)
 
   useEffect(() => {
     if (!token) {
@@ -54,18 +55,7 @@ export function ProInvitePage() {
     }
   }, [token])
 
-  if (!token) {
-    return <Navigate to="/" replace />
-  }
-  if (!ready) {
-    return (
-      <section className="mx-auto max-w-md p-6">
-        <p className="text-center text-[13px] text-[var(--muted)]">Validando…</p>
-      </section>
-    )
-  }
-
-  const handleRedeem = async (): Promise<void> => {
+  const handleRedeem = useCallback(async (): Promise<void> => {
     if (!token) return
     setRedeeming(true)
     setRedeemError(null)
@@ -79,6 +69,30 @@ export function ProInvitePage() {
     } finally {
       setRedeeming(false)
     }
+  }, [token, authorizedFetch, refreshUser])
+
+  // Auto-resgate quando o user volta logado depois de fazer login/cadastro
+  // a partir do CTA da página. A presença do STORAGE_KEY é o sinal de que
+  // esse fluxo está em curso (caso contrário, é só alguém abrindo o link
+  // já logado — aí preferimos mostrar o botão pra confirmar).
+  useEffect(() => {
+    if (autoRedeemTried) return
+    if (!isAuthenticated || !ready) return
+    if (!preview?.valid || redeemed || redeeming) return
+    if (!token || sessionStorage.getItem(STORAGE_KEY) !== token) return
+    setAutoRedeemTried(true)
+    void handleRedeem()
+  }, [isAuthenticated, ready, preview, redeemed, redeeming, autoRedeemTried, token, handleRedeem])
+
+  if (!token) {
+    return <Navigate to="/" replace />
+  }
+  if (!ready) {
+    return (
+      <section className="mx-auto max-w-md p-6">
+        <p className="text-center text-[13px] text-[var(--muted)]">Validando…</p>
+      </section>
+    )
   }
 
   const handleLoginToRedeem = (): void => {

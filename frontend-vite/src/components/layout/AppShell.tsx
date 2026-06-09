@@ -127,13 +127,13 @@ export function AppShell({ children }: AppShellProps) {
   ]
 
   const profileItem: NavItem = isAuthenticated
-    ? { to: '/profile', label: user?.name ? `Perfil (${user.name.split(' ')[0]})` : 'Perfil', icon: <User size={15} /> }
+    ? { to: '/profile', label: 'Perfil', icon: <User size={15} /> }
     : { to: '/login', label: 'Login', icon: <LogIn size={15} /> }
 
   // Settings only makes sense once the user is logged in; the page itself
   // requires auth via the ProtectedRoute, so we just hide the chip otherwise.
   const settingsItem: NavItem | null = isAuthenticated
-    ? { to: '/settings', label: 'Configurações', icon: <SettingsIcon size={15} /> }
+    ? { to: '/settings', label: 'Config', icon: <SettingsIcon size={15} /> }
     : null
 
   const visibleItems = [
@@ -156,8 +156,11 @@ export function AppShell({ children }: AppShellProps) {
     profileItem,
   ].filter(Boolean) as NavItem[]
 
+  // Compacto em lg (1024-1280) e mais arejado em xl+. Em lg, font-size cai
+  // pra xs e padding horizontal encolhe pra caber 10+ itens sem stress;
+  // em xl, volta ao confortável. whitespace-nowrap previne wrap.
   const topNavLinkClass = ({ isActive }: { isActive: boolean }) =>
-    `flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-all duration-200 ${
+    `flex shrink-0 items-center gap-1 rounded-full px-2 py-1.5 text-xs font-medium whitespace-nowrap transition-all duration-200 xl:gap-1.5 xl:px-3 xl:text-sm ${
       isActive
         ? 'bg-[var(--brand)] text-white'
         : 'text-[var(--muted)] hover:bg-[var(--surface-hover)]'
@@ -173,14 +176,18 @@ export function AppShell({ children }: AppShellProps) {
   return (
     <div className="mx-auto min-h-screen w-full max-w-5xl overflow-x-hidden px-4 pb-24 pt-safe-plus-4 sm:px-6 lg:px-8 lg:pb-8 lg:pt-24">
 
-      {/* Navbar pill no topo — apenas desktop (< lg usa a bottom nav) */}
-      <nav className="fixed top-3 left-1/2 z-20 hidden w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2 items-center justify-around rounded-full border border-[var(--line)] bg-[var(--surface)] p-2 shadow-lg backdrop-blur-md lg:flex">
+      {/* Navbar pill no topo — apenas desktop (< lg usa a bottom nav).
+          justify-between distribui melhor que justify-around quando há
+          10+ itens; p-1.5 em lg e p-2 em xl pra dar respiro só em telas
+          maiores. gap-0.5 evita itens colados sem inflar o container. */}
+      <nav className="fixed top-3 left-1/2 z-20 hidden w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2 items-center justify-between gap-0.5 rounded-full border border-[var(--line)] bg-[var(--surface)] p-1.5 shadow-lg backdrop-blur-md lg:flex xl:gap-1 xl:p-2">
         {visibleItems.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
             end={item.to === '/'}
             className={topNavLinkClass}
+            title={item.label}
           >
             {item.icon}
             <span>{item.label}</span>

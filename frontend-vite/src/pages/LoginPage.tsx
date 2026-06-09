@@ -15,8 +15,13 @@ export function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
 
+  // Convite PRO e outros fluxos públicos passam ?next=/pro-invite/:token
+  // pra mandar o user pra página certa depois do login. State tem prioridade
+  // (vem de ProtectedRoute), querystring é fallback pra links externos.
   const fallbackPath = '/dashboard'
-  const redirectTo = (location.state as { from?: string } | undefined)?.from ?? fallbackPath
+  const stateFrom = (location.state as { from?: string } | undefined)?.from
+  const queryNext = new URLSearchParams(location.search).get('next')
+  const redirectTo = stateFrom ?? queryNext ?? fallbackPath
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
