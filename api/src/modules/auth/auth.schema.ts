@@ -134,8 +134,47 @@ export const googleLinkBodySchema = z
 
 export const onboardingCompleteBodySchema = z
   .object({
+    // Sempre obrigatório — define todo o tom das recomendações (TMB,
+    // sugestões de carga padrão, recommendations cross-feature).
     sex: z.enum(["MALE", "FEMALE", "OTHER"]),
-    availableDaysPerWeek: z.number().int().min(1).max(7)
+    availableDaysPerWeek: z.number().int().min(1).max(7),
+    experienceLevel: z.enum(["BEGINNER", "INTERMEDIATE", "ADVANCED"]),
+    primaryGoal: z.enum([
+      "STRENGTH",
+      "HYPERTROPHY",
+      "WEIGHT_LOSS",
+      "ENDURANCE",
+      "GENERAL_FITNESS"
+    ]),
+    // YYYY-MM-DD pra evitar timezone gotchas. Backend converte pra Date
+    // garantindo meia-noite UTC.
+    birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    // Opcionais — usuário pode pular nessas duas. Sane ranges pra evitar
+    // bug de input acidental (220cm seria erro, mas 250cm passa em casos
+    // muito raros — limites generosos).
+    heightCm: z.number().min(100).max(250).optional(),
+    weightKg: z.number().min(25).max(300).optional()
+  })
+  .strict();
+
+// Patch genérico de perfil — usado pelo Settings → Perfil e pela
+// WorkoutRecommendationsPage pra editar campos do perfil sem refazer
+// onboarding. Todos opcionais (partial update). NÃO inclui birthDate
+// (tem endpoint dedicado) nem campos de autenticação (email/password).
+export const profileUpdateBodySchema = z
+  .object({
+    sex: z.enum(["MALE", "FEMALE", "OTHER"]).optional(),
+    availableDaysPerWeek: z.number().int().min(1).max(7).optional(),
+    heightCm: z.number().min(100).max(250).nullable().optional(),
+    weightKg: z.number().min(25).max(300).nullable().optional(),
+    experienceLevel: z.enum(["BEGINNER", "INTERMEDIATE", "ADVANCED"]).nullable().optional(),
+    primaryGoal: z.enum([
+      "STRENGTH",
+      "HYPERTROPHY",
+      "WEIGHT_LOSS",
+      "ENDURANCE",
+      "GENERAL_FITNESS"
+    ]).nullable().optional()
   })
   .strict();
 
@@ -156,3 +195,4 @@ export type RefreshBody = z.infer<typeof refreshBodySchema>;
 export type GoogleCallbackQuery = z.infer<typeof googleCallbackQuerySchema>;
 export type GoogleLinkBody = z.infer<typeof googleLinkBodySchema>;
 export type OnboardingCompleteBody = z.infer<typeof onboardingCompleteBodySchema>;
+export type ProfileUpdateBody = z.infer<typeof profileUpdateBodySchema>;

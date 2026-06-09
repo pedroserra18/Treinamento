@@ -29,6 +29,7 @@ import {
   updateAvatar,
   updateHandle,
   updateName,
+  updateProfile,
   getProfileDefaults,
   getGoogleLinkStatus,
   updateBirthDate,
@@ -45,6 +46,7 @@ import {
   GoogleLinkBody,
   LoginBody,
   OnboardingCompleteBody,
+  ProfileUpdateBody,
   RefreshBody,
   RegisterBody,
   RequestEmailChangeBody,
@@ -436,5 +438,19 @@ export async function onboardingCompleteController(req: Request, res: Response):
     meta: {
       requestId: req.context.requestId
     }
+  });
+}
+
+// PATCH /auth/profile — edita campos do perfil profissional (height/weight/
+// experienceLevel/primaryGoal) sem precisar refazer onboarding. Cada campo
+// é opcional (partial update).
+export async function profileUpdateController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const body = req.body as ProfileUpdateBody;
+  const user = await updateProfile(userId, body);
+
+  res.status(200).json({
+    data: { user },
+    meta: { requestId: req.context.requestId }
   });
 }

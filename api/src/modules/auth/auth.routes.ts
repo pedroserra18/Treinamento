@@ -15,6 +15,7 @@ import {
   googleLinkBodySchema,
   loginBodySchema,
   onboardingCompleteBodySchema,
+  profileUpdateBodySchema,
   refreshBodySchema,
   registerRequestCodeBodySchema,
   registerVerifyCodeBodySchema,
@@ -40,6 +41,7 @@ import {
   onboardingCompleteController,
   onboardingStatusController,
   profileController,
+  profileUpdateController,
   requestEmailChangeController,
   updateAvatarController,
   updateHandleController,
@@ -195,6 +197,15 @@ router.post(
   requireAuth,
   validateRequest({ body: onboardingCompleteBodySchema }),
   asyncHandler(async (req, res) => onboardingCompleteController(req, res))
+);
+
+// Edição parcial do perfil profissional (height/weight/experience/goal)
+// pelo Settings → Perfil, sem mexer com onboardingCompletedAt.
+router.patch(
+  "/auth/profile",
+  requireAuth,
+  validateRequest({ body: profileUpdateBodySchema }),
+  asyncHandler(async (req, res) => profileUpdateController(req, res))
 );
 
 export default router;

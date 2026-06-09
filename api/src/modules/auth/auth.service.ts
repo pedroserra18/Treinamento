@@ -5,7 +5,7 @@ import { prisma } from "../../config/prisma";
 import { redisClient } from "../../config/redis";
 import { createHash, randomUUID } from "node:crypto";
 import { AppError } from "../../shared/errors/app-error";
-import { LoginBody, OnboardingCompleteBody, RefreshBody, RegisterBody } from "./auth.schema";
+import { LoginBody, OnboardingCompleteBody, ProfileUpdateBody, RefreshBody, RegisterBody } from "./auth.schema";
 import { generateUniqueHandle } from "../../shared/utils/handle";
 import { verifyRegisterEmailCode } from "./registration-verification.service";
 import { trackEvent } from "../../shared/services/event-log.service";
@@ -32,6 +32,13 @@ type SafeUser = {
   role: "USER" | "COACH" | "ADMIN";
   sex: "MALE" | "FEMALE" | "OTHER";
   availableDaysPerWeek: number | null;
+  // Onboarding v2 — todos null pra usuários antigos enquanto não editam
+  // perfil; nunca quebra cliente legado, só enriquece quando preenchido.
+  birthDate: string | null;
+  heightCm: number | null;
+  weightKg: number | null;
+  experienceLevel: "BEGINNER" | "INTERMEDIATE" | "ADVANCED" | null;
+  primaryGoal: "STRENGTH" | "HYPERTROPHY" | "WEIGHT_LOSS" | "ENDURANCE" | "GENERAL_FITNESS" | null;
   onboardingCompleted: boolean;
   isPrivate: boolean;
   showFollowLists: boolean;
@@ -207,6 +214,13 @@ function toSafeUser(user: {
   sex: "MALE" | "FEMALE" | "OTHER";
   availableDaysPerWeek: number | null;
   onboardingCompletedAt: Date | null;
+  // Onboarding v2 — opcionais no SELECT pra compat com chamadas que não
+  // adicionaram as colunas. Quando ausentes, vão pra null no DTO.
+  birthDate?: Date | null;
+  heightCm?: number | null;
+  weightKg?: number | null;
+  experienceLevel?: "BEGINNER" | "INTERMEDIATE" | "ADVANCED" | null;
+  primaryGoal?: "STRENGTH" | "HYPERTROPHY" | "WEIGHT_LOSS" | "ENDURANCE" | "GENERAL_FITNESS" | null;
   isPrivate?: boolean;
   showFollowLists?: boolean;
   avatarUrl?: string | null;
@@ -219,6 +233,13 @@ function toSafeUser(user: {
     role: user.role,
     sex: user.sex,
     availableDaysPerWeek: user.availableDaysPerWeek,
+    // birthDate vira string ISO-date (YYYY-MM-DD) pra simplificar serialização
+    // pro cliente; null quando não preenchido.
+    birthDate: user.birthDate ? user.birthDate.toISOString().slice(0, 10) : null,
+    heightCm: user.heightCm ?? null,
+    weightKg: user.weightKg ?? null,
+    experienceLevel: user.experienceLevel ?? null,
+    primaryGoal: user.primaryGoal ?? null,
     onboardingCompleted: Boolean(user.onboardingCompletedAt && user.availableDaysPerWeek),
     isPrivate: user.isPrivate ?? false,
     showFollowLists: user.showFollowLists ?? true,
@@ -263,6 +284,11 @@ export async function registerWithEmail(data: RegisterBody, context: EventContex
       role: true,
       sex: true,
       availableDaysPerWeek: true,
+      birthDate: true,
+      heightCm: true,
+      weightKg: true,
+      experienceLevel: true,
+      primaryGoal: true,
       onboardingCompletedAt: true,
       isPrivate: true, showFollowLists: true, avatarUrl: true
     }
@@ -323,6 +349,11 @@ export async function loginWithEmail(data: LoginBody, context: EventContext = {}
       role: true,
       sex: true,
       availableDaysPerWeek: true,
+      birthDate: true,
+      heightCm: true,
+      weightKg: true,
+      experienceLevel: true,
+      primaryGoal: true,
       onboardingCompletedAt: true,
       isPrivate: true, showFollowLists: true, avatarUrl: true,
       passwordHash: true,
@@ -503,22 +534,35 @@ export async function logoutSession(userId: string, context: EventContext = {}):
   });
 }
 
-// Valores pré-preenchidos para o quiz da IA: peso ATUAL (último registro de
-// progresso, com fallback pro onboarding), altura, gênero e idade calculada
-// da data de nascimento. Mantém o peso sempre em dia com o que o usuário
-// registra na página de progresso (BodyMeasurement), em vez do peso estático
-// do onboarding.
+// Valores pré-preenchidos para o quiz da IA: peso ATUAL (último registro
+// de progresso > peso do perfil), altura/gênero/idade do perfil. Mantém o
+// peso sempre em dia com o que o usuário registra na página de progresso
+// (BodyMeasurement), em vez do peso estático do perfil — peso muda toda
+// semana, altura quase nunca.
+// experienceLevel e primaryGoal vão no retorno pra que o quiz pule essas
+// perguntas (já existem no perfil) e pré-preencha goal.
 export async function getProfileDefaults(userId: string) {
-  const [user, profile, latestMeasurement] = await Promise.all([
-    prisma.user.findUnique({ where: { id: userId }, select: { sex: true, birthDate: true } }),
-    prisma.onboardingProfile.findUnique({ where: { userId }, select: { heightCm: true, weightKg: true } }),
+  const [user, latestMeasurement] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        sex: true,
+        birthDate: true,
+        heightCm: true,
+        weightKg: true,
+        experienceLevel: true,
+        primaryGoal: true
+      }
+    }),
     prisma.bodyMeasurement.findFirst({ where: { userId }, orderBy: { date: "desc" }, select: { weight: true } }),
   ]);
 
-  const weightKg = latestMeasurement?.weight ?? profile?.weightKg ?? null;
-  const heightCm = profile?.heightCm ?? null;
+  const weightKg = latestMeasurement?.weight ?? user?.weightKg ?? null;
+  const heightCm = user?.heightCm ?? null;
   const sex = user?.sex ?? null;
   const birthDate = user?.birthDate ?? null;
+  const experienceLevel = user?.experienceLevel ?? null;
+  const primaryGoal = user?.primaryGoal ?? null;
 
   let age: number | null = null;
   if (birthDate) {
@@ -536,6 +580,8 @@ export async function getProfileDefaults(userId: string) {
     gender: sex === "MALE" ? "Masculino" : sex === "FEMALE" ? "Feminino" : null,
     birthDate: birthDate ? birthDate.toISOString().slice(0, 10) : null, // YYYY-MM-DD
     age,
+    experienceLevel,
+    primaryGoal,
   };
 }
 
@@ -575,6 +621,11 @@ export async function getAuthenticatedProfile(userId: string): Promise<SafeUser>
       role: true,
       sex: true,
       availableDaysPerWeek: true,
+      birthDate: true,
+      heightCm: true,
+      weightKg: true,
+      experienceLevel: true,
+      primaryGoal: true,
       onboardingCompletedAt: true,
       isPrivate: true, showFollowLists: true, avatarUrl: true,
       isDeleted: true,
@@ -603,6 +654,11 @@ export async function getOnboardingStatus(userId: string): Promise<{
       id: true,
       sex: true,
       availableDaysPerWeek: true,
+      birthDate: true,
+      heightCm: true,
+      weightKg: true,
+      experienceLevel: true,
+      primaryGoal: true,
       onboardingCompletedAt: true,
       isDeleted: true,
       status: true
@@ -656,7 +712,7 @@ export async function updateAvatar(userId: string, avatarUrl: string | null): Pr
     data: { avatarUrl },
     select: {
       id: true, name: true, handle: true, email: true, role: true,
-      sex: true, availableDaysPerWeek: true, onboardingCompletedAt: true, isPrivate: true, showFollowLists: true, avatarUrl: true
+      sex: true, availableDaysPerWeek: true, birthDate: true, heightCm: true, weightKg: true, experienceLevel: true, primaryGoal: true, onboardingCompletedAt: true, isPrivate: true, showFollowLists: true, avatarUrl: true
     },
   });
   return toSafeUser(updated);
@@ -681,7 +737,7 @@ export async function updateHandle(userId: string, newHandle: string): Promise<S
     data: { handle: newHandle },
     select: {
       id: true, name: true, handle: true, email: true, role: true,
-      sex: true, availableDaysPerWeek: true, onboardingCompletedAt: true,
+      sex: true, availableDaysPerWeek: true, birthDate: true, heightCm: true, weightKg: true, experienceLevel: true, primaryGoal: true, onboardingCompletedAt: true,
       isPrivate: true, showFollowLists: true, avatarUrl: true,
     },
   });
@@ -696,7 +752,7 @@ export async function updateName(userId: string, newName: string): Promise<SafeU
     data: { name: newName },
     select: {
       id: true, name: true, handle: true, email: true, role: true,
-      sex: true, availableDaysPerWeek: true, onboardingCompletedAt: true,
+      sex: true, availableDaysPerWeek: true, birthDate: true, heightCm: true, weightKg: true, experienceLevel: true, primaryGoal: true, onboardingCompletedAt: true,
       isPrivate: true, showFollowLists: true, avatarUrl: true,
     },
   });
@@ -733,7 +789,7 @@ export async function confirmEmailChange(
     data: { email: newEmail },
     select: {
       id: true, name: true, handle: true, email: true, role: true,
-      sex: true, availableDaysPerWeek: true, onboardingCompletedAt: true,
+      sex: true, availableDaysPerWeek: true, birthDate: true, heightCm: true, weightKg: true, experienceLevel: true, primaryGoal: true, onboardingCompletedAt: true,
       isPrivate: true, showFollowLists: true, avatarUrl: true,
     },
   });
@@ -764,8 +820,10 @@ export async function confirmEmailChange(
 // out password hashes, refresh tokens and OAuth secrets — anything that
 // would let someone replay the account if the file leaks.
 export async function exportUserData(userId: string) {
+  // onboardingProfile removido — campos migraram pra User (heightCm, weightKg,
+  // experienceLevel, primaryGoal vêm direto na query do user abaixo).
   const [
-    user, onboardingProfile, pinnedExercises, bodyMeasurements, workoutPlans,
+    user, pinnedExercises, bodyMeasurements, workoutPlans,
     workoutSessions, workoutHistory, posts, comments, follows, followers,
   ] = await Promise.all([
     prisma.user.findUnique({
@@ -774,9 +832,9 @@ export async function exportUserData(userId: string) {
         id: true, name: true, handle: true, email: true, role: true,
         sex: true, availableDaysPerWeek: true, isPrivate: true, showFollowLists: true,
         avatarUrl: true, onboardingCompletedAt: true, createdAt: true, updatedAt: true,
+        birthDate: true, heightCm: true, weightKg: true, experienceLevel: true, primaryGoal: true,
       },
     }),
-    prisma.onboardingProfile.findUnique({ where: { userId } }).catch(() => null),
     prisma.pinnedExercise.findMany({
       where: { userId },
       include: { exercise: { select: { id: true, name: true, primaryMuscleGroup: true } } },
@@ -823,7 +881,6 @@ export async function exportUserData(userId: string) {
     exportedAt: new Date().toISOString(),
     format: "serraathlo-export-v1",
     user,
-    onboardingProfile,
     pinnedExercises,
     bodyMeasurements,
     workoutPlans,
@@ -890,11 +947,21 @@ export async function completeOnboarding(
   userId: string,
   data: OnboardingCompleteBody
 ): Promise<SafeUser> {
+  // birthDate vem como YYYY-MM-DD; convertemos pra Date em UTC midnight
+  // pra evitar drift de timezone em queries de aniversário/idade.
+  const birthDate = new Date(`${data.birthDate}T00:00:00.000Z`);
+
   const updated = await prisma.user.update({
     where: { id: userId },
     data: {
       sex: data.sex,
       availableDaysPerWeek: data.availableDaysPerWeek,
+      birthDate,
+      experienceLevel: data.experienceLevel,
+      primaryGoal: data.primaryGoal,
+      // Opcionais — undefined = "não mexe" via behavior do Prisma.
+      heightCm: data.heightCm ?? null,
+      weightKg: data.weightKg ?? null,
       onboardingCompletedAt: new Date()
     },
     select: {
@@ -905,6 +972,54 @@ export async function completeOnboarding(
       role: true,
       sex: true,
       availableDaysPerWeek: true,
+      birthDate: true,
+      heightCm: true,
+      weightKg: true,
+      experienceLevel: true,
+      primaryGoal: true,
+      onboardingCompletedAt: true,
+      isPrivate: true, showFollowLists: true, avatarUrl: true
+    }
+  });
+
+  return toSafeUser(updated);
+}
+
+// PATCH /auth/profile — usado pelo Settings → Perfil pra editar
+// height/weight/goal/experience sem refazer onboarding. Cada campo é
+// opcional (partial). null explícito limpa; undefined preserva.
+export async function updateProfile(userId: string, patch: ProfileUpdateBody): Promise<SafeUser> {
+  const updateData: {
+    sex?: "MALE" | "FEMALE" | "OTHER";
+    availableDaysPerWeek?: number;
+    heightCm?: number | null;
+    weightKg?: number | null;
+    experienceLevel?: "BEGINNER" | "INTERMEDIATE" | "ADVANCED" | null;
+    primaryGoal?: "STRENGTH" | "HYPERTROPHY" | "WEIGHT_LOSS" | "ENDURANCE" | "GENERAL_FITNESS" | null;
+  } = {};
+  if (patch.sex !== undefined) updateData.sex = patch.sex;
+  if (patch.availableDaysPerWeek !== undefined) updateData.availableDaysPerWeek = patch.availableDaysPerWeek;
+  if (patch.heightCm !== undefined) updateData.heightCm = patch.heightCm;
+  if (patch.weightKg !== undefined) updateData.weightKg = patch.weightKg;
+  if (patch.experienceLevel !== undefined) updateData.experienceLevel = patch.experienceLevel;
+  if (patch.primaryGoal !== undefined) updateData.primaryGoal = patch.primaryGoal;
+
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: updateData,
+    select: {
+      id: true,
+      name: true,
+      handle: true,
+      email: true,
+      role: true,
+      sex: true,
+      availableDaysPerWeek: true,
+      birthDate: true,
+      heightCm: true,
+      weightKg: true,
+      experienceLevel: true,
+      primaryGoal: true,
       onboardingCompletedAt: true,
       isPrivate: true, showFollowLists: true, avatarUrl: true
     }

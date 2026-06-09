@@ -27,13 +27,17 @@ enum UserSex {
   OTHER
 }
 
-enum OnboardingGoal {
-  FAT_LOSS
-  MUSCLE_GAIN
-  ENDURANCE
-  MOBILITY
-  GENERAL_FITNESS
-  REHAB
+// Objetivo PERMANENTE do usuário, definido no onboarding e editável em
+// Configurações → Perfil. Diferente do "goal" passado pro quiz da IA
+// (que é específico do plano que o user tá gerando agora). O perfil
+// pré-preenche o quiz pra reduzir cliques, mas o quiz pode sobrescrever
+// pra esse plano (ex.: tô em fase de cutting nesse mês).
+enum PrimaryGoal {
+  STRENGTH         // Força
+  HYPERTROPHY      // Hipertrofia
+  WEIGHT_LOSS      // Emagrecimento
+  ENDURANCE        // Resistência
+  GENERAL_FITNESS  // Saúde geral
 }
 
 enum ExperienceLevel {
@@ -171,6 +175,15 @@ model User {
   sex                 UserSex         @default(OTHER)
   birthDate           DateTime?
   availableDaysPerWeek Int?
+  // Onboarding profissional v2 — todos opcionais por design. heightCm e
+  // weightKg ficam aqui (não em modelo separado) porque tem 1-1 com User,
+  // cabem em qualquer SELECT e o quiz da IA pré-preenche a partir daqui.
+  // experienceLevel afeta sugestões de carga e tom das recomendações;
+  // primaryGoal default do quiz da IA (editável por plano).
+  heightCm            Float?
+  weightKg            Float?
+  experienceLevel     ExperienceLevel?
+  primaryGoal         PrimaryGoal?
   onboardingCompletedAt DateTime?
   role                UserRole        @default(USER)
   status              AccountStatus   @default(PENDING)
@@ -186,7 +199,6 @@ model User {
   createdAt           DateTime        @default(now())
   updatedAt           DateTime        @updatedAt
 
-  onboardingProfile OnboardingProfile?
   authProviders     AuthProvider[]
   workoutPlans      WorkoutPlan[]
   workoutSessions   WorkoutSession[]
@@ -225,27 +237,6 @@ model User {
   @@index([onboardingCompletedAt])
 
   @@map("users")
-}
-
-model OnboardingProfile {
-  id                  String          @id @default(cuid())
-  userId              String          @unique
-  goal                OnboardingGoal
-  experienceLevel     ExperienceLevel
-  age                 Int?
-  heightCm            Float?
-  weightKg            Float?
-  preferredDaysPerWeek Int?
-  injuries            Json?
-  medicalNotes        String?
-  consentAcceptedAt   DateTime?
-  createdAt           DateTime        @default(now())
-  updatedAt           DateTime        @updatedAt
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([goal, experienceLevel])
-  @@map("onboarding_profiles")
 }
 
 model Exercise {
