@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
-import { Crown, FileText, ShieldCheck, X } from 'lucide-react'
+import { Link, useLocation } from 'react-router-dom'
+import { ArrowLeft, Crown, FileText, ShieldCheck, X } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { CURRENT_TERMS_VERSION } from '../../lib/terms-version'
 
@@ -11,10 +11,21 @@ import { CURRENT_TERMS_VERSION } from '../../lib/terms-version'
 // renderiza um modal bloqueante explicando a atualização e exigindo aceite
 // antes de seguir usando o app.
 //
+// O gate NÃO renderiza quando o user está nas próprias páginas legais
+// (/termos, /privacidade) — senão o modal cobriria o documento que ele
+// precisa ler pra aceitar. Em vez disso, mostra um banner sticky no topo
+// das páginas com botão "Voltar ao aceite".
+//
 // Logout é a única saída alternativa — pessoa que se recuse pode sair, mas
 // não consegue continuar usando recursos do app sem aceitar.
+
+// Rotas onde o gate NÃO renderiza o overlay (pra deixar a pessoa ler antes
+// de aceitar). startsWith pra cobrir variações com query string ou hash.
+const LEGAL_ROUTES = ['/termos', '/privacidade']
+
 export function TermsAcceptanceGate({ children }: { children: ReactNode }) {
   const { user, ready, isAuthenticated, acceptTerms, logout } = useAuth()
+  const location = useLocation()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -30,6 +41,33 @@ export function TermsAcceptanceGate({ children }: { children: ReactNode }) {
 
   const accepted = user.acceptedTermsVersion === CURRENT_TERMS_VERSION
   if (accepted) return <>{children}</>
+
+  // Pessoa pediu pra ler os documentos antes de aceitar — solta o overlay
+  // mas mostra um banner sticky pra ela voltar quando terminar.
+  const inLegalPage = LEGAL_ROUTES.some((path) => location.pathname.startsWith(path))
+  if (inLegalPage) {
+    return (
+      <>
+        {/* Banner sticky no topo durante leitura — link de volta pra continuar
+            o fluxo de aceite. Z alto pra ficar acima do conteúdo da página. */}
+        <div className="sticky top-0 z-[8000] border-b border-amber-500/40 bg-amber-500/15 px-4 py-2.5 backdrop-blur-md pt-safe-plus-2">
+          <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
+            <p className="text-[11.5px] font-semibold leading-snug text-[var(--text)]">
+              Aceite pendente — feche esta aba ou volte pra continuar
+            </p>
+            <Link
+              to="/"
+              className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-[var(--brand)] px-2.5 py-1.5 text-[11px] font-bold text-white hover:bg-[var(--brand-strong)]"
+            >
+              <ArrowLeft size={11} />
+              Voltar
+            </Link>
+          </div>
+        </div>
+        {children}
+      </>
+    )
+  }
 
   const isFirstAcceptance = user.acceptedTermsAt === null
 
@@ -93,10 +131,12 @@ export function TermsAcceptanceGate({ children }: { children: ReactNode }) {
           </p>
 
           <div className="relative mt-5 space-y-2">
+            {/* Sem target=_blank: no PWA standalone iOS, abas externas saem
+                do app inteiro e quebram o fluxo. Navegação dentro da mesma
+                janela; o gate detecta /termos e /privacidade e libera o
+                overlay (com banner sticky no topo pra lembrar do aceite). */}
             <Link
               to="/termos"
-              target="_blank"
-              rel="noopener"
               className="flex items-center gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3 transition-colors hover:bg-[var(--surface)]"
             >
               <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[var(--brand)]/10 text-[var(--brand)]">
@@ -109,8 +149,6 @@ export function TermsAcceptanceGate({ children }: { children: ReactNode }) {
             </Link>
             <Link
               to="/privacidade"
-              target="_blank"
-              rel="noopener"
               className="flex items-center gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3 transition-colors hover:bg-[var(--surface)]"
             >
               <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-emerald-500/10 text-emerald-500">
