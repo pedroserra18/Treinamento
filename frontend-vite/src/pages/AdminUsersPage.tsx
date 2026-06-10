@@ -90,7 +90,7 @@ const EVENT_LABELS: Record<string, string> = {
   admin_user_deactivated: 'Conta desativada',
   admin_user_reactivated: 'Conta reativada',
   admin_user_deleted: 'Conta excluída',
-  admin_user_role_changed: 'Permissões alteradas',
+  admin_user_role_changed: 'Acesso alterado',
 }
 
 function CountUp({ target }: { target: number }) {
@@ -135,15 +135,6 @@ const PILL_TONES: Record<PillTone, string> = {
   coach: 'bg-violet-100 text-violet-700 border-violet-300 dark:bg-violet-500/15 dark:text-violet-300 dark:border-violet-500/30',
   pro: 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30',
   free: 'bg-[var(--surface-hover)] text-[var(--muted)] border-[var(--line)]',
-}
-
-// Tier mostrado na coluna "Plano". ADMIN ganha rótulo próprio porque é
-// promovido a PRO em runtime mesmo quando user.plan='FREE' — mostrar 'PRO'
-// no admin panel mascararia esse detalhe operacional.
-function planLabel(plan: 'FREE' | 'PRO', role: 'USER' | 'COACH' | 'ADMIN'): { label: string; tone: PillTone } {
-  if (role === 'ADMIN') return { label: 'ADMIN', tone: 'admin' }
-  if (plan === 'PRO') return { label: 'PRO', tone: 'pro' }
-  return { label: 'FREE', tone: 'free' }
 }
 
 function Pill({ children, tone }: { children: React.ReactNode; tone: PillTone }) {
@@ -231,9 +222,9 @@ function ConfirmModal({
   const config =
     action.kind === 'role'
       ? {
-          title: 'Alterar permissões',
-          body: `O usuário passará a ter permissões de ${action.newRole}. Isso muda o acesso da conta imediatamente.`,
-          confirm: 'Alterar permissões',
+          title: 'Alterar acesso',
+          body: `O usuário passará a ter acesso de ${action.newRole}. Isso muda o que a conta pode fazer no sistema, imediatamente.`,
+          confirm: 'Alterar acesso',
           btn: 'bg-[var(--brand)] hover:bg-[var(--brand-strong)]',
         }
       : {
@@ -329,6 +320,7 @@ function SkeletonRows() {
           </td>
           <td><div className="h-3 w-40 animate-pulse rounded bg-[var(--surface-hover)]" /></td>
           <td><div className="h-3 w-16 animate-pulse rounded bg-[var(--surface-hover)]" /></td>
+          <td><div className="h-3 w-12 animate-pulse rounded bg-[var(--surface-hover)]" /></td>
           <td><div className="h-3 w-14 animate-pulse rounded bg-[var(--surface-hover)]" /></td>
           <td><div className="h-3 w-24 animate-pulse rounded bg-[var(--surface-hover)]" /></td>
           <td><div className="h-3 w-16 animate-pulse rounded bg-[var(--surface-hover)]" /></td>
@@ -455,16 +447,17 @@ function UserDrawer({
             <div className="mt-3 flex flex-wrap gap-1.5">
               <Pill tone={u.accountType === 'TEST' ? 'test' : 'real'}>{u.accountType === 'TEST' ? 'Teste' : 'Real'}</Pill>
               <Pill tone={roleTone(u.role)}>{u.role}</Pill>
-              {(() => {
-                const pl = planLabel(u.plan, u.role)
-                if (pl.label === 'ADMIN') return null
-                return (
-                  <Pill tone={pl.tone}>
-                    {pl.tone === 'pro' ? <Crown size={9} /> : null}
-                    {pl.label}
-                  </Pill>
-                )
-              })()}
+              {u.role === 'ADMIN' ? (
+                <Pill tone="pro">
+                  <Crown size={9} /> auto-PRO
+                </Pill>
+              ) : u.plan === 'PRO' ? (
+                <Pill tone="pro">
+                  <Crown size={9} /> PRO
+                </Pill>
+              ) : (
+                <Pill tone="free">FREE</Pill>
+              )}
               <StatusPill status={u.status} />
             </div>
 
@@ -491,18 +484,18 @@ function UserDrawer({
             {/* Campos */}
             <div className="mt-5 rounded-xl border border-[var(--line)] px-3.5 py-1">
               <DetailRow
-                label="Plano"
-                value={(() => {
-                  const pl = planLabel(u.plan, u.role)
-                  if (u.role === 'ADMIN') return <span className="text-[var(--text)]">ADMIN (PRO efetivo)</span>
-                  return pl.label === 'PRO' ? (
-                    <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-300">
-                      <Crown size={12} /> PRO
-                    </span>
-                  ) : (
-                    <span className="text-[var(--muted)]">FREE</span>
-                  )
-                })()}
+                label="Assinatura"
+                value={u.role === 'ADMIN' ? (
+                  <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-300" title="ADMIN é promovido a PRO em runtime sem precisar de upgrade explícito">
+                    <Crown size={12} /> auto-PRO
+                  </span>
+                ) : u.plan === 'PRO' ? (
+                  <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-300">
+                    <Crown size={12} /> PRO
+                  </span>
+                ) : (
+                  <span className="text-[var(--muted)]">FREE</span>
+                )}
               />
               {u.plan === 'PRO' && u.planExpiresAt ? (
                 <DetailRow label="PRO expira em" value={`${formatDate(u.planExpiresAt)} · ${relativeTime(u.planExpiresAt)}`} />
@@ -516,13 +509,16 @@ function UserDrawer({
               <DetailRow label="Último login" value={u.lastLoginAt ? `${formatDate(u.lastLoginAt)} · ${relativeTime(u.lastLoginAt)}` : '—'} />
             </div>
 
-            {/* Gestão de permissões */}
+            {/* Gestão de acesso (role) */}
             <div className="mt-5">
-              <h3 className="font-mono text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">Permissões</h3>
+              <h3 className="font-mono text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">Acesso</h3>
               <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted)]">
-                Controla o que a conta pode acessar. <strong className="text-[var(--text)]">USER</strong> é
-                a conta comum. <strong className="text-[var(--text)]">ADMIN</strong> ganha acesso ao painel
-                administrativo, vira PRO automaticamente em runtime e pode gerar convites PRO.
+                Define o que a conta pode fazer no sistema (separado da assinatura).
+                <br />
+                · <strong className="text-[var(--text)]">USER</strong>: conta comum, usa o app respeitando limites da assinatura.
+                <br />
+                · <strong className="text-[var(--text)]">ADMIN</strong>: acessa o painel admin, gera convites PRO,
+                banir/excluir contas. Vira PRO automaticamente em runtime — não precisa de upgrade explícito.
               </p>
               <div className="mt-2 flex items-center gap-2">
                 <select
@@ -543,7 +539,7 @@ function UserDrawer({
                   Aplicar
                 </button>
               </div>
-              {isSelf ? <p className="mt-1.5 text-[11px] text-[var(--muted)]">Você não pode alterar as próprias permissões.</p> : null}
+              {isSelf ? <p className="mt-1.5 text-[11px] text-[var(--muted)]">Você não pode alterar o próprio acesso.</p> : null}
             </div>
 
             {/* Ações rápidas */}
@@ -753,7 +749,7 @@ export function AdminUsersPage() {
         pushToast('Conta reativada.', 'ok')
       } else if (pending.kind === 'role') {
         await updateUserRoleByAdmin(authorizedFetch, pending.user.id, pending.newRole)
-        pushToast(`Permissões alteradas para ${pending.newRole}.`, 'ok')
+        pushToast(`Acesso alterado para ${pending.newRole}.`, 'ok')
         if (drawerId) {
           const fresh = await getUserDetailForAdmin(authorizedFetch, drawerId).catch(() => null)
           if (fresh) setDrawerDetail(fresh)
@@ -878,8 +874,8 @@ export function AdminUsersPage() {
 
         {/* Filtros */}
         <div className="flex flex-wrap items-center gap-2">
-          <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as RoleFilter)} className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 text-xs font-semibold text-[var(--text)]">
-            <option value="">Permissões: todas</option>
+          <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as RoleFilter)} className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 text-xs font-semibold text-[var(--text)]" title="Acesso = o que a conta pode fazer (USER comum / ADMIN com painel)">
+            <option value="">Acesso: todos</option>
             <option value="USER">USER</option>
             <option value="ADMIN">ADMIN</option>
           </select>
@@ -895,8 +891,8 @@ export function AdminUsersPage() {
             <option value="completed">Completo</option>
             <option value="pending">Pendente</option>
           </select>
-          <select value={planFilter} onChange={(e) => setPlanFilter(e.target.value as PlanFilter)} className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 text-xs font-semibold text-[var(--text)]">
-            <option value="">Plano: todos</option>
+          <select value={planFilter} onChange={(e) => setPlanFilter(e.target.value as PlanFilter)} className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 text-xs font-semibold text-[var(--text)]" title="Assinatura = limites de uso (FREE com limites / PRO ilimitado)">
+            <option value="">Assinatura: todas</option>
             <option value="FREE">FREE</option>
             <option value="PRO">PRO</option>
           </select>
@@ -932,7 +928,8 @@ export function AdminUsersPage() {
                 <tr className="bg-[var(--surface-hover)] [&>th]:border-b [&>th]:border-[var(--line)] [&>th]:px-2 [&>th]:py-3 [&>th]:font-mono [&>th]:text-[10px] [&>th]:font-semibold [&>th]:uppercase [&>th]:tracking-wider [&>th]:text-[var(--muted)]">
                   <th className="!pl-4"><SortHeader label="Usuário" field="name" activeField={sortBy} order={sortOrder} onSort={onSort} /></th>
                   <th><SortHeader label="Email" field="email" activeField={sortBy} order={sortOrder} onSort={onSort} /></th>
-                  <th><SortHeader label="Tipo / Permissões" field="role" activeField={sortBy} order={sortOrder} onSort={onSort} /></th>
+                  <th title="Acesso = o que a conta pode fazer no sistema"><SortHeader label="Acesso" field="role" activeField={sortBy} order={sortOrder} onSort={onSort} /></th>
+                  <th title="Assinatura = quanto a conta pode usar (limites)">Assinatura</th>
                   <th><SortHeader label="Status" field="status" activeField={sortBy} order={sortOrder} onSort={onSort} /></th>
                   <th>
                     <span className="inline-flex items-center gap-2">
@@ -997,18 +994,23 @@ export function AdminUsersPage() {
                           <div className="flex flex-col items-start gap-1">
                             <Pill tone={u.accountType === 'TEST' ? 'test' : 'real'}>{u.accountType === 'TEST' ? 'Teste' : 'Real'}</Pill>
                             <Pill tone={roleTone(u.role)}>{u.role}</Pill>
-                            {(() => {
-                              const pl = planLabel(u.plan, u.role)
-                              // ADMIN já aparece como pill própria em "Role" — evita duplicar.
-                              if (pl.label === 'ADMIN') return null
-                              return (
-                                <Pill tone={pl.tone}>
-                                  {pl.tone === 'pro' ? <Crown size={9} /> : null}
-                                  {pl.label}
-                                </Pill>
-                              )
-                            })()}
                           </div>
+                        </td>
+                        <td>
+                          {u.role === 'ADMIN' ? (
+                            <span
+                              className="font-mono text-[10px] italic text-[var(--muted)]"
+                              title="Admins ganham acesso PRO automaticamente em runtime, mesmo com plan='FREE' no banco"
+                            >
+                              auto-PRO
+                            </span>
+                          ) : u.plan === 'PRO' ? (
+                            <Pill tone="pro">
+                              <Crown size={9} /> PRO
+                            </Pill>
+                          ) : (
+                            <Pill tone="free">FREE</Pill>
+                          )}
                         </td>
                         <td><StatusPill status={u.status} /></td>
                         <td>
@@ -1064,7 +1066,7 @@ export function AdminUsersPage() {
 
                 {!loading && items.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-12 text-center">
+                    <td colSpan={8} className="px-4 py-12 text-center">
                       <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-[var(--surface-hover)] text-[var(--muted)]"><Search size={20} /></div>
                       <p className="mt-3 text-sm font-semibold text-[var(--text)]">Nenhum usuário encontrado</p>
                       <p className="mt-1 text-xs text-[var(--muted)]">{hasFilters ? 'Tente ajustar a busca ou os filtros.' : 'Não há contas neste filtro.'}</p>
