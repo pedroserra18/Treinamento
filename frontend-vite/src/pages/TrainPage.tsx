@@ -1566,12 +1566,31 @@ export function TrainPage() {
 
       if (!prev) continue
 
+      // Detecta restart de descanso (mesmo exercício, descanso ainda
+      // rodando mas remaining "pulou pra cima" — sinal de que o user marcou
+      // outra série antes do timer zerar). Tolerância de +2s pra cobrir
+      // micro-jitter entre o tick do interval e o set state.
+      const isRestart = prev.running && now.running && now.remaining > prev.remaining + 2
+
       // Início do descanso → agenda no backend com payload "rico":
       // título traz o nome do exercício, body traz qual a próxima série
       // e (quando disponível) o desempenho da que acabou de ser feita.
       // Notificação chega no lock screen do iOS com toda info pra o user
       // não precisar abrir o app pra lembrar onde parou.
-      if (!prev.running && now.running && now.remaining > 0) {
+      //
+      // Em restart, cancela a antiga PRIMEIRO — senão duas notifs do mesmo
+      // exercício chegavam: a antiga (no horário original, agora inútil)
+      // e a nova (no horário correto). Bug reportado: ao marcar série
+      // rápido demais, a notif do descanso anterior chegava.
+      if (isRestart) {
+        const prevScheduleId = restScheduleByExerciseIdRef.current[ex.exerciseId]
+        if (prevScheduleId) {
+          void cancelBackendNotification(authorizedFetch, prevScheduleId).catch(() => { /* silencioso */ })
+          delete restScheduleByExerciseIdRef.current[ex.exerciseId]
+        }
+      }
+
+      if ((!prev.running && now.running && now.remaining > 0) || isRestart) {
         const fireAtMs = Date.now() + now.remaining * 1000
         const fireAt = new Date(fireAtMs).toISOString()
         const exerciseName = ex.exerciseName
@@ -1659,6 +1678,21 @@ export function TrainPage() {
       idleReminderScheduleIdRef.current = id
     }).catch(() => { /* silencioso */ })
   }, [pushNotifications.state.subscribed, authorizedFetch])
+
+  // Cancela TODAS as notificações de "Descanso acabou" pendentes no backend
+  // pra qualquer exercício desta sessão. Chamada nos pontos terminais do
+  // treino (descartar, finalizar, salvar) — sem isso, mesmo após o user
+  // descartar o treino, as pushes agendadas continuam disparando no horário
+  // marcado (bug reportado: "Descanso acabou — Supino" chegando depois de
+  // ter descartado o treino).
+  const cancelAllPendingRestNotifications = useCallback(() => {
+    const pending = restScheduleByExerciseIdRef.current
+    const ids = Object.values(pending)
+    restScheduleByExerciseIdRef.current = {}
+    for (const id of ids) {
+      void cancelBackendNotification(authorizedFetch, id).catch(() => { /* silencioso */ })
+    }
+  }, [authorizedFetch])
 
   // Cancela o lembrete pendente sem reagendar. Usado quando o treino
   // acaba (finalizar ou descartar) — não queremos lembrar de algo que
@@ -2038,6 +2072,11 @@ export function TrainPage() {
     clearActiveWorkout()
     // Workout encerrou — não queremos um lembrete pendurado.
     cancelIdleReminder()
+    // Nem pushes de "Descanso acabou" agendadas pra um exercício que não
+    // existe mais. O backend coalesce por tag mas só dentro da mesma sessão
+    // do device; sem cancel explícito, a push do treino descartado chega
+    // do mesmo jeito no horário marcado.
+    cancelAllPendingRestNotifications()
   }
 
   const beginEmptyTraining = () => {
@@ -2090,6 +2129,9 @@ export function TrainPage() {
     // descartar, não tá mais "treinando". Cancela o lembrete pra não
     // soltar "treino ainda rolando" enquanto ele preenche o resumo.
     cancelIdleReminder()
+    // Tambem cancela qualquer push de "Descanso acabou" pendente — o user
+    // já saiu da tela de treino ativo, descanso não faz sentido mais.
+    cancelAllPendingRestNotifications()
 
     setSummaryName(activePlanName)
     // Inclui o tempo de cardio no padrão da duração — sem isso, registrar
