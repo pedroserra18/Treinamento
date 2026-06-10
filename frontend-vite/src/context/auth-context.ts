@@ -16,7 +16,14 @@ export type AuthState = {
     email: string
     password: string
     verificationCode: string
+    // Versão dos termos vigente no momento do signup (passa CURRENT_TERMS_VERSION).
+    // Opcional pra compat com chamadas legadas que ainda não passam — backend
+    // grava acceptedTermsAt=null nesse caso e o gate força aceite depois.
+    termsVersion?: string
   }) => Promise<void>
+  // Registra aceite da versão atual dos termos pro user logado. Disparado
+  // pelo TermsAcceptanceGate quando user.acceptedTermsVersion está defasado.
+  acceptTerms: (version: string) => Promise<void>
   updateHandle: (handle: string) => Promise<void>
   // Profile updates that also refresh the cached AuthUser. These exist on
   // the context (instead of being called from the page directly) so name

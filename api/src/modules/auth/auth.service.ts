@@ -44,6 +44,10 @@ type SafeUser = {
   // pra "PRO" automaticamente (vide resolveEffectivePlan no backend).
   plan: "FREE" | "PRO";
   planExpiresAt: string | null;
+  // Aceite dos termos/privacidade. Frontend compara version contra a vigente
+  // (CURRENT_TERMS_VERSION) e força re-aceite quando ficar defasado.
+  acceptedTermsAt: string | null;
+  acceptedTermsVersion: string | null;
   onboardingCompleted: boolean;
   isPrivate: boolean;
   showFollowLists: boolean;
@@ -231,6 +235,10 @@ function toSafeUser(user: {
   // direto sem precisar saber que admins têm benefícios).
   plan?: "FREE" | "PRO";
   planExpiresAt?: Date | null;
+  // Aceite dos termos — opcionais aqui pra compat com SELECTs antigos que
+  // não os incluem. Valem null quando ausentes.
+  acceptedTermsAt?: Date | null;
+  acceptedTermsVersion?: string | null;
   isPrivate?: boolean;
   showFollowLists?: boolean;
   avatarUrl?: string | null;
@@ -255,6 +263,8 @@ function toSafeUser(user: {
     primaryGoal: user.primaryGoal ?? null,
     plan: effectivePlan,
     planExpiresAt: user.planExpiresAt ? user.planExpiresAt.toISOString() : null,
+    acceptedTermsAt: user.acceptedTermsAt ? user.acceptedTermsAt.toISOString() : null,
+    acceptedTermsVersion: user.acceptedTermsVersion ?? null,
     onboardingCompleted: Boolean(user.onboardingCompletedAt && user.availableDaysPerWeek),
     isPrivate: user.isPrivate ?? false,
     showFollowLists: user.showFollowLists ?? true,
@@ -262,7 +272,10 @@ function toSafeUser(user: {
   };
 }
 
-export async function registerWithEmail(data: RegisterBody, context: EventContext = {}): Promise<AuthResult> {
+export async function registerWithEmail(
+  data: RegisterBody & { termsVersion?: string },
+  context: EventContext = {}
+): Promise<AuthResult> {
   const existing = await prisma.user.findUnique({
     where: { email: data.email },
     select: { id: true }
@@ -289,7 +302,12 @@ export async function registerWithEmail(data: RegisterBody, context: EventContex
       email: data.email,
       normalizedEmail: data.email,
       passwordHash,
-      status: "ACTIVE"
+      status: "ACTIVE",
+      // Aceite dos termos vindo do checkbox no signup. Quando o cliente é
+      // antigo e não envia, mantém null e o gate pede aceite na primeira
+      // entrada autenticada.
+      acceptedTermsAt: data.termsVersion ? new Date() : null,
+      acceptedTermsVersion: data.termsVersion ?? null
     },
     select: {
       id: true,
@@ -306,6 +324,8 @@ export async function registerWithEmail(data: RegisterBody, context: EventContex
       primaryGoal: true,
       plan: true,
       planExpiresAt: true,
+      acceptedTermsAt: true,
+      acceptedTermsVersion: true,
       onboardingCompletedAt: true,
       isPrivate: true, showFollowLists: true, avatarUrl: true
     }
@@ -373,6 +393,8 @@ export async function loginWithEmail(data: LoginBody, context: EventContext = {}
       primaryGoal: true,
       plan: true,
       planExpiresAt: true,
+      acceptedTermsAt: true,
+      acceptedTermsVersion: true,
       onboardingCompletedAt: true,
       isPrivate: true, showFollowLists: true, avatarUrl: true,
       passwordHash: true,
@@ -629,6 +651,58 @@ export async function getGoogleLinkStatus(userId: string): Promise<{ linked: boo
   return { linked: Boolean(provider) };
 }
 
+// Registra aceite de uma nova versão dos termos/privacidade pelo user logado.
+// Chamado pelo TermsAcceptanceGate no frontend quando detecta que
+// user.acceptedTermsVersion < CURRENT_TERMS_VERSION. Retorna o user atualizado
+// pra o cliente refrescar o estado sem fazer outra round-trip.
+export async function acceptTermsForUser(
+  userId: string,
+  version: string,
+  context: EventContext = {}
+): Promise<SafeUser> {
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      acceptedTermsAt: new Date(),
+      acceptedTermsVersion: version
+    },
+    select: {
+      id: true,
+      name: true,
+      handle: true,
+      email: true,
+      role: true,
+      sex: true,
+      availableDaysPerWeek: true,
+      birthDate: true,
+      heightCm: true,
+      weightKg: true,
+      experienceLevel: true,
+      primaryGoal: true,
+      plan: true,
+      planExpiresAt: true,
+      acceptedTermsAt: true,
+      acceptedTermsVersion: true,
+      onboardingCompletedAt: true,
+      isPrivate: true, showFollowLists: true, avatarUrl: true
+    }
+  });
+
+  await trackEvent({
+    userId,
+    category: "AUTH",
+    action: "terms_accepted",
+    resourceType: "user",
+    resourceId: userId,
+    requestId: context.requestId,
+    ipAddress: context.ipAddress,
+    userAgent: context.userAgent,
+    metadata: { version }
+  });
+
+  return toSafeUser(updated);
+}
+
 export async function getAuthenticatedProfile(userId: string): Promise<SafeUser> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -647,6 +721,8 @@ export async function getAuthenticatedProfile(userId: string): Promise<SafeUser>
       primaryGoal: true,
       plan: true,
       planExpiresAt: true,
+      acceptedTermsAt: true,
+      acceptedTermsVersion: true,
       onboardingCompletedAt: true,
       isPrivate: true, showFollowLists: true, avatarUrl: true,
       isDeleted: true,
@@ -682,6 +758,8 @@ export async function getOnboardingStatus(userId: string): Promise<{
       primaryGoal: true,
       plan: true,
       planExpiresAt: true,
+      acceptedTermsAt: true,
+      acceptedTermsVersion: true,
       onboardingCompletedAt: true,
       isDeleted: true,
       status: true
@@ -735,7 +813,7 @@ export async function updateAvatar(userId: string, avatarUrl: string | null): Pr
     data: { avatarUrl },
     select: {
       id: true, name: true, handle: true, email: true, role: true,
-      sex: true, availableDaysPerWeek: true, birthDate: true, heightCm: true, weightKg: true, experienceLevel: true, primaryGoal: true, plan: true, planExpiresAt: true, onboardingCompletedAt: true, isPrivate: true, showFollowLists: true, avatarUrl: true,
+      sex: true, availableDaysPerWeek: true, birthDate: true, heightCm: true, weightKg: true, experienceLevel: true, primaryGoal: true, plan: true, planExpiresAt: true, acceptedTermsAt: true, acceptedTermsVersion: true, onboardingCompletedAt: true, isPrivate: true, showFollowLists: true, avatarUrl: true,
     },
   });
   return toSafeUser(updated);
@@ -760,7 +838,7 @@ export async function updateHandle(userId: string, newHandle: string): Promise<S
     data: { handle: newHandle },
     select: {
       id: true, name: true, handle: true, email: true, role: true,
-      sex: true, availableDaysPerWeek: true, birthDate: true, heightCm: true, weightKg: true, experienceLevel: true, primaryGoal: true, plan: true, planExpiresAt: true, onboardingCompletedAt: true,
+      sex: true, availableDaysPerWeek: true, birthDate: true, heightCm: true, weightKg: true, experienceLevel: true, primaryGoal: true, plan: true, planExpiresAt: true, acceptedTermsAt: true, acceptedTermsVersion: true, onboardingCompletedAt: true,
       isPrivate: true, showFollowLists: true, avatarUrl: true,
     },
   });
@@ -775,7 +853,7 @@ export async function updateName(userId: string, newName: string): Promise<SafeU
     data: { name: newName },
     select: {
       id: true, name: true, handle: true, email: true, role: true,
-      sex: true, availableDaysPerWeek: true, birthDate: true, heightCm: true, weightKg: true, experienceLevel: true, primaryGoal: true, plan: true, planExpiresAt: true, onboardingCompletedAt: true,
+      sex: true, availableDaysPerWeek: true, birthDate: true, heightCm: true, weightKg: true, experienceLevel: true, primaryGoal: true, plan: true, planExpiresAt: true, acceptedTermsAt: true, acceptedTermsVersion: true, onboardingCompletedAt: true,
       isPrivate: true, showFollowLists: true, avatarUrl: true,
     },
   });
@@ -812,7 +890,7 @@ export async function confirmEmailChange(
     data: { email: newEmail },
     select: {
       id: true, name: true, handle: true, email: true, role: true,
-      sex: true, availableDaysPerWeek: true, birthDate: true, heightCm: true, weightKg: true, experienceLevel: true, primaryGoal: true, plan: true, planExpiresAt: true, onboardingCompletedAt: true,
+      sex: true, availableDaysPerWeek: true, birthDate: true, heightCm: true, weightKg: true, experienceLevel: true, primaryGoal: true, plan: true, planExpiresAt: true, acceptedTermsAt: true, acceptedTermsVersion: true, onboardingCompletedAt: true,
       isPrivate: true, showFollowLists: true, avatarUrl: true,
     },
   });
@@ -1002,6 +1080,8 @@ export async function completeOnboarding(
       primaryGoal: true,
       plan: true,
       planExpiresAt: true,
+      acceptedTermsAt: true,
+      acceptedTermsVersion: true,
       onboardingCompletedAt: true,
       isPrivate: true, showFollowLists: true, avatarUrl: true
     }
@@ -1047,6 +1127,8 @@ export async function updateProfile(userId: string, patch: ProfileUpdateBody): P
       primaryGoal: true,
       plan: true,
       planExpiresAt: true,
+      acceptedTermsAt: true,
+      acceptedTermsVersion: true,
       onboardingCompletedAt: true,
       isPrivate: true, showFollowLists: true, avatarUrl: true
     }

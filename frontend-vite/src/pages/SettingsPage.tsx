@@ -337,7 +337,7 @@ export function SettingsPage() {
               {section === 'install' && <InstallAppPanel />}
               {section === 'export' && <ExportPanel authorizedFetch={authorizedFetch} />}
               {section === 'support' && <SupportPanel onOpen={() => navigate('/support')} />}
-              {section === 'about' && <AboutPanel />}
+              {section === 'about' && <AboutPanel user={user} />}
               {section === 'admin' && isAdmin && <AdminToolsPanel onNavigate={navigate} />}
               {section === 'logout' && <LogoutPanel logout={logout} />}
               {section === 'delete' && (
@@ -1431,17 +1431,15 @@ function SupportPanel({ onOpen }: { onOpen: () => void }) {
 // tem barra de URL, então sem essa página os termos/privacidade ficam
 // inalcançáveis pra quem já está logado).
 
-function AboutPanel() {
+function AboutPanel({ user }: { user: AuthUser | null }) {
   // Versão do build vinda do Vite (configurada no vite.config). Cai pra dev
   // quando rodando local sem build.
   const appVersion = (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_APP_VERSION ?? 'dev'
-  // Aceite registrado no signup (salvo em localStorage pra exibição). Quando
-  // implementar aceite no backend, trocar essa leitura pelo campo do user.
-  let acceptance: { version?: string; acceptedAt?: string } | null = null
-  try {
-    const raw = localStorage.getItem('serraathlo:termsAcceptance')
-    if (raw) acceptance = JSON.parse(raw)
-  } catch { /* ignore */ }
+  // Aceite vem do backend agora (User.acceptedTermsAt + acceptedTermsVersion).
+  // Multi-dispositivo, prova legal sólida.
+  const acceptance = user?.acceptedTermsAt
+    ? { version: user.acceptedTermsVersion ?? undefined, acceptedAt: user.acceptedTermsAt }
+    : null
 
   return (
     <div>

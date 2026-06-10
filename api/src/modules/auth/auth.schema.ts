@@ -34,7 +34,20 @@ export const registerVerifyCodeBodySchema = z
     handle: handleField,
     email: z.string().trim().toLowerCase().email(),
     password: z.string().min(8).max(128),
-    verificationCode: z.string().trim().regex(/^\d{6}$/)
+    verificationCode: z.string().trim().regex(/^\d{6}$/),
+    // Versão dos termos/privacidade que o user aceitou no checkbox do signup.
+    // Opcional pra compat com clientes antigos; quando ausente, signup
+    // continua funcionando mas o aceite fica null (o gate vai pedir aceite
+    // na primeira tela).
+    termsVersion: z.string().trim().min(1).max(32).optional()
+  })
+  .strict();
+
+// POST /auth/accept-terms — registra aceite de nova versão dos termos pelo
+// user logado. Usado pelo TermsAcceptanceGate quando detecta versão antiga.
+export const acceptTermsBodySchema = z
+  .object({
+    version: z.string().trim().min(1).max(32)
   })
   .strict();
 
@@ -181,6 +194,7 @@ export const profileUpdateBodySchema = z
 export type RegisterBody = z.infer<typeof registerBodySchema>;
 export type RegisterRequestCodeBody = z.infer<typeof registerRequestCodeBodySchema>;
 export type RegisterVerifyCodeBody = z.infer<typeof registerVerifyCodeBodySchema>;
+export type AcceptTermsBody = z.infer<typeof acceptTermsBodySchema>;
 export type UpdateHandleBody = z.infer<typeof updateHandleBodySchema>;
 export type DeleteProfileBody = z.infer<typeof deleteProfileBodySchema>;
 export type UpdateNameBody = z.infer<typeof updateNameBodySchema>;

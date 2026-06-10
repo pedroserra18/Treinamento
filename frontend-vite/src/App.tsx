@@ -6,6 +6,7 @@ import { ErrorBoundary } from './components/common/ErrorBoundary'
 import { AuthProvider } from './context/AuthContext'
 import { AppShell } from './components/layout/AppShell'
 import { PlanLimitDialogProvider } from './components/plan/PlanLimitDialogProvider'
+import { TermsAcceptanceGate } from './components/legal/TermsAcceptanceGate'
 import { AdminRoute } from './components/auth/AdminRoute'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { Skeleton } from './components/common/Skeleton'
@@ -338,14 +339,20 @@ function App() {
                 caller poder chamar useShowPlanLimit() e abrir o dialog
                 contextual quando bater 402 PLAN_LIMIT_REACHED do backend. */}
             <PlanLimitDialogProvider>
-              <AppShell>
-                <AnimatedRoutes />
-              </AppShell>
-              {/* Componentes globais PWA — montados fora do AppShell pra
-                  não dependerem de routing/auth. Cada um decide internamente
-                  se renderiza ou não (snooze, standalone, etc.). */}
-              <PwaUpdatePrompt />
-              <PwaInstallBanner />
+              {/* TermsAcceptanceGate é só visual — checa o user logado e
+                  renderiza um modal bloqueante quando user.acceptedTermsVersion
+                  está defasado vs CURRENT_TERMS_VERSION. Rotas públicas
+                  (/login, /register, /termos, /privacidade) passam livres. */}
+              <TermsAcceptanceGate>
+                <AppShell>
+                  <AnimatedRoutes />
+                </AppShell>
+                {/* Componentes globais PWA — montados fora do AppShell pra
+                    não dependerem de routing/auth. Cada um decide internamente
+                    se renderiza ou não (snooze, standalone, etc.). */}
+                <PwaUpdatePrompt />
+                <PwaInstallBanner />
+              </TermsAcceptanceGate>
             </PlanLimitDialogProvider>
           </BrowserRouter>
         </AuthProvider>

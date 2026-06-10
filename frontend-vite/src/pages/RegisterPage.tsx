@@ -5,8 +5,7 @@ import { BrandLogo } from '../components/common/BrandLogo'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Input } from '../components/common/Input'
 import { sanitiseHandleInput, validateHandle } from '../lib/handle'
-
-const TERMS_VERSION = '2026-06-10'
+import { CURRENT_TERMS_VERSION } from '../lib/terms-version'
 
 function validateRegisterInput(input: { name: string; handle: string; email: string; password: string }): string | null {
   if (input.name.trim().length < 2) return 'Nome deve ter pelo menos 2 caracteres.'
@@ -69,16 +68,10 @@ export function RegisterPage() {
     if (!acceptedTerms) { setError('Você precisa aceitar os Termos e a Política de Privacidade pra continuar.'); return }
     setLoading(true)
     try {
-      await signUp({ name, handle, email, password, verificationCode })
-      // Registra localmente o aceite (data + versão do documento). Vira sinal
-      // pra futuras políticas — se atualizarmos os termos, comparamos a versão
-      // armazenada com a vigente e podemos pedir novo aceite.
-      try {
-        localStorage.setItem('serraathlo:termsAcceptance', JSON.stringify({
-          version: TERMS_VERSION,
-          acceptedAt: new Date().toISOString(),
-        }))
-      } catch { /* localStorage indisponível em modo privado — segue o jogo */ }
+      // Envia a versão atual dos termos pro backend — fica persistido em
+      // User.acceptedTermsAt + acceptedTermsVersion. Multi-dispositivo,
+      // multi-versão, prova legal sólida.
+      await signUp({ name, handle, email, password, verificationCode, termsVersion: CURRENT_TERMS_VERSION })
       navigate(redirectTo, { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao validar código')

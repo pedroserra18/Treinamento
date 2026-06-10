@@ -30,6 +30,11 @@ export type AuthUser = {
   // ADMIN aparece como 'PRO' (resolução é no backend).
   plan: PlanTier
   planExpiresAt: string | null
+  // Aceite dos termos/privacidade. null pra users criados antes do feature
+  // existir; nesse caso o TermsAcceptanceGate força aceite na primeira
+  // entrada autenticada.
+  acceptedTermsAt: string | null
+  acceptedTermsVersion: string | null
   onboardingCompleted: boolean
   avatarUrl?: string | null
   isPrivate?: boolean

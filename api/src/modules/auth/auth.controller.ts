@@ -4,7 +4,7 @@ import { AppError } from "../../shared/errors/app-error";
 import { trackLoginFailure } from "../../middlewares/security.middleware";
 import { eventContextFromRequest } from "../../shared/utils/event-context";
 import { consumeOAuthState, createOAuthState } from "./oauth-state.service";
-import { RegisterRequestCodeBody, RegisterVerifyCodeBody } from "./auth.schema";
+import { AcceptTermsBody, RegisterRequestCodeBody, RegisterVerifyCodeBody } from "./auth.schema";
 import { requestRegisterEmailCode, verifyRegisterEmailCode } from "./registration-verification.service";
 import {
   confirmForgotPasswordWithCode,
@@ -16,6 +16,7 @@ import {
   loginWithGoogleCode
 } from "./google-oauth.service";
 import {
+  acceptTermsForUser,
   completeOnboarding,
   confirmEmailChange,
   deleteAccount,
@@ -109,7 +110,8 @@ export async function registerVerifyCodeController(req: Request, res: Response):
     name: body.name,
     handle: body.handle,
     email: body.email,
-    password: body.password
+    password: body.password,
+    termsVersion: body.termsVersion
   }, eventContextFromRequest(req));
 
   res.status(201).json({
@@ -448,6 +450,18 @@ export async function profileUpdateController(req: Request, res: Response): Prom
   const userId = req.context.userId as string;
   const body = req.body as ProfileUpdateBody;
   const user = await updateProfile(userId, body);
+
+  res.status(200).json({
+    data: { user },
+    meta: { requestId: req.context.requestId }
+  });
+}
+
+export async function acceptTermsController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const body = req.body as AcceptTermsBody;
+
+  const user = await acceptTermsForUser(userId, body.version, eventContextFromRequest(req));
 
   res.status(200).json({
     data: { user },

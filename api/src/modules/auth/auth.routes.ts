@@ -17,6 +17,7 @@ import {
   onboardingCompleteBodySchema,
   profileUpdateBodySchema,
   refreshBodySchema,
+  acceptTermsBodySchema,
   registerRequestCodeBodySchema,
   registerVerifyCodeBodySchema,
   registerBodySchema,
@@ -27,6 +28,7 @@ import {
   updateGenderBodySchema
 } from "./auth.schema";
 import {
+  acceptTermsController,
   confirmEmailChangeController,
   deleteAccountController,
   exportUserDataController,
@@ -206,6 +208,13 @@ router.patch(
   requireAuth,
   validateRequest({ body: profileUpdateBodySchema }),
   asyncHandler(async (req, res) => profileUpdateController(req, res))
+);
+
+router.post(
+  "/auth/accept-terms",
+  requireAuth,
+  validateRequest({ body: acceptTermsBodySchema }),
+  asyncHandler(async (req, res) => acceptTermsController(req, res))
 );
 
 export default router;

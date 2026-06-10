@@ -3,6 +3,7 @@ import { setSentryUser } from '../lib/sentry'
 import type { AuthTokens, AuthUser } from '../types/auth'
 import { AuthContext, type AuthState } from './auth-context'
 import {
+  acceptTerms as acceptTermsRequest,
   completeOnboardingProfile,
   confirmEmailChange,
   deleteAccount as deleteAccountRequest,
@@ -190,6 +191,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [logout])
 
+  const acceptTerms: AuthState['acceptTerms'] = useCallback(async (version) => {
+    const updated = await acceptTermsRequest(authorizedFetch, version)
+    setUser(updated)
+    const currentTokens = tokensRef.current
+    if (currentTokens) persistAuth(updated, currentTokens)
+  }, [])  // eslint-disable-line react-hooks/exhaustive-deps
+
   const refreshUser: AuthState['refreshUser'] = useCallback(async () => {
     const currentTokens = tokensRef.current
     if (!currentTokens) return
@@ -307,6 +315,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       logout,
       deleteAccount,
       authorizedFetch,
+      acceptTerms,
     }),
     [
       user,
@@ -328,6 +337,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       deleteAccount,
       logout,
       authorizedFetch,
+      acceptTerms,
     ],
   )
 

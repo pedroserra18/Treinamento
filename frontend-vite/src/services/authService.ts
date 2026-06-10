@@ -64,6 +64,8 @@ function asAuthUser(value: Record<string, unknown>): AuthUser {
     primaryGoal: asGoal(value.primaryGoal),
     plan: value.plan === 'PRO' ? 'PRO' : 'FREE',
     planExpiresAt: typeof value.planExpiresAt === 'string' ? value.planExpiresAt : null,
+    acceptedTermsAt: typeof value.acceptedTermsAt === 'string' ? value.acceptedTermsAt : null,
+    acceptedTermsVersion: typeof value.acceptedTermsVersion === 'string' ? value.acceptedTermsVersion : null,
     onboardingCompleted: Boolean(value.onboardingCompleted),
     avatarUrl: typeof value.avatarUrl === 'string' ? value.avatarUrl : null,
     isPrivate: Boolean(value.isPrivate),
@@ -134,6 +136,9 @@ export async function registerWithVerificationCode(input: {
   email: string
   password: string
   verificationCode: string
+  // Opcional pra compat com clientes antigos; quando ausente o backend
+  // grava acceptedTermsAt=null e o gate vai pedir aceite na primeira tela.
+  termsVersion?: string
 }): Promise<AuthSession> {
   const response = await fetch(`${API_URL}/auth/register/verify-code`, {
     method: 'POST',
@@ -631,6 +636,31 @@ export async function updateProfileFields(
 
   if (!response.ok || !payload.data?.user) {
     throw new Error(payload.error?.message ?? 'Falha ao atualizar perfil')
+  }
+
+  return asAuthUser(payload.data.user)
+}
+
+
+// Registra aceite de uma nova versão dos termos pro user logado. Disparado
+// pelo TermsAcceptanceGate quando detecta version mismatch.
+export async function acceptTerms(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  version: string,
+): Promise<AuthUser> {
+  const response = await authorizedFetch(`${API_URL}/auth/accept-terms`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ version }),
+  })
+
+  const payload = (await response.json()) as {
+    data?: { user?: Record<string, unknown> }
+    error?: { message?: string }
+  }
+
+  if (!response.ok || !payload.data?.user) {
+    throw new Error(payload.error?.message ?? 'Falha ao registrar aceite dos termos')
   }
 
   return asAuthUser(payload.data.user)

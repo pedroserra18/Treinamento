@@ -212,6 +212,11 @@ model User {
   // FREE de 3 gerações totais. Incrementado dentro da transação do save
   // pra evitar race. PROs ignoram este check.
   aiGenerationsTotal  Int             @default(0)
+  // Aceite dos Termos/Privacidade — gravado no signup e a cada nova versão
+  // (forced re-acceptance via TermsAcceptanceGate no frontend). Mantém prova
+  // legal multi-dispositivo (não fica preso no localStorage do navegador).
+  acceptedTermsAt       DateTime?
+  acceptedTermsVersion  String?
   onboardingCompletedAt DateTime?
   role                UserRole        @default(USER)
   status              AccountStatus   @default(PENDING)
