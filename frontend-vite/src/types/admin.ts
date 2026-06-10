@@ -12,6 +12,9 @@ export type AdminUser = {
   onboardingCompletedAt: string | null
   availableDaysPerWeek: number | null
   mfaEnabled: boolean
+  plan: 'FREE' | 'PRO'
+  planExpiresAt: string | null
+  aiGenerationsTotal: number
 }
 
 export type AdminUsersResponse = {
@@ -23,6 +26,7 @@ export type AdminUsersResponse = {
     testCount: number
     totalCount: number
     newRealLast7Days: number
+    proRealCount: number
   }
   items: AdminUser[]
 }
@@ -55,6 +59,9 @@ export type AdminUserDetail = {
     lastLoginAt: string | null
     createdAt: string
     accountType: 'REAL' | 'TEST'
+    plan: 'FREE' | 'PRO'
+    planExpiresAt: string | null
+    aiGenerationsTotal: number
   }
   stats: {
     workoutPlanCount: number
@@ -63,6 +70,8 @@ export type AdminUserDetail = {
     aiPlansGenerated: number
     followersCount: number
     followingCount: number
+    proInvitesCreatedCount: number
+    proInvitesUsedCount: number
   }
   recentEvents: AdminUserEvent[]
 }

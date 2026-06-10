@@ -64,7 +64,12 @@ export async function listRegisteredUsers(query: ListUsersQuery) {
       lastLoginAt: true,
       onboardingCompletedAt: true,
       availableDaysPerWeek: true,
-      mfaEnabled: true
+      mfaEnabled: true,
+      // Plan tier: exibido como pill no painel admin pra dar visão rápida
+      // de quem é PRO, e habilita ordenação/filtragem por tier.
+      plan: true,
+      planExpiresAt: true,
+      aiGenerationsTotal: true
     }
   });
 
@@ -82,6 +87,12 @@ export async function listRegisteredUsers(query: ListUsersQuery) {
     (user) => user.accountType === "REAL" && user.createdAt.getTime() >= weekAgo
   ).length;
 
+  // Quantos PRO (contando entre as contas REAIS — admins contam pra
+  // separado já que aparecem com pill "ADMIN" na UI).
+  const proRealCount = classifiedUsers.filter(
+    (user) => user.accountType === "REAL" && user.plan === "PRO"
+  ).length;
+
   const scopedUsers = classifiedUsers.filter((user) => {
     const accountType = user.accountType;
 
@@ -96,12 +107,13 @@ export async function listRegisteredUsers(query: ListUsersQuery) {
     return true;
   });
 
-  // Filtros opcionais (role / status / onboarding).
+  // Filtros opcionais (role / status / onboarding / plan).
   const filteredUsers = scopedUsers.filter((user) => {
     if (query.role && user.role !== query.role) return false;
     if (query.status && user.status !== query.status) return false;
     if (query.onboarding === "completed" && !user.onboardingCompletedAt) return false;
     if (query.onboarding === "pending" && user.onboardingCompletedAt) return false;
+    if (query.plan && user.plan !== query.plan) return false;
     return true;
   });
 
@@ -162,7 +174,8 @@ export async function listRegisteredUsers(query: ListUsersQuery) {
       realCount,
       testCount,
       totalCount: classifiedUsers.length,
-      newRealLast7Days
+      newRealLast7Days,
+      proRealCount
     },
     items: pagedUsers
   };
@@ -452,7 +465,10 @@ export async function getUserDetail(targetUserId: string) {
       mfaEnabled: true,
       lastLoginAt: true,
       createdAt: true,
-      isDeleted: true
+      isDeleted: true,
+      plan: true,
+      planExpiresAt: true,
+      aiGenerationsTotal: true
     }
   });
 
@@ -460,14 +476,27 @@ export async function getUserDetail(targetUserId: string) {
     throw new AppError("User not found", { statusCode: 404, code: "USER_NOT_FOUND" });
   }
 
-  const [workoutPlanCount, workoutSessionCount, completedSessionCount, aiPlansGenerated, followersCount, followingCount, recentEvents] =
-    await Promise.all([
+  const [
+    workoutPlanCount,
+    workoutSessionCount,
+    completedSessionCount,
+    aiPlansGenerated,
+    followersCount,
+    followingCount,
+    proInvitesCreatedCount,
+    proInvitesUsedCount,
+    recentEvents
+  ] = await Promise.all([
       prisma.workoutPlan.count({ where: { userId: targetUserId } }),
       prisma.workoutSession.count({ where: { userId: targetUserId } }),
       prisma.workoutSession.count({ where: { userId: targetUserId, status: "COMPLETED" } }),
       prisma.eventLog.count({ where: { userId: targetUserId, action: "ai_plan_generated" } }),
       prisma.follow.count({ where: { followingId: targetUserId } }),
       prisma.follow.count({ where: { followerId: targetUserId } }),
+      // Convites PRO que esse user criou (relevante pra admins) e que ele
+      // já usou pra virar PRO (zero ou um, mas mantemos count por simetria).
+      prisma.proUpgradeInvite.count({ where: { createdById: targetUserId } }),
+      prisma.proUpgradeInvite.count({ where: { usedById: targetUserId } }),
       prisma.eventLog.findMany({
         where: { resourceType: "user", resourceId: targetUserId },
         orderBy: { occurredAt: "desc" },
@@ -489,7 +518,9 @@ export async function getUserDetail(targetUserId: string) {
       completedSessionCount,
       aiPlansGenerated,
       followersCount,
-      followingCount
+      followingCount,
+      proInvitesCreatedCount,
+      proInvitesUsedCount
     },
     recentEvents
   };

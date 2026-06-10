@@ -30,6 +30,7 @@ type Role = 'USER' | 'COACH' | 'ADMIN'
 type StatusFilter = '' | 'ACTIVE' | 'PENDING' | 'SUSPENDED' | 'DISABLED'
 type RoleFilter = '' | Role
 type OnbFilter = '' | 'completed' | 'pending'
+type PlanFilter = '' | 'FREE' | 'PRO'
 type SortOrder = 'asc' | 'desc'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -120,7 +121,7 @@ function pageWindow(current: number, totalPages: number): number[] {
 
 // ─── Subcomponents ──────────────────────────────────────────────────────────
 
-type PillTone = 'real' | 'test' | 'active' | 'pending' | 'suspended' | 'disabled' | 'admin' | 'user' | 'coach'
+type PillTone = 'real' | 'test' | 'active' | 'pending' | 'suspended' | 'disabled' | 'admin' | 'user' | 'coach' | 'pro' | 'free'
 
 const PILL_TONES: Record<PillTone, string> = {
   real: 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30',
@@ -132,6 +133,17 @@ const PILL_TONES: Record<PillTone, string> = {
   admin: 'bg-[var(--text)] text-[var(--surface)] border-[var(--text)]',
   user: 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-500/15 dark:text-blue-300 dark:border-blue-500/30',
   coach: 'bg-violet-100 text-violet-700 border-violet-300 dark:bg-violet-500/15 dark:text-violet-300 dark:border-violet-500/30',
+  pro: 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30',
+  free: 'bg-[var(--surface-hover)] text-[var(--muted)] border-[var(--line)]',
+}
+
+// Tier mostrado na coluna "Plano". ADMIN ganha rótulo próprio porque é
+// promovido a PRO em runtime mesmo quando user.plan='FREE' — mostrar 'PRO'
+// no admin panel mascararia esse detalhe operacional.
+function planLabel(plan: 'FREE' | 'PRO', role: 'USER' | 'COACH' | 'ADMIN'): { label: string; tone: PillTone } {
+  if (role === 'ADMIN') return { label: 'ADMIN', tone: 'admin' }
+  if (plan === 'PRO') return { label: 'PRO', tone: 'pro' }
+  return { label: 'FREE', tone: 'free' }
 }
 
 function Pill({ children, tone }: { children: React.ReactNode; tone: PillTone }) {
@@ -443,6 +455,16 @@ function UserDrawer({
             <div className="mt-3 flex flex-wrap gap-1.5">
               <Pill tone={u.accountType === 'TEST' ? 'test' : 'real'}>{u.accountType === 'TEST' ? 'Teste' : 'Real'}</Pill>
               <Pill tone={roleTone(u.role)}>{u.role}</Pill>
+              {(() => {
+                const pl = planLabel(u.plan, u.role)
+                if (pl.label === 'ADMIN') return null
+                return (
+                  <Pill tone={pl.tone}>
+                    {pl.tone === 'pro' ? <Crown size={9} /> : null}
+                    {pl.label}
+                  </Pill>
+                )
+              })()}
               <StatusPill status={u.status} />
             </div>
 
@@ -456,6 +478,8 @@ function UserDrawer({
                 { k: 'Seguidores', v: detail.stats.followersCount },
                 { k: 'Seguindo', v: detail.stats.followingCount },
                 { k: 'Dias/sem', v: u.availableDaysPerWeek ?? '—' },
+                { k: 'IA gerados', v: u.aiGenerationsTotal ?? 0 },
+                { k: 'Convites PRO', v: `${detail.stats.proInvitesCreatedCount}↑ ${detail.stats.proInvitesUsedCount}↓` },
               ].map((s) => (
                 <div key={s.k} className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2.5 text-center">
                   <div className="text-lg font-bold text-[var(--text)]">{s.v}</div>
@@ -466,6 +490,23 @@ function UserDrawer({
 
             {/* Campos */}
             <div className="mt-5 rounded-xl border border-[var(--line)] px-3.5 py-1">
+              <DetailRow
+                label="Plano"
+                value={(() => {
+                  const pl = planLabel(u.plan, u.role)
+                  if (u.role === 'ADMIN') return <span className="text-[var(--text)]">ADMIN (PRO efetivo)</span>
+                  return pl.label === 'PRO' ? (
+                    <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-300">
+                      <Crown size={12} /> PRO
+                    </span>
+                  ) : (
+                    <span className="text-[var(--muted)]">FREE</span>
+                  )
+                })()}
+              />
+              {u.plan === 'PRO' && u.planExpiresAt ? (
+                <DetailRow label="PRO expira em" value={`${formatDate(u.planExpiresAt)} · ${relativeTime(u.planExpiresAt)}`} />
+              ) : null}
               <DetailRow label="MFA / 2FA" value={u.mfaEnabled ? <span className="text-emerald-600 dark:text-emerald-400">Ativado</span> : <span className="text-[var(--muted)]">Desativado</span>} />
               <DetailRow label="E-mail verificado" value={u.emailVerifiedAt ? formatDate(u.emailVerifiedAt) : <span className="text-[var(--muted)]">Não</span>} />
               <DetailRow label="Onboarding" value={u.onboardingCompletedAt ? formatDate(u.onboardingCompletedAt) : <span className="text-amber-600 dark:text-amber-400">Pendente</span>} />
@@ -556,6 +597,7 @@ export function AdminUsersPage() {
   const [roleFilter, setRoleFilter] = useState<RoleFilter>((searchParams.get('role') as RoleFilter) || '')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>((searchParams.get('status') as StatusFilter) || '')
   const [onbFilter, setOnbFilter] = useState<OnbFilter>((searchParams.get('onb') as OnbFilter) || '')
+  const [planFilter, setPlanFilter] = useState<PlanFilter>((searchParams.get('plan') as PlanFilter) || '')
   const [query, setQuery] = useState(searchParams.get('q') ?? '')
   const [debouncedQuery, setDebouncedQuery] = useState(searchParams.get('q') ?? '')
   const [page, setPage] = useState(Math.max(1, Number(searchParams.get('page')) || 1))
@@ -583,7 +625,7 @@ export function AdminUsersPage() {
   // Volta para a página 1 quando filtros/busca/ordem mudam.
   useEffect(() => {
     setPage(1)
-  }, [accountScope, sortBy, sortOrder, roleFilter, statusFilter, onbFilter, debouncedQuery])
+  }, [accountScope, sortBy, sortOrder, roleFilter, statusFilter, onbFilter, planFilter, debouncedQuery])
 
   // Persiste o estado na URL.
   useEffect(() => {
@@ -594,10 +636,11 @@ export function AdminUsersPage() {
     if (roleFilter) next.set('role', roleFilter)
     if (statusFilter) next.set('status', statusFilter)
     if (onbFilter) next.set('onb', onbFilter)
+    if (planFilter) next.set('plan', planFilter)
     if (debouncedQuery) next.set('q', debouncedQuery)
     if (page > 1) next.set('page', String(page))
     setSearchParams(next, { replace: true })
-  }, [accountScope, sortBy, sortOrder, roleFilter, statusFilter, onbFilter, debouncedQuery, page, setSearchParams])
+  }, [accountScope, sortBy, sortOrder, roleFilter, statusFilter, onbFilter, planFilter, debouncedQuery, page, setSearchParams])
 
   const listingOptions = useMemo(
     () => ({
@@ -609,8 +652,9 @@ export function AdminUsersPage() {
       role: roleFilter || undefined,
       status: statusFilter || undefined,
       onboarding: onbFilter || undefined,
+      plan: planFilter || undefined,
     }),
-    [accountScope, sortBy, sortOrder, debouncedQuery, roleFilter, statusFilter, onbFilter],
+    [accountScope, sortBy, sortOrder, debouncedQuery, roleFilter, statusFilter, onbFilter, planFilter],
   )
 
   const { data, loading, error, refresh } = useAdminUsers(page, PAGE_SIZE, listingOptions)
@@ -670,11 +714,11 @@ export function AdminUsersPage() {
   if (!loading && data && page > totalPages) {
     setPage(totalPages)
   }
-  const summary = data?.summary ?? { realCount: 0, testCount: 0, totalCount: 0, newRealLast7Days: 0 }
+  const summary = data?.summary ?? { realCount: 0, testCount: 0, totalCount: 0, newRealLast7Days: 0, proRealCount: 0 }
   const scopeLabel = accountScope === 'REAL' ? 'somente reais' : accountScope === 'TEST' ? 'somente teste' : 'reais + teste'
   const rangeStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
   const rangeEnd = Math.min(page * PAGE_SIZE, total)
-  const hasFilters = Boolean(roleFilter || statusFilter || onbFilter || debouncedQuery)
+  const hasFilters = Boolean(roleFilter || statusFilter || onbFilter || planFilter || debouncedQuery)
 
   const onSort = (field: AdminSortBy) => {
     if (field === sortBy) {
@@ -689,6 +733,7 @@ export function AdminUsersPage() {
     setRoleFilter('')
     setStatusFilter('')
     setOnbFilter('')
+    setPlanFilter('')
     setQuery('')
   }
 
@@ -764,11 +809,23 @@ export function AdminUsersPage() {
               Veja e gerencie todas as contas — usuários reais, contas de teste e ações administrativas em um só lugar.
             </p>
           </div>
-          <div className="grid grid-cols-3 gap-6">
+          <div className="grid grid-cols-2 gap-6 sm:grid-cols-4">
             <div className="text-right">
               <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Reais</div>
               <div className="mt-1 text-2xl font-semibold leading-none tracking-tight text-[var(--brand-strong)] sm:text-3xl"><CountUp target={summary.realCount} /></div>
               <div className="mt-1 font-mono text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">{summary.newRealLast7Days > 0 ? `▲ ${summary.newRealLast7Days} esta semana` : 'sem novos · 7d'}</div>
+            </div>
+            <div className="text-right">
+              <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">PRO</div>
+              <div className="mt-1 inline-flex items-center justify-end gap-1.5 text-2xl font-semibold leading-none tracking-tight text-amber-600 dark:text-amber-300 sm:text-3xl">
+                <Crown size={18} className="text-amber-500" />
+                <CountUp target={summary.proRealCount} />
+              </div>
+              <div className="mt-1 font-mono text-[10px] font-semibold text-[var(--muted)]">
+                {summary.realCount > 0
+                  ? `${Math.round((summary.proRealCount / summary.realCount) * 100)}% da base real`
+                  : 'sem reais ainda'}
+              </div>
             </div>
             <div className="text-right">
               <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Teste</div>
@@ -834,6 +891,11 @@ export function AdminUsersPage() {
             <option value="">Onboarding: todos</option>
             <option value="completed">Completo</option>
             <option value="pending">Pendente</option>
+          </select>
+          <select value={planFilter} onChange={(e) => setPlanFilter(e.target.value as PlanFilter)} className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 text-xs font-semibold text-[var(--text)]">
+            <option value="">Plano: todos</option>
+            <option value="FREE">FREE</option>
+            <option value="PRO">PRO</option>
           </select>
           {hasFilters ? (
             <button type="button" onClick={clearFilters} className="inline-flex items-center gap-1 rounded-xl border border-[var(--line)] px-3 py-2 text-xs font-semibold text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]">
@@ -932,6 +994,17 @@ export function AdminUsersPage() {
                           <div className="flex flex-col items-start gap-1">
                             <Pill tone={u.accountType === 'TEST' ? 'test' : 'real'}>{u.accountType === 'TEST' ? 'Teste' : 'Real'}</Pill>
                             <Pill tone={roleTone(u.role)}>{u.role}</Pill>
+                            {(() => {
+                              const pl = planLabel(u.plan, u.role)
+                              // ADMIN já aparece como pill própria em "Role" — evita duplicar.
+                              if (pl.label === 'ADMIN') return null
+                              return (
+                                <Pill tone={pl.tone}>
+                                  {pl.tone === 'pro' ? <Crown size={9} /> : null}
+                                  {pl.label}
+                                </Pill>
+                              )
+                            })()}
                           </div>
                         </td>
                         <td><StatusPill status={u.status} /></td>

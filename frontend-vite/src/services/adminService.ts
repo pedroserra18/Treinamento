@@ -60,6 +60,10 @@ function toAdminUser(value: Record<string, unknown>): AdminUser {
     availableDaysPerWeek:
       typeof value.availableDaysPerWeek === 'number' ? value.availableDaysPerWeek : null,
     mfaEnabled: Boolean(value.mfaEnabled),
+    plan: value.plan === 'PRO' ? 'PRO' : 'FREE',
+    planExpiresAt: typeof value.planExpiresAt === 'string' ? value.planExpiresAt : null,
+    aiGenerationsTotal:
+      typeof value.aiGenerationsTotal === 'number' ? value.aiGenerationsTotal : 0,
   }
 }
 
@@ -73,6 +77,7 @@ type AdminUsersQueryOptions = {
   role?: 'USER' | 'COACH' | 'ADMIN'
   status?: 'ACTIVE' | 'PENDING' | 'SUSPENDED' | 'DISABLED'
   onboarding?: 'completed' | 'pending'
+  plan?: 'FREE' | 'PRO'
 }
 
 type AdminUsersPayload = {
@@ -85,6 +90,7 @@ type AdminUsersPayload = {
       testCount?: number
       totalCount?: number
       newRealLast7Days?: number
+      proRealCount?: number
     }
     items?: Array<Record<string, unknown>>
   }
@@ -120,6 +126,7 @@ export async function listUsersForAdmin(
   if (options.role) fullQuery.set('role', options.role)
   if (options.status) fullQuery.set('status', options.status)
   if (options.onboarding) fullQuery.set('onboarding', options.onboarding)
+  if (options.plan) fullQuery.set('plan', options.plan)
 
   let { response, payload } = await requestAdminUsers(authorizedFetch, fullQuery)
 
@@ -182,6 +189,10 @@ export async function listUsersForAdmin(
         typeof payload.data.summary?.newRealLast7Days === 'number'
           ? payload.data.summary.newRealLast7Days
           : 0,
+      proRealCount:
+        typeof payload.data.summary?.proRealCount === 'number'
+          ? payload.data.summary.proRealCount
+          : mappedItems.filter((item) => item.accountType === 'REAL' && item.plan === 'PRO').length,
     },
     items,
   }

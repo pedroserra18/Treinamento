@@ -16,7 +16,11 @@ export const listUsersQuerySchema = z
     // Filtros opcionais.
     role: z.enum(["USER", "COACH", "ADMIN"]).optional(),
     status: z.enum(["ACTIVE", "PENDING", "SUSPENDED", "DISABLED"]).optional(),
-    onboarding: z.enum(["completed", "pending"]).optional()
+    onboarding: z.enum(["completed", "pending"]).optional(),
+    // Filtro pelo tier denormalizado em User.plan. ADMIN é mostrado como
+    // 'admin' na UI (não cai em FREE nem PRO) — o filtro aqui só atua sobre
+    // o campo plan, sem promoção de role.
+    plan: z.enum(["FREE", "PRO"]).optional()
   })
   .strict();
 
