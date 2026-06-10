@@ -21,7 +21,7 @@ import { sanitiseHandleInput, validateHandle } from '../lib/handle'
 import {
   AtSign, Check, Download, Lock, LogOut, Moon, ShieldAlert, Sun,
   AlertTriangle, LifeBuoy, ArrowLeft, Smartphone, Dumbbell, Trash2, Bell, Activity, Crown,
-  Shield, Users as UsersIcon, ChevronRight,
+  Shield, Users as UsersIcon, ChevronRight, FileText, Info,
 } from 'lucide-react'
 import { InstallAppPanel } from '../components/common/InstallAppPanel'
 import { ConfirmDialog } from '../components/common/ConfirmDialog'
@@ -61,6 +61,7 @@ type Section =
   | 'install'
   | 'export'
   | 'support'
+  | 'about'
   | 'admin'
   | 'logout'
   | 'delete'
@@ -89,6 +90,7 @@ const SECTIONS: SectionDef[] = [
   { id: 'install',   group: 'PREFERÊNCIAS',  label: 'Instalar app',     icon: <Smartphone size={14} /> },
   { id: 'export',    group: 'PREFERÊNCIAS',  label: 'Exportar dados',   icon: <Download size={14} /> },
   { id: 'support',   group: 'PREFERÊNCIAS',  label: 'Ajuda e suporte',  icon: <LifeBuoy size={14} /> },
+  { id: 'about',     group: 'PREFERÊNCIAS',  label: 'Sobre o app',      icon: <Info size={14} /> },
   { id: 'admin',     group: 'ADMIN',         label: 'Ferramentas admin', icon: <Shield size={14} />, adminOnly: true },
   { id: 'logout',    group: 'ZONA DE RISCO', label: 'Sair da conta',    icon: <LogOut size={14} /> },
   { id: 'delete',    group: 'ZONA DE RISCO', label: 'Excluir conta',    icon: <AlertTriangle size={14} />, danger: true },
@@ -335,6 +337,7 @@ export function SettingsPage() {
               {section === 'install' && <InstallAppPanel />}
               {section === 'export' && <ExportPanel authorizedFetch={authorizedFetch} />}
               {section === 'support' && <SupportPanel onOpen={() => navigate('/support')} />}
+              {section === 'about' && <AboutPanel />}
               {section === 'admin' && isAdmin && <AdminToolsPanel onNavigate={navigate} />}
               {section === 'logout' && <LogoutPanel logout={logout} />}
               {section === 'delete' && (
@@ -1419,6 +1422,103 @@ function SupportPanel({ onOpen }: { onOpen: () => void }) {
         <LifeBuoy size={14} />
         Abrir central de suporte
       </button>
+    </div>
+  )
+}
+
+// ─── About / Legal ────────────────────────────────────────────────────────
+// Acesso aos documentos legais a partir do app instalado (no PWA o user não
+// tem barra de URL, então sem essa página os termos/privacidade ficam
+// inalcançáveis pra quem já está logado).
+
+function AboutPanel() {
+  // Versão do build vinda do Vite (configurada no vite.config). Cai pra dev
+  // quando rodando local sem build.
+  const appVersion = (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_APP_VERSION ?? 'dev'
+  // Aceite registrado no signup (salvo em localStorage pra exibição). Quando
+  // implementar aceite no backend, trocar essa leitura pelo campo do user.
+  let acceptance: { version?: string; acceptedAt?: string } | null = null
+  try {
+    const raw = localStorage.getItem('serraathlo:termsAcceptance')
+    if (raw) acceptance = JSON.parse(raw)
+  } catch { /* ignore */ }
+
+  return (
+    <div>
+      <PanelTitle title="Sobre o app" subtitle="Documentos legais, versão atual e informações de contato." />
+
+      {/* Documentos */}
+      <div className="space-y-2">
+        <Link
+          to="/termos"
+          target="_blank"
+          rel="noopener"
+          className="flex w-full items-center gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-3 transition-colors hover:bg-[var(--surface-hover)]"
+        >
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[var(--brand)]/10 text-[var(--brand)]">
+            <FileText size={16} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[13px] font-semibold text-[var(--text)]">Termos de Uso</span>
+            <span className="block truncate text-[11.5px] text-[var(--muted)]">Regras do app, planos PRO/FREE, IA, foro.</span>
+          </span>
+          <ChevronRight size={14} className="shrink-0 text-[var(--muted)]" />
+        </Link>
+
+        <Link
+          to="/privacidade"
+          target="_blank"
+          rel="noopener"
+          className="flex w-full items-center gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-3 transition-colors hover:bg-[var(--surface-hover)]"
+        >
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-emerald-500/10 text-emerald-500">
+            <ShieldAlert size={16} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[13px] font-semibold text-[var(--text)]">Política de Privacidade</span>
+            <span className="block truncate text-[11.5px] text-[var(--muted)]">Dados coletados, LGPD, seus direitos.</span>
+          </span>
+          <ChevronRight size={14} className="shrink-0 text-[var(--muted)]" />
+        </Link>
+      </div>
+
+      {/* Versão + aceite */}
+      <div className="mt-6 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3.5 py-1 text-[12.5px]">
+        <AboutRow label="Versão" value={<span className="font-mono text-[11px] text-[var(--text)]">{appVersion}</span>} />
+        <AboutRow
+          label="Termos aceitos em"
+          value={
+            acceptance?.acceptedAt
+              ? <span className="font-mono text-[11px] text-[var(--text)]">
+                  {new Date(acceptance.acceptedAt).toLocaleDateString('pt-BR')}
+                  {acceptance.version ? ` · v${acceptance.version}` : ''}
+                </span>
+              : <span className="text-[var(--muted)]">—</span>
+          }
+        />
+        <AboutRow
+          label="Contato"
+          value={
+            <a href="mailto:pedrovasco98765@gmail.com" className="font-mono text-[11px] text-[var(--brand-strong)] hover:underline">
+              pedrovasco98765@gmail.com
+            </a>
+          }
+        />
+      </div>
+
+      <p className="mt-4 text-[11px] leading-relaxed text-[var(--muted)]">
+        SerraAthlo é um app independente em desenvolvimento. Pra reportar bug, sugerir feature ou
+        dúvidas sobre seus dados, escreva pra o e-mail acima.
+      </p>
+    </div>
+  )
+}
+
+function AboutRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3 border-b border-[var(--line)] py-2 last:border-b-0">
+      <span className="font-mono text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">{label}</span>
+      <span className="text-right text-[12.5px] text-[var(--text)]">{value}</span>
     </div>
   )
 }
