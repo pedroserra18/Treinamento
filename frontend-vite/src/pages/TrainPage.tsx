@@ -1253,10 +1253,69 @@ export function TrainPage() {
   // simplesmente não dispara (degradação graciosa — timer local segue
   // funcionando enquanto a aba está viva).
   const pushNotifications = usePushNotifications()
-  // scheduleId por exerciseId do treino ativo. Usado pra cancelar
-  // quando o user para o descanso manualmente (não cancela quando o
-  // timer zera naturalmente — nesse caso queremos que o push dispare).
-  const restScheduleByExerciseIdRef = useRef<Record<string, string>>({})
+  // ┌────────────────────────────────────────────────────────────────────┐
+  // │ Slot de schedules de descanso por exerciseId.                      │
+  // │                                                                    │
+  // │ Era um Record<string, string> simples — uma string por exercício.  │
+  // │ Sob race (marcar série rápido demais), o ref ficava com id_A do    │
+  // │ primeiro agendamento mas era sobrescrito por id_B do segundo,      │
+  // │ depois revertido por id_A que voltava do backend atrasado. Result: │
+  // │ id_B ficava órfão no backend e disparava notif sem ninguém saber. │
+  // │                                                                    │
+  // │ Agora cada slot guarda:                                            │
+  // │   • ids: lista de TODOS os IDs ativos no backend pra esse exercício│
+  // │   • seq: counter incrementado em cada cancel/schedule. Promises    │
+  // │     pendentes comparam seu mySeq contra slot.seq — se outra        │
+  // │     operação veio depois, o id que volta é cancelado em vez de     │
+  // │     salvo (autoinvalida promises obsoletas).                       │
+  // │                                                                    │
+  // │ Mesma estratégia já aplicada ao idle reminder (linha ~1276).       │
+  // └────────────────────────────────────────────────────────────────────┘
+  const restScheduleSlotsRef = useRef<Record<string, { ids: string[]; seq: number }>>({})
+
+  // Cancela TODOS os schedules pendentes de um exercício no backend e bumpa
+  // o seq pra invalidar promises ainda em curso. Idempotente — chamar em
+  // slot já vazio é no-op.
+  const cancelRestSlot = useCallback((exerciseId: string) => {
+    const slot = restScheduleSlotsRef.current[exerciseId]
+    if (!slot) return
+    slot.seq += 1
+    const ids = slot.ids.slice()
+    slot.ids = []
+    for (const id of ids) {
+      void cancelBackendNotification(authorizedFetch, id).catch(() => { /* silencioso */ })
+    }
+  }, [authorizedFetch])
+
+  // Agenda um push de descanso pra um exercício. CANCELA TUDO antes
+  // (cobre o caso de restart). O race guard com mySeq descarta IDs
+  // que voltem do backend depois de uma nova chamada — esses são
+  // automaticamente cancelados no backend em vez de serem salvos.
+  const scheduleRestForExercise = useCallback((
+    exerciseId: string,
+    payload: { fireAt: string; title: string; body: string; url: string; tag: string },
+  ) => {
+    // Cancela tudo do slot antes (snapshot+empty+cancel; bumpa o seq).
+    cancelRestSlot(exerciseId)
+    // Garante que o slot existe — cancelRestSlot pode ter sido no-op se
+    // não havia entrada anterior.
+    if (!restScheduleSlotsRef.current[exerciseId]) {
+      restScheduleSlotsRef.current[exerciseId] = { ids: [], seq: 0 }
+    }
+    const slot = restScheduleSlotsRef.current[exerciseId]
+    const mySeq = slot.seq
+
+    void scheduleBackendNotification(authorizedFetch, payload).then(({ id }) => {
+      // Race guard: se outro cancel/schedule veio depois, esse id é zumbi
+      // e tem que ser cancelado no backend pra não disparar fora de ordem.
+      if (mySeq !== slot.seq) {
+        void cancelBackendNotification(authorizedFetch, id).catch(() => { /* silencioso */ })
+        return
+      }
+      slot.ids.push(id)
+    }).catch(() => { /* falha não bloqueia o timer local */ })
+  }, [authorizedFetch, cancelRestSlot])
+
   // Estado anterior pra detectar transições restRunning false→true e
   // true→false sem precisar comparar com estado React (que pode ter
   // mudado por motivos não relacionados ao timer).
@@ -1590,18 +1649,9 @@ export function TrainPage() {
       // Notificação chega no lock screen do iOS com toda info pra o user
       // não precisar abrir o app pra lembrar onde parou.
       //
-      // Em restart, cancela a antiga PRIMEIRO — senão duas notifs do mesmo
-      // exercício chegavam: a antiga (no horário original, agora inútil)
-      // e a nova (no horário correto). Bug reportado: ao marcar série
-      // rápido demais, a notif do descanso anterior chegava.
-      if (isRestart) {
-        const prevScheduleId = restScheduleByExerciseIdRef.current[ex.exerciseId]
-        if (prevScheduleId) {
-          void cancelBackendNotification(authorizedFetch, prevScheduleId).catch(() => { /* silencioso */ })
-          delete restScheduleByExerciseIdRef.current[ex.exerciseId]
-        }
-      }
-
+      // Cancel automático em restart é feito por scheduleRestForExercise
+      // (bumpa seq, cancela lista, agenda com race guard) — não precisa
+      // mais do bloco manual de cancel que existia aqui.
       if ((!prev.running && now.running && now.remaining > 0) || isRestart) {
         const fireAtMs = Date.now() + now.remaining * 1000
         const fireAt = new Date(fireAtMs).toISOString()
@@ -1636,34 +1686,32 @@ export function TrainPage() {
           body = `${exerciseName}\n${detailLine}`
         }
 
-        void scheduleBackendNotification(authorizedFetch, {
+        scheduleRestForExercise(exerciseId, {
           fireAt,
           title,
           body,
           url: '/train',
           tag: `rest-${exerciseId}`,
-        }).then(({ id }) => {
-          restScheduleByExerciseIdRef.current[exerciseId] = id
-        }).catch(() => { /* falha não bloqueia o timer local */ })
+        })
       }
 
-      // Parada manual → cancela no backend (só se ainda havia tempo)
+      // Parada manual (true→false com tempo restante) → cancela tudo do
+      // slot, inclusive promises ainda em curso (via seq bump).
       if (prev.running && !now.running && now.remaining > 0) {
-        const scheduleId = restScheduleByExerciseIdRef.current[ex.exerciseId]
-        if (scheduleId) {
-          void cancelBackendNotification(authorizedFetch, scheduleId).catch(() => { /* idem */ })
-          delete restScheduleByExerciseIdRef.current[ex.exerciseId]
-        }
+        cancelRestSlot(ex.exerciseId)
       }
 
-      // Conclusão natural — deixa o push do backend disparar; só limpa
-      // a referência local pra próxima rodada.
+      // Conclusão natural (true→false ao zerar) — limpa o slot inteiro.
+      // O push do backend já disparou OU vai disparar exatamente agora;
+      // não precisa cancelar nada, só limpar o estado local pra próxima
+      // rodada. Bumpamos o seq mesmo assim pra invalidar qualquer promise
+      // de schedule lenta que ainda esteja em curso (caso raro mas real).
       if (prev.running && !now.running && now.remaining <= 0) {
-        delete restScheduleByExerciseIdRef.current[ex.exerciseId]
+        cancelRestSlot(ex.exerciseId)
       }
     }
     prevRestStateRef.current = updated
-  }, [activeExercises, authorizedFetch, pushNotifications.state.subscribed])
+  }, [activeExercises, authorizedFetch, pushNotifications.state.subscribed, scheduleRestForExercise, cancelRestSlot])
 
   // Cancela o lembrete pendente (no-op se nada agendado) e cria um novo
   // pra agora+30min. Idempotente — chamar 10 vezes em sequência só deixa
@@ -1715,14 +1763,15 @@ export function TrainPage() {
   // descartar o treino, as pushes agendadas continuam disparando no horário
   // marcado (bug reportado: "Descanso acabou — Supino" chegando depois de
   // ter descartado o treino).
+  //
+  // Itera os slots e usa cancelRestSlot pra garantir que o seq é bumpado
+  // em cada um — sem isso, promises ainda em curso poderiam voltar do
+  // backend depois e salvar IDs zumbis que ninguém cancelaria mais.
   const cancelAllPendingRestNotifications = useCallback(() => {
-    const pending = restScheduleByExerciseIdRef.current
-    const ids = Object.values(pending)
-    restScheduleByExerciseIdRef.current = {}
-    for (const id of ids) {
-      void cancelBackendNotification(authorizedFetch, id).catch(() => { /* silencioso */ })
+    for (const key of Object.keys(restScheduleSlotsRef.current)) {
+      cancelRestSlot(key)
     }
-  }, [authorizedFetch])
+  }, [cancelRestSlot])
 
   // Cancela TODOS os lembretes pendentes sem reagendar. Usado quando o
   // treino acaba (finalizar ou descartar). Invalida promises em curso
