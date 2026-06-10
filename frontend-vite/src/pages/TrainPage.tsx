@@ -1262,12 +1262,17 @@ export function TrainPage() {
   // mudado por motivos não relacionados ao timer).
   const prevRestStateRef = useRef<Record<string, { running: boolean; remaining: number }>>({})
 
-  // Idle reminder — se o user fica X min sem nenhuma atividade no treino
-  // ativo (sem marcar série, sem adicionar/remover exercício), dispara
-  // um push lembrando que tem treino aberto. Implementação: cada "ato
-  // de engajamento" cancela o schedule pendente e cria um novo pra
-  // agora+IDLE_REMINDER_MIN min. O fato de o lembrete viver no backend
-  // garante que mesmo com o app fechado/celular travado, o push chega.
+  // Idle reminder — se o user fica X min sem MARCAR NENHUMA SÉRIE no treino
+  // ativo, dispara um push lembrando que tem treino aberto.
+  //
+  // "Atividade que conta" é estritamente marcar/desmarcar uma série como
+  // feita (checkbox verde). Adicionar/remover exercício NÃO conta — alguém
+  // pode preparar o treino e deixar pausado, e a gente deveria lembrar.
+  //
+  // Implementação: cada marcação de série cancela o schedule pendente e
+  // cria um novo pra agora+IDLE_REMINDER_MIN min. O fato de o lembrete
+  // viver no backend garante que mesmo com o app fechado/celular travado,
+  // o push chega.
   const IDLE_REMINDER_MIN = 30
   const idleReminderScheduleIdRef = useRef<string | null>(null)
 
@@ -1702,11 +1707,13 @@ export function TrainPage() {
       hiddenAt = null
       if (missedSec <= 0) return
 
-      // Catch-up do cronômetro de treino — só avança se estiver
-      // rodando (se o usuário tinha pausado, mantém pausado).
-      if (isWorkoutRunningRef.current) {
-        setElapsedSec((current) => current + missedSec)
-      }
+      // IMPORTANTE: NÃO compensar elapsedSec aqui — o setInterval principal
+      // do cronômetro de treino (linhas ~1380) já usa wall-clock delta, então
+      // o próximo tick dele depois de voltar de background pula automático
+      // pra frente sem ajuda. Adicionar missedSec aqui DOBRAVA o tempo de
+      // duração (bug reportado: 1h31 real virava 1h53). Mantemos o catch-up
+      // só pros timers de descanso (abaixo), porque esses NÃO têm tick
+      // próprio com wall-clock.
 
       // Catch-up dos timers de descanso. Cada exercício com
       // restRunning recebe o desconto; se zerar, dispara o nome
@@ -2185,23 +2192,41 @@ export function TrainPage() {
 
   const completeSet = useCallback(
     (exerciseIndex: number, setIndex: number) => {
-      // PR detection runs before the state update so it can compare the
-      // weight the user is checking against the stored personal record.
-      // Only fires when the user is going from unchecked → checked (so
-      // unchecking doesn't fire) and the load strictly beats the prior PR.
+      // PR detection — só dispara quando:
+      //   (a) o user está marcando (unchecked → checked, desmarcar não conta)
+      //   (b) o peso É ESTRITAMENTE MAIOR que o all-time PR conhecido E maior
+      //       que o melhor peso de qualquer outra série JÁ marcada nesta sessão
+      //       no mesmo exercício.
+      //
+      // O check contra "melhor série da sessão" é o que evita o bug em que
+      // 2 séries de 95kg disparavam celebration duas vezes — antes só
+      // comparávamos com prByExerciseId, que podia estar stale entre cliques
+      // rápidos. Comparar com as próprias sets marcadas é resiliente a
+      // closure stale e a estado vazio inicial.
       const target = activeExercises[exerciseIndex]
       const targetSet = target?.sets[setIndex]
       if (target && targetSet && !targetSet.checked && !isEffectiveBodyweightExercise(target)) {
         const weightRaw = targetSet.weightKg.trim().replace(',', '.')
         const weight = weightRaw ? Number(weightRaw) : NaN
+
         const previousPr = prByExerciseId[target.exerciseId] ?? null
-        if (Number.isFinite(weight) && weight > 0 && (previousPr == null || weight > previousPr)) {
+        // Maior peso já marcado nas OUTRAS séries deste exercício na sessão.
+        const bestInSession = target.sets.reduce((max, s, i) => {
+          if (i === setIndex || !s.checked) return max
+          const w = Number((s.weightKg ?? '').trim().replace(',', '.'))
+          return Number.isFinite(w) && w > max ? w : max
+        }, 0)
+        const effectivePr = Math.max(previousPr ?? 0, bestInSession)
+
+        if (Number.isFinite(weight) && weight > 0 && weight > effectivePr) {
           setPrByExerciseId((current) => ({ ...current, [target.exerciseId]: weight }))
           setPrCelebration({
             id: Date.now(),
             exerciseName: target.exerciseName,
             loadKg: weight,
-            previousKg: previousPr,
+            // previousKg null quando é o primeiro PR all-time; mostra o PR
+            // anterior (que pode ser o all-time OU o melhor da sessão).
+            previousKg: effectivePr > 0 ? effectivePr : null,
           })
         }
       }
@@ -2343,7 +2368,9 @@ export function TrainPage() {
     )
     if (!confirmed) return
     setActiveExercises((current) => current.filter((_, idx) => idx !== exerciseIndex))
-    rescheduleIdleReminder()
+    // Não reseta o idle reminder: só marcar série conta como atividade real
+    // de treino. Remover exercício pode ser parte de "preparar a próxima
+    // sessão" e não merece adiar o lembrete.
   }
 
   // Adiciona um exercício ao final do treino ativo. Pure — o updater
@@ -2384,7 +2411,8 @@ export function TrainPage() {
         },
       ]
     })
-    rescheduleIdleReminder()
+    // Não reseta o idle reminder: adicionar exercício ainda não é treinar.
+    // Só marcar série conta como atividade que adia o lembrete.
   }
 
   // Aplica a substituição de um exercício pelo ExerciseOption picado.
