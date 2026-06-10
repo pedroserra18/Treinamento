@@ -410,10 +410,14 @@ function UserDrawer({
         className="h-full w-full max-w-md overflow-y-auto border-l border-[var(--line)] bg-[var(--surface)] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--line)] bg-[var(--surface)] px-5 py-4">
+        {/* Sticky header — pt-safe-plus-4 empurra o conteúdo pra baixo do
+            status bar (hora/bateria/notch) quando o app roda como PWA
+            standalone no iOS. Sem isso, o X fica embaixo da bateria e
+            não dá pra tocar. py-4 substituído pra pb-4 + pt-safe-plus-4. */}
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--line)] bg-[var(--surface)] px-5 pb-4 pt-safe-plus-4">
           <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--muted)]">Detalhes do usuário</h2>
-          <button type="button" onClick={onClose} className="grid h-7 w-7 place-items-center rounded-lg text-[var(--muted)] hover:bg-[var(--surface-hover)]" aria-label="Fechar">
-            <X size={16} />
+          <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg text-[var(--muted)] hover:bg-[var(--surface-hover)] active:bg-[var(--surface-hover)]" aria-label="Fechar">
+            <X size={18} />
           </button>
         </div>
 
