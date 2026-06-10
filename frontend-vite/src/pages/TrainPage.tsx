@@ -1274,7 +1274,19 @@ export function TrainPage() {
   // viver no backend garante que mesmo com o app fechado/celular travado,
   // o push chega.
   const IDLE_REMINDER_MIN = 30
-  const idleReminderScheduleIdRef = useRef<string | null>(null)
+  // Lista de IDs de schedules pendentes no backend. Era um único string|null;
+  // virou array por causa da race: múltiplos rescheduleIdleReminder em
+  // sequência rápida lia o ref vazio antes do anterior salvar seu ID, então
+  // cada chamada agendava um schedule novo SEM cancelar os anteriores —
+  // resultado: 30 min depois, 3 notifs disparavam juntas (bug do "spam de
+  // Treino ainda rolando"). Manter lista permite cancelar todos os zumbis
+  // numa só varredura.
+  const idleReminderScheduleIdsRef = useRef<string[]>([])
+  // Counter de "geração" — incrementa em cada chamada de reschedule. Promises
+  // pendentes comparam seu mySeq contra o counter; se outra chamada veio
+  // depois, o ID resultante é cancelado em vez de salvo. Garante que a
+  // ÚLTIMA chamada vence sempre, mesmo em race extrema.
+  const idleReminderSeqRef = useRef(0)
 
   // Histórico recente pra enriquecer os cards de rotina ("último treino:
   // há 3 dias · 1h05") e pra escolher qual rotina destacar no smart-CTA
@@ -1658,10 +1670,17 @@ export function TrainPage() {
   const rescheduleIdleReminder = useCallback(() => {
     if (!pushNotifications.state.subscribed) return
 
-    const prevId = idleReminderScheduleIdRef.current
-    idleReminderScheduleIdRef.current = null
-    if (prevId) {
-      void cancelBackendNotification(authorizedFetch, prevId).catch(() => { /* silencioso */ })
+    // Bump da geração ANTES de qualquer await — promises pendentes vão usar
+    // isso pra saber se ainda são a chamada mais recente.
+    const mySeq = ++idleReminderSeqRef.current
+
+    // Snapshot da lista de pendentes, depois esvazia. Cancela tudo que
+    // já estava agendado (inclusive zumbis de promises que ainda iam voltar
+    // do backend mas vão ser invalidadas pelo mySeq abaixo).
+    const pending = idleReminderScheduleIdsRef.current.slice()
+    idleReminderScheduleIdsRef.current = []
+    for (const id of pending) {
+      void cancelBackendNotification(authorizedFetch, id).catch(() => { /* silencioso */ })
     }
 
     const fireAt = new Date(Date.now() + IDLE_REMINDER_MIN * 60 * 1000).toISOString()
@@ -1675,7 +1694,13 @@ export function TrainPage() {
       // device coalesce visualmente em uma só.
       tag: 'idle-workout',
     }).then(({ id }) => {
-      idleReminderScheduleIdRef.current = id
+      // Race guard: se outra chamada veio depois desta, o counter já
+      // andou. Esse id é obsoleto — cancela no backend e descarta.
+      if (mySeq !== idleReminderSeqRef.current) {
+        void cancelBackendNotification(authorizedFetch, id).catch(() => { /* silencioso */ })
+        return
+      }
+      idleReminderScheduleIdsRef.current.push(id)
     }).catch(() => { /* silencioso */ })
   }, [pushNotifications.state.subscribed, authorizedFetch])
 
@@ -1694,14 +1719,16 @@ export function TrainPage() {
     }
   }, [authorizedFetch])
 
-  // Cancela o lembrete pendente sem reagendar. Usado quando o treino
-  // acaba (finalizar ou descartar) — não queremos lembrar de algo que
-  // já foi resolvido.
+  // Cancela TODOS os lembretes pendentes sem reagendar. Usado quando o
+  // treino acaba (finalizar ou descartar). Invalida promises em curso
+  // bumpando o seq pra que qualquer ID que ainda volte do backend seja
+  // cancelado em vez de salvo (mesma proteção do reschedule).
   const cancelIdleReminder = useCallback(() => {
-    const prevId = idleReminderScheduleIdRef.current
-    idleReminderScheduleIdRef.current = null
-    if (prevId) {
-      void cancelBackendNotification(authorizedFetch, prevId).catch(() => { /* silencioso */ })
+    idleReminderSeqRef.current += 1
+    const pending = idleReminderScheduleIdsRef.current.slice()
+    idleReminderScheduleIdsRef.current = []
+    for (const id of pending) {
+      void cancelBackendNotification(authorizedFetch, id).catch(() => { /* silencioso */ })
     }
   }, [authorizedFetch])
 
