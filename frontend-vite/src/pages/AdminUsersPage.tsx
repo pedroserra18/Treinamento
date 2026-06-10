@@ -90,7 +90,7 @@ const EVENT_LABELS: Record<string, string> = {
   admin_user_deactivated: 'Conta desativada',
   admin_user_reactivated: 'Conta reativada',
   admin_user_deleted: 'Conta excluída',
-  admin_user_role_changed: 'Papel alterado',
+  admin_user_role_changed: 'Permissões alteradas',
 }
 
 function CountUp({ target }: { target: number }) {
@@ -231,9 +231,9 @@ function ConfirmModal({
   const config =
     action.kind === 'role'
       ? {
-          title: 'Alterar papel',
-          body: `O usuário passará a ter o papel ${action.newRole}. Isso muda as permissões da conta imediatamente.`,
-          confirm: 'Alterar papel',
+          title: 'Alterar permissões',
+          body: `O usuário passará a ter permissões de ${action.newRole}. Isso muda o acesso da conta imediatamente.`,
+          confirm: 'Alterar permissões',
           btn: 'bg-[var(--brand)] hover:bg-[var(--brand-strong)]',
         }
       : {
@@ -516,9 +516,14 @@ function UserDrawer({
               <DetailRow label="Último login" value={u.lastLoginAt ? `${formatDate(u.lastLoginAt)} · ${relativeTime(u.lastLoginAt)}` : '—'} />
             </div>
 
-            {/* Gestão de papel */}
+            {/* Gestão de permissões */}
             <div className="mt-5">
-              <h3 className="font-mono text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">Papel</h3>
+              <h3 className="font-mono text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">Permissões</h3>
+              <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted)]">
+                Controla o que a conta pode acessar. <strong className="text-[var(--text)]">USER</strong> é
+                a conta comum. <strong className="text-[var(--text)]">ADMIN</strong> ganha acesso ao painel
+                administrativo, vira PRO automaticamente em runtime e pode gerar convites PRO.
+              </p>
               <div className="mt-2 flex items-center gap-2">
                 <select
                   value={roleDraft}
@@ -527,7 +532,6 @@ function UserDrawer({
                   className="flex-1 rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] disabled:opacity-50"
                 >
                   <option value="USER">USER</option>
-                  <option value="COACH">COACH</option>
                   <option value="ADMIN">ADMIN</option>
                 </select>
                 <button
@@ -539,7 +543,7 @@ function UserDrawer({
                   Aplicar
                 </button>
               </div>
-              {isSelf ? <p className="mt-1.5 text-[11px] text-[var(--muted)]">Você não pode alterar o próprio papel.</p> : null}
+              {isSelf ? <p className="mt-1.5 text-[11px] text-[var(--muted)]">Você não pode alterar as próprias permissões.</p> : null}
             </div>
 
             {/* Ações rápidas */}
@@ -749,7 +753,7 @@ export function AdminUsersPage() {
         pushToast('Conta reativada.', 'ok')
       } else if (pending.kind === 'role') {
         await updateUserRoleByAdmin(authorizedFetch, pending.user.id, pending.newRole)
-        pushToast(`Papel alterado para ${pending.newRole}.`, 'ok')
+        pushToast(`Permissões alteradas para ${pending.newRole}.`, 'ok')
         if (drawerId) {
           const fresh = await getUserDetailForAdmin(authorizedFetch, drawerId).catch(() => null)
           if (fresh) setDrawerDetail(fresh)
@@ -875,9 +879,8 @@ export function AdminUsersPage() {
         {/* Filtros */}
         <div className="flex flex-wrap items-center gap-2">
           <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as RoleFilter)} className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 text-xs font-semibold text-[var(--text)]">
-            <option value="">Papel: todos</option>
+            <option value="">Permissões: todas</option>
             <option value="USER">USER</option>
-            <option value="COACH">COACH</option>
             <option value="ADMIN">ADMIN</option>
           </select>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)} className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 text-xs font-semibold text-[var(--text)]">
@@ -929,7 +932,7 @@ export function AdminUsersPage() {
                 <tr className="bg-[var(--surface-hover)] [&>th]:border-b [&>th]:border-[var(--line)] [&>th]:px-2 [&>th]:py-3 [&>th]:font-mono [&>th]:text-[10px] [&>th]:font-semibold [&>th]:uppercase [&>th]:tracking-wider [&>th]:text-[var(--muted)]">
                   <th className="!pl-4"><SortHeader label="Usuário" field="name" activeField={sortBy} order={sortOrder} onSort={onSort} /></th>
                   <th><SortHeader label="Email" field="email" activeField={sortBy} order={sortOrder} onSort={onSort} /></th>
-                  <th><SortHeader label="Tipo / Role" field="role" activeField={sortBy} order={sortOrder} onSort={onSort} /></th>
+                  <th><SortHeader label="Tipo / Permissões" field="role" activeField={sortBy} order={sortOrder} onSort={onSort} /></th>
                   <th><SortHeader label="Status" field="status" activeField={sortBy} order={sortOrder} onSort={onSort} /></th>
                   <th>
                     <span className="inline-flex items-center gap-2">
