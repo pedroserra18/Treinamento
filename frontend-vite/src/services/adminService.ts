@@ -262,6 +262,37 @@ export async function updateUserRoleByAdmin(
   throw new Error(payload?.error?.message ?? 'Falha ao alterar o papel do usuário')
 }
 
+// Promoção/rebaixamento manual de tier por admin. expiresAt opcional:
+// undefined = vitalício; string ISO = define expiração; null = limpa.
+export async function updateUserPlanByAdmin(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  userId: string,
+  plan: 'FREE' | 'PRO',
+  expiresAt?: string | null,
+): Promise<void> {
+  const body: { plan: 'FREE' | 'PRO'; expiresAt?: string | null } = { plan }
+  if (expiresAt !== undefined) body.expiresAt = expiresAt
+  const response = await authorizedFetch(`${API_URL}/admin/users/${userId}/plan`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  if (response.ok) return
+
+  const payload = (await response.json().catch(() => null)) as
+    | { error?: { message?: string; code?: string } }
+    | null
+
+  if (payload?.error?.code === 'ROUTE_NOT_FOUND') {
+    throw new Error('API desatualizada. Reinicie o servidor da API pra alterar o plano.')
+  }
+  if (payload?.error?.code === 'CANNOT_CHANGE_ADMIN_PLAN') {
+    throw new Error('Admins são automaticamente PRO em runtime — altere o acesso pra USER antes de mexer no plano.')
+  }
+  throw new Error(payload?.error?.message ?? 'Falha ao alterar o plano do usuário')
+}
+
 export async function reactivateUserByAdmin(
   authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
   userId: string,

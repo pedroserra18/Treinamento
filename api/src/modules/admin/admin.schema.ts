@@ -41,6 +41,17 @@ export const updateRoleBodySchema = z
   })
   .strict();
 
+// Promoção/rebaixamento manual do tier por admin. expiresAt opcional —
+// quando ausente o PRO é vitalício; quando explicitamente null reseta
+// (libera expiração de uma promoção anterior).
+export const updatePlanParamsSchema = deactivateUserParamsSchema;
+export const updatePlanBodySchema = z
+  .object({
+    plan: z.enum(["FREE", "PRO"]),
+    expiresAt: z.string().datetime().nullable().optional()
+  })
+  .strict();
+
 export type ListUsersQuery = z.infer<typeof listUsersQuerySchema>;
 export type DeactivateUserParams = z.infer<typeof deactivateUserParamsSchema>;
 export type DeleteUserParams = z.infer<typeof deleteUserParamsSchema>;
@@ -48,3 +59,5 @@ export type ReactivateUserParams = z.infer<typeof reactivateUserParamsSchema>;
 export type UserDetailParams = z.infer<typeof userDetailParamsSchema>;
 export type UpdateRoleParams = z.infer<typeof updateRoleParamsSchema>;
 export type UpdateRoleBody = z.infer<typeof updateRoleBodySchema>;
+export type UpdatePlanParams = z.infer<typeof updatePlanParamsSchema>;
+export type UpdatePlanBody = z.infer<typeof updatePlanBodySchema>;

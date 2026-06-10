@@ -446,6 +446,102 @@ export async function updateUserRole(
   return result;
 }
 
+// Promove ou rebaixa manualmente o tier comercial de um user. Diferente do
+// fluxo de convite (que precisa de redeem da pessoa), isso é ação direta do
+// admin — útil quando o user já está no sistema e você quer presentear/cobrar
+// PRO sem cerimônia. Cria SubscriptionEvent (histórico de tier) + EventLog
+// (auditoria de ação admin).
+type PlanTier = "FREE" | "PRO";
+
+export async function updateUserPlan(
+  targetUserId: string,
+  actorUserId: string,
+  newPlan: PlanTier,
+  expiresAt: Date | null,
+  context: EventContext = {}
+) {
+  const existing = await prisma.user.findUnique({
+    where: { id: targetUserId },
+    select: {
+      id: true,
+      email: true,
+      plan: true,
+      planExpiresAt: true,
+      role: true,
+      isDeleted: true
+    }
+  });
+
+  if (!existing || existing.isDeleted) {
+    throw new AppError("User not found", { statusCode: 404, code: "USER_NOT_FOUND" });
+  }
+
+  // Guardrail: ADMINs já viram PRO em runtime via resolveEffectivePlan, então
+  // mudar User.plan deles é confuso (não muda comportamento). Bloqueia pra
+  // evitar admin pensar que rebaixou alguém quando na verdade nada mudou.
+  if (existing.role === "ADMIN") {
+    throw new AppError("Admin accounts are auto-PRO at runtime — change role to USER first if you want to manage their plan", {
+      statusCode: 400,
+      code: "CANNOT_CHANGE_ADMIN_PLAN"
+    });
+  }
+
+  if (existing.plan === newPlan && (existing.planExpiresAt?.getTime() ?? null) === (expiresAt?.getTime() ?? null)) {
+    return {
+      id: existing.id,
+      email: existing.email,
+      plan: existing.plan,
+      planExpiresAt: existing.planExpiresAt
+    };
+  }
+
+  // Transação: atualiza User.plan + cria SubscriptionEvent (log do
+  // histórico de assinatura, usado pra auditoria/billing futuro).
+  const result = await prisma.$transaction(async (tx) => {
+    const updated = await tx.user.update({
+      where: { id: targetUserId },
+      data: {
+        plan: newPlan,
+        planExpiresAt: expiresAt
+      },
+      select: { id: true, email: true, plan: true, planExpiresAt: true }
+    });
+
+    await tx.subscriptionEvent.create({
+      data: {
+        userId: targetUserId,
+        fromPlan: existing.plan,
+        toPlan: newPlan,
+        source: "ADMIN_LINK",
+        expiresAt,
+        metadata: { actorUserId, method: "manual_admin_panel" }
+      }
+    });
+
+    return updated;
+  });
+
+  await trackEvent({
+    userId: actorUserId,
+    category: "SECURITY",
+    severity: "INFO",
+    action: "admin_user_plan_changed",
+    resourceType: "user",
+    resourceId: targetUserId,
+    requestId: context.requestId,
+    ipAddress: context.ipAddress,
+    userAgent: context.userAgent,
+    metadata: {
+      targetEmail: existing.email,
+      from: existing.plan,
+      to: newPlan,
+      expiresAt: expiresAt?.toISOString() ?? null
+    }
+  });
+
+  return result;
+}
+
 export async function getUserDetail(targetUserId: string) {
   const user = await prisma.user.findUnique({
     where: { id: targetUserId },

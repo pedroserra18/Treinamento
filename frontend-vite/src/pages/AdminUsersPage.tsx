@@ -8,6 +8,7 @@ import {
   deleteUserByAdmin,
   getUserDetailForAdmin,
   reactivateUserByAdmin,
+  updateUserPlanByAdmin,
   updateUserRoleByAdmin,
 } from '../services/adminService'
 import type { AdminSortBy, AdminUserDetail } from '../types/admin'
@@ -91,6 +92,7 @@ const EVENT_LABELS: Record<string, string> = {
   admin_user_reactivated: 'Conta reativada',
   admin_user_deleted: 'Conta excluída',
   admin_user_role_changed: 'Acesso alterado',
+  admin_user_plan_changed: 'Assinatura alterada',
 }
 
 function CountUp({ target }: { target: number }) {
@@ -207,6 +209,7 @@ type ModalTarget = { id: string; name: string | null; email: string }
 type PendingAction =
   | { kind: 'deactivate' | 'delete' | 'reactivate'; user: ModalTarget }
   | { kind: 'role'; user: ModalTarget; newRole: Role }
+  | { kind: 'plan'; user: ModalTarget; newPlan: 'FREE' | 'PRO' }
 
 function ConfirmModal({
   action,
@@ -226,6 +229,17 @@ function ConfirmModal({
           body: `O usuário passará a ter acesso de ${action.newRole}. Isso muda o que a conta pode fazer no sistema, imediatamente.`,
           confirm: 'Alterar acesso',
           btn: 'bg-[var(--brand)] hover:bg-[var(--brand-strong)]',
+        }
+      : action.kind === 'plan'
+      ? {
+          title: action.newPlan === 'PRO' ? 'Promover pra PRO' : 'Rebaixar pra FREE',
+          body: action.newPlan === 'PRO'
+            ? 'O usuário ganha acesso PRO imediatamente — limites ilimitados em rotinas, IA, exercícios. A mudança é registrada no histórico de assinatura.'
+            : 'O usuário volta pro tier FREE. Recursos atuais ficam, mas novos uploads/criações vão respeitar os limites do free. A mudança é registrada no histórico.',
+          confirm: action.newPlan === 'PRO' ? 'Tornar PRO' : 'Rebaixar pra FREE',
+          btn: action.newPlan === 'PRO'
+            ? 'bg-amber-500 hover:bg-amber-600'
+            : 'bg-[var(--brand)] hover:bg-[var(--brand-strong)]',
         }
       : {
           deactivate: {
@@ -377,6 +391,7 @@ function UserDrawer({
   isSelf,
   onClose,
   onRoleChange,
+  onPlanChange,
   onAction,
 }: {
   detail: AdminUserDetail | null
@@ -384,6 +399,7 @@ function UserDrawer({
   isSelf: boolean
   onClose: () => void
   onRoleChange: (role: Role) => void
+  onPlanChange: (newPlan: 'FREE' | 'PRO') => void
   onAction: (kind: 'deactivate' | 'reactivate' | 'delete') => void
 }) {
   const u = detail?.user
@@ -544,6 +560,57 @@ function UserDrawer({
                 </button>
               </div>
               {isSelf ? <p className="mt-1.5 text-[11px] text-[var(--muted)]">Você não pode alterar o próprio acesso.</p> : null}
+            </div>
+
+            {/* Gestão de assinatura (plan) — só faz sentido pra USER, já que
+                ADMIN é auto-PRO em runtime. Mostra estado bloqueado pra
+                admin pra deixar claro a regra. */}
+            <div className="mt-5">
+              <h3 className="font-mono text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">Assinatura</h3>
+              {u.role === 'ADMIN' ? (
+                <div className="mt-2 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-3 text-[12px] text-[var(--muted)]">
+                  Admins são <strong className="text-[var(--text)]">PRO automaticamente</strong> em runtime.
+                  Mudar o plan no banco não tem efeito enquanto o acesso for ADMIN —
+                  troque pra USER acima se quiser gerenciar a assinatura.
+                </div>
+              ) : u.plan === 'PRO' ? (
+                <div className="mt-2 space-y-2">
+                  <div className="flex items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2.5">
+                    <span className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-amber-700 dark:text-amber-300">
+                      <Crown size={13} /> Plano PRO ativo
+                    </span>
+                    {u.planExpiresAt ? (
+                      <span className="font-mono text-[10.5px] text-[var(--muted)]">expira {formatDate(u.planExpiresAt)}</span>
+                    ) : (
+                      <span className="font-mono text-[10.5px] text-[var(--muted)]">vitalício</span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onPlanChange('FREE')}
+                    className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-[var(--line)] bg-[var(--surface)] py-2 text-[13px] font-semibold text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                  >
+                    Rebaixar pra FREE
+                  </button>
+                </div>
+              ) : (
+                <div className="mt-2 space-y-2">
+                  <div className="flex items-center justify-between gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2.5">
+                    <span className="text-[13px] font-semibold text-[var(--muted)]">Plano FREE</span>
+                    <span className="font-mono text-[10.5px] text-[var(--muted)]">limites aplicados</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onPlanChange('PRO')}
+                    className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-[var(--brand)] py-2 text-[13px] font-bold text-white shadow-[0_6px_16px_-8px_rgba(245,158,11,0.55)] transition-transform hover:scale-[1.01]"
+                  >
+                    <Crown size={13} /> Tornar PRO
+                  </button>
+                  <p className="text-[10.5px] leading-relaxed text-[var(--muted)]">
+                    Promoção direta, sem convite. Histórico de assinatura registra a mudança e quem fez.
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Ações rápidas */}
@@ -754,6 +821,18 @@ export function AdminUsersPage() {
       } else if (pending.kind === 'role') {
         await updateUserRoleByAdmin(authorizedFetch, pending.user.id, pending.newRole)
         pushToast(`Acesso alterado para ${pending.newRole}.`, 'ok')
+        if (drawerId) {
+          const fresh = await getUserDetailForAdmin(authorizedFetch, drawerId).catch(() => null)
+          if (fresh) setDrawerDetail(fresh)
+        }
+      } else if (pending.kind === 'plan') {
+        await updateUserPlanByAdmin(authorizedFetch, pending.user.id, pending.newPlan)
+        pushToast(
+          pending.newPlan === 'PRO'
+            ? `${pending.user.name ?? 'Usuário'} agora é PRO.`
+            : `${pending.user.name ?? 'Usuário'} voltou pro FREE.`,
+          'ok',
+        )
         if (drawerId) {
           const fresh = await getUserDetailForAdmin(authorizedFetch, drawerId).catch(() => null)
           if (fresh) setDrawerDetail(fresh)
@@ -1109,6 +1188,7 @@ export function AdminUsersPage() {
           isSelf={drawerDetail?.user.id === authUser?.id}
           onClose={() => setDrawerId(null)}
           onRoleChange={(role) => drawerDetail && setPending({ kind: 'role', user: drawerDetail.user, newRole: role })}
+          onPlanChange={(newPlan) => drawerDetail && setPending({ kind: 'plan', user: drawerDetail.user, newPlan })}
           onAction={(kind) => drawerDetail && setPending({ kind, user: drawerDetail.user })}
         />
       ) : null}

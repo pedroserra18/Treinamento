@@ -8,6 +8,7 @@ import {
   deleteUserController,
   listUsersController,
   reactivateUserController,
+  updateUserPlanController,
   updateUserRoleController,
   userDetailController
 } from "./admin.controller";
@@ -16,6 +17,8 @@ import {
   deleteUserParamsSchema,
   listUsersQuerySchema,
   reactivateUserParamsSchema,
+  updatePlanBodySchema,
+  updatePlanParamsSchema,
   updateRoleBodySchema,
   updateRoleParamsSchema,
   userDetailParamsSchema
@@ -61,6 +64,14 @@ router.patch(
   requireAdminRole,
   validateRequest({ params: updateRoleParamsSchema, body: updateRoleBodySchema }),
   asyncHandler(async (req, res) => updateUserRoleController(req, res))
+);
+
+router.patch(
+  "/admin/users/:userId/plan",
+  requireAuth,
+  requireAdminRole,
+  validateRequest({ params: updatePlanParamsSchema, body: updatePlanBodySchema }),
+  asyncHandler(async (req, res) => updateUserPlanController(req, res))
 );
 
 router.delete(

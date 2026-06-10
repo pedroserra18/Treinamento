@@ -4,6 +4,8 @@ import {
   DeleteUserParams,
   ListUsersQuery,
   ReactivateUserParams,
+  UpdatePlanBody,
+  UpdatePlanParams,
   UpdateRoleBody,
   UpdateRoleParams,
   UserDetailParams
@@ -14,6 +16,7 @@ import {
   getUserDetail,
   listRegisteredUsers,
   reactivateUserAccount,
+  updateUserPlan,
   updateUserRole
 } from "./admin.service";
 import { eventContextFromRequest } from "../../shared/utils/event-context";
@@ -104,5 +107,24 @@ export async function updateUserRoleController(req: Request, res: Response): Pro
     meta: {
       requestId: req.context.requestId
     }
+  });
+}
+
+export async function updateUserPlanController(req: Request, res: Response): Promise<void> {
+  const params = req.params as unknown as UpdatePlanParams;
+  const body = req.body as UpdatePlanBody;
+  const actorUserId = req.context.userId as string;
+
+  // expiresAt undefined no body = não muda; null = limpa expiração; string = define.
+  // Como o schema só aceita {plan, expiresAt?}, normalizamos pra Date|null aqui
+  // pra deixar o service simples.
+  const expiresAtRaw = "expiresAt" in body ? body.expiresAt : undefined;
+  const expiresAt = expiresAtRaw == null ? null : new Date(expiresAtRaw);
+
+  const user = await updateUserPlan(params.userId, actorUserId, body.plan, expiresAt, eventContextFromRequest(req));
+
+  res.status(200).json({
+    data: { user },
+    meta: { requestId: req.context.requestId }
   });
 }
