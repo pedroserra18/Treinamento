@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Wifi, Lock } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
+import type { AuthUser } from '../../types/auth'
 
-// Maps the User role onto a marketing plan label. ADMIN keeps its own colour
-// in the chip; COACH passes as "PRO" until billing is wired up.
-function planLabelFromRole(role?: 'USER' | 'COACH' | 'ADMIN'): string {
-  if (role === 'ADMIN') return 'ADMIN'
-  if (role === 'COACH') return 'PRO'
-  return 'FREE'
+// Tier mostrado no chip do rodapé. ADMIN tem rótulo próprio (visibilidade
+// operacional); senão usa o `user.plan` real (FREE/PRO), que reflete
+// resgates de convite e futuras assinaturas pagas.
+function planLabelFromUser(user: AuthUser | null): string {
+  if (user?.role === 'ADMIN') return 'ADMIN'
+  return user?.plan ?? 'FREE'
 }
 
 function Tag({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
@@ -49,7 +50,7 @@ export function StatusBar() {
   }, [])
 
   const userTag = (user?.handle || user?.name?.split(' ')[0] || user?.email?.split('@')[0] || 'guest').toLowerCase()
-  const planTag = planLabelFromRole(user?.role)
+  const planTag = planLabelFromUser(user ?? null)
   const currentTime = new Date(nowTick).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 
   return (
