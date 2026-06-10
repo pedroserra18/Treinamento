@@ -1622,15 +1622,18 @@ export function TrainPage() {
         const nextSetNumber = lastCheckedIdx + 2 // 1-indexed
         const isLastSet = nextSetNumber > totalSets
 
-        const title = `Descanso acabou — ${exerciseName}`
+        // Copy padronizada estilo Hevy: título neutro descrevendo o evento +
+        // body com exercício na primeira linha e detalhe da próxima série na
+        // segunda. \n é respeitado pelo iOS lock screen e Android moderno.
+        // Mantemos × (U+00D7) — funciona em 100% dos devices modernos.
+        const title = isLastSet ? 'Última série concluída' : 'Descanso concluído'
         let body: string
         if (isLastSet) {
-          body = performance
-            ? `Última série feita ✓ ${performance}`
-            : 'Última série concluída'
+          body = performance ? `${exerciseName}\n${performance}` : exerciseName
         } else {
-          const nextLabel = `Próxima: Set ${nextSetNumber} de ${totalSets}`
-          body = performance ? `${nextLabel} · última: ${performance}` : nextLabel
+          const nextLine = `Série ${nextSetNumber} de ${totalSets}`
+          const detailLine = performance ? `${nextLine} · Última ${performance}` : nextLine
+          body = `${exerciseName}\n${detailLine}`
         }
 
         void scheduleBackendNotification(authorizedFetch, {
@@ -1686,8 +1689,10 @@ export function TrainPage() {
     const fireAt = new Date(Date.now() + IDLE_REMINDER_MIN * 60 * 1000).toISOString()
     void scheduleBackendNotification(authorizedFetch, {
       fireAt,
-      title: 'Treino ainda rolando',
-      body: `Tá com um treino aberto há uns ${IDLE_REMINDER_MIN} min. Volta pra finalizar ou descartar.`,
+      // Copy padronizada estilo Hevy: título descritivo do estado (não
+      // gíria), body informa o motivo + call-to-action explícito.
+      title: 'Treino pausado',
+      body: `Sem novas séries há ${IDLE_REMINDER_MIN} min. Toque pra continuar ou finalizar.`,
       url: '/train',
       // Mesma tag pra todas as notificações de "idle" — no caso raro de
       // duas dispararem em sequência (race entre cancel/schedule), o
@@ -1737,8 +1742,12 @@ export function TrainPage() {
     // Notificação local — funciona com app em background (mostra
     // notificação do sistema mesmo com tela bloqueada). No-op silencioso
     // se o usuário não deu permissão; ver SettingsPage pra ativar.
-    void showLocalNotification('Descanso acabou!', {
-      body: `Volta pra ${restFinishedName}`,
+    // Notif local (disparada pelo SW quando a aba ainda está aberta) —
+    // mesmo copy da push do backend pra consistência. O título neutro
+    // "Descanso concluído" funciona pra qualquer série (médio ou última),
+    // já que aqui não temos contexto de "qual número de série" pronto.
+    void showLocalNotification('Descanso concluído', {
+      body: restFinishedName,
       tag: 'rest-done',
       url: '/train',
       vibrate: [80, 40, 80],
@@ -3747,7 +3756,7 @@ export function TrainPage() {
                     >
                       ✓
                     </motion.span>
-                    <p className="text-base font-bold text-[var(--text)]">Descanso acabou!</p>
+                    <p className="text-base font-bold text-[var(--text)]">Descanso concluído</p>
                     <span className="text-sm text-[var(--muted)]">— {restFinishedName}</span>
                   </div>
                 </motion.div>,
