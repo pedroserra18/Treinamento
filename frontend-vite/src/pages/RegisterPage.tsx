@@ -6,6 +6,8 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Input } from '../components/common/Input'
 import { sanitiseHandleInput, validateHandle } from '../lib/handle'
 
+const TERMS_VERSION = '2026-06-10'
+
 function validateRegisterInput(input: { name: string; handle: string; email: string; password: string }): string | null {
   if (input.name.trim().length < 2) return 'Nome deve ter pelo menos 2 caracteres.'
   if (!input.handle.trim()) return 'Escolhe um handle público.'
@@ -25,6 +27,7 @@ export function RegisterPage() {
   const [verificationCode, setVerificationCode] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [codeRequested, setCodeRequested] = useState(false)
+  const [acceptedTerms, setAcceptedTerms] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -43,6 +46,7 @@ export function RegisterPage() {
   const handleRequestCode = async () => {
     const validationError = validateRegisterInput({ name, handle, email, password })
     if (validationError) { setError(validationError); return }
+    if (!acceptedTerms) { setError('Pra solicitar o código, leia e aceite os Termos e a Política de Privacidade.'); return }
     setError(null); setSuccess(null); setLoading(true)
     try {
       await requestSignUpVerificationCode({ email })
@@ -62,9 +66,19 @@ export function RegisterPage() {
     if (validationError) { setError(validationError); return }
     if (!codeRequested) { setError('Solicite o código de verificação antes de concluir o cadastro.'); return }
     if (!/^\d{6}$/.test(verificationCode)) { setError('Código deve ter 6 dígitos numéricos.'); return }
+    if (!acceptedTerms) { setError('Você precisa aceitar os Termos e a Política de Privacidade pra continuar.'); return }
     setLoading(true)
     try {
       await signUp({ name, handle, email, password, verificationCode })
+      // Registra localmente o aceite (data + versão do documento). Vira sinal
+      // pra futuras políticas — se atualizarmos os termos, comparamos a versão
+      // armazenada com a vigente e podemos pedir novo aceite.
+      try {
+        localStorage.setItem('serraathlo:termsAcceptance', JSON.stringify({
+          version: TERMS_VERSION,
+          acceptedAt: new Date().toISOString(),
+        }))
+      } catch { /* localStorage indisponível em modo privado — segue o jogo */ }
       navigate(redirectTo, { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao validar código')
@@ -157,10 +171,40 @@ export function RegisterPage() {
           </div>
         </div>
 
+        {/* Aceite LGPD — checkbox obrigatório, posicionado antes de pedir o
+            código pra deixar claro que o user precisa concordar pra continuar.
+            Estado é mantido durante o fluxo de duas etapas (envio/confirmação
+            do código) sem precisar marcar de novo. */}
+        <label
+          className={`flex cursor-pointer items-start gap-2.5 rounded-xl border p-3 transition-colors ${
+            acceptedTerms
+              ? 'border-emerald-500/40 bg-emerald-500/5'
+              : 'border-[var(--line)] bg-[var(--surface-hover)] hover:border-[var(--brand)]/40'
+          }`}
+        >
+          <input
+            type="checkbox"
+            checked={acceptedTerms}
+            onChange={(e) => setAcceptedTerms(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-[var(--brand)]"
+          />
+          <span className="text-[12.5px] leading-relaxed text-[var(--text)]">
+            Li e concordo com os{' '}
+            <Link to="/termos" target="_blank" rel="noopener" className="font-semibold text-[var(--brand)] underline-offset-2 hover:underline">
+              Termos de Uso
+            </Link>{' '}
+            e a{' '}
+            <Link to="/privacidade" target="_blank" rel="noopener" className="font-semibold text-[var(--brand)] underline-offset-2 hover:underline">
+              Política de Privacidade
+            </Link>
+            , e confirmo que tenho 14 anos ou mais.
+          </span>
+        </label>
+
         <div className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3">
           <p className="text-xs font-medium text-[var(--muted)]">Etapa 1: receba o código no e-mail informado.</p>
           <button
-            disabled={loading}
+            disabled={loading || !acceptedTerms}
             type="button"
             onClick={() => { void handleRequestCode() }}
             className="mt-2 w-full rounded-xl bg-[var(--surface)] border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)] disabled:opacity-60"
@@ -183,7 +227,7 @@ export function RegisterPage() {
         {error ? <p className="text-sm text-red-500">{error}</p> : null}
 
         <button
-          disabled={loading}
+          disabled={loading || !acceptedTerms}
           type="submit"
           className="w-full rounded-xl bg-[var(--brand)] px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60"
         >
@@ -197,6 +241,11 @@ export function RegisterPage() {
           <Link to="/login" className="font-bold text-[var(--brand)]">
             Entrar
           </Link>
+        </p>
+        <p className="mt-3 text-[11px] text-[var(--muted)]">
+          <Link to="/termos" target="_blank" rel="noopener" className="hover:text-[var(--text)] hover:underline">Termos de Uso</Link>
+          <span className="mx-1.5 opacity-40">·</span>
+          <Link to="/privacidade" target="_blank" rel="noopener" className="hover:text-[var(--text)] hover:underline">Política de Privacidade</Link>
         </p>
       </div>
     </section>

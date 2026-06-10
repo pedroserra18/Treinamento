@@ -127,6 +127,11 @@ export function LoginPage() {
             Recuperar senha
           </Link>
         </p>
+        <p className="mt-3 text-[11px] text-[var(--muted)]">
+          <Link to="/termos" target="_blank" rel="noopener" className="hover:text-[var(--text)] hover:underline">Termos de Uso</Link>
+          <span className="mx-1.5 opacity-40">·</span>
+          <Link to="/privacidade" target="_blank" rel="noopener" className="hover:text-[var(--text)] hover:underline">Política de Privacidade</Link>
+        </p>
       </div>
     </section>
   )

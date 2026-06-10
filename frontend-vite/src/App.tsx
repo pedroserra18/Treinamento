@@ -22,6 +22,8 @@ import { RegisterPage } from './pages/RegisterPage'
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
 import { GoogleCallbackPage } from './pages/GoogleCallbackPage'
 import { ProInvitePage } from './pages/subscription/ProInvitePage'
+import { TermosPage } from './pages/legal/TermosPage'
+import { PrivacidadePage } from './pages/legal/PrivacidadePage'
 
 // Detects the "stale chunk" failure mode: a user had the app open when
 // we deployed, the old chunk hashes no longer exist on the CDN, the SPA
@@ -134,6 +136,9 @@ function AnimatedRoutes() {
               {/* Página pública de convite PRO — aceita user logado ou não.
                   Internamente decide se mostra "Entrar" ou "Resgatar". */}
               <Route path="/pro-invite/:token" element={<ProInvitePage />} />
+              {/* Documentos legais — públicos, indexáveis. */}
+              <Route path="/termos" element={<TermosPage />} />
+              <Route path="/privacidade" element={<PrivacidadePage />} />
               <Route
                 path="/dashboard"
                 element={
