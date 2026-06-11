@@ -122,6 +122,13 @@ type ActiveExercise = {
   restDurationSec: number
   restRemainingSec: number
   restRunning: boolean
+  // Wall-clock (Date.now() ms) em que o descanso DEVE terminar. Null quando
+  // o timer não está rodando. Quando running, `restRemainingSec` é DERIVADO
+  // disso a cada tick (max(0, (restEndsAtMs - now) / 1000)). Isso garante
+  // que o descanso continua progredindo mesmo se o setInterval for pausado
+  // (iOS background, navegação pra outra tela, reload da página, ...) — o
+  // relógio do device não para enquanto o JS estava parado.
+  restEndsAtMs: number | null
   sets: ExerciseSetInput[]
   userNote: string
   // Letra do grupo de supersérie (A, B, C, ...). Exercícios com o
@@ -274,6 +281,7 @@ function mapPlanToActiveExercises(plan: WorkoutPlan): ActiveExercise[] {
       restDurationSec: entry.restSec ?? 0,
       restRemainingSec: entry.restSec ?? 0,
       restRunning: false,
+      restEndsAtMs: null,
       sets: Array.from({ length: Math.max(1, entry.sets ?? 3) }, () => createSet()),
       userNote: '',
     }
@@ -1481,7 +1489,32 @@ export function TrainPage() {
       setOriginMode(snapshot.originMode as TrainOriginMode)
       setActivePlanId(snapshot.activePlanId)
       setActivePlanName(snapshot.activePlanName)
-      setActiveExercises((snapshot.activeExercises as ActiveExercise[]) ?? [])
+      // Reidrata cada exercise garantindo que restEndsAtMs vire fonte de
+      // verdade. Pra exercises rodando ao salvar, recalcula restRemainingSec
+      // a partir do wall-clock — assim mesmo se o app ficou fechado por X
+      // tempo, o timer reflete o estado real e dispara o "concluído" se já
+      // passou. Snapshots antigos sem restEndsAtMs (pré-fix) caem num fallback
+      // conservador: continuam com o valor stored (sem zerar nada).
+      const nowMs = Date.now()
+      const exercises = ((snapshot.activeExercises as ActiveExercise[]) ?? []).map((ex) => {
+        if (!ex.restRunning) {
+          return { ...ex, restEndsAtMs: ex.restEndsAtMs ?? null }
+        }
+        if (ex.restEndsAtMs == null) {
+          // Snapshot pré-refactor — não dá pra recalcular. Mantém como
+          // estava; o tick principal vai congelar até o user interagir.
+          return ex
+        }
+        const remainingSec = Math.max(0, Math.ceil((ex.restEndsAtMs - nowMs) / 1000))
+        if (remainingSec <= 0) {
+          // Descanso terminou em background. Marca como concluído pra UI
+          // mostrar o overlay verde imediatamente ao abrir o app.
+          setRestFinishedName(ex.exerciseName)
+          return { ...ex, restRunning: false, restEndsAtMs: null, restRemainingSec: 0 }
+        }
+        return { ...ex, restRemainingSec: remainingSec }
+      })
+      setActiveExercises(exercises)
       setCardioEntries((snapshot.cardioEntries as CardioEntryInput[]) ?? [])
       setStartedAt(snapshot.startedAt ? new Date(snapshot.startedAt) : null)
       setEndedAt(snapshot.endedAt ? new Date(snapshot.endedAt) : null)
@@ -1574,35 +1607,67 @@ export function TrainPage() {
     return () => window.removeEventListener(ACTIVE_WORKOUT_DISCARD_EVENT, handler)
   }, [])
 
+  // ┌────────────────────────────────────────────────────────────────────┐
+  // │ Tick do timer de descanso — modelo WALL-CLOCK FIRST.               │
+  // │                                                                    │
+  // │ Verdade: `restEndsAtMs` (timestamp wall-clock quando o descanso    │
+  // │ deve terminar). UI: `restRemainingSec` é DERIVADO disso a cada     │
+  // │ tick — não decrementamos manualmente.                              │
+  // │                                                                    │
+  // │ Vantagem fundamental: o timer continua correto mesmo se o JS       │
+  // │ ficou parado por X tempo (iOS background, navegar pra dashboard,  │
+  // │ recarregar página, ...). Quando o tick volta, ele recalcula        │
+  // │ remaining a partir do relógio real do device.                      │
+  // │                                                                    │
+  // │ Substituiu o modelo antigo de "decrementar restRemainingSec por    │
+  // │ delta" — que sofria os bugs:                                       │
+  // │   • Voltar pra dashboard parava o tick e congelava o timer         │
+  // │   • Hidratação do snapshot não compensava o tempo offline          │
+  // │   • Mudança manual de hora do device dava resultados estranhos     │
+  // │   • screen != ACTIVE matava o tick mesmo com rest rodando          │
+  // │                                                                    │
+  // │ Agora o tick roda mesmo em DASHBOARD (pra UI da mini bar            │
+  // │ refletir) — mas o resultado seria correto mesmo se não rodasse.    │
+  // └────────────────────────────────────────────────────────────────────┘
   useEffect(() => {
-    if (screen !== 'ACTIVE') {
+    // Tick em qualquer screen que represente sessão viva. Mantém a UI
+    // atualizada em ACTIVE (timer bar) e em DASHBOARD (mini bar).
+    if (screen !== 'ACTIVE' && screen !== 'DASHBOARD') {
       return
     }
 
-    // Mesmo padrão do cronômetro de treino: decrementa pelo TEMPO REAL
-    // entre ticks (não por 1s presumido). Quando iOS Safari pausa o
-    // setInterval em background, o próximo tick depois de voltar já
-    // pula vários segundos de uma vez — o timer de descanso conclui
-    // corretamente mesmo se o user ficou 10 min com a tela travada.
-    let lastTickMs = Date.now()
-    const id = window.setInterval(() => {
+    const recompute = () => {
       const now = Date.now()
-      const delta = Math.max(1, Math.floor((now - lastTickMs) / 1000))
-      lastTickMs = now
       setActiveExercises((current) => {
+        let anyChanged = false
         const next = current.map((exercise) => {
           if (!exercise.restRunning) return exercise
-          const remaining = exercise.restRemainingSec - delta
-          if (remaining <= 0) {
-            setRestFinishedName(exercise.exerciseName)
-            return { ...exercise, restRemainingSec: 0, restRunning: false }
+          if (exercise.restEndsAtMs == null) {
+            // Inconsistência (running=true mas sem endsAt): conservadora —
+            // mantém running mas usa restRemainingSec atual como fallback.
+            return exercise
           }
-          return { ...exercise, restRemainingSec: remaining }
+          const remainingSec = Math.max(0, Math.ceil((exercise.restEndsAtMs - now) / 1000))
+          if (remainingSec <= 0) {
+            // Só dispara setRestFinishedName uma vez por término.
+            if (exercise.restRunning) {
+              setRestFinishedName(exercise.exerciseName)
+            }
+            anyChanged = true
+            return { ...exercise, restRemainingSec: 0, restRunning: false, restEndsAtMs: null }
+          }
+          if (remainingSec === exercise.restRemainingSec) return exercise
+          anyChanged = true
+          return { ...exercise, restRemainingSec: remainingSec }
         })
-        return next
+        return anyChanged ? next : current
       })
-    }, 1000)
+    }
 
+    // Tick a cada 500ms — UI sente "responsiva" ao chegar nos últimos
+    // segundos sem custo significativo (cada tick é O(N) sobre exercises).
+    recompute()
+    const id = window.setInterval(recompute, 500)
     return () => window.clearInterval(id)
   }, [screen])
 
@@ -1833,31 +1898,18 @@ export function TrainPage() {
       hiddenAt = null
       if (missedSec <= 0) return
 
-      // IMPORTANTE: NÃO compensar elapsedSec aqui — o setInterval principal
-      // do cronômetro de treino (linhas ~1380) já usa wall-clock delta, então
-      // o próximo tick dele depois de voltar de background pula automático
-      // pra frente sem ajuda. Adicionar missedSec aqui DOBRAVA o tempo de
-      // duração (bug reportado: 1h31 real virava 1h53). Mantemos o catch-up
-      // só pros timers de descanso (abaixo), porque esses NÃO têm tick
-      // próprio com wall-clock.
-
-      // Catch-up dos timers de descanso. Cada exercício com
-      // restRunning recebe o desconto; se zerar, dispara o nome
-      // do exercício pra o overlay "Descanso acabou".
-      setActiveExercises((current) => {
-        let anyChanged = false
-        const next = current.map((exercise) => {
-          if (!exercise.restRunning) return exercise
-          anyChanged = true
-          const remaining = exercise.restRemainingSec - missedSec
-          if (remaining <= 0) {
-            setRestFinishedName(exercise.exerciseName)
-            return { ...exercise, restRemainingSec: 0, restRunning: false }
-          }
-          return { ...exercise, restRemainingSec: remaining }
-        })
-        return anyChanged ? next : current
-      })
+      // NÃO compensar elapsedSec nem restRemainingSec aqui — ambos os
+      // timers usam wall-clock como fonte de verdade agora:
+      //   • elapsedSec: tick principal lê delta = (now - lastTickMs) / 1000
+      //   • restRemainingSec: tick recalcula via (restEndsAtMs - now) / 1000
+      // Compensar manualmente aqui causava o bug "1h31 virava 1h53" (dobra
+      // o tempo de duração) e seria redundante pro descanso. O próximo
+      // tick depois de voltar de background já corrige tudo sozinho.
+      //
+      // Mantemos o handler vivo só pra registrar `hiddenAt` (uso futuro:
+      // estatística de quanto tempo o user passou em background, se
+      // quisermos adicionar). Sem compensações.
+      void missedSec
     }
     document.addEventListener('visibilitychange', handleVisibility)
     // pageshow cobre o caso de Safari restaurar a página do bfcache
@@ -2302,22 +2354,46 @@ export function TrainPage() {
     finalizeTraining()
   }
 
+  // Pausa/retoma o timer. Mantém o wall-clock como verdade — quando
+  // pausa, restEndsAtMs vira null e restRemainingSec congela onde está.
+  // Quando retoma, restEndsAtMs = now + restRemainingSec * 1000 (continua
+  // de onde parou).
   const toggleRestTimer = (exerciseIndex: number) => {
     setActiveExercises((current) =>
-      current.map((exercise, idx) =>
-        idx === exerciseIndex
-          ? exercise.restDurationSec <= 0
-            ? exercise
-            : { ...exercise, restRunning: !exercise.restRunning }
-          : exercise,
-      ),
+      current.map((exercise, idx) => {
+        if (idx !== exerciseIndex) return exercise
+        if (exercise.restDurationSec <= 0) return exercise
+        if (exercise.restRunning) {
+          // Pausando — congela restRemainingSec (já atualizado pelo tick).
+          return { ...exercise, restRunning: false, restEndsAtMs: null }
+        }
+        // Retomando — wall-clock end = agora + segundos restantes.
+        const baseSec = exercise.restRemainingSec > 0 ? exercise.restRemainingSec : exercise.restDurationSec
+        return {
+          ...exercise,
+          restRunning: true,
+          restEndsAtMs: Date.now() + baseSec * 1000,
+        }
+      }),
     )
   }
 
+  // Ajusta o timer em ±N segundos. Quando running, move o endsAt
+  // diretamente — o tick reflete imediatamente. Quando paused, ajusta o
+  // remaining congelado.
   const adjustRestTimer = (exerciseIndex: number, deltaSec: number) => {
     setActiveExercises((current) =>
       current.map((exercise, idx) => {
         if (idx !== exerciseIndex) return exercise
+        if (exercise.restRunning && exercise.restEndsAtMs != null) {
+          const newEndsAt = exercise.restEndsAtMs + deltaSec * 1000
+          // Floor de 1s pra evitar pular o term ao chamar -15s seguidos.
+          const minEndsAt = Date.now() + 1000
+          return {
+            ...exercise,
+            restEndsAtMs: Math.max(minEndsAt, newEndsAt),
+          }
+        }
         const next = Math.max(1, exercise.restRemainingSec + deltaSec)
         return { ...exercise, restRemainingSec: next }
       }),
@@ -2404,17 +2480,24 @@ export function TrainPage() {
           })
 
           const shouldStartRest = !wasChecked && exercise.restDurationSec > 0
+          // Wall-clock fonte de verdade: timestamp em que deve zerar.
+          // restRemainingSec é só pra UI (recalculado pelo tick).
+          const nowMs = Date.now()
+          const restEndsAtMs = shouldStartRest
+            ? nowMs + exercise.restDurationSec * 1000
+            : exercise.restEndsAtMs
 
           return {
             ...exercise,
             sets: newSets,
             restRemainingSec: shouldStartRest ? exercise.restDurationSec : exercise.restRemainingSec,
             restRunning: shouldStartRest ? true : exercise.restRunning,
+            restEndsAtMs,
           }
         }).map((exercise, idx) => {
           // stop rest on all OTHER exercises when starting a new one
           if (idx !== exerciseIndex && current[exerciseIndex]?.sets[setIndex]?.checked === false) {
-            return { ...exercise, restRunning: false }
+            return { ...exercise, restRunning: false, restEndsAtMs: null }
           }
           return exercise
         }),
@@ -2472,6 +2555,7 @@ export function TrainPage() {
           restDurationSec: parsed,
           restRemainingSec: parsed,
           restRunning: false,
+          restEndsAtMs: null,
         }
       }),
     )
@@ -2540,6 +2624,7 @@ export function TrainPage() {
           restDurationSec: 0,
           restRemainingSec: 0,
           restRunning: false,
+          restEndsAtMs: null,
           sets: [createSet()],
           userNote: '',
         },
