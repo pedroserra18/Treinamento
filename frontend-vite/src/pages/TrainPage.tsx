@@ -1788,19 +1788,26 @@ export function TrainPage() {
 
   useEffect(() => {
     if (!restFinishedName) return
-    // Notificação local — funciona com app em background (mostra
-    // notificação do sistema mesmo com tela bloqueada). No-op silencioso
-    // se o usuário não deu permissão; ver SettingsPage pra ativar.
-    // Notif local (disparada pelo SW quando a aba ainda está aberta) —
-    // mesmo copy da push do backend pra consistência. O título neutro
-    // "Descanso concluído" funciona pra qualquer série (médio ou última),
-    // já que aqui não temos contexto de "qual número de série" pronto.
-    void showLocalNotification('Descanso concluído', {
-      body: restFinishedName,
-      tag: 'rest-done',
-      url: '/train',
-      vibrate: [80, 40, 80],
-    })
+
+    // Notif local foi pensada pra cobrir o caso "app aberto mas em outra
+    // aba"; com o app em foreground/visible, ela vira ruído visual (banner
+    // sobre conteúdo) e ainda DUPLICA a push que já chegou do backend no
+    // lock screen.
+    //
+    // Bug reportado: ao voltar pro app depois do descanso ter zerado em
+    // background, o catch-up setava restFinishedName, esse efeito disparava
+    // localNotification, iOS exibia banner — segundo "Descanso concluído"
+    // pro mesmo evento. Agora só dispara quando a aba está hidden (ou
+    // visibility API não disponível).
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+      void showLocalNotification('Descanso concluído', {
+        body: restFinishedName,
+        tag: 'rest-done',
+        url: '/train',
+        vibrate: [80, 40, 80],
+      })
+    }
+
     const id = window.setTimeout(() => setRestFinishedName(null), 3000)
     return () => window.clearTimeout(id)
   }, [restFinishedName])

@@ -50,11 +50,30 @@ export function getPublicVapidKey(): string | null {
 // Upsert por endpoint. Devices podem renovar a subscription (browser
 // invalida e regenera), então fazemos update quando o mesmo endpoint
 // chega de novo. Garantia: cada device tem no máximo uma row ativa.
+//
+// Higiene de subscriptions: ao chegar uma nova sub, apaga as antigas do
+// MESMO user+userAgent que tenham endpoint diferente. Cenário comum no
+// iOS: o browser regenera a subscription periodicamente; sem limpar, o
+// banco acumula 2-3 subs ativas pro mesmo device. Quando o backend
+// dispara push, envia pra todas — e o iOS mostra duplicado (bug
+// reportado: 2 notifs idênticas "Descanso concluído" no lock screen).
 export async function subscribeUserToPush(
   userId: string,
   body: SubscribePushBody
 ): Promise<void> {
   ensureConfiguredOrThrow();
+
+  // Limpa subs órfãs do mesmo device antes do upsert. Só roda quando temos
+  // userAgent — sem ele não dá pra identificar 'mesmo device' com confiança.
+  if (body.userAgent) {
+    await prisma.pushSubscription.deleteMany({
+      where: {
+        userId,
+        userAgent: body.userAgent,
+        endpoint: { not: body.endpoint }
+      }
+    });
+  }
 
   await prisma.pushSubscription.upsert({
     where: { endpoint: body.endpoint },
@@ -183,7 +202,21 @@ export async function processDuePendingNotifications(now: Date = new Date()): Pr
   let cancelled = 0;
 
   for (const job of due) {
-    const subscriptions = job.user.pushSubscriptions;
+    // Dedupe defensiva por userAgent: mesmo após a higiene em
+    // subscribeUserToPush, podem existir subs antigas no banco (criadas
+    // antes do fix). Mantém só a mais recente (updatedAt DESC) por
+    // userAgent. Subs sem userAgent caem num grupo "unknown" — pior caso
+    // entrega 1 vez pra o "device desconhecido", melhor que nada.
+    const dedupeMap = new Map<string, typeof job.user.pushSubscriptions[number]>();
+    for (const sub of job.user.pushSubscriptions) {
+      const key = sub.userAgent ?? `__no_ua__${sub.endpoint}`;
+      const existing = dedupeMap.get(key);
+      if (!existing || sub.updatedAt > existing.updatedAt) {
+        dedupeMap.set(key, sub);
+      }
+    }
+    const subscriptions = Array.from(dedupeMap.values());
+
     if (subscriptions.length === 0) {
       // User não tem subscription ativa — não tem como entregar. Marca
       // como CANCELLED pra não ficar tentando indefinidamente.
