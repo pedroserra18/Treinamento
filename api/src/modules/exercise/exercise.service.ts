@@ -3,6 +3,7 @@ import { prisma } from "../../config/prisma";
 import { CreateExerciseBody, ListExercisesQuery, UpdateExerciseBody } from "./exercise.schema";
 import { AppError } from "../../shared/errors/app-error";
 import { assertWithinLimit, PLAN_LIMITS } from "../../shared/plan-limits";
+import { resolveExerciseSearchTerm } from "./exercise-search-vocabulary";
 
 type RequestUser = {
   userId?: string;
@@ -57,20 +58,54 @@ function buildScopeCondition(
 }
 
 export async function listExercises(query: ListExercisesQuery, user: RequestUser) {
+  // Busca textual estilo apps profissionais (Hevy/Strong/Fitbod):
+  //
+  // 1) Match em name e slug (já existia)
+  // 2) Match em equipment ("barra", "halter", "polia"...)
+  // 3) Match em primaryMuscleGroup + secondaryMuscleGroup quando o termo
+  //    bate com sinônimo PT-BR no vocabulário ("biceps" → BICEPS, "peito"
+  //    → CHEST, "perna" → LEGS+QUADS+HAMSTRINGS+CALVES, ...). Acentos e
+  //    plurais são normalizados — "bíceps", "biceps", "bicep" e "bi"
+  //    todos retornam a mesma lista.
+  //
+  // Como o Postgres `contains insensitive` já lida com case mas NÃO com
+  // acentos, passamos o termo normalizado pra busca textual também — assim
+  // 'biceps' bate em exercício chamado 'Rosca Bíceps' mesmo a fonte tendo
+  // acento.
+  const searchTerm = query.search?.trim() ?? "";
+  const searchOr: Prisma.ExerciseWhereInput[] = [];
+  if (searchTerm) {
+    const { normalizedText, muscleGroups } = resolveExerciseSearchTerm(searchTerm);
+    // Busca textual: nome, slug e equipment. Usamos o termo bruto (pra
+    // preservar 'Bíceps' literal quando user digita com acento) E o
+    // normalizado (pra cobrir 'biceps' sem acento batendo em 'Bíceps').
+    searchOr.push(
+      { name: { contains: searchTerm, mode: "insensitive" } },
+      { slug: { contains: searchTerm, mode: "insensitive" } },
+      { equipment: { contains: searchTerm, mode: "insensitive" } }
+    );
+    if (normalizedText && normalizedText !== searchTerm.toLowerCase()) {
+      searchOr.push(
+        { name: { contains: normalizedText, mode: "insensitive" } },
+        { slug: { contains: normalizedText, mode: "insensitive" } }
+      );
+    }
+    // Match por enum quando o termo é apelido de grupo muscular.
+    if (muscleGroups.length > 0) {
+      searchOr.push(
+        { primaryMuscleGroup: { in: muscleGroups } },
+        { secondaryMuscleGroup: { in: muscleGroups } }
+      );
+    }
+  }
+
   const where = {
     isActive: true,
     ...buildScopeCondition(query.scope, user),
     ...(query.difficulty ? { difficulty: query.difficulty } : {}),
     ...(query.primaryMuscleGroup ? { primaryMuscleGroup: query.primaryMuscleGroup } : {}),
     ...(query.equipment ? { equipment: { equals: query.equipment, mode: "insensitive" } } : {}),
-    ...(query.search
-      ? {
-          OR: [
-            { name: { contains: query.search, mode: "insensitive" } },
-            { slug: { contains: query.search, mode: "insensitive" } }
-          ]
-        }
-      : {})
+    ...(searchOr.length > 0 ? { OR: searchOr } : {})
   };
 
   const rows = await prisma.exercise.findMany({

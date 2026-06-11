@@ -4,6 +4,7 @@ import { prisma } from "../../config/prisma";
 import { AppError } from "../../shared/errors/app-error";
 import { assertWithinLimit } from "../../shared/plan-limits";
 import { trackEvent } from "../../shared/services/event-log.service";
+import { resolveExerciseSearchTerm } from "../exercise/exercise-search-vocabulary";
 import { getWorkoutRecommendationsForUser } from "../recommendation/recommendation.service";
 import {
   AddPlanCardioBody,
@@ -771,29 +772,39 @@ export async function reorderPlanExercises(
 }
 
 export async function searchExercisesForPlan(userId: string, query: SearchExercisesQuery) {
+  // Busca expandida estilo apps profissionais (Hevy/Strong/Fitbod):
+  // textual em name+slug+equipment + grupo muscular quando o termo é
+  // apelido PT-BR ('biceps' → BICEPS, 'peito' → CHEST, 'perna' → LEGS+
+  // QUADS+HAMSTRINGS+CALVES). Vocabulário centralizado em
+  // exercise-search-vocabulary pra manter um único lugar de manutenção.
+  const searchOr: Prisma.ExerciseWhereInput[] = [];
+  if (query.q) {
+    const { normalizedText, muscleGroups } = resolveExerciseSearchTerm(query.q);
+    searchOr.push(
+      { name: { contains: query.q, mode: "insensitive" } },
+      { slug: { contains: query.q, mode: "insensitive" } },
+      { equipment: { contains: query.q, mode: "insensitive" } }
+    );
+    if (normalizedText && normalizedText !== query.q.toLowerCase()) {
+      searchOr.push(
+        { name: { contains: normalizedText, mode: "insensitive" } },
+        { slug: { contains: normalizedText, mode: "insensitive" } }
+      );
+    }
+    if (muscleGroups.length > 0) {
+      searchOr.push(
+        { primaryMuscleGroup: { in: muscleGroups } },
+        { secondaryMuscleGroup: { in: muscleGroups } }
+      );
+    }
+  }
+
   return prisma.exercise.findMany({
     where: {
       isActive: true,
       OR: [{ scope: "GLOBAL" }, { scope: "PRIVATE", ownerUserId: userId }],
       ...(query.primaryMuscleGroup ? { primaryMuscleGroup: query.primaryMuscleGroup } : {}),
-      ...(query.q
-        ? {
-            OR: [
-              {
-                name: {
-                  contains: query.q,
-                  mode: "insensitive"
-                }
-              },
-              {
-                slug: {
-                  contains: query.q,
-                  mode: "insensitive"
-                }
-              }
-            ]
-          }
-        : {})
+      ...(searchOr.length > 0 ? { AND: [{ OR: searchOr }] } : {})
     },
     orderBy: [{ name: "asc" }],
     take: query.limit,
