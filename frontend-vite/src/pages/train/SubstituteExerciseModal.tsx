@@ -7,6 +7,7 @@ import { useScrollLock } from '../../hooks/useScrollLock'
 import { getRecentExerciseIds } from '../../lib/recent-exercises'
 import { searchExercisesForPlan } from '../../services/workoutService'
 import type { ExerciseOption } from '../../types/workout'
+import { matchesExerciseSearch } from '../../lib/exercise-search'
 
 // Forma mínima que o source precisa expor — só o id (pra excluir o
 // próprio do catálogo) e o nome (pra label de aria). Aceita tanto
@@ -74,10 +75,12 @@ export function SubstituteExerciseModal({
 
   // Aplica os 3 filtros (busca + músculo + equipamento) sequencialmente.
   // Exclui o próprio source — substituir por ele mesmo é no-op.
+  // Busca usa vocabulário PT-BR — 'biceps', 'peito', 'perna', 'barra'
+  // acham por grupo muscular ou equipamento, não só pelo nome.
   const filtered = useMemo(() => {
     let list = catalog.filter((ex) => ex.id !== source.id)
-    const q = search.trim().toLowerCase()
-    if (q) list = list.filter((ex) => ex.name.toLowerCase().includes(q))
+    const q = search.trim()
+    if (q) list = list.filter((ex) => matchesExerciseSearch(ex, q))
     if (muscleFilter !== 'ALL') list = list.filter((ex) => ex.primaryMuscleGroup === muscleFilter)
     if (equipmentFilter !== 'ALL') list = list.filter((ex) => ex.equipment === equipmentFilter)
     return list

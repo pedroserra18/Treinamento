@@ -10,6 +10,7 @@ import {
   searchExercisesForPlan,
 } from '../../services/workoutService'
 import type { ExerciseOption } from '../../types/workout'
+import { matchesExerciseSearch } from '../../lib/exercise-search'
 import { ConfirmDialog } from '../../components/common/ConfirmDialog'
 
 // Linha da seção Personalizados — espelha o markup de uma row normal,
@@ -212,11 +213,15 @@ export function AddExerciseModal({
     return Array.from(set).sort()
   }, [catalog])
 
-  // Filtros aplicados sequencialmente.
+  // Filtros aplicados sequencialmente. Busca usa vocabulário PT-BR
+  // (`matchesExerciseSearch`): digitar 'biceps' acha exercícios com
+  // primaryMuscleGroup BICEPS + os que têm 'bíceps' no nome (sem
+  // precisar do acento). 'peito' acha CHEST, 'perna' acha LEGS/QUADS/
+  // HAMSTRINGS/CALVES, 'barra' acha exercícios com 'barra' no equipment.
   const filtered = useMemo(() => {
     let list = catalog
-    const q = search.trim().toLowerCase()
-    if (q) list = list.filter((ex) => ex.name.toLowerCase().includes(q))
+    const q = search.trim()
+    if (q) list = list.filter((ex) => matchesExerciseSearch(ex, q))
     if (muscleFilter !== 'ALL') list = list.filter((ex) => ex.primaryMuscleGroup === muscleFilter)
     if (equipmentFilter !== 'ALL') list = list.filter((ex) => ex.equipment === equipmentFilter)
     return list
