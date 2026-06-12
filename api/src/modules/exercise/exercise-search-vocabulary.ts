@@ -124,6 +124,11 @@ const SYNONYMS: Record<string, MuscleGroup[]> = {
 // Normaliza pra forma comparável: lowercase, sem acentos, sem espaços
 // nas pontas. Não remove espaços internos (quem digita 'full body' vai
 // querer manter — a função de match cuida do split).
+//
+// IMPORTANTE: usa Unicode escape ̀-ͯ em vez de caracteres
+// combining literais. Esse range é o bloco "Combining Diacritical Marks"
+// — depois do NFD, vogais acentuadas se quebram em letra base + mark
+// nesse range. Escape evita problema de encoding do arquivo fonte.
 export function normalizeSearchTerm(input: string): string {
   return input
     .toLowerCase()
