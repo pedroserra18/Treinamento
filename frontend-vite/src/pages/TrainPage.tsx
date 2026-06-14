@@ -50,6 +50,12 @@ import {
 import { isBodyweightEquipment, resolveBodyweightFlag } from '../lib/exercise-meta'
 import { pushRecentExerciseId } from '../lib/recent-exercises'
 import { getExerciseCatalogCached, prefetchExerciseCatalog, invalidateExerciseCatalog } from '../lib/exercise-catalog-cache'
+import {
+  getWorkoutPlansCached,
+  peekWorkoutPlans,
+  setWorkoutPlansCache,
+  invalidateWorkoutPlansCache,
+} from '../lib/workout-plans-cache'
 import { getIntensityMode, setIntensityMode, type IntensityMode } from '../lib/intensity-preference'
 import {
   getNotificationPermission,
@@ -70,7 +76,6 @@ import {
   getLatestExercisePerformance,
   getSessionHighlights,
   listWorkoutHistory,
-  listWorkoutPlans,
   startWorkoutSession,
   updatePlanExercise,
   type SessionHighlights,
@@ -1086,8 +1091,12 @@ export function TrainPage() {
   const defaultPrivacy: PostPrivacy = isProfilePrivate ? 'FRIENDS' : 'PUBLIC'
 
   const [screen, setScreen] = useState<TrainScreen>('DASHBOARD')
-  const [plans, setPlans] = useState<WorkoutPlan[]>([])
-  const [loadingPlans, setLoadingPlans] = useState(true)
+  // Inicializa SÍNCRONO via peek do cache — se o user já visitou a
+  // TrainPage antes nessa sessão (ou em sessão anterior persistida em
+  // localStorage), a lista de rotinas aparece IMEDIATA. Refetch em
+  // background pelo useEffect abaixo mantém ela atualizada.
+  const [plans, setPlans] = useState<WorkoutPlan[]>(() => peekWorkoutPlans() ?? [])
+  const [loadingPlans, setLoadingPlans] = useState<boolean>(() => peekWorkoutPlans() == null)
   // Erro fica scoped por tela: ao trocar de screen, limpamos pra evitar
   // mensagem vazar entre dashboard / ativo / summary (e.g. "exercicio ja
   // adicionado" aparecer na dashboard depois de finalizar treino).
@@ -1431,8 +1440,12 @@ export function TrainPage() {
     prefetchExerciseCatalog(authorizedFetch)
   }, [authorizedFetch])
 
+  // Reload via cache compartilhado. Hit no cache (TTL 1 min) resolve em
+  // <1ms; miss faz request única com coalesce — múltiplas chamadas
+  // simultâneas viram uma só. Também atualiza localStorage pra próxima
+  // sessão renderizar instantâneo.
   const reloadPlans = useCallback(async (preferredPlanId?: string) => {
-    const items = await listWorkoutPlans(authorizedFetch)
+    const items = await getWorkoutPlansCached(authorizedFetch)
     setPlans(items)
 
     if (preferredPlanId && items.some((plan) => plan.id === preferredPlanId)) {
@@ -1446,10 +1459,14 @@ export function TrainPage() {
   }, [authorizedFetch])
 
   useEffect(() => {
-    // setLoadingPlans(true) garante o skeleton em re-fetches (ex.: depois
-    // de mudança de auth). Estado inicial já é true mas explicitar evita
-    // flash de empty se reloadPlans for re-invocada após o primeiro load.
-    setLoadingPlans(true)
+    // Stale-while-revalidate: se já temos cache, NÃO mostramos skeleton
+    // (lista renderiza imediato). Refetch roda em background pra próxima
+    // leitura ter dados frescos. Quando não tem cache (primeira vez na
+    // sessão), aí sim o skeleton aparece pra dar feedback.
+    const hasCache = peekWorkoutPlans() != null
+    if (!hasCache) {
+      setLoadingPlans(true)
+    }
     void reloadPlans()
       .catch((err) => {
         setError(err instanceof Error ? err.message : 'Erro ao carregar rotinas')
@@ -3114,6 +3131,10 @@ export function TrainPage() {
         }
       }
 
+      // Sessão salva pode ter mudado o status do plano (concluído etc).
+      // Invalida o cache pra forçar refetch — o próximo reloadPlans
+      // traz dados frescos do banco em vez de mostrar estado defasado.
+      invalidateWorkoutPlansCache()
       await reloadPlans()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao salvar treino')
@@ -3135,9 +3156,14 @@ export function TrainPage() {
     //
     // Também ajusta o activePlanId caso seja a rotina sendo excluída,
     // selecionando outra automaticamente (UX padrão tipo Hevy/Strong).
+    //
+    // Cache compartilhado é atualizado junto pra próxima entrada na
+    // TrainPage (e qualquer outra tela que leia o cache) ver o estado
+    // consistente sem refetch.
     const snapshot = plans
     const remaining = plans.filter((p) => p.id !== plan.id)
     setPlans(remaining)
+    setWorkoutPlansCache(remaining)
     setError(null)
     if (activePlanId === plan.id) {
       setActivePlanId(remaining[0]?.id ?? null)
@@ -3147,13 +3173,11 @@ export function TrainPage() {
       await deleteWorkoutPlan(authorizedFetch, plan.id)
       // Sucesso — UI já está correta. Não chama reloadPlans (round-trip
       // desnecessário) e a próxima entrada em TrainPage vai refletir o
-      // estado certo do banco.
+      // estado certo do banco via cache.
     } catch (err) {
-      // Rollback — restaura a lista anterior + mostra erro.
+      // Rollback — restaura a lista anterior + cache + mostra erro.
       setPlans(snapshot)
-      if (activePlanId === plan.id || activePlanId !== plan.id) {
-        // Não precisa restaurar activePlanId — o snapshot inteiro voltou.
-      }
+      setWorkoutPlansCache(snapshot)
       setError(err instanceof Error ? err.message : 'Erro ao excluir rotina')
     }
   }
@@ -3231,6 +3255,9 @@ export function TrainPage() {
         })
       }
 
+      // Cache fica defasado depois de criar — invalida pra próximo
+      // reloadPlans pegar do banco com a rotina nova já incluída.
+      invalidateWorkoutPlansCache()
       await reloadPlans(created.id)
       window.alert('Rotina duplicada com sucesso.')
     } catch (err) {
