@@ -25,18 +25,35 @@ import {
   Activity, X,
 } from 'lucide-react'
 import { SkeletonCard } from '../components/common/Skeleton'
-import { CreateExerciseModal } from './train/CreateExerciseModal'
+// Modais lazy-loaded — não entram no bundle inicial da TrainPage. Cada
+// um vira um chunk separado que só baixa quando o user efetivamente
+// abre o respectivo modal. Cortou ~2100 linhas de código + dependências
+// (framer-motion, lucide-react) do bundle inicial. Como esses componentes
+// renderizam condicionalmente, o import() dinâmico só dispara na primeira
+// abertura — depois o chunk fica em cache de memória do browser.
+const CreateExerciseModal = lazy(() =>
+  import('./train/CreateExerciseModal').then((m) => ({ default: m.CreateExerciseModal })),
+)
 import { ExerciseContextMenuSheet } from './train/ExerciseContextMenuSheet'
-import { ReorderExercisesSheet, type ReorderItem } from './train/ReorderExercisesSheet'
-import { SubstituteExerciseModal } from './train/SubstituteExerciseModal'
+import { type ReorderItem } from './train/ReorderExercisesSheet'
+const ReorderExercisesSheet = lazy(() =>
+  import('./train/ReorderExercisesSheet').then((m) => ({ default: m.ReorderExercisesSheet })),
+)
+const SubstituteExerciseModal = lazy(() =>
+  import('./train/SubstituteExerciseModal').then((m) => ({ default: m.SubstituteExerciseModal })),
+)
 import { RestTimePickerSheet } from './train/RestTimePickerSheet'
-import { AddExerciseModal } from './train/AddExerciseModal'
+const AddExerciseModal = lazy(() =>
+  import('./train/AddExerciseModal').then((m) => ({ default: m.AddExerciseModal })),
+)
 import { DurationPickerSheet } from './train/DurationPickerSheet'
 import { SwipeableSetRow } from './train/SwipeableSetRow'
-import { CreateRoutineScreen } from './train/CreateRoutineScreen'
+const CreateRoutineScreen = lazy(() =>
+  import('./train/CreateRoutineScreen').then((m) => ({ default: m.CreateRoutineScreen })),
+)
 import { InfoDialog } from '../components/common/InfoDialog'
 import { ConfirmDialog } from '../components/common/ConfirmDialog'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePushNotifications } from '../hooks/usePushNotifications'
 import { cancelBackendNotification, scheduleBackendNotification } from '../services/pushService'
 import { createPost, sharePlan, type PostPrivacy } from '../services/socialService'
@@ -3797,13 +3814,16 @@ export function TrainPage() {
 
   if (screen === 'NEW_ROUTINE') {
     return (
-      <CreateRoutineScreen
-        onCancel={() => setScreen('DASHBOARD')}
-        onSaved={async (createdPlanId) => {
-          await reloadPlans(createdPlanId)
-          setScreen('DASHBOARD')
-        }}
-      />
+      <Suspense fallback={null}>
+        <CreateRoutineScreen
+          onCancel={() => setScreen('DASHBOARD')}
+          onSaved={async (createdPlanId) => {
+            invalidateWorkoutPlansCache()
+            await reloadPlans(createdPlanId)
+            setScreen('DASHBOARD')
+          }}
+        />
+      </Suspense>
     )
   }
 
@@ -4693,6 +4713,11 @@ export function TrainPage() {
             onClose={() => setContextMenuExerciseIndex(null)}
           />
         )}
+        {/* Modais lazy-loaded compartilham um Suspense. Fallback é null
+            porque o user já tá em transição (tocou um botão pra abrir)
+            e a aparição do modal ~100-300ms depois sente como animação
+            normal — sem flash de skeleton. */}
+        <Suspense fallback={null}>
         {reorderSheetOpen && (
           <ReorderExercisesSheet
             open
@@ -4790,6 +4815,7 @@ export function TrainPage() {
             }}
           />
         )}
+        </Suspense>
         {supersetPickerSourceIndex != null && activeExercises[supersetPickerSourceIndex] && (
           <SupersetPickerSheet
             key={`superset-${supersetPickerSourceIndex}`}
