@@ -7,10 +7,14 @@ import { useScrollLock } from '../../hooks/useScrollLock'
 import { getRecentExerciseIds } from '../../lib/recent-exercises'
 import {
   deletePrivateExercise,
-  searchExercisesForPlan,
 } from '../../services/workoutService'
 import type { ExerciseOption } from '../../types/workout'
 import { matchesExerciseSearch } from '../../lib/exercise-search'
+import {
+  getExerciseCatalogCached,
+  invalidateExerciseCatalog,
+  peekExerciseCatalog,
+} from '../../lib/exercise-catalog-cache'
 import { ConfirmDialog } from '../../components/common/ConfirmDialog'
 
 // Linha da seção Personalizados — espelha o markup de uma row normal,
@@ -159,11 +163,13 @@ export function AddExerciseModal({
   const [search, setSearch] = useState('')
   const [muscleFilter, setMuscleFilter] = useState<string>('ALL')
   const [equipmentFilter, setEquipmentFilter] = useState<string>('ALL')
-  const [catalog, setCatalog] = useState<ExerciseOption[]>([])
-  // Inicia em loading porque o parent só monta esse componente quando
-  // vai abrir. Evita chamar setLoading(true) dentro do effect (lint
-  // react-hooks/set-state-in-effect proíbe).
-  const [loading, setLoading] = useState(true)
+  // Inicialização SÍNCRONA: se a TrainPage já fez prefetch, o cache
+  // tá quente e o modal abre com a lista renderizada — sem skeleton,
+  // sem flash. Quando cold, cai no useEffect abaixo.
+  const [catalog, setCatalog] = useState<ExerciseOption[]>(() => peekExerciseCatalog() ?? [])
+  // Loading só quando o cache está vazio. Modal abre instantâneo se
+  // catálogo já tava pre-aquecido.
+  const [loading, setLoading] = useState(() => peekExerciseCatalog() == null)
   const [error, setError] = useState<string | null>(null)
   // Conjunto dos exercícios marcados. Set pra checagem O(1) e dedupe
   // natural; o array final pra onPickBatch preserva a ordem do catálogo
@@ -190,10 +196,14 @@ export function AddExerciseModal({
     })
   }, [])
 
+  // Carrega o catálogo via cache compartilhado. Quando o cache tá quente
+  // (TrainPage já prefetcheou), resolve em < 1ms sem rede — o user vê o
+  // modal pronto na hora. Cold start: hit no backend uma única vez por
+  // sessão e reusa pelas próximas 5 minutos.
   useEffect(() => {
     if (!open) return
     let cancelled = false
-    searchExercisesForPlan(authorizedFetch, { limit: 300 })
+    getExerciseCatalogCached(authorizedFetch)
       .then((data) => { if (!cancelled) setCatalog(data) })
       .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Falha ao carregar') })
       .finally(() => { if (!cancelled) setLoading(false) })
@@ -348,6 +358,9 @@ export function AddExerciseModal({
     setDeleteError(null)
     try {
       await deletePrivateExercise(authorizedFetch, target.id)
+      // Invalida o cache compartilhado pra o exercício deletado também
+      // sumir nos outros modais (Substituir, syncMetadata, etc).
+      invalidateExerciseCatalog()
       setCatalog((current) => current.filter((ex) => ex.id !== target.id))
       setSelectedIds((current) => {
         if (!current.has(target.id)) return current

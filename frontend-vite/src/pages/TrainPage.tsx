@@ -49,6 +49,7 @@ import {
 } from '../lib/exercise-explorer'
 import { isBodyweightEquipment, resolveBodyweightFlag } from '../lib/exercise-meta'
 import { pushRecentExerciseId } from '../lib/recent-exercises'
+import { getExerciseCatalogCached, prefetchExerciseCatalog, invalidateExerciseCatalog } from '../lib/exercise-catalog-cache'
 import { getIntensityMode, setIntensityMode, type IntensityMode } from '../lib/intensity-preference'
 import {
   getNotificationPermission,
@@ -70,7 +71,6 @@ import {
   getSessionHighlights,
   listWorkoutHistory,
   listWorkoutPlans,
-  searchExercisesForPlan,
   startWorkoutSession,
   updatePlanExercise,
   type SessionHighlights,
@@ -1423,6 +1423,14 @@ export function TrainPage() {
     void reloadHistorySummary()
   }, [reloadHistorySummary])
 
+  // Pre-aquece o catálogo de exercícios assim que a TrainPage monta.
+  // Quando o user abrir o modal 'Adicionar exercício' ou 'Substituir',
+  // a lista já tá em memória e o modal abre instantâneo — sem
+  // skeleton, sem flash, sem latência de rede.
+  useEffect(() => {
+    prefetchExerciseCatalog(authorizedFetch)
+  }, [authorizedFetch])
+
   const reloadPlans = useCallback(async (preferredPlanId?: string) => {
     const items = await listWorkoutPlans(authorizedFetch)
     setPlans(items)
@@ -2075,7 +2083,7 @@ export function TrainPage() {
 
     const syncExerciseMetadata = async () => {
       try {
-        const catalog = await searchExercisesForPlan(authorizedFetch, { limit: 300 })
+        const catalog = await getExerciseCatalogCached(authorizedFetch)
         if (cancelled) {
           return
         }
@@ -3120,11 +3128,32 @@ export function TrainPage() {
       return
     }
 
+    // OPTIMISTIC UPDATE: remove a rotina do state IMEDIATAMENTE,
+    // antes do round-trip pro backend. UI fica responsiva — o usuário vê
+    // a rotina sumir instantâneo. Se o backend rejeitar (rede caiu, etc),
+    // restauramos a lista do snapshot pra refletir o estado real.
+    //
+    // Também ajusta o activePlanId caso seja a rotina sendo excluída,
+    // selecionando outra automaticamente (UX padrão tipo Hevy/Strong).
+    const snapshot = plans
+    const remaining = plans.filter((p) => p.id !== plan.id)
+    setPlans(remaining)
+    setError(null)
+    if (activePlanId === plan.id) {
+      setActivePlanId(remaining[0]?.id ?? null)
+    }
+
     try {
-      setError(null)
       await deleteWorkoutPlan(authorizedFetch, plan.id)
-      await reloadPlans()
+      // Sucesso — UI já está correta. Não chama reloadPlans (round-trip
+      // desnecessário) e a próxima entrada em TrainPage vai refletir o
+      // estado certo do banco.
     } catch (err) {
+      // Rollback — restaura a lista anterior + mostra erro.
+      setPlans(snapshot)
+      if (activePlanId === plan.id || activePlanId !== plan.id) {
+        // Não precisa restaurar activePlanId — o snapshot inteiro voltou.
+      }
       setError(err instanceof Error ? err.message : 'Erro ao excluir rotina')
     }
   }
@@ -4715,6 +4744,10 @@ export function TrainPage() {
               // Adiciona o novo exercício no cache de recentes pra ele
               // aparecer na próxima abertura de qualquer picker.
               pushRecentExerciseId(newExercise.id)
+              // Invalida o cache do catálogo pra o exercício recém-criado
+              // aparecer na próxima abertura dos modais. Sem isso, o user
+              // só veria o privado novo depois de 5 min (TTL).
+              invalidateExerciseCatalog()
               if (createExerciseForSubstituteIndex != null) {
                 applySubstitution(createExerciseForSubstituteIndex, newExercise)
               } else if (createExerciseForAdd) {

@@ -5,9 +5,9 @@ import { Search, Activity, Dumbbell } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useScrollLock } from '../../hooks/useScrollLock'
 import { getRecentExerciseIds } from '../../lib/recent-exercises'
-import { searchExercisesForPlan } from '../../services/workoutService'
 import type { ExerciseOption } from '../../types/workout'
 import { matchesExerciseSearch } from '../../lib/exercise-search'
+import { getExerciseCatalogCached, peekExerciseCatalog } from '../../lib/exercise-catalog-cache'
 
 // Forma mínima que o source precisa expor — só o id (pra excluir o
 // próprio do catálogo) e o nome (pra label de aria). Aceita tanto
@@ -41,19 +41,20 @@ export function SubstituteExerciseModal({
   const [search, setSearch] = useState('')
   const [muscleFilter, setMuscleFilter] = useState<string>('ALL')
   const [equipmentFilter, setEquipmentFilter] = useState<string>('ALL')
-  const [catalog, setCatalog] = useState<ExerciseOption[]>([])
-  // Inicia já em loading porque o parent só monta esse componente
-  // quando vai abrir. Evita chamar setLoading(true) dentro do effect
-  // (que o lint react-hooks/set-state-in-effect proíbe).
-  const [loading, setLoading] = useState(true)
+  // Initialização SÍNCRONA: pega o cache se estiver quente (TrainPage
+  // pré-aqueceu via prefetch). Modal abre instantâneo sem flash de
+  // skeleton.
+  const [catalog, setCatalog] = useState<ExerciseOption[]>(() => peekExerciseCatalog() ?? [])
+  const [loading, setLoading] = useState(() => peekExerciseCatalog() == null)
   const [error, setError] = useState<string | null>(null)
 
-  // Carrega o catálogo na abertura. O parent passa `key={...}` então
-  // os filtros já começam frescos por causa do remount.
+  // Usa cache compartilhado — mesmo backend hit serve AddExerciseModal +
+  // SubstituteExerciseModal + syncExerciseMetadata. Coalesce in-flight
+  // evita 3 requests simultâneos.
   useEffect(() => {
     if (!open) return
     let cancelled = false
-    searchExercisesForPlan(authorizedFetch, { limit: 300 })
+    getExerciseCatalogCached(authorizedFetch)
       .then((data) => { if (!cancelled) setCatalog(data) })
       .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Falha ao carregar') })
       .finally(() => { if (!cancelled) setLoading(false) })
