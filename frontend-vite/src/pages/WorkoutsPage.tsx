@@ -1,7 +1,7 @@
 import { useAuth } from '../hooks/useAuth'
 import { useShowPlanLimit } from '../components/plan/use-plan-limit'
 import { catchPlanLimitError } from '../lib/plan-features'
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import {
   getExerciseExplorerSelectionEventName,
   type ExerciseExplorerSelection,
@@ -24,11 +24,25 @@ import {
 import { formatClock } from '../lib/workout-timing'
 import { SkeletonCard } from '../components/common/Skeleton'
 import { ExerciseContextMenuSheet } from './train/ExerciseContextMenuSheet'
-import { ReorderExercisesSheet, type ReorderItem } from './train/ReorderExercisesSheet'
-import { SubstituteExerciseModal } from './train/SubstituteExerciseModal'
-import { CreateExerciseModal } from './train/CreateExerciseModal'
-import { AddExerciseModal } from './train/AddExerciseModal'
+import { type ReorderItem } from './train/ReorderExercisesSheet'
 import { RestTimePickerSheet } from './train/RestTimePickerSheet'
+
+// Modais pesados — lazy-loaded. Mesmo padrão da TrainPage: cada um vira
+// chunk separado, baixa só quando o user toca pra abrir, depois fica em
+// cache de memória do browser. Cortou ~2.100 linhas do bundle inicial
+// desta página.
+const ReorderExercisesSheet = lazy(() =>
+  import('./train/ReorderExercisesSheet').then((m) => ({ default: m.ReorderExercisesSheet })),
+)
+const SubstituteExerciseModal = lazy(() =>
+  import('./train/SubstituteExerciseModal').then((m) => ({ default: m.SubstituteExerciseModal })),
+)
+const CreateExerciseModal = lazy(() =>
+  import('./train/CreateExerciseModal').then((m) => ({ default: m.CreateExerciseModal })),
+)
+const AddExerciseModal = lazy(() =>
+  import('./train/AddExerciseModal').then((m) => ({ default: m.AddExerciseModal })),
+)
 import { InfoDialog } from '../components/common/InfoDialog'
 import { pushRecentExerciseId } from '../lib/recent-exercises'
 import { MoreVertical, Plus } from 'lucide-react'
@@ -1429,6 +1443,10 @@ export function WorkoutsPage({
           onClose={() => setCtxMenuTarget(null)}
         />
       )}
+      {/* Modais lazy-loaded compartilham um Suspense. Fallback null
+          porque o user já tá em transição (acabou de tocar um botão)
+          e a aparição em ~100-300ms parece animação normal. */}
+      <Suspense fallback={null}>
       {reorderPlanId && (() => {
         const targetPlan = plans.find((p) => p.id === reorderPlanId)
         if (!targetPlan) return null
@@ -1540,6 +1558,7 @@ export function WorkoutsPage({
           onClose={() => setAddExerciseTargetPlanId(null)}
         />
       )}
+      </Suspense>
       {restPickerTarget && (
         <RestTimePickerSheet
           key={`rest-${restPickerTarget.planExerciseId}`}
