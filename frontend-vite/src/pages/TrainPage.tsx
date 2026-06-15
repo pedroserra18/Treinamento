@@ -1126,9 +1126,13 @@ function DurationWarningDialog({
   const duracaoLabel = formatMinutesLabel(warning.minutesParsed)
   const direcao = warning.isShort ? 'menos' : 'mais'
   return createPortal(
+    // Backdrop NÃO dismissa o dialog — usuário precisa escolher uma das
+    // 2 opções explicitamente. Evita o bug de toque acidental fora do
+    // card disparar "Manter atual" sem o user perceber.
     <div
       className="fixed inset-0 z-[80] flex items-end justify-center bg-black/55 p-4 backdrop-blur-sm sm:items-center"
-      onClick={onKeep}
+      role="dialog"
+      aria-modal="true"
     >
       <div
         className="w-full max-w-sm rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 shadow-2xl"
@@ -1190,9 +1194,12 @@ function PlanUpdateDialog({
     : `Você ${parts.join(' e ')}.`
 
   return createPortal(
+    // Backdrop NÃO dismissa — decisão sobre atualizar rotina é definitiva,
+    // user precisa escolher uma das 2 opções explicitamente.
     <div
       className="fixed inset-0 z-[80] flex items-end justify-center bg-black/55 p-4 backdrop-blur-sm sm:items-center"
-      onClick={state.applying ? undefined : onKeep}
+      role="dialog"
+      aria-modal="true"
     >
       <div
         className="w-full max-w-sm rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 shadow-2xl"
@@ -2482,7 +2489,11 @@ export function TrainPage() {
     rescheduleIdleReminder()
   }
 
-  const finalizeTraining = () => {
+  // Transição real pra tela de SUMMARY. Extraído pra ser chamado tanto
+  // do happy path quanto dos handlers do DurationWarningDialog (que
+  // pode aparecer antes da transição quando a duração tá fora do
+  // razoável).
+  const transitionToSummary = (durationMinOverride?: number) => {
     const end = new Date()
     setEndedAt(end)
     setIsWorkoutRunning(false)
@@ -2499,11 +2510,34 @@ export function TrainPage() {
     // "30 min de corrida" em 1 min de cronômetro pré-encheria apenas 1 min.
     const cardioMin = Math.round(cardioEntries.reduce((s, c) => s + c.durationSec, 0) / 60)
     const clockMin = Math.round(elapsedSec / 60)
-    setSummaryDurationMin(String(Math.max(1, clockMin, cardioMin)))
+    const computedMin = Math.max(1, clockMin, cardioMin)
+    setSummaryDurationMin(String(durationMinOverride ?? computedMin))
     setScreen('SUMMARY')
     // NÃO limpamos clearActiveWorkout() aqui — se o usuário fechar o tab
     // entre Finalizar e Salvar, perderia o tracking inteiro. O snapshot
     // é limpo só depois do save bem-sucedido (ver saveTraining).
+  }
+
+  // Handler do botão "Finalizar Treino". CHECK 1 (duração incomum) roda
+  // aqui antes da transição pra SUMMARY — fluxo natural: user finaliza,
+  // app pergunta se a duração faz sentido, depois entra na tela de
+  // resumo já com valor correto (ou abre o picker pra ele ajustar).
+  const finalizeTraining = () => {
+    const cardioFallbackMin = Math.round(cardioEntries.reduce((s, c) => s + c.durationSec, 0) / 60)
+    const clockMin = Math.round(elapsedSec / 60)
+    const computedMin = Math.max(1, clockMin, cardioFallbackMin)
+    const UNUSUAL_SHORT_MIN = 10
+    const UNUSUAL_LONG_MIN = 4 * 60
+
+    if (computedMin < UNUSUAL_SHORT_MIN || computedMin > UNUSUAL_LONG_MIN) {
+      setDurationWarning({
+        minutesActual: clockMin,
+        minutesParsed: computedMin,
+        isShort: computedMin < UNUSUAL_SHORT_MIN,
+      })
+      return
+    }
+    transitionToSummary()
   }
 
   // "Voltar" no header do treino ativo agora apenas volta pra dashboard
@@ -2514,7 +2548,14 @@ export function TrainPage() {
     setScreen('DASHBOARD')
   }
 
+  // Volta o user pra tela de treino ativo (em vez de manter no SUMMARY).
+  // Bloqueado quando o treino já foi salvo — sessão concluída não deve
+  // poder ser "reaberta" como se o user estivesse treinando ainda; isso
+  // criava o bug de o user clicar Salvar, achar que salvou, voltar pra
+  // tela ativa e marcar mais séries "fantasma" que não iam mais pro
+  // banco.
   const backToActiveTraining = () => {
+    if (savedSessionId) return
     setEndedAt(null)
     setIsWorkoutRunning(true)
     setScreen('ACTIVE')
@@ -3162,32 +3203,15 @@ export function TrainPage() {
     setManualTimerMinutes('')
   }
 
-  // Handler do botão "Salvar Treino" do SUMMARY. Faz 2 checks
-  // SEQUENCIAIS antes de chamar saveTraining real:
-  //   1. Duração incomum (<10min ou >4h) → dialog "Quer ajustar?"
-  //   2. Rotina mudou (add/remove/reorder) → dialog "Atualizar rotina?"
-  // Cada dialog tem seus próprios botões que decidem se segue ou para.
-  // Se nenhum dispara, save acontece direto sem interrupção.
+  // Handler do botão "Salvar Treino" do SUMMARY. Só CHECK 2 aqui — a
+  // verificação de duração já rodou no Finalizar Treino, então a essa
+  // altura o user já confirmou ou ajustou.
+  //   • Rotina mudou (add/remove/reorder) → dialog "Atualizar rotina?"
+  // Se não houver diff, save acontece direto sem interrupção.
   const handleSaveClick = () => {
     if (saving) return
-    if (durationWarning || planUpdateDialog) return // dialog já aberto
+    if (planUpdateDialog) return // dialog já aberto
 
-    // CHECK 1 — duração
-    const cardioFallbackMin = Math.round(cardioEntries.reduce((s, c) => s + c.durationSec, 0) / 60)
-    const fallbackMin = Math.max(1, Math.round(elapsedSec / 60), cardioFallbackMin)
-    const durationMin = parseDurationMin(summaryDurationMin, fallbackMin)
-    const UNUSUAL_SHORT_MIN = 10
-    const UNUSUAL_LONG_MIN = 4 * 60
-    if (durationMin < UNUSUAL_SHORT_MIN || durationMin > UNUSUAL_LONG_MIN) {
-      setDurationWarning({
-        minutesActual: Math.round(elapsedSec / 60),
-        minutesParsed: durationMin,
-        isShort: durationMin < UNUSUAL_SHORT_MIN,
-      })
-      return
-    }
-
-    // CHECK 2 — diff da rotina
     const diff = computePlanDiff()
     if (diff?.hasDiff) {
       setPlanUpdateDialog({
@@ -3200,33 +3224,24 @@ export function TrainPage() {
       return
     }
 
-    // Sem warnings, segue direto.
     void saveTraining()
   }
 
-  // Handlers dos dialogs
+  // Handlers do DurationWarningDialog (que aparece após Finalizar Treino)
 
+  // Mantém duração calculada pelo cronômetro e transita pra SUMMARY.
+  // O user pode mudar manualmente lá depois se quiser.
   const handleDurationKeepCurrent = () => {
     setDurationWarning(null)
-    // Continua o flow — check 2 + save.
-    const diff = computePlanDiff()
-    if (diff?.hasDiff) {
-      setPlanUpdateDialog({
-        planName: activePlanName,
-        addedCount: diff.added.length,
-        removedCount: diff.removed.length,
-        reordered: diff.reordered,
-        applying: false,
-      })
-      return
-    }
-    void saveTraining()
+    transitionToSummary()
   }
 
+  // Vai pra SUMMARY E abre o picker pra o user ajustar imediatamente.
+  // Picker fica aberto enquanto a tela monta — assim que SUMMARY renderiza,
+  // o overlay do picker tá lá esperando o input. UX contínua, sem 2 cliques.
   const handleDurationAdjust = () => {
     setDurationWarning(null)
-    // Abre o picker existente pra o user editar. Salvar fica por conta
-    // dele tocar o botão de novo depois.
+    transitionToSummary()
     setDurationPickerOpen(true)
   }
 
@@ -3637,14 +3652,20 @@ export function TrainPage() {
         >
           <div className="flex items-center justify-between gap-3">
             <h1 className="text-xl font-bold tracking-tight text-[var(--text)] sm:text-2xl">Resumo do treino</h1>
-            <button
-              type="button"
-              onClick={backToActiveTraining}
-              aria-label="Voltar"
-              className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[var(--line)] text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
-            >
-              <ArrowLeft size={16} />
-            </button>
+            {/* Botão de voltar pro treino ativo só faz sentido ANTES de
+                salvar. Depois do save, a sessão é imutável — esconder o
+                botão evita que o user toque por engano e ache que voltou
+                pra editar (séries adicionadas pós-save seriam perdidas). */}
+            {savedSessionId ? null : (
+              <button
+                type="button"
+                onClick={backToActiveTraining}
+                aria-label="Voltar"
+                className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[var(--line)] text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
+              >
+                <ArrowLeft size={16} />
+              </button>
+            )}
           </div>
         </motion.header>
 
