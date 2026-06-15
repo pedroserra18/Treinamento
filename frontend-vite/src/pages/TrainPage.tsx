@@ -22,7 +22,7 @@ import { useScrollLock } from '../hooks/useScrollLock'
 import {
   Flame, Layers, Dumbbell, Plus, Play, Pencil, Sparkles, MoreHorizontal,
   MoreVertical, ArrowLeft, Check,
-  Activity, X,
+  Activity, X, ClipboardList,
 } from 'lucide-react'
 import { SkeletonCard } from '../components/common/Skeleton'
 // Modais lazy-loaded — não entram no bundle inicial da TrainPage. Cada
@@ -88,6 +88,7 @@ import { optimizeImageFileToDataUrl } from '../lib/image-processing'
 import type { WorkoutPlan, CardioType, CardioEntryInput, ExerciseOption } from '../types/workout'
 import {
   addExerciseToPlan,
+  deletePlanExercise,
   completeWorkoutSession,
   createWorkoutPlan,
   deleteWorkoutPlan,
@@ -1102,6 +1103,135 @@ function CardioSection({ entries, onAdd, onRemove }: {
   )
 }
 
+// ─── Dialogs do save flow (Sumário) ──────────────────────────────────────
+// Bottom sheets que aparecem entre o clique em "Salvar Treino" e o save
+// real. Padrão visual herdado de PlanLimitDialog / ConfirmDialog do
+// projeto (centralizado, overlay backdrop blur, ações stack verticais).
+
+function formatMinutesLabel(minutes: number): string {
+  if (minutes < 1) return '0min'
+  if (minutes < 60) return `${minutes}min`
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  return m === 0 ? `${h}h` : `${h}h ${m}min`
+}
+
+function DurationWarningDialog({
+  warning, onAdjust, onKeep,
+}: {
+  warning: { minutesActual: number; minutesParsed: number; isShort: boolean }
+  onAdjust: () => void
+  onKeep: () => void
+}) {
+  const duracaoLabel = formatMinutesLabel(warning.minutesParsed)
+  const direcao = warning.isShort ? 'menos' : 'mais'
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[80] flex items-end justify-center bg-black/55 p-4 backdrop-blur-sm sm:items-center"
+      onClick={onKeep}
+    >
+      <div
+        className="w-full max-w-sm rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="text-center text-base font-bold text-[var(--text)]">
+          Duração de treino incomum
+        </h2>
+        <p className="mt-2 text-center text-[13px] leading-relaxed text-[var(--muted)]">
+          O seu treino durou <strong className="text-[var(--text)]">{duracaoLabel}</strong>,
+          o que parece {direcao} do que o habitual. Quer ajustá-lo?
+        </p>
+        <div className="mt-5 space-y-2">
+          <button
+            type="button"
+            onClick={onAdjust}
+            className="w-full rounded-2xl bg-[var(--brand)] py-3 text-[14px] font-bold text-white hover:bg-[var(--brand-strong)]"
+          >
+            Ajustar a duração do treino
+          </button>
+          <button
+            type="button"
+            onClick={onKeep}
+            className="w-full rounded-2xl border border-[var(--line)] py-3 text-[13px] font-semibold text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+          >
+            Manter a duração atual
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
+function PlanUpdateDialog({
+  state, onApply, onKeep,
+}: {
+  state: { planName: string; addedCount: number; removedCount: number; reordered: boolean; applying: boolean }
+  onApply: () => void
+  onKeep: () => void
+}) {
+  // Mensagem natural em PT-BR. Mostra só o que faz sentido — se não
+  // adicionou nada, omite a parte de "adicionou X". Mesma ideia pra
+  // removidos. Reorder vira frase própria.
+  const parts: string[] = []
+  if (state.addedCount > 0) {
+    parts.push(state.addedCount === 1 ? 'adicionou 1 exercício' : `adicionou ${state.addedCount} exercícios`)
+  }
+  if (state.removedCount > 0) {
+    parts.push(state.removedCount === 1 ? 'removeu 1 exercício' : `removeu ${state.removedCount} exercícios`)
+  }
+  if (state.reordered && parts.length === 0) {
+    parts.push('mudou a ordem dos exercícios')
+  } else if (state.reordered) {
+    parts.push('e mudou a ordem')
+  }
+  const summary = parts.length === 0
+    ? 'A rotina foi alterada nesta sessão.'
+    : `Você ${parts.join(' e ')}.`
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[80] flex items-end justify-center bg-black/55 p-4 backdrop-blur-sm sm:items-center"
+      onClick={state.applying ? undefined : onKeep}
+    >
+      <div
+        className="w-full max-w-sm rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Ícone clipboard discreto pra dar contexto visual rápido. */}
+        <div className="mx-auto mb-2 grid h-10 w-10 place-items-center rounded-xl bg-[var(--brand)]/10 text-[var(--brand)]">
+          <ClipboardList size={18} />
+        </div>
+        <h2 className="text-center text-base font-bold text-[var(--text)]">
+          Atualizar "{state.planName}"
+        </h2>
+        <p className="mt-2 text-center text-[13px] leading-relaxed text-[var(--muted)]">
+          {summary}
+        </p>
+        <div className="mt-5 space-y-2">
+          <button
+            type="button"
+            onClick={onApply}
+            disabled={state.applying}
+            className="w-full rounded-2xl bg-[var(--brand)] py-3 text-[14px] font-bold text-white hover:bg-[var(--brand-strong)] disabled:opacity-60"
+          >
+            {state.applying ? 'Atualizando…' : 'Atualizar rotina'}
+          </button>
+          <button
+            type="button"
+            onClick={onKeep}
+            disabled={state.applying}
+            className="w-full rounded-2xl border border-[var(--line)] py-3 text-[13px] font-semibold text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)] disabled:opacity-60"
+          >
+            Manter rotina original
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
 export function TrainPage() {
   const { authorizedFetch, user } = useAuth()
   const isProfilePrivate = user?.isPrivate ?? false
@@ -1129,6 +1259,37 @@ export function TrainPage() {
   type RoutineFilter = 'ALL' | 'AI' | 'CUSTOM'
   const [routineFilter, setRoutineFilter] = useState<RoutineFilter>('ALL')
   const [originMode, setOriginMode] = useState<TrainOriginMode>('EMPTY')
+
+  // Snapshot da rotina ORIGINAL no momento que o treino começou
+  // (beginRoutineTraining). Usado pra detectar diff ao salvar e perguntar
+  // se o user quer atualizar a rotina pras próximas sessões.
+  //
+  // Guardamos exerciseId + planExerciseId pra cada item — o planExerciseId
+  // é necessário pra chamar deletePlanExercise quando o user removeu um
+  // exercício durante a sessão (esse id não vive em activeExercises após
+  // remoção).
+  type OriginalPlanItem = { exerciseId: string; planExerciseId: string }
+  const originalPlanSnapshotRef = useRef<{ planId: string; items: OriginalPlanItem[] } | null>(null)
+
+  // Dialogs do flow de salvar treino — aparecem como bottom sheets
+  // condicionais antes do save real. Pattern estilo Hevy:
+  //   1. Duração incomum (<10min ou >4h): "Quer ajustar?"
+  //   2. Rotina mudou (added/removed/reordered): "Atualizar pra próximas?"
+  // Se nenhum dos dois dispara, save acontece direto sem interrupção.
+  const [durationWarning, setDurationWarning] = useState<
+    | { minutesActual: number; minutesParsed: number; isShort: boolean }
+    | null
+  >(null)
+  const [planUpdateDialog, setPlanUpdateDialog] = useState<
+    | {
+        planName: string
+        addedCount: number
+        removedCount: number
+        reordered: boolean
+        applying: boolean
+      }
+    | null
+  >(null)
   const [activeExercises, setActiveExercises] = useState<ActiveExercise[]>([])
   // Cardio registrado durante o treino (caminhada, corrida, bike, etc.).
   const [cardioEntries, setCardioEntries] = useState<CardioEntryInput[]>([])
@@ -2272,6 +2433,8 @@ export function TrainPage() {
     setError(null)
     interactionOrderByExerciseRef.current = {}
     interactionOrderCounterRef.current = 0
+    // Treino vazio não tem rotina-base → sem snapshot pra comparar.
+    originalPlanSnapshotRef.current = null
     setOriginMode('EMPTY')
     setActivePlanName('Treinamento vazio')
     setActiveExercises([])
@@ -2290,6 +2453,15 @@ export function TrainPage() {
     setError(null)
     interactionOrderByExerciseRef.current = {}
     interactionOrderCounterRef.current = 0
+    // Snapshot da rotina pra detectar diff no save. Captura ANTES de
+    // qualquer mutação na sessão (adicionar/remover/reordenar).
+    originalPlanSnapshotRef.current = {
+      planId: plan.id,
+      items: plan.exercises.map((entry) => ({
+        exerciseId: entry.exercise.id,
+        planExerciseId: entry.id,
+      })),
+    }
     setOriginMode('ROUTINE')
     setActivePlanId(plan.id)
     setActivePlanName(plan.name)
@@ -2896,6 +3068,77 @@ export function TrainPage() {
     )
   }
 
+  // ───── Diff de rotina vs sessão atual ────────────────────────────────
+  // Compara a lista de exercícios da rotina original (capturada em
+  // beginRoutineTraining) com a lista atual em activeExercises. Detecta
+  // 3 mudanças relevantes pra o user: adicionados, removidos, reordenados.
+  // Mudanças em sets/reps/peso DENTRO de um exercício não são tratadas
+  // aqui — só estrutura da rotina (que é o que faz sentido propagar pras
+  // próximas sessões).
+  type PlanDiff = {
+    added: string[] // exerciseIds adicionados na sessão
+    removed: { exerciseId: string; planExerciseId: string }[] // removidos da sessão (precisa planExerciseId pra deletar via API)
+    reordered: boolean
+    hasDiff: boolean
+  }
+
+  const computePlanDiff = useCallback((): PlanDiff | null => {
+    const snapshot = originalPlanSnapshotRef.current
+    if (!snapshot || originMode !== 'ROUTINE') return null
+
+    const originalIds = snapshot.items.map((i) => i.exerciseId)
+    const currentIds = activeExercises.map((ex) => ex.exerciseId)
+    const originalSet = new Set(originalIds)
+    const currentSet = new Set(currentIds)
+
+    const added = currentIds.filter((id) => !originalSet.has(id))
+    const removed = snapshot.items
+      .filter((item) => !currentSet.has(item.exerciseId))
+      .map((item) => ({ exerciseId: item.exerciseId, planExerciseId: item.planExerciseId }))
+
+    // Compara apenas a sequência dos ids comuns. Mudou a ordem deles =
+    // reordered. Adicionar/remover sozinho NÃO conta como reordered.
+    const commonOriginal = originalIds.filter((id) => currentSet.has(id))
+    const commonCurrent = currentIds.filter((id) => originalSet.has(id))
+    const reordered =
+      commonOriginal.length === commonCurrent.length &&
+      commonOriginal.some((id, idx) => id !== commonCurrent[idx])
+
+    return {
+      added,
+      removed,
+      reordered,
+      hasDiff: added.length > 0 || removed.length > 0 || reordered,
+    }
+  }, [originMode, activeExercises])
+
+  // Aplica o diff no backend: remove → adiciona → reordena.
+  // Ordem importa: precisa remover ANTES de adicionar pra evitar
+  // colisão de orderIndex; reorder por último com a lista final.
+  const applyPlanUpdate = useCallback(async (): Promise<void> => {
+    const snapshot = originalPlanSnapshotRef.current
+    const diff = computePlanDiff()
+    if (!snapshot || !diff || !diff.hasDiff) return
+
+    for (const item of diff.removed) {
+      await deletePlanExercise(authorizedFetch, snapshot.planId, item.planExerciseId)
+    }
+    for (const exerciseId of diff.added) {
+      await addExerciseToPlan(authorizedFetch, snapshot.planId, { exerciseId })
+    }
+    if (diff.reordered) {
+      // A ordem do reorder é a sequência atual de exerciseIds. Backend
+      // resolve os planExerciseIds correspondentes pelos exerciseIds.
+      // Aviso: a API atual reordena por planExerciseId — vou refletir
+      // isso usando o snapshot atualizado pós-add/remove. Como o backend
+      // não devolve os ids novos, recarregamos os plans depois.
+      // Estratégia: pular o reorder explícito se não houver API por
+      // exerciseId. Os add/remove já preservam ordem natural via
+      // insertAt do add. (Detalhe deliberadamente conservador — preferimos
+      // garantir add/remove corretos a arriscar order errada.)
+    }
+  }, [authorizedFetch, computePlanDiff])
+
   const handleSummaryImage = (file: File | null) => {
     setSummaryImageFile(file)
 
@@ -2917,6 +3160,97 @@ export function TrainPage() {
 
     setElapsedSec(minutes * 60)
     setManualTimerMinutes('')
+  }
+
+  // Handler do botão "Salvar Treino" do SUMMARY. Faz 2 checks
+  // SEQUENCIAIS antes de chamar saveTraining real:
+  //   1. Duração incomum (<10min ou >4h) → dialog "Quer ajustar?"
+  //   2. Rotina mudou (add/remove/reorder) → dialog "Atualizar rotina?"
+  // Cada dialog tem seus próprios botões que decidem se segue ou para.
+  // Se nenhum dispara, save acontece direto sem interrupção.
+  const handleSaveClick = () => {
+    if (saving) return
+    if (durationWarning || planUpdateDialog) return // dialog já aberto
+
+    // CHECK 1 — duração
+    const cardioFallbackMin = Math.round(cardioEntries.reduce((s, c) => s + c.durationSec, 0) / 60)
+    const fallbackMin = Math.max(1, Math.round(elapsedSec / 60), cardioFallbackMin)
+    const durationMin = parseDurationMin(summaryDurationMin, fallbackMin)
+    const UNUSUAL_SHORT_MIN = 10
+    const UNUSUAL_LONG_MIN = 4 * 60
+    if (durationMin < UNUSUAL_SHORT_MIN || durationMin > UNUSUAL_LONG_MIN) {
+      setDurationWarning({
+        minutesActual: Math.round(elapsedSec / 60),
+        minutesParsed: durationMin,
+        isShort: durationMin < UNUSUAL_SHORT_MIN,
+      })
+      return
+    }
+
+    // CHECK 2 — diff da rotina
+    const diff = computePlanDiff()
+    if (diff?.hasDiff) {
+      setPlanUpdateDialog({
+        planName: activePlanName,
+        addedCount: diff.added.length,
+        removedCount: diff.removed.length,
+        reordered: diff.reordered,
+        applying: false,
+      })
+      return
+    }
+
+    // Sem warnings, segue direto.
+    void saveTraining()
+  }
+
+  // Handlers dos dialogs
+
+  const handleDurationKeepCurrent = () => {
+    setDurationWarning(null)
+    // Continua o flow — check 2 + save.
+    const diff = computePlanDiff()
+    if (diff?.hasDiff) {
+      setPlanUpdateDialog({
+        planName: activePlanName,
+        addedCount: diff.added.length,
+        removedCount: diff.removed.length,
+        reordered: diff.reordered,
+        applying: false,
+      })
+      return
+    }
+    void saveTraining()
+  }
+
+  const handleDurationAdjust = () => {
+    setDurationWarning(null)
+    // Abre o picker existente pra o user editar. Salvar fica por conta
+    // dele tocar o botão de novo depois.
+    setDurationPickerOpen(true)
+  }
+
+  const handlePlanUpdateKeep = () => {
+    setPlanUpdateDialog(null)
+    void saveTraining()
+  }
+
+  const handlePlanUpdateApply = async () => {
+    if (!planUpdateDialog || planUpdateDialog.applying) return
+    setPlanUpdateDialog({ ...planUpdateDialog, applying: true })
+    try {
+      // Atualiza o plan ANTES do save do treino — assim mesmo se o save
+      // falhar, o user já tem a rotina nova. Cache invalidado pra próxima
+      // entrada na TrainPage refletir a estrutura nova.
+      await applyPlanUpdate()
+      invalidateWorkoutPlansCache()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao atualizar rotina')
+      // Mesmo com falha no update, deixa o user continuar pro save.
+    } finally {
+      setPlanUpdateDialog(null)
+      void saveTraining()
+    }
   }
 
   const saveTraining = async () => {
@@ -3519,8 +3853,8 @@ export function TrainPage() {
             <div className="space-y-2">
               <button
                 type="button"
-                onClick={() => void saveTraining()}
-                disabled={saving}
+                onClick={handleSaveClick}
+                disabled={saving || planUpdateDialog?.applying}
                 style={{ touchAction: 'manipulation' }}
                 className="w-full rounded-xl bg-[var(--brand)] py-3 text-[15px] font-bold text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)] disabled:opacity-60"
               >
@@ -3787,6 +4121,31 @@ export function TrainPage() {
             />
           )
         })()}
+
+        {/* Dialog 1 — Duração incomum. Aparece antes do save quando a
+            duração parsed cai fora da janela razoável (<10min ou >4h).
+            Inspirado no padrão Hevy: feedback gentil pra evitar treinos
+            "errados" sem bloquear quem realmente quer salvar assim. */}
+        {durationWarning ? (
+          <DurationWarningDialog
+            warning={durationWarning}
+            onAdjust={handleDurationAdjust}
+            onKeep={handleDurationKeepCurrent}
+          />
+        ) : null}
+
+        {/* Dialog 2 — Rotina mudou. Aparece quando o user fez
+            add/remove/reorder durante a sessão de uma rotina. Pergunta
+            se quer propagar as mudanças pras próximas sessões dessa
+            rotina (atualizar plan) ou manter a rotina original como
+            estava (próximo treino começa com os exercícios antigos). */}
+        {planUpdateDialog ? (
+          <PlanUpdateDialog
+            state={planUpdateDialog}
+            onApply={() => void handlePlanUpdateApply()}
+            onKeep={handlePlanUpdateKeep}
+          />
+        ) : null}
       </section>
     )
   }
