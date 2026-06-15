@@ -74,6 +74,7 @@ import {
   invalidateWorkoutPlansCache,
 } from '../lib/workout-plans-cache'
 import { workoutHistoryCache } from '../lib/workout-history-cache'
+import { feedFirstPageCache } from '../lib/feed-cache'
 import { getIntensityMode, setIntensityMode, type IntensityMode } from '../lib/intensity-preference'
 import {
   getNotificationPermission,
@@ -3677,6 +3678,9 @@ export function TrainPage() {
                               photoUrl: photoDataUrl,
                               privacy: postPrivacy,
                             })
+                            // Invalida o cache do feed pra próximo abrir
+                            // já mostrar o post recém-criado.
+                            feedFirstPageCache.invalidate()
                             // Lembra a última privacy escolhida pra
                             // o próximo treino abrir já marcado nela.
                             try { window.localStorage.setItem('acad:last-post-privacy', postPrivacy) } catch { /* ignora */ }

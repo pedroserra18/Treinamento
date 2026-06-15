@@ -7,7 +7,9 @@ import {
 import { useAuth } from '../hooks/useAuth'
 import { useScrollLock } from '../hooks/useScrollLock'
 import { listWorkoutHistory } from '../services/workoutService'
-import { getFollowers, getFollowing, type UserSearchResult } from '../services/socialService'
+import { type UserSearchResult } from '../services/socialService'
+import { workoutHistoryCache } from '../lib/workout-history-cache'
+import { followersCache, followingCache } from '../lib/social-cache'
 import { ImageViewer } from '../components/common/ImageViewer'
 import { WorkoutSessionCard } from '../components/common/WorkoutSessionCard'
 import type { WorkoutSessionHistory } from '../types/workout'
@@ -305,16 +307,25 @@ export function ProfilePage() {
 
   // Infinite history — we accumulate items page by page and let the rest of
   // the page (stats, calendar, hero counts) reflect what's been loaded so far.
-  const [items, setItems] = useState<WorkoutSessionHistory[]>([])
-  const [page, setPage] = useState(0) // 0 = nothing fetched yet
-  const [totalCount, setTotalCount] = useState<number | null>(null)
+  //
+  // Inicialização SÍNCRONA via cache: o workoutHistoryCache é populado
+  // por HomePage/TrainPage (50 items). Se já tem cache, mostramos esses
+  // items na hora (cobre as primeiras paginações naturalmente). fetchPage(1)
+  // no useEffect refetcha pra trazer dados frescos (refetch em background).
+  const cachedHistory = workoutHistoryCache.peek()
+  const [items, setItems] = useState<WorkoutSessionHistory[]>(() => cachedHistory?.items ?? [])
+  const [page, setPage] = useState(cachedHistory ? 1 : 0)
+  const [totalCount, setTotalCount] = useState<number | null>(cachedHistory?.total ?? null)
   const [loadingPage, setLoadingPage] = useState(false)
-  const [initialLoad, setInitialLoad] = useState(true)
+  const [initialLoad, setInitialLoad] = useState(!cachedHistory)
   const [error, setError] = useState<string | null>(null)
 
-  const [followers, setFollowers] = useState<UserSearchResult[]>([])
-  const [following, setFollowing] = useState<UserSearchResult[]>([])
-  const [socialLoaded, setSocialLoaded] = useState(false)
+  // Social: peek do cache renderiza counts instantâneos no hero.
+  const [followers, setFollowers] = useState<UserSearchResult[]>(() => followersCache.peek() ?? [])
+  const [following, setFollowing] = useState<UserSearchResult[]>(() => followingCache.peek() ?? [])
+  const [socialLoaded, setSocialLoaded] = useState(
+    followersCache.peek() != null && followingCache.peek() != null,
+  )
   const [openPanel, setOpenPanel] = useState<'followers' | 'following' | null>(null)
   const [viewerOpen, setViewerOpen] = useState(false)
   const [statMode, setStatMode] = useState<StatMode>('duration')
@@ -355,7 +366,9 @@ export function ProfilePage() {
 
   useEffect(() => {
     let cancelled = false
-    Promise.all([getFollowers(authorizedFetch), getFollowing(authorizedFetch)])
+    // Caches em paralelo. Hit (TTL 5min): resolve em <1ms; miss: fetch
+    // único com coalesce. Atualiza state quando dados frescos chegam.
+    Promise.all([followersCache.get(authorizedFetch), followingCache.get(authorizedFetch)])
       .then(([f, g]) => {
         if (cancelled) return
         setFollowers(f)

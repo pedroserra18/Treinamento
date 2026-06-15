@@ -3,10 +3,12 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import {
-  getFeed, toggleLike, deletePost, updatePostPrivacy,
-  searchUsers, followUser, unfollowUser, getFollowing,
+  toggleLike, deletePost, updatePostPrivacy,
+  searchUsers, followUser, unfollowUser,
   type FeedPost, type PostPrivacy, type UserSearchResult,
 } from '../services/socialService'
+import { feedFirstPageCache } from '../lib/feed-cache'
+import { followingCache } from '../lib/social-cache'
 import { SkeletonCard } from '../components/common/Skeleton'
 import { FeedPostCard, Avatar } from '../components/common/FeedPostCard'
 import { Rss, Search } from 'lucide-react'
@@ -28,14 +30,21 @@ const FILTER_LABELS: Record<FeedFilter, string> = {
 export function FeedPage() {
   const { authorizedFetch, user } = useAuth()
   const navigate = useNavigate()
-  const [posts, setPosts] = useState<FeedPost[]>([])
-  const [loading, setLoading] = useState(true)
+  // Inicialização SÍNCRONA via peek: se o cache (TTL 30s) tem feed
+  // recente, mostra na hora — sem flash de skeleton. Mesmo pattern do
+  // followingCache pra o set de IDs que populam o botão Seguir.
+  const cachedFeed = feedFirstPageCache.peek()
+  const cachedFollowing = followingCache.peek()
+  const [posts, setPosts] = useState<FeedPost[]>(() => cachedFeed ?? [])
+  const [loading, setLoading] = useState(() => cachedFeed == null)
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<UserSearchResult[]>([])
   const [searching, setSearching] = useState(false)
   const [filter, setFilter] = useState<FeedFilter>('amigos')
-  const [followingIds, setFollowingIds] = useState<Set<string>>(new Set())
+  const [followingIds, setFollowingIds] = useState<Set<string>>(
+    () => new Set((cachedFollowing ?? []).map((u) => u.id)),
+  )
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const [toast, setToast] = useState<string | null>(null)
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -58,10 +67,12 @@ export function FeedPage() {
 
   const load = useCallback(async () => {
     try {
-      setLoading(true)
+      // Só mostra skeleton se NÃO tem cache. Stale-while-revalidate:
+      // refetch silencioso quando temos peek; mostra skeleton só no cold.
+      if (!feedFirstPageCache.peek()) setLoading(true)
       const [data, following] = await Promise.all([
-        getFeed(authorizedFetch),
-        getFollowing(authorizedFetch).catch(() => [] as UserSearchResult[]),
+        feedFirstPageCache.get(authorizedFetch),
+        followingCache.get(authorizedFetch).catch(() => [] as UserSearchResult[]),
       ])
       setPosts(data)
       setFollowingIds(new Set(following.map((u) => u.id)))
@@ -116,6 +127,11 @@ export function FeedPage() {
         await followUser(authorizedFetch, result.id)
       }
       setSearchResults((prev) => prev.map((u) => u.id === result.id ? { ...u, isFollowing: !u.isFollowing } : u))
+      // Mudou quem o user segue → o feed muda (passa a ver/parar de ver
+      // posts dessa pessoa). Invalida ambos os caches; próxima visita
+      // pega dados frescos.
+      followingCache.invalidate()
+      feedFirstPageCache.invalidate()
     } catch { /* silent */ }
   }
 
@@ -138,6 +154,9 @@ export function FeedPage() {
     try {
       await deletePost(authorizedFetch, postId)
       setPosts((prev) => prev.filter((p) => p.id !== postId))
+      // Cache local fica defasado (sem o post deletado). Invalida pra
+      // próxima visita refletir o estado real do banco.
+      feedFirstPageCache.invalidate()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao deletar post')
     }
