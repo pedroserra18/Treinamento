@@ -3154,18 +3154,29 @@ export function TrainPage() {
   }, [originMode, activeExercises])
 
   // Aplica o diff no backend: remove → adiciona → reordena.
-  // Ordem importa: precisa remover ANTES de adicionar pra evitar
-  // colisão de orderIndex; reorder por último com a lista final.
+  // Ordem importa entre as fases (remove ANTES de add pra evitar colisão
+  // de orderIndex), mas DENTRO de cada fase os requests são independentes
+  // (cada delete tem seu planExerciseId, cada add é append). Paralelizar
+  // com Promise.all reduz N round-trips a 2 batches → ganho significativo
+  // quando user mexeu em vários exercícios.
   const applyPlanUpdate = useCallback(async (): Promise<void> => {
     const snapshot = originalPlanSnapshotRef.current
     const diff = computePlanDiff()
     if (!snapshot || !diff || !diff.hasDiff) return
 
-    for (const item of diff.removed) {
-      await deletePlanExercise(authorizedFetch, snapshot.planId, item.planExerciseId)
+    if (diff.removed.length > 0) {
+      await Promise.all(
+        diff.removed.map((item) =>
+          deletePlanExercise(authorizedFetch, snapshot.planId, item.planExerciseId),
+        ),
+      )
     }
-    for (const exerciseId of diff.added) {
-      await addExerciseToPlan(authorizedFetch, snapshot.planId, { exerciseId })
+    if (diff.added.length > 0) {
+      await Promise.all(
+        diff.added.map((exerciseId) =>
+          addExerciseToPlan(authorizedFetch, snapshot.planId, { exerciseId }),
+        ),
+      )
     }
     if (diff.reordered) {
       // A ordem do reorder é a sequência atual de exerciseIds. Backend
@@ -3250,22 +3261,31 @@ export function TrainPage() {
     void saveTraining()
   }
 
-  const handlePlanUpdateApply = async () => {
+  const handlePlanUpdateApply = () => {
     if (!planUpdateDialog || planUpdateDialog.applying) return
-    setPlanUpdateDialog({ ...planUpdateDialog, applying: true })
-    try {
-      // Atualiza o plan ANTES do save do treino — assim mesmo se o save
-      // falhar, o user já tem a rotina nova. Cache invalidado pra próxima
-      // entrada na TrainPage refletir a estrutura nova.
-      await applyPlanUpdate()
-      invalidateWorkoutPlansCache()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao atualizar rotina')
-      // Mesmo com falha no update, deixa o user continuar pro save.
-    } finally {
-      setPlanUpdateDialog(null)
-      void saveTraining()
-    }
+    // Fecha o dialog imediatamente — não precisa segurar o user enquanto
+    // os requests rodam. O spinner do botão "Salvar Treino" cobre o estado
+    // global ("Salvando…") pra ambas as operações.
+    setPlanUpdateDialog(null)
+
+    // PARALELO: plan update e save de sessão são independentes no backend
+    // (afetam tabelas diferentes — WorkoutPlanExercise vs WorkoutSession).
+    // Rodar em paralelo corta ~1-2s no caso "atualizar rotina + salvar".
+    // Se applyPlanUpdate falhar, o save continua (treino não é perdido) e
+    // mostramos um erro lateral pro user saber que a rotina não atualizou.
+    void applyPlanUpdate()
+      .then(() => {
+        invalidateWorkoutPlansCache()
+      })
+      .catch((err) => {
+        setError(
+          err instanceof Error
+            ? `Falha ao atualizar rotina: ${err.message} (treino foi salvo)`
+            : 'Falha ao atualizar rotina (treino foi salvo)',
+        )
+      })
+
+    void saveTraining()
   }
 
   const saveTraining = async () => {
@@ -3479,33 +3499,40 @@ export function TrainPage() {
       // pra qualquer ação subsequente (post, share, competition).
       clearActiveWorkout()
 
-      // Fetch the active competition silently so the "Enviar para desafio"
-      // button knows whether to render. We accept LOBBY too so we can show
-      // a "waiting to start" hint instead of just hiding the card. Failure
-      // is non-blocking but logged so we can debug if needed.
-      try {
-        const comp = await getMyActiveCompetition(authorizedFetch)
-        if (comp && (comp.status === 'ACTIVE' || comp.status === 'LOBBY')) {
-          setActiveCompetition(comp)
-        }
-      } catch (err) {
-        console.warn('Failed to fetch active competition for summary CTA', err)
-      }
-
-      if (summaryImageFile) {
-        try {
-          await saveWorkoutSessionImage(started.id, summaryImageFile)
-        } catch {
-          // Keep workout save successful even if browser storage is unavailable.
-        }
-      }
-
       // Sessão salva pode ter mudado o status do plano (concluído etc)
       // E adiciona um item novo ao histórico. Invalida os dois caches
       // pra refletir mudanças imediatas no resto do app (Home, Progress).
       invalidateWorkoutPlansCache()
       workoutHistoryCache.invalidate()
-      await reloadPlans()
+
+      // === Tarefas pós-save em BACKGROUND ===
+      // Tudo daqui pra baixo não precisa segurar o spinner "Salvando…".
+      // Save crítico já completou; user vê SUMMARY salvo imediato.
+      //
+      // 1) Imagem do treino — gravação local (IndexedDB), não-crítico.
+      if (summaryImageFile) {
+        const file = summaryImageFile
+        const sessionId = started.id
+        void saveWorkoutSessionImage(sessionId, file).catch(() => {
+          // Keep workout save successful even if browser storage is unavailable.
+        })
+      }
+
+      // 2) CTA "Enviar pro desafio" — cosmético, aparece async no SUMMARY.
+      void getMyActiveCompetition(authorizedFetch)
+        .then((comp) => {
+          if (comp && (comp.status === 'ACTIVE' || comp.status === 'LOBBY')) {
+            setActiveCompetition(comp)
+          }
+        })
+        .catch((err) => console.warn('Failed to fetch active competition for summary CTA', err))
+
+      // 3) reloadPlans em BACKGROUND — antes era awaited, o que travava o
+      // spinner por ~500ms-1s. Continua rodando pra o user ver status
+      // atualizado (ex: "concluído") ao voltar pra DASHBOARD, mas sem
+      // bloquear o save. O cache invalidate acima já garante consistência
+      // mesmo se essa chamada falhar.
+      void reloadPlans().catch(() => {})
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao salvar treino')
     } finally {
@@ -3876,6 +3903,7 @@ export function TrainPage() {
                 type="button"
                 onClick={handleSaveClick}
                 disabled={saving || planUpdateDialog?.applying}
+                aria-busy={saving || planUpdateDialog?.applying}
                 style={{ touchAction: 'manipulation' }}
                 className="w-full rounded-xl bg-[var(--brand)] py-3 text-[15px] font-bold text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)] disabled:opacity-60"
               >
