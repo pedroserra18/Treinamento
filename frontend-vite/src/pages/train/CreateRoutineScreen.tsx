@@ -3,13 +3,12 @@ import { motion } from 'framer-motion'
 import {
   MoreVertical, Timer, Plus, Dumbbell,
 } from 'lucide-react'
-import type { ExerciseOption } from '../../types/workout'
+import type { ExerciseOption, WorkoutPlan } from '../../types/workout'
 import { useAuth } from '../../hooks/useAuth'
 import { useShowPlanLimit } from '../../components/plan/use-plan-limit'
 import { catchPlanLimitError } from '../../lib/plan-features'
 import {
-  addPlanExercisesBatch,
-  createWorkoutPlan,
+  createWorkoutPlanWithExercises,
 } from '../../services/workoutService'
 import { pushRecentExerciseId } from '../../lib/recent-exercises'
 import { formatClock } from '../../lib/workout-timing'
@@ -71,7 +70,10 @@ export function CreateRoutineScreen({
   onCancel, onSaved,
 }: {
   onCancel: () => void
-  onSaved: (createdPlanId: string) => void
+  // onSaved recebe o plan completo (com exercises hidratados) pra que o
+  // parent atualize lista local sem precisar de reloadPlans → 0 round-trips
+  // extra depois do save.
+  onSaved: (created: WorkoutPlan) => void
 }) {
   const { authorizedFetch } = useAuth()
   const showPlanLimit = useShowPlanLimit()
@@ -171,14 +173,14 @@ export function CreateRoutineScreen({
     }
     setSaving(true)
     try {
-      const created = await createWorkoutPlan(authorizedFetch, {
+      // Endpoint combinado: criar plan + adicionar exercícios em UMA
+      // transação atômica e UM round-trip. Antes eram 3 hops sequenciais
+      // (createPlan + batch + reloadPlans) → agora é 1 hop, ~300ms no
+      // Render free tier. Resposta já vem com o plan hidratado pro parent
+      // atualizar a lista sem refetch.
+      const created = await createWorkoutPlanWithExercises(authorizedFetch, {
         name: trimmedName,
         source: 'CUSTOM',
-      })
-      // 1 round-trip batch em vez de N: backend insere todos numa única
-      // transação atômica, preservando a ordem do array. Pra rotinas com 5-10
-      // exercícios isso vai de ~3s pra ~500ms no Render free tier.
-      await addPlanExercisesBatch(authorizedFetch, created.id, {
         exercises: exercises.map((ex) => {
           const repsMinNum = Number(ex.repsMin)
           const repsMaxNum = Number(ex.repsMax)
@@ -192,7 +194,7 @@ export function CreateRoutineScreen({
           }
         }),
       })
-      onSaved(created.id)
+      onSaved(created)
     } catch (err) {
       if (catchPlanLimitError(err, showPlanLimit)) {
         setSaving(false)

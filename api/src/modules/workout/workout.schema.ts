@@ -121,6 +121,20 @@ export const deletePlanExercisesBatchBodySchema = z
   })
   .strict();
 
+// Endpoint combinado: criar plan + adicionar exercícios em UMA única
+// requisição/transação. Reduz 2 round-trips do fluxo "Criar nova rotina"
+// pra 1, cortando ~300-500ms de latência percebida no Render free tier.
+export const createWorkoutPlanWithExercisesBodySchema = z
+  .object({
+    name: z.string().trim().min(2).max(120),
+    description: z.string().trim().min(1).max(500).optional(),
+    source: z.enum(["CUSTOM", "RECOMMENDATION"]).default("CUSTOM"),
+    templateKey: z.string().trim().min(2).max(120).optional(),
+    daysPerWeek: z.number().int().min(1).max(7).optional(),
+    exercises: z.array(addPlanExerciseBatchItemSchema).min(0).max(50)
+  })
+  .strict();
+
 export const completeWorkoutParamsSchema = z
   .object({
     sessionId: z.string().cuid()
@@ -280,6 +294,7 @@ export type UpdatePlanExerciseBody = z.infer<typeof updatePlanExerciseBodySchema
 export type ReorderPlanExercisesBody = z.infer<typeof reorderPlanExercisesBodySchema>;
 export type AddPlanExercisesBatchBody = z.infer<typeof addPlanExercisesBatchBodySchema>;
 export type DeletePlanExercisesBatchBody = z.infer<typeof deletePlanExercisesBatchBodySchema>;
+export type CreateWorkoutPlanWithExercisesBody = z.infer<typeof createWorkoutPlanWithExercisesBodySchema>;
 export type CompleteWorkoutParams = z.infer<typeof completeWorkoutParamsSchema>;
 export type CompleteWorkoutBody = z.infer<typeof completeWorkoutBodySchema>;
 export type ListWorkoutHistoryQuery = z.infer<typeof listWorkoutHistoryQuerySchema>;

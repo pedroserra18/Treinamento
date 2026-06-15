@@ -578,6 +578,45 @@ export async function deletePlanExercise(
   }
 }
 
+// Cria a rotina + adiciona exercícios numa única requisição/transação.
+// Substitui o fluxo "createWorkoutPlan() + addPlanExercisesBatch()" do
+// CreateRoutineScreen — corta 1 round-trip do caminho crítico. Resposta
+// devolve o plan completo (mesma shape do listWorkoutPlans) pra atualizar
+// state local sem refetch.
+export async function createWorkoutPlanWithExercises(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  input: {
+    name: string
+    description?: string
+    source?: 'CUSTOM' | 'RECOMMENDATION'
+    templateKey?: string
+    daysPerWeek?: number
+    exercises: Array<{
+      exerciseId: string
+      sets?: number
+      repsMin?: number
+      repsMax?: number
+      durationSec?: number
+      restSec?: number
+      notes?: string
+    }>
+  },
+): Promise<WorkoutPlan> {
+  const response = await authorizedFetch(`${API_URL}/workouts/plans/with-exercises`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+
+  const payload = await parsePayload(response)
+
+  if (!response.ok) {
+    throw new Error(payload.errorMessage ?? 'Falha ao criar rotina')
+  }
+
+  return payload.data as WorkoutPlan
+}
+
 // Batch atômico — todos os exercícios são inseridos em uma única transação
 // no backend, eliminando race conditions do @@unique(workoutPlanId, orderIndex)
 // e cortando N round-trips pra 1. Use em vez do loop de addExerciseToPlan

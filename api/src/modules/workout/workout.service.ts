@@ -12,6 +12,7 @@ import {
   AddPlanExercisesBatchBody,
   CreateManualHistoryBody,
   CreateWorkoutPlanBody,
+  CreateWorkoutPlanWithExercisesBody,
   CompleteWorkoutBody,
   CompleteWorkoutParams,
   DeletePlanExercisesBatchBody,
@@ -393,6 +394,112 @@ export async function createWorkoutPlan(userId: string, payload: CreateWorkoutPl
   });
 }
 
+// Cria o plan E adiciona os exercícios numa única transação atômica.
+// Substitui o fluxo "createWorkoutPlan() + addExercisesToPlanBatch()" que
+// fazia 2 round-trips do client. Tudo numa transação garante: se o batch
+// falhar, o plan é revertido (sem rotina vazia órfã).
+export async function createWorkoutPlanWithExercises(
+  userId: string,
+  payload: CreateWorkoutPlanWithExercisesBody
+) {
+  const currentCount = await prisma.workoutPlan.count({
+    where: { userId, archivedAt: null, status: { in: ["ACTIVE", "DRAFT"] } }
+  });
+  await assertWithinLimit(userId, "workoutPlans", currentCount);
+
+  const incomingIds = payload.exercises.map((item) => item.exerciseId);
+
+  // Dedup dentro do lote.
+  if (new Set(incomingIds).size !== incomingIds.length) {
+    throw new AppError("Exercicio duplicado no lote", {
+      statusCode: 400,
+      code: "PLAN_EXERCISE_BATCH_DUPLICATE"
+    });
+  }
+
+  // Availability check single-query (GLOBAL ou PRIVATE do user).
+  if (incomingIds.length > 0) {
+    const availableCount = await prisma.exercise.count({
+      where: {
+        id: { in: incomingIds },
+        isActive: true,
+        OR: [{ scope: "GLOBAL" }, { scope: "PRIVATE", ownerUserId: userId }]
+      }
+    });
+    if (availableCount !== incomingIds.length) {
+      throw new AppError("Exercise not found", {
+        statusCode: 404,
+        code: "EXERCISE_NOT_FOUND"
+      });
+    }
+  }
+
+  const planId = await prisma.$transaction(async (tx) => {
+    const plan = await tx.workoutPlan.create({
+      data: {
+        userId,
+        name: payload.name,
+        description:
+          payload.source === "RECOMMENDATION"
+            ? `${payload.description ?? ""} [Template: ${payload.templateKey ?? "custom"}; Dias: ${payload.daysPerWeek ?? "n/a"}]`.trim()
+            : payload.description,
+        status: "ACTIVE"
+      }
+    });
+
+    if (payload.exercises.length > 0) {
+      await tx.workoutPlanExercise.createMany({
+        data: payload.exercises.map((item, i) => ({
+          workoutPlanId: plan.id,
+          exerciseId: item.exerciseId,
+          orderIndex: i + 1,
+          sets: item.sets,
+          repsMin: item.repsMin,
+          repsMax: item.repsMax,
+          durationSec: item.durationSec,
+          restSec: item.restSec,
+          notes: item.notes
+        }))
+      });
+    }
+
+    return plan.id;
+  });
+
+  // Devolve o plan completo (mesma shape do listUserWorkoutPlans) pro
+  // cliente atualizar a lista local sem refetch — economiza mais 1 round-trip.
+  const full = await prisma.workoutPlan.findFirstOrThrow({
+    where: { id: planId, userId },
+    include: {
+      exercises: {
+        orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
+        include: {
+          exercise: {
+            select: {
+              id: true,
+              name: true,
+              primaryMuscleGroup: true,
+              difficulty: true,
+              equipment: true,
+              isBodyweight: true,
+              allowsExtraLoad: true,
+              trackingType: true,
+              thumbnailUrl: true,
+              videoUrl: true
+            }
+          }
+        }
+      },
+      cardio: {
+        orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
+        select: { id: true, orderIndex: true, type: true, durationSec: true, distanceMeters: true, notes: true }
+      }
+    }
+  });
+
+  return full;
+}
+
 export async function deleteWorkoutPlan(userId: string, params: WorkoutPlanParams) {
   await assertOwnedPlan(params.planId, userId);
 
@@ -714,45 +821,24 @@ export async function addExercisesToPlanBatch(
 
   const baseIndex = (plan.exercises[plan.exercises.length - 1]?.orderIndex ?? 0) + 1;
 
-  const created = await prisma.$transaction(async (tx) => {
-    const results: Array<Prisma.WorkoutPlanExerciseGetPayload<{
-      include: { exercise: { select: { id: true; name: true; primaryMuscleGroup: true; difficulty: true; equipment: true; isBodyweight: true; allowsExtraLoad: true; trackingType: true } } }
-    }>> = [];
-    for (let i = 0; i < payload.exercises.length; i += 1) {
-      const item = payload.exercises[i];
-      const row = await tx.workoutPlanExercise.create({
-        data: {
-          workoutPlanId: params.planId,
-          exerciseId: item.exerciseId,
-          orderIndex: baseIndex + i,
-          sets: item.sets,
-          repsMin: item.repsMin,
-          repsMax: item.repsMax,
-          durationSec: item.durationSec,
-          restSec: item.restSec,
-          notes: item.notes
-        },
-        include: {
-          exercise: {
-            select: {
-              id: true,
-              name: true,
-              primaryMuscleGroup: true,
-              difficulty: true,
-              equipment: true,
-              isBodyweight: true,
-              allowsExtraLoad: true,
-              trackingType: true
-            }
-          }
-        }
-      });
-      results.push(row);
-    }
-    return results;
+  // createMany numa única query em vez de N inserts dentro da transação.
+  // O cliente não usa os rows criados (chama listUserWorkoutPlans depois ou
+  // confia no cache invalidate), então só retornamos `count`.
+  const result = await prisma.workoutPlanExercise.createMany({
+    data: payload.exercises.map((item, i) => ({
+      workoutPlanId: params.planId,
+      exerciseId: item.exerciseId,
+      orderIndex: baseIndex + i,
+      sets: item.sets,
+      repsMin: item.repsMin,
+      repsMax: item.repsMax,
+      durationSec: item.durationSec,
+      restSec: item.restSec,
+      notes: item.notes
+    }))
   });
 
-  return created;
+  return { success: true, count: result.count };
 }
 
 export async function deletePlanExercisesBatch(

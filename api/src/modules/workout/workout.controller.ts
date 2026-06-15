@@ -6,6 +6,7 @@ import {
   addPlanCardio,
   createManualWorkoutHistory,
   createWorkoutPlan,
+  createWorkoutPlanWithExercises,
   deletePlanCardio,
   deletePlanExercise,
   deletePlanExercisesBatch,
@@ -35,6 +36,7 @@ import {
   AddPlanExercisesBatchBody,
   CreateManualHistoryBody,
   CreateWorkoutPlanBody,
+  CreateWorkoutPlanWithExercisesBody,
   CompleteWorkoutBody,
   CompleteWorkoutParams,
   DeletePlanExercisesBatchBody,
@@ -118,6 +120,19 @@ export async function createWorkoutPlanController(req: Request, res: Response): 
   const userId = req.context.userId as string;
   const payload = req.body as CreateWorkoutPlanBody;
   const plan = await createWorkoutPlan(userId, payload);
+
+  res.status(201).json({
+    data: plan,
+    meta: {
+      requestId: req.context.requestId
+    }
+  });
+}
+
+export async function createWorkoutPlanWithExercisesController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const payload = req.body as CreateWorkoutPlanWithExercisesBody;
+  const plan = await createWorkoutPlanWithExercises(userId, payload);
 
   res.status(201).json({
     data: plan,

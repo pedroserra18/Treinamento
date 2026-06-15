@@ -11,6 +11,7 @@ import {
   completeWorkoutParamsSchema,
   createManualHistoryBodySchema,
   createWorkoutPlanBodySchema,
+  createWorkoutPlanWithExercisesBodySchema,
   deletePlanExercisesBatchBodySchema,
   exploreWorkoutsQuerySchema,
   historySessionParamsSchema,
@@ -33,6 +34,7 @@ import {
   addPlanCardioController,
   addPlanExerciseController,
   addPlanExercisesBatchController,
+  createWorkoutPlanWithExercisesController,
   deletePlanExercisesBatchController,
   completeWorkoutController,
   createManualHistoryController,
@@ -98,6 +100,14 @@ router.post(
   requireCompletedOnboarding,
   validateRequest({ body: createWorkoutPlanBodySchema }),
   asyncHandler(async (req, res) => createWorkoutPlanController(req, res))
+);
+
+router.post(
+  "/workouts/plans/with-exercises",
+  requireAuth,
+  requireCompletedOnboarding,
+  validateRequest({ body: createWorkoutPlanWithExercisesBodySchema }),
+  asyncHandler(async (req, res) => createWorkoutPlanWithExercisesController(req, res))
 );
 
 router.delete(

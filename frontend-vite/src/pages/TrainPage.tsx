@@ -90,7 +90,7 @@ import {
   addPlanExercisesBatch,
   deletePlanExercisesBatch,
   completeWorkoutSession,
-  createWorkoutPlan,
+  createWorkoutPlanWithExercises,
   deleteWorkoutPlan,
   getExercisePersonalRecords,
   getLatestExercisePerformance,
@@ -3629,28 +3629,23 @@ export function TrainPage() {
     try {
       setError(null)
 
-      const created = await createWorkoutPlan(authorizedFetch, {
+      // Endpoint combinado: cria a cópia + exercícios em 1 round-trip /
+      // 1 transação. Antes eram createPlan + N adds (lento e com risco de
+      // estado parcial se algum add falhasse no meio do loop).
+      const created = await createWorkoutPlanWithExercises(authorizedFetch, {
         name: `${plan.name} (copia)`,
         description: plan.description ?? undefined,
         source: 'CUSTOM',
+        exercises: plan.exercises.map((item) => ({
+          exerciseId: item.exercise.id,
+          sets: item.sets ?? undefined,
+          repsMin: item.repsMin ?? undefined,
+          repsMax: item.repsMax ?? undefined,
+          durationSec: item.durationSec ?? undefined,
+          restSec: item.restSec ?? undefined,
+          notes: item.notes ?? undefined,
+        })),
       })
-
-      // 1 round-trip batch em vez de N: ordem dos itens preservada porque o
-      // backend insere sequencialmente dentro da mesma transação (orderIndex
-      // = baseIndex + i, onde i é a posição no array enviado).
-      if (plan.exercises.length > 0) {
-        await addPlanExercisesBatch(authorizedFetch, created.id, {
-          exercises: plan.exercises.map((item) => ({
-            exerciseId: item.exercise.id,
-            sets: item.sets ?? undefined,
-            repsMin: item.repsMin ?? undefined,
-            repsMax: item.repsMax ?? undefined,
-            durationSec: item.durationSec ?? undefined,
-            restSec: item.restSec ?? undefined,
-            notes: item.notes ?? undefined,
-          })),
-        })
-      }
 
       // Cache fica defasado depois de criar — invalida pra próximo
       // reloadPlans pegar do banco com a rotina nova já incluída.
@@ -4220,9 +4215,16 @@ export function TrainPage() {
       <Suspense fallback={null}>
         <CreateRoutineScreen
           onCancel={() => setScreen('DASHBOARD')}
-          onSaved={async (createdPlanId) => {
+          onSaved={(created) => {
+            // Endpoint combinado já devolveu o plan hidratado. Atualizamos
+            // state + cache na hora (sem round-trip de reloadPlans) e
+            // navegamos imediato. O cache invalidate marca como stale pra
+            // próxima entrada na página puxar do banco e validar.
+            const next = [created, ...plans.filter((p) => p.id !== created.id)]
+            setPlans(next)
+            setWorkoutPlansCache(next)
+            setActivePlanId(created.id)
             invalidateWorkoutPlansCache()
-            await reloadPlans(createdPlanId)
             setScreen('DASHBOARD')
           }}
         />
@@ -4264,9 +4266,15 @@ export function TrainPage() {
           createOnlyMode={false}
           hideInlineSaveButton
           saveSignal={editSaveSignal}
-          onPlanSaved={async () => {
-            await reloadPlans(activePlanId)
+          onPlanSaved={() => {
+            // Navega IMEDIATO sem esperar reloadPlans. Edição mexe em
+            // metadados (sets/reps/rest/notas) de exercícios já existentes
+            // — a DASHBOARD mostra só o nome da rotina e contagem, que não
+            // mudou. reloadPlans roda em background pra atualizar
+            // detalhes na próxima abertura. Invalidate marca cache stale.
+            invalidateWorkoutPlansCache()
             setScreen('DASHBOARD')
+            void reloadPlans(activePlanId).catch(() => {})
           }}
         />
       </section>
