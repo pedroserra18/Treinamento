@@ -15,12 +15,15 @@ import {
   addPinnedExercise,
   createBodyMeasurement,
   deleteBodyMeasurement,
-  getExerciseProgress,
   getProgressSummary,
-  listBodyMeasurements,
   removePinnedExercise,
   reorderPinnedExercises,
 } from '../services/progressService'
+import {
+  bodyMeasurementsCache,
+  currentYearProgressSummaryCache,
+  exerciseProgressCache,
+} from '../lib/progress-cache'
 import type {
   BodyMeasurement,
   CreateBodyMeasurementInput,
@@ -1555,11 +1558,23 @@ export function ProgressPage() {
     },
     [setSearchParams],
   )
-  const [loading, setLoading] = useState(true)
+  // Stale-while-revalidate via caches em módulo: useState inicializa
+  // síncrono com peek() — se o user já carregou Progress nessa sessão
+  // (ou em sessão anterior via localStorage), página renderiza COM
+  // dados imediatos, sem flash de skeleton. loadAll() em background
+  // revalida com dados frescos.
+  const cachedExerciseProgress = exerciseProgressCache.peek()
+  const cachedBodyMeasurements = bodyMeasurementsCache.peek()
+  const cachedYearSummary = currentYearProgressSummaryCache.peek()
+  const hasAnyCache = Boolean(cachedExerciseProgress || cachedBodyMeasurements || cachedYearSummary)
+
+  const [loading, setLoading] = useState<boolean>(!hasAnyCache)
   const [error, setError] = useState<string | null>(null)
 
-  const [exerciseProgress, setExerciseProgress] = useState<ExerciseProgressItem[]>([])
-  const [maxPinned, setMaxPinned] = useState(5)
+  const [exerciseProgress, setExerciseProgress] = useState<ExerciseProgressItem[]>(
+    () => cachedExerciseProgress?.items ?? [],
+  )
+  const [maxPinned, setMaxPinned] = useState(() => cachedExerciseProgress?.maxPinned ?? 5)
   const [openedPinnedExerciseId, setOpenedPinnedExerciseId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<ExerciseOption[]>([])
@@ -1567,13 +1582,15 @@ export function ProgressPage() {
   const [searchFocused, setSearchFocused] = useState(false)
 
   // Optional fetch — only used to feed the hero stats. Failures are tolerated.
-  const [summary, setSummary] = useState<ProgressSummaryResponse | null>(null)
+  const [summary, setSummary] = useState<ProgressSummaryResponse | null>(cachedYearSummary)
   // Year shown in the activity heatmap. Defaults to current year and can
   // be swapped via the selector — triggers a small refetch of `/summary`.
   const [heatmapYear, setHeatmapYear] = useState<number>(() => new Date().getFullYear())
   const [refetchingSummary, setRefetchingSummary] = useState(false)
 
-  const [measurements, setMeasurements] = useState<BodyMeasurement[]>([])
+  const [measurements, setMeasurements] = useState<BodyMeasurement[]>(
+    () => cachedBodyMeasurements?.items ?? [],
+  )
   const [selectedPhoto, setSelectedPhoto] = useState<{ url: string; date: string } | null>(null)
   const [selectedMeasurement, setSelectedMeasurement] = useState<BodyMeasurement | null>(null)
   const [measurementPhotoFile, setMeasurementPhotoFile] = useState<File | null>(null)
@@ -1599,16 +1616,20 @@ export function ProgressPage() {
 
   const loadAll = useCallback(async () => {
     try {
-      setLoading(true)
+      // Só mostra skeleton quando NÃO temos NADA em cache. Refetch em
+      // background quando temos algo — UI continua interativa, atualiza
+      // silencioso quando os dados frescos chegam.
+      if (!exerciseProgressCache.peek() && !bodyMeasurementsCache.peek() && !currentYearProgressSummaryCache.peek()) {
+        setLoading(true)
+      }
       setError(null)
 
+      // Caches em paralelo. Cada cache faz coalesce in-flight, então
+      // múltiplas montagens simultâneas viram 1 request por endpoint.
       const [progressData, bodyData, summaryData] = await Promise.all([
-        getExerciseProgress(authorizedFetch),
-        listBodyMeasurements(authorizedFetch),
-        // Server-side daily aggregates feed the heatmap, sparklines, deltas
-        // and the muscle distribution. Single small payload regardless of
-        // how active the user is — scales linearly with days, not sessions.
-        getProgressSummary(authorizedFetch).catch(
+        exerciseProgressCache.get(authorizedFetch),
+        bodyMeasurementsCache.get(authorizedFetch),
+        currentYearProgressSummaryCache.get(authorizedFetch).catch(
           () => ({ year: new Date().getFullYear(), days: [], muscleVolume30D: [] }) as ProgressSummaryResponse,
         ),
       ])
@@ -1745,6 +1766,7 @@ export function ProgressPage() {
       await addPinnedExercise(authorizedFetch, exerciseId)
       setSearchQuery('')
       setSearchResults([])
+      exerciseProgressCache.invalidate()
       await loadAll()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao fixar exercício')
@@ -1815,8 +1837,10 @@ export function ProgressPage() {
     })
     try {
       await reorderPinnedExercises(authorizedFetch, orderedIds)
+      exerciseProgressCache.invalidate()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao reordenar exercícios')
+      exerciseProgressCache.invalidate()
       await loadAll()
     }
   }
@@ -1824,6 +1848,7 @@ export function ProgressPage() {
   const handleUnpinExercise = async (exerciseId: string) => {
     try {
       await removePinnedExercise(authorizedFetch, exerciseId)
+      exerciseProgressCache.invalidate()
       await loadAll()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao remover exercício fixado')
@@ -1864,6 +1889,7 @@ export function ProgressPage() {
         bodyFatPercentage: toNumberOrUndefined(form.bodyFatPercentage),
       }
       await createBodyMeasurement(authorizedFetch, payload)
+      bodyMeasurementsCache.invalidate()
       await loadAll()
       setForm((c) => ({
         ...c, weight: '', chest: '', shoulders: '', arms: '', forearms: '',
@@ -1886,6 +1912,7 @@ export function ProgressPage() {
     try {
       setDeletingMeasurementId(measurementId)
       await deleteBodyMeasurement(authorizedFetch, measurementId)
+      bodyMeasurementsCache.invalidate()
       setSelectedMeasurement((current) => (current?.id === measurementId ? null : current))
       await loadAll()
     } catch (err) {

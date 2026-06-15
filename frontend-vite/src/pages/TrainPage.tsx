@@ -73,6 +73,7 @@ import {
   setWorkoutPlansCache,
   invalidateWorkoutPlansCache,
 } from '../lib/workout-plans-cache'
+import { workoutHistoryCache } from '../lib/workout-history-cache'
 import { getIntensityMode, setIntensityMode, type IntensityMode } from '../lib/intensity-preference'
 import {
   getNotificationPermission,
@@ -92,7 +93,6 @@ import {
   getExercisePersonalRecords,
   getLatestExercisePerformance,
   getSessionHighlights,
-  listWorkoutHistory,
   startWorkoutSession,
   updatePlanExercise,
   type SessionHighlights,
@@ -1396,7 +1396,9 @@ export function TrainPage() {
 
   const reloadHistorySummary = useCallback(async () => {
     try {
-      const { items } = await listWorkoutHistory(authorizedFetch, 1, 50)
+      // Cache compartilhado com HomePage — mesmo payload, mesmo TTL (2min).
+      // Entrar em Train e depois Home (ou vice-versa) só faz 1 request.
+      const { items } = await workoutHistoryCache.get(authorizedFetch)
       const byPlan: Record<string, LastUseInfo> = {}
       let mostRecent: LastUseInfo | null = null
 
@@ -3148,10 +3150,11 @@ export function TrainPage() {
         }
       }
 
-      // Sessão salva pode ter mudado o status do plano (concluído etc).
-      // Invalida o cache pra forçar refetch — o próximo reloadPlans
-      // traz dados frescos do banco em vez de mostrar estado defasado.
+      // Sessão salva pode ter mudado o status do plano (concluído etc)
+      // E adiciona um item novo ao histórico. Invalida os dois caches
+      // pra refletir mudanças imediatas no resto do app (Home, Progress).
       invalidateWorkoutPlansCache()
+      workoutHistoryCache.invalidate()
       await reloadPlans()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao salvar treino')

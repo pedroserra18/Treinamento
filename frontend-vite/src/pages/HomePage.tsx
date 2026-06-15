@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useEffect, useMemo, useState } from 'react'
 import { CountUp } from '../components/common/CountUp'
-import { listWorkoutHistory } from '../services/workoutService'
+import { workoutHistoryCache } from '../lib/workout-history-cache'
 import type { WorkoutSessionHistory } from '../types/workout'
 import {
   Activity, Bot, Calendar, Clock, Dumbbell, Flame, Play, TrendingUp,
@@ -367,11 +367,21 @@ export function HomePage() {
   const [recommendations, setRecommendations] = useState<WorkoutRecommendation[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [historyItems, setHistoryItems] = useState<WorkoutSessionHistory[]>([])
+  // Inicializa SÍNCRONO via cache. Se TrainPage ou esta página já
+  // carregaram histórico antes nessa sessão (ou em sessão anterior via
+  // localStorage), o heatmap, streak e "última rotina" aparecem
+  // INSTANTÂNEOS no mount — sem flash de skeleton.
+  const [historyItems, setHistoryItems] = useState<WorkoutSessionHistory[]>(
+    () => workoutHistoryCache.peek()?.items ?? [],
+  )
 
   useEffect(() => {
     if (!isAuthenticated) return
-    void listWorkoutHistory(authorizedFetch)
+    // Stale-while-revalidate: get() retorna do cache se TTL não estourou,
+    // ou refetcha. Mesmo se já temos peek, get() pode trazer dados frescos
+    // em background — UI atualiza sem flicker (setState recebe valor novo).
+    void workoutHistoryCache
+      .get(authorizedFetch)
       .then((r) => setHistoryItems(r.items))
       .catch(() => { /* silent */ })
   }, [authorizedFetch, isAuthenticated])
