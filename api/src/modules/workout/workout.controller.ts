@@ -2,11 +2,13 @@ import { Request, Response } from "express";
 import { AppError } from "../../shared/errors/app-error";
 import {
   addExerciseToPlan,
+  addExercisesToPlanBatch,
   addPlanCardio,
   createManualWorkoutHistory,
   createWorkoutPlan,
   deletePlanCardio,
   deletePlanExercise,
+  deletePlanExercisesBatch,
   deleteWorkoutPlan,
   completeWorkoutSession,
   exploreWorkouts,
@@ -30,10 +32,12 @@ import {
 import {
   AddPlanCardioBody,
   AddPlanExerciseBody,
+  AddPlanExercisesBatchBody,
   CreateManualHistoryBody,
   CreateWorkoutPlanBody,
   CompleteWorkoutBody,
   CompleteWorkoutParams,
+  DeletePlanExercisesBatchBody,
   ExploreWorkoutsQuery,
   HistorySessionParams,
   LatestExerciseHistoryBody,
@@ -182,6 +186,34 @@ export async function deletePlanExerciseController(req: Request, res: Response):
   const userId = req.context.userId as string;
   const params = req.params as unknown as PlanExerciseParams;
   const data = await deletePlanExercise(userId, params);
+
+  res.status(200).json({
+    data,
+    meta: {
+      requestId: req.context.requestId
+    }
+  });
+}
+
+export async function addPlanExercisesBatchController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as WorkoutPlanParams;
+  const payload = req.body as AddPlanExercisesBatchBody;
+  const items = await addExercisesToPlanBatch(userId, params, payload);
+
+  res.status(201).json({
+    data: items,
+    meta: {
+      requestId: req.context.requestId
+    }
+  });
+}
+
+export async function deletePlanExercisesBatchController(req: Request, res: Response): Promise<void> {
+  const userId = req.context.userId as string;
+  const params = req.params as unknown as WorkoutPlanParams;
+  const payload = req.body as DeletePlanExercisesBatchBody;
+  const data = await deletePlanExercisesBatch(userId, params, payload);
 
   res.status(200).json({
     data,

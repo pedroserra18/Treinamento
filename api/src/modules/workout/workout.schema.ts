@@ -95,6 +95,32 @@ export const reorderPlanExercisesBodySchema = z
   })
   .strict();
 
+// Item individual de um batch add, sem o `insertAt` — append-only batch.
+// (Se quiser inserir em posição específica, use o endpoint singular.)
+const addPlanExerciseBatchItemSchema = z
+  .object({
+    exerciseId: z.string().cuid(),
+    sets: z.number().int().min(1).max(12).optional(),
+    repsMin: z.number().int().min(1).max(100).optional(),
+    repsMax: z.number().int().min(1).max(100).optional(),
+    durationSec: z.number().int().min(5).max(4 * 60 * 60).optional(),
+    restSec: z.number().int().min(5).max(15 * 60).optional(),
+    notes: z.string().trim().min(1).max(300).optional()
+  })
+  .strict();
+
+export const addPlanExercisesBatchBodySchema = z
+  .object({
+    exercises: z.array(addPlanExerciseBatchItemSchema).min(1).max(50)
+  })
+  .strict();
+
+export const deletePlanExercisesBatchBodySchema = z
+  .object({
+    planExerciseIds: z.array(z.string().cuid()).min(1).max(50)
+  })
+  .strict();
+
 export const completeWorkoutParamsSchema = z
   .object({
     sessionId: z.string().cuid()
@@ -252,6 +278,8 @@ export type UpdateWorkoutPlanBody = z.infer<typeof updateWorkoutPlanBodySchema>;
 export type AddPlanExerciseBody = z.infer<typeof addPlanExerciseBodySchema>;
 export type UpdatePlanExerciseBody = z.infer<typeof updatePlanExerciseBodySchema>;
 export type ReorderPlanExercisesBody = z.infer<typeof reorderPlanExercisesBodySchema>;
+export type AddPlanExercisesBatchBody = z.infer<typeof addPlanExercisesBatchBodySchema>;
+export type DeletePlanExercisesBatchBody = z.infer<typeof deletePlanExercisesBatchBodySchema>;
 export type CompleteWorkoutParams = z.infer<typeof completeWorkoutParamsSchema>;
 export type CompleteWorkoutBody = z.infer<typeof completeWorkoutBodySchema>;
 export type ListWorkoutHistoryQuery = z.infer<typeof listWorkoutHistoryQuerySchema>;

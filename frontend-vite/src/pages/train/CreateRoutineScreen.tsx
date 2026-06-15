@@ -8,7 +8,7 @@ import { useAuth } from '../../hooks/useAuth'
 import { useShowPlanLimit } from '../../components/plan/use-plan-limit'
 import { catchPlanLimitError } from '../../lib/plan-features'
 import {
-  addExerciseToPlan,
+  addPlanExercisesBatch,
   createWorkoutPlan,
 } from '../../services/workoutService'
 import { pushRecentExerciseId } from '../../lib/recent-exercises'
@@ -175,20 +175,23 @@ export function CreateRoutineScreen({
         name: trimmedName,
         source: 'CUSTOM',
       })
-      for (let i = 0; i < exercises.length; i += 1) {
-        const ex = exercises[i]
-        const repsMinNum = Number(ex.repsMin)
-        const repsMaxNum = Number(ex.repsMax)
-        await addExerciseToPlan(authorizedFetch, created.id, {
-          exerciseId: ex.exerciseId,
-          insertAt: i + 1,
-          sets: Math.max(1, ex.setCount),
-          repsMin: Number.isFinite(repsMinNum) && repsMinNum > 0 ? Math.floor(repsMinNum) : undefined,
-          repsMax: Number.isFinite(repsMaxNum) && repsMaxNum > 0 ? Math.floor(repsMaxNum) : undefined,
-          restSec: ex.restSec > 0 ? ex.restSec : undefined,
-          notes: ex.notes.trim() || undefined,
-        })
-      }
+      // 1 round-trip batch em vez de N: backend insere todos numa única
+      // transação atômica, preservando a ordem do array. Pra rotinas com 5-10
+      // exercícios isso vai de ~3s pra ~500ms no Render free tier.
+      await addPlanExercisesBatch(authorizedFetch, created.id, {
+        exercises: exercises.map((ex) => {
+          const repsMinNum = Number(ex.repsMin)
+          const repsMaxNum = Number(ex.repsMax)
+          return {
+            exerciseId: ex.exerciseId,
+            sets: Math.max(1, ex.setCount),
+            repsMin: Number.isFinite(repsMinNum) && repsMinNum > 0 ? Math.floor(repsMinNum) : undefined,
+            repsMax: Number.isFinite(repsMaxNum) && repsMaxNum > 0 ? Math.floor(repsMaxNum) : undefined,
+            restSec: ex.restSec > 0 ? ex.restSec : undefined,
+            notes: ex.notes.trim() || undefined,
+          }
+        }),
+      })
       onSaved(created.id)
     } catch (err) {
       if (catchPlanLimitError(err, showPlanLimit)) {

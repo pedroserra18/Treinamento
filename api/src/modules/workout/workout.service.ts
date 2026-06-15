@@ -9,10 +9,12 @@ import { getWorkoutRecommendationsForUser } from "../recommendation/recommendati
 import {
   AddPlanCardioBody,
   AddPlanExerciseBody,
+  AddPlanExercisesBatchBody,
   CreateManualHistoryBody,
   CreateWorkoutPlanBody,
   CompleteWorkoutBody,
   CompleteWorkoutParams,
+  DeletePlanExercisesBatchBody,
   ExploreWorkoutsQuery,
   HistorySessionParams,
   ListWorkoutHistoryQuery,
@@ -657,7 +659,166 @@ export async function deletePlanExercise(userId: string, params: PlanExercisePar
   };
 }
 
-// ── Cardio do template da rotina ──────────────────────────────────────────────
+// ── Batch add/delete de exercícios ───────────────────────────────────────────
+// Endpoints atômicos pra adicionar/remover N exercícios de uma vez. O cliente
+// chamava /exercises N vezes em loop (sequencial pra evitar race no
+// @@unique([workoutPlanId, orderIndex])), o que tornava criar/editar rotinas
+// lento. Aqui resolvemos numa única transação: orderIndex calculado uma vez,
+// inserts sequenciais dentro de tx (sem race) e re-normalização do índice
+// depois do delete preserva a sequência 1..N do plan.
+
+export async function addExercisesToPlanBatch(
+  userId: string,
+  params: WorkoutPlanParams,
+  payload: AddPlanExercisesBatchBody
+) {
+  const plan = await getOwnedPlanWithExercises(params.planId, userId);
+  const incomingIds = payload.exercises.map((item) => item.exerciseId);
+
+  // Duplicado DENTRO do batch?
+  const seenInBatch = new Set<string>();
+  for (const id of incomingIds) {
+    if (seenInBatch.has(id)) {
+      throw new AppError("Exercicio duplicado no lote", {
+        statusCode: 400,
+        code: "PLAN_EXERCISE_BATCH_DUPLICATE"
+      });
+    }
+    seenInBatch.add(id);
+  }
+
+  // Já existe no plan?
+  const existingIds = new Set(plan.exercises.map((entry) => entry.exerciseId));
+  const collision = incomingIds.find((id) => existingIds.has(id));
+  if (collision) {
+    throw new AppError("Este exercicio ja existe neste treino", {
+      statusCode: 409,
+      code: "PLAN_EXERCISE_DUPLICATE"
+    });
+  }
+
+  // Disponibilidade: 1 query agregada em vez de N (scope GLOBAL OU owner).
+  const availableCount = await prisma.exercise.count({
+    where: {
+      id: { in: incomingIds },
+      isActive: true,
+      OR: [{ scope: "GLOBAL" }, { scope: "PRIVATE", ownerUserId: userId }]
+    }
+  });
+  if (availableCount !== incomingIds.length) {
+    throw new AppError("Exercise not found", {
+      statusCode: 404,
+      code: "EXERCISE_NOT_FOUND"
+    });
+  }
+
+  const baseIndex = (plan.exercises[plan.exercises.length - 1]?.orderIndex ?? 0) + 1;
+
+  const created = await prisma.$transaction(async (tx) => {
+    const results: Array<Prisma.WorkoutPlanExerciseGetPayload<{
+      include: { exercise: { select: { id: true; name: true; primaryMuscleGroup: true; difficulty: true; equipment: true; isBodyweight: true; allowsExtraLoad: true; trackingType: true } } }
+    }>> = [];
+    for (let i = 0; i < payload.exercises.length; i += 1) {
+      const item = payload.exercises[i];
+      const row = await tx.workoutPlanExercise.create({
+        data: {
+          workoutPlanId: params.planId,
+          exerciseId: item.exerciseId,
+          orderIndex: baseIndex + i,
+          sets: item.sets,
+          repsMin: item.repsMin,
+          repsMax: item.repsMax,
+          durationSec: item.durationSec,
+          restSec: item.restSec,
+          notes: item.notes
+        },
+        include: {
+          exercise: {
+            select: {
+              id: true,
+              name: true,
+              primaryMuscleGroup: true,
+              difficulty: true,
+              equipment: true,
+              isBodyweight: true,
+              allowsExtraLoad: true,
+              trackingType: true
+            }
+          }
+        }
+      });
+      results.push(row);
+    }
+    return results;
+  });
+
+  return created;
+}
+
+export async function deletePlanExercisesBatch(
+  userId: string,
+  params: WorkoutPlanParams,
+  payload: DeletePlanExercisesBatchBody
+) {
+  const plan = await getOwnedPlanWithExercises(params.planId, userId);
+  const requestedIds = payload.planExerciseIds;
+  const requestedSet = new Set(requestedIds);
+
+  // Todos os ids devem pertencer ao plano (e ser únicos na requisição).
+  if (new Set(requestedIds).size !== requestedIds.length) {
+    throw new AppError("Lista de planExerciseIds tem duplicatas", {
+      statusCode: 400,
+      code: "INVALID_INPUT"
+    });
+  }
+  const planIdsSet = new Set(plan.exercises.map((entry) => entry.id));
+  const stranger = requestedIds.find((id) => !planIdsSet.has(id));
+  if (stranger) {
+    throw new AppError("Plan exercise not found", {
+      statusCode: 404,
+      code: "PLAN_EXERCISE_NOT_FOUND"
+    });
+  }
+
+  // Ordem final dos que sobram, preservando a sequência atual.
+  const remainingIds = plan.exercises
+    .filter((entry) => !requestedSet.has(entry.id))
+    .map((entry) => entry.id);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.workoutPlanExercise.deleteMany({
+      where: {
+        id: { in: requestedIds },
+        workoutPlanId: params.planId
+      }
+    });
+
+    if (remainingIds.length === 0) return;
+
+    // Re-normaliza orderIndex pra 1..N. Igual ao reorder, faz two-pass com
+    // offset temporário pra contornar o @@unique([workoutPlanId, orderIndex]).
+    const tempOffset = remainingIds.length + 100;
+    await tx.workoutPlanExercise.updateMany({
+      where: {
+        workoutPlanId: params.planId,
+        id: { in: remainingIds }
+      },
+      data: {
+        orderIndex: { increment: tempOffset }
+      }
+    });
+    for (let i = 0; i < remainingIds.length; i += 1) {
+      await tx.workoutPlanExercise.update({
+        where: { id: remainingIds[i] },
+        data: { orderIndex: i + 1 }
+      });
+    }
+  });
+
+  return { success: true };
+}
+
+// ── Cardio do template da rotina ───────────────────────────────────────────
 // Cada rotina pode ter N entradas de cardio (aquecimento/finalizador) que são
 // pré-carregadas na sessão ativa ao iniciar a rotina.
 

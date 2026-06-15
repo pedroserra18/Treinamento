@@ -745,8 +745,12 @@ export function WorkoutsPage({
         return
       }
 
-      await loadAll()
+      // Dispara o callback imediato — quem chama (TrainPage EDIT) já faz
+      // reloadPlans próprio, então não precisa segurar o user esperando
+      // loadAll local. loadAll roda em background pra refletir a mudança
+      // se o componente continuar montado.
       onPlanSaved?.(plan.id)
+      void loadAll().catch(() => {})
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao salvar treino completo')
     }

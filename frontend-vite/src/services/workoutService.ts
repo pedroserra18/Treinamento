@@ -578,6 +578,65 @@ export async function deletePlanExercise(
   }
 }
 
+// Batch atômico — todos os exercícios são inseridos em uma única transação
+// no backend, eliminando race conditions do @@unique(workoutPlanId, orderIndex)
+// e cortando N round-trips pra 1. Use em vez do loop de addExerciseToPlan
+// sempre que tiver >1 exercício pra adicionar.
+export async function addPlanExercisesBatch(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  planId: string,
+  input: {
+    exercises: Array<{
+      exerciseId: string
+      sets?: number
+      repsMin?: number
+      repsMax?: number
+      durationSec?: number
+      restSec?: number
+      notes?: string
+    }>
+  },
+): Promise<void> {
+  if (input.exercises.length === 0) return
+  const response = await authorizedFetch(`${API_URL}/workouts/plans/${planId}/exercises/batch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+
+  const payload = await parsePayload(response)
+
+  if (!response.ok) {
+    throw new Error(payload.errorMessage ?? 'Falha ao adicionar exercicios em lote')
+  }
+}
+
+// Batch atômico de remoção. Re-normaliza o orderIndex dos restantes pra 1..N
+// dentro da mesma transação. Use em vez do loop de deletePlanExercise.
+// (Rota POST /batch-delete em vez de DELETE com body — body em DELETE não é
+// confiável em todos os proxies/middlewares.)
+export async function deletePlanExercisesBatch(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  planId: string,
+  input: { planExerciseIds: string[] },
+): Promise<void> {
+  if (input.planExerciseIds.length === 0) return
+  const response = await authorizedFetch(
+    `${API_URL}/workouts/plans/${planId}/exercises/batch-delete`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    },
+  )
+
+  const payload = await parsePayload(response)
+
+  if (!response.ok) {
+    throw new Error(payload.errorMessage ?? 'Falha ao remover exercicios em lote')
+  }
+}
+
 export async function addPlanCardio(
   authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
   planId: string,

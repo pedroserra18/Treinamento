@@ -87,8 +87,8 @@ import { saveWorkoutSessionImage } from '../lib/workout-session-image'
 import { optimizeImageFileToDataUrl } from '../lib/image-processing'
 import type { WorkoutPlan, CardioType, CardioEntryInput, ExerciseOption } from '../types/workout'
 import {
-  addExerciseToPlan,
-  deletePlanExercise,
+  addPlanExercisesBatch,
+  deletePlanExercisesBatch,
   completeWorkoutSession,
   createWorkoutPlan,
   deleteWorkoutPlan,
@@ -3153,30 +3153,28 @@ export function TrainPage() {
     }
   }, [originMode, activeExercises])
 
-  // Aplica o diff no backend: remove → adiciona → reordena.
-  // Ordem importa entre as fases (remove ANTES de add pra evitar colisão
-  // de orderIndex), mas DENTRO de cada fase os requests são independentes
-  // (cada delete tem seu planExerciseId, cada add é append). Paralelizar
-  // com Promise.all reduz N round-trips a 2 batches → ganho significativo
-  // quando user mexeu em vários exercícios.
+  // Aplica o diff no backend usando endpoints batch atômicos. Cada batch é
+  // uma única transação no backend (sem race no @@unique(orderIndex)) e um
+  // único round-trip de rede. Ordem entre fases: delete batch ANTES de add
+  // batch (pra add começar de orderIndex limpo).
+  //
+  // Tentativa anterior (Promise.all dos endpoints singulares) tinha race no
+  // unique constraint — a constraint era avaliada com base em leituras
+  // simultâneas que viam o mesmo nextIndex. Batch resolve isso de raiz.
   const applyPlanUpdate = useCallback(async (): Promise<void> => {
     const snapshot = originalPlanSnapshotRef.current
     const diff = computePlanDiff()
     if (!snapshot || !diff || !diff.hasDiff) return
 
     if (diff.removed.length > 0) {
-      await Promise.all(
-        diff.removed.map((item) =>
-          deletePlanExercise(authorizedFetch, snapshot.planId, item.planExerciseId),
-        ),
-      )
+      await deletePlanExercisesBatch(authorizedFetch, snapshot.planId, {
+        planExerciseIds: diff.removed.map((item) => item.planExerciseId),
+      })
     }
     if (diff.added.length > 0) {
-      await Promise.all(
-        diff.added.map((exerciseId) =>
-          addExerciseToPlan(authorizedFetch, snapshot.planId, { exerciseId }),
-        ),
-      )
+      await addPlanExercisesBatch(authorizedFetch, snapshot.planId, {
+        exercises: diff.added.map((exerciseId) => ({ exerciseId })),
+      })
     }
     if (diff.reordered) {
       // A ordem do reorder é a sequência atual de exerciseIds. Backend
@@ -3637,18 +3635,20 @@ export function TrainPage() {
         source: 'CUSTOM',
       })
 
-      for (let index = 0; index < plan.exercises.length; index += 1) {
-        const item = plan.exercises[index]
-
-        await addExerciseToPlan(authorizedFetch, created.id, {
-          exerciseId: item.exercise.id,
-          insertAt: index + 1,
-          sets: item.sets ?? undefined,
-          repsMin: item.repsMin ?? undefined,
-          repsMax: item.repsMax ?? undefined,
-          durationSec: item.durationSec ?? undefined,
-          restSec: item.restSec ?? undefined,
-          notes: item.notes ?? undefined,
+      // 1 round-trip batch em vez de N: ordem dos itens preservada porque o
+      // backend insere sequencialmente dentro da mesma transação (orderIndex
+      // = baseIndex + i, onde i é a posição no array enviado).
+      if (plan.exercises.length > 0) {
+        await addPlanExercisesBatch(authorizedFetch, created.id, {
+          exercises: plan.exercises.map((item) => ({
+            exerciseId: item.exercise.id,
+            sets: item.sets ?? undefined,
+            repsMin: item.repsMin ?? undefined,
+            repsMax: item.repsMax ?? undefined,
+            durationSec: item.durationSec ?? undefined,
+            restSec: item.restSec ?? undefined,
+            notes: item.notes ?? undefined,
+          })),
         })
       }
 

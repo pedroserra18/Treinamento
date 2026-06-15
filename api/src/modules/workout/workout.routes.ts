@@ -6,10 +6,12 @@ import { requireCompletedOnboarding } from "../../middlewares/onboarding.middlew
 import {
   addPlanCardioBodySchema,
   addPlanExerciseBodySchema,
+  addPlanExercisesBatchBodySchema,
   completeWorkoutBodySchema,
   completeWorkoutParamsSchema,
   createManualHistoryBodySchema,
   createWorkoutPlanBodySchema,
+  deletePlanExercisesBatchBodySchema,
   exploreWorkoutsQuerySchema,
   historySessionParamsSchema,
   latestExerciseHistoryBodySchema,
@@ -30,6 +32,8 @@ import {
 import {
   addPlanCardioController,
   addPlanExerciseController,
+  addPlanExercisesBatchController,
+  deletePlanExercisesBatchController,
   completeWorkoutController,
   createManualHistoryController,
   createWorkoutPlanController,
@@ -118,6 +122,22 @@ router.post(
   requireCompletedOnboarding,
   validateRequest({ params: workoutPlanParamsSchema, body: addPlanExerciseBodySchema }),
   asyncHandler(async (req, res) => addPlanExerciseController(req, res))
+);
+
+router.post(
+  "/workouts/plans/:planId/exercises/batch",
+  requireAuth,
+  requireCompletedOnboarding,
+  validateRequest({ params: workoutPlanParamsSchema, body: addPlanExercisesBatchBodySchema }),
+  asyncHandler(async (req, res) => addPlanExercisesBatchController(req, res))
+);
+
+router.post(
+  "/workouts/plans/:planId/exercises/batch-delete",
+  requireAuth,
+  requireCompletedOnboarding,
+  validateRequest({ params: workoutPlanParamsSchema, body: deletePlanExercisesBatchBodySchema }),
+  asyncHandler(async (req, res) => deletePlanExercisesBatchController(req, res))
 );
 
 router.patch(
