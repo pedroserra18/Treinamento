@@ -4143,19 +4143,7 @@ export function TrainPage() {
           )
         })()}
 
-        {/* Dialog 1 — Duração incomum. Aparece antes do save quando a
-            duração parsed cai fora da janela razoável (<10min ou >4h).
-            Inspirado no padrão Hevy: feedback gentil pra evitar treinos
-            "errados" sem bloquear quem realmente quer salvar assim. */}
-        {durationWarning ? (
-          <DurationWarningDialog
-            warning={durationWarning}
-            onAdjust={handleDurationAdjust}
-            onKeep={handleDurationKeepCurrent}
-          />
-        ) : null}
-
-        {/* Dialog 2 — Rotina mudou. Aparece quando o user fez
+        {/* Dialog — Rotina mudou. Aparece quando o user fez
             add/remove/reorder durante a sessão de uma rotina. Pergunta
             se quer propagar as mudanças pras próximas sessões dessa
             rotina (atualizar plan) ou manter a rotina original como
@@ -5221,6 +5209,17 @@ export function TrainPage() {
           onAdd={(entry) => setCardioEntries((current) => [...current, entry])}
           onRemove={(index) => setCardioEntries((current) => current.filter((_, i) => i !== index))}
         />
+
+        {/* Dialog de duração incomum. Disparado pelo "Finalizar Treino" daqui
+            mesmo — precisa ser renderizado nesta tree (ACTIVE) porque a
+            transição pra SUMMARY só rola depois do user escolher. */}
+        {durationWarning ? (
+          <DurationWarningDialog
+            warning={durationWarning}
+            onAdjust={handleDurationAdjust}
+            onKeep={handleDurationKeepCurrent}
+          />
+        ) : null}
 
         {infoDialog && (
           <InfoDialog
