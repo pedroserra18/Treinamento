@@ -404,13 +404,15 @@ function RecentPrsCard({ progress }: { progress: ExerciseProgressItem[] }) {
     [expandedProgress],
   )
 
-  // One row renderer shared between the highlighted (hero) most-recent PR and
-  // the plain list below it, so the two stay in sync. `hero` only changes the
-  // chrome (amber band + star vs. flat row + muscle dot), never the content.
-  const renderPr = (pr: RecentPr, idx: number, hero: boolean) => {
-    const tone = TONE_STYLE[muscleTone(pr.primaryMuscleGroup)]
+  // Cada exercício mostra seu PR atual como card dourado "Novo recorde".
+  // Abrir a seta revela até os 4 PRs que o usuário bateu ANTES desse, naquele
+  // mesmo exercício (a progressão anterior), do mais recente pro mais antigo.
+  const renderPr = (pr: RecentPr, idx: number) => {
     const daysAgo = daysAgoFrom(pr.date)
-    // Only exercises with more than one PR have a timeline worth opening.
+    // PRs anteriores = a timeline completa menos o recorde atual (entrada 0).
+    const previousPrs =
+      expandedExerciseId === pr.exerciseId ? expandedTimeline.slice(1, 5) : []
+    // Só vale mostrar a seta quando há PRs anteriores pra revelar.
     const canExpand = pr.historyCount > 1
     const isExpanded = canExpand && expandedExerciseId === pr.exerciseId
     return (
@@ -419,26 +421,18 @@ function RecentPrsCard({ progress }: { progress: ExerciseProgressItem[] }) {
           type="button"
           onClick={canExpand ? () => setExpandedExerciseId(isExpanded ? null : pr.exerciseId) : undefined}
           aria-expanded={canExpand ? isExpanded : undefined}
-          className={
-            hero
-              ? `flex w-full items-center gap-3 rounded-[12px] border border-amber-300/50 bg-amber-50 px-3 py-2.5 text-left transition-colors dark:border-amber-500/25 dark:bg-amber-500/10 ${canExpand ? 'hover:bg-amber-100/70 dark:hover:bg-amber-500/15' : 'cursor-default'} ${isExpanded ? 'ring-2 ring-amber-300/60 dark:ring-amber-500/30' : ''}`
-              : `flex w-full items-center gap-3 rounded-[10px] px-2 py-2 text-left transition-colors ${canExpand ? 'hover:bg-[var(--surface-hover)]' : 'cursor-default'} ${isExpanded ? 'bg-[var(--surface-hover)]' : ''}`
-          }
+          className={`flex w-full items-center gap-3 rounded-[12px] border border-amber-300/50 bg-amber-50 px-3 py-2.5 text-left transition-colors dark:border-amber-500/25 dark:bg-amber-500/10 ${canExpand ? 'hover:bg-amber-100/70 dark:hover:bg-amber-500/15' : 'cursor-default'} ${isExpanded ? 'ring-2 ring-amber-300/60 dark:ring-amber-500/30' : ''}`}
         >
-          {hero ? (
-            <span
-              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-amber-400 text-[14px] font-bold text-amber-900"
-              aria-hidden
-            >
-              ★
-            </span>
-          ) : (
-            <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: tone.dot }} aria-hidden />
-          )}
+          <span
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-amber-400 text-[14px] font-bold text-amber-900"
+            aria-hidden
+          >
+            ★
+          </span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-[13px] font-semibold text-[var(--text)]">{pr.exerciseName}</p>
             <p className="mt-0.5 text-[11px] text-[var(--muted)]">
-              {hero && <span className="font-semibold text-amber-600 dark:text-amber-400">Novo recorde · </span>}
+              <span className="font-semibold text-amber-600 dark:text-amber-400">Novo recorde · </span>
               {MUSCLE_LABEL_PT[pr.primaryMuscleGroup] ?? pr.primaryMuscleGroup}
               <span className="mx-1.5 opacity-50">·</span>
               há {daysAgo}d
@@ -466,8 +460,11 @@ function RecentPrsCard({ progress }: { progress: ExerciseProgressItem[] }) {
               transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
               className="overflow-hidden"
             >
-              <ol className="mb-1 mt-2 space-y-1 border-l-2 border-amber-300/40 pl-3 dark:border-amber-500/25">
-                {expandedTimeline.map((entry, i) => (
+              <p className="mb-1 mt-2 pl-3 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
+                PRs anteriores
+              </p>
+              <ol className="mb-1 space-y-1 border-l-2 border-amber-300/40 pl-3 dark:border-amber-500/25">
+                {previousPrs.map((entry, i) => (
                   <li
                     key={`${entry.date.toISOString()}-${i}`}
                     className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px] tabular-nums text-[var(--muted)]"
@@ -482,7 +479,7 @@ function RecentPrsCard({ progress }: { progress: ExerciseProgressItem[] }) {
                     {entry.deltaKg != null && entry.deltaKg > 0 && (
                       <span className="text-emerald-600 dark:text-emerald-400">▲ +{entry.deltaKg}kg</span>
                     )}
-                    {i === expandedTimeline.length - 1 && (
+                    {entry.deltaKg == null && (
                       <span className="text-[9.5px] uppercase tracking-wider opacity-70">primeiro PR</span>
                     )}
                   </li>
@@ -513,16 +510,9 @@ function RecentPrsCard({ progress }: { progress: ExerciseProgressItem[] }) {
           Sem PRs ainda. Bata uma carga maior que qualquer sessão anterior e ela aparece aqui.
         </p>
       ) : (
-        <div className="space-y-2.5">
-          {/* Destaque: PR mais recente */}
-          <ul>{renderPr(prs[0], 0, true)}</ul>
-          {/* Demais PRs: lista limpa com divisórias */}
-          {prs.length > 1 && (
-            <ul className="divide-y divide-[var(--line)]">
-              {prs.slice(1).map((pr, i) => renderPr(pr, i + 1, false))}
-            </ul>
-          )}
-        </div>
+        <ul className="space-y-2">
+          {prs.map((pr, idx) => renderPr(pr, idx))}
+        </ul>
       )}
     </motion.section>
   )
