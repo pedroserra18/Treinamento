@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useAuth } from '../hooks/useAuth'
 import { saveSharedPlan, type SharedPlanData } from '../services/socialService'
+import { invalidateWorkoutPlansCache } from '../lib/workout-plans-cache'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1'
 
@@ -42,6 +43,10 @@ export function SharedPlanPage() {
       setSaving(true)
       setError(null)
       await saveSharedPlan(authorizedFetch, token)
+      // A rotina foi criada no backend, mas a lista em /train é cacheada por
+      // 60s (stale-while-revalidate). Sem invalidar, "Ver meus treinos" mostra
+      // a lista velha e a rotina nova "some". Invalida pra forçar refetch.
+      invalidateWorkoutPlansCache()
       setSaved(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao salvar rotina')

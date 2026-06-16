@@ -35,6 +35,13 @@ export default defineConfig({
         orientation: 'portrait',
         start_url: '/?source=pwa',
         scope: '/',
+        // Preferir abrir links dentro do escopo no app instalado em vez do
+        // navegador (ex.: link /shared/:token). Suportado em Chromium
+        // (Android/desktop); iOS ignora — lá o link sempre abre no Safari.
+        handle_links: 'preferred',
+        // Ao abrir um link com o app já aberto, foca a janela existente em vez
+        // de criar outra instância.
+        launch_handler: { client_mode: ['focus-existing', 'auto'] },
         lang: 'pt-BR',
         dir: 'ltr',
         categories: ['health', 'fitness', 'lifestyle', 'sports'],
