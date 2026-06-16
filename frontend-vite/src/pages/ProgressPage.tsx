@@ -2074,7 +2074,7 @@ export function ProgressPage() {
             <Skeleton className="h-3 w-2/3" />
             <Skeleton className="h-[140px] w-full" />
           </div>
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {[0, 1].map((i) => (
               <div key={i} className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 space-y-2">
                 <Skeleton className="h-4 w-1/2" />
@@ -2215,7 +2215,7 @@ export function ProgressPage() {
           {/* Side-by-side analytics — only meaningful with at least one
               pinned exercise (PRs feed) or any training history (volume). */}
           {(exerciseProgress.length > 0 || summaryDays.length > 0) && (
-            <div className="grid gap-2.5 lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2">
               <MuscleVolumeCard rows={muscleVolume30D} />
               <RecentPrsCard progress={exerciseProgress} />
             </div>
@@ -2315,7 +2315,7 @@ export function ProgressPage() {
           ) : null}
 
           {measurements.length > 0 && (
-          <div className="grid gap-2.5 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-[1.1fr_0.9fr]">
             <BodyMetricChart
               measurements={measurementsOldFirst}
               field="weight"
@@ -2375,7 +2375,7 @@ export function ProgressPage() {
               record with the metric (the chart itself shows a hint otherwise). */}
           {(measurementsOldFirst.some((m) => m.bmi != null) ||
             measurementsOldFirst.some((m) => m.bodyFatPercentage != null)) && (
-            <div className="grid gap-2.5 lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2">
               {measurementsOldFirst.some((m) => m.bmi != null) && (
                 <BodyMetricChart
                   measurements={measurementsOldFirst}
@@ -2412,7 +2412,7 @@ export function ProgressPage() {
               >
                 <div className="rounded-[16px] border border-[var(--line)] bg-[var(--surface)] p-5">
                   <h3 className="mb-3 text-[14px] font-semibold text-[var(--text)]">Novo registro corporal</h3>
-                  <div className="grid gap-2.5 sm:grid-cols-3">
+                  <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
                     <FormField label="Data">
                       <input
                         type="date"
@@ -2570,7 +2570,7 @@ export function ProgressPage() {
               className="rounded-[16px] border border-[var(--line)] bg-[var(--surface)] p-5"
             >
               <h3 className="mb-3 text-[14px] font-semibold text-[var(--text)]">Histórico corporal</h3>
-              <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {measurementsNewFirst.map((m) => (
                   <article key={m.id} className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] p-3">
                     <button
@@ -3127,7 +3127,7 @@ function PhotoCompareView({
   return (
     <div className="space-y-4">
       {/* Date pickers */}
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <FormField label="Antes (A)">
           <select
             value={a?.id ?? ''}
@@ -3196,7 +3196,7 @@ function PhotoCompareView({
               <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
                 Variação A → B
               </p>
-              <div className="grid gap-1.5 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
                 {rows.map(({ key, label, unit, av, bv, delta }) => {
                   // Coloured the same way as MeasRow: downward usually positive.
                   const positive = delta > 0
