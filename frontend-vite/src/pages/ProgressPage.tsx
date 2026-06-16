@@ -330,29 +330,40 @@ type RecentPr = {
   loadKg: number
   reps: number | null
   date: Date
+  // How many PRs this exercise has in total. Used to decide whether the row
+  // is worth expanding (1 PR = nothing extra to show, so no chevron).
+  historyCount: number
 }
 
+// One row per exercise: its best (latest) PR, dated when it was set. Deduping
+// here is what keeps the expand keyed by exerciseId unambiguous — otherwise the
+// same exercise appears in several rows and clicking one expands them all.
 function listRecentPrs(progress: ExerciseProgressItem[], limit: number): RecentPr[] {
   const prs: RecentPr[] = []
   for (const item of progress) {
     const sorted = [...item.sessions].sort(
       (a, b) => new Date(a.completedAt).getTime() - new Date(b.completedAt).getTime(),
     )
+    let best: RecentPr | null = null
     let runningMax = -Infinity
+    let historyCount = 0
     for (const s of sorted) {
       const load = s.maxLoadKg ?? 0
       if (load > runningMax && load > 0) {
-        prs.push({
+        historyCount += 1
+        best = {
           exerciseId: item.exercise.id,
           exerciseName: item.exercise.name,
           primaryMuscleGroup: item.exercise.primaryMuscleGroup,
           loadKg: load,
           reps: s.maxReps,
           date: new Date(s.completedAt),
-        })
+          historyCount: 0, // filled in below once the total is known
+        }
         runningMax = load
       }
     }
+    if (best) prs.push({ ...best, historyCount })
   }
   return prs.sort((a, b) => b.date.getTime() - a.date.getTime()).slice(0, limit)
 }
@@ -399,17 +410,19 @@ function RecentPrsCard({ progress }: { progress: ExerciseProgressItem[] }) {
   const renderPr = (pr: RecentPr, idx: number, hero: boolean) => {
     const tone = TONE_STYLE[muscleTone(pr.primaryMuscleGroup)]
     const daysAgo = daysAgoFrom(pr.date)
-    const isExpanded = expandedExerciseId === pr.exerciseId
+    // Only exercises with more than one PR have a timeline worth opening.
+    const canExpand = pr.historyCount > 1
+    const isExpanded = canExpand && expandedExerciseId === pr.exerciseId
     return (
       <li key={`${pr.exerciseId}-${pr.date.toISOString()}-${idx}`}>
         <button
           type="button"
-          onClick={() => setExpandedExerciseId(isExpanded ? null : pr.exerciseId)}
-          aria-expanded={isExpanded}
+          onClick={canExpand ? () => setExpandedExerciseId(isExpanded ? null : pr.exerciseId) : undefined}
+          aria-expanded={canExpand ? isExpanded : undefined}
           className={
             hero
-              ? `flex w-full items-center gap-3 rounded-[12px] border border-amber-300/50 bg-amber-50 px-3 py-2.5 text-left transition-colors hover:bg-amber-100/70 dark:border-amber-500/25 dark:bg-amber-500/10 dark:hover:bg-amber-500/15 ${isExpanded ? 'ring-2 ring-amber-300/60 dark:ring-amber-500/30' : ''}`
-              : `flex w-full items-center gap-3 rounded-[10px] px-2 py-2 text-left transition-colors hover:bg-[var(--surface-hover)] ${isExpanded ? 'bg-[var(--surface-hover)]' : ''}`
+              ? `flex w-full items-center gap-3 rounded-[12px] border border-amber-300/50 bg-amber-50 px-3 py-2.5 text-left transition-colors dark:border-amber-500/25 dark:bg-amber-500/10 ${canExpand ? 'hover:bg-amber-100/70 dark:hover:bg-amber-500/15' : 'cursor-default'} ${isExpanded ? 'ring-2 ring-amber-300/60 dark:ring-amber-500/30' : ''}`
+              : `flex w-full items-center gap-3 rounded-[10px] px-2 py-2 text-left transition-colors ${canExpand ? 'hover:bg-[var(--surface-hover)]' : 'cursor-default'} ${isExpanded ? 'bg-[var(--surface-hover)]' : ''}`
           }
         >
           {hero ? (
@@ -436,10 +449,12 @@ function RecentPrsCard({ progress }: { progress: ExerciseProgressItem[] }) {
             <span className="ml-1 text-[10px] text-[var(--muted)]">kg</span>
             {pr.reps != null && <span className="ml-2 text-[10.5px] text-[var(--muted)]">× {pr.reps}</span>}
           </span>
-          <ChevronDown
-            size={14}
-            className={`shrink-0 text-[var(--muted)] transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-          />
+          {canExpand && (
+            <ChevronDown
+              size={14}
+              className={`shrink-0 text-[var(--muted)] transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+            />
+          )}
         </button>
         <AnimatePresence initial={false}>
           {isExpanded && (
