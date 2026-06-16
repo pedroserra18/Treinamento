@@ -60,6 +60,25 @@ class PwaController {
       // site normal. Log via Sentry se quiser observar.
       console.warn('[PWA] Falha ao registrar service worker', err)
     })
+
+    // PWAs instalados quase sempre são RETOMADOS do segundo plano em vez de
+    // abertos do zero, então register() (que só roda no boot) raramente
+    // re-checa por uma versão nova — e o toast "Atualizar" nunca aparece.
+    // Aqui a gente checa por update sempre que o app volta ao foco/visível,
+    // com throttle pra não martelar a rede. wb.update() só busca o SW novo;
+    // não recarrega nada (o reload só acontece quando o usuário confirma).
+    let lastUpdateCheck = Date.now()
+    const checkForUpdate = () => {
+      if (document.visibilityState !== 'visible') return
+      const now = Date.now()
+      if (now - lastUpdateCheck < 30_000) return
+      lastUpdateCheck = now
+      wb.update().catch(() => {
+        // offline ou erro transitório — tenta de novo no próximo foco
+      })
+    }
+    document.addEventListener('visibilitychange', checkForUpdate)
+    window.addEventListener('focus', checkForUpdate)
   }
 
   /**
