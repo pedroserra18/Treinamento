@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import {
-  MoreVertical, Timer, Plus, Dumbbell,
+  MoreVertical, Timer, Plus, Dumbbell, X,
 } from 'lucide-react'
 import type { ExerciseOption } from '../../types/workout'
 import { pushRecentExerciseId } from '../../lib/recent-exercises'
@@ -14,7 +14,7 @@ import { RestTimePickerSheet } from './RestTimePickerSheet'
 import { CreateExerciseModal } from './CreateExerciseModal'
 import { InfoDialog } from '../../components/common/InfoDialog'
 import { ConfirmDialog } from '../../components/common/ConfirmDialog'
-import { SetTypeSelector } from '../../components/common/SetTypeSelector'
+import { SetTypeBadge, SetTypePickerSheet } from '../../components/common/SetTypePickerSheet'
 import type { SetType } from '../../components/common/setTypeOptions'
 
 // Tela "Criar Rotina" no estilo Hevy: header [Cancelar / Título / Salvar]
@@ -26,10 +26,16 @@ import type { SetType } from '../../components/common/setTypeOptions'
 // Isso elimina o passo intermediário "Criar e salvar treino" do flow
 // anterior, copiando o UX do Hevy.
 
-// Estado local de um exercício sendo configurado na rotina nova.
-// Carrega só o mínimo que o backend aceita por exercício (sets count,
-// reps min/max, descanso, notas) — peso/RPE/RIR são preenchidos
-// durante o treino ativo, não na criação da rotina.
+// Uma série individual da rotina: range de reps + tipo. Peso/RPE/RIR são
+// preenchidos no treino ativo, não na criação da rotina.
+type DraftSet = {
+  repsMin: string
+  repsMax: string
+  type: SetType
+}
+
+// Estado local de um exercício sendo configurado na rotina nova. Cada série é
+// editável de forma independente (range de reps + tipo).
 type DraftExercise = {
   // ID local pra dnd-kit + key — diferente do exerciseId pra suportar
   // duplicatas no futuro (hoje a UI filtra, mas o id local é seguro).
@@ -39,35 +45,43 @@ type DraftExercise = {
   thumbnailUrl: string | null
   notes: string
   restSec: number // 0 = sem descanso (mostra "Desativado")
-  setCount: number
-  repsMin: string
-  repsMax: string
-  // Tipo de cada série (aquecimento/preparatória/normal/drop/cluster). Sempre
-  // alinhado com setCount: índice i = tipo da série i+1. Persistido no campo
-  // notes via o marcador __PERF__ (mesmo formato da WorkoutsPage).
-  setTypes: SetType[]
+  sets: DraftSet[]
 }
 
 // Marcador usado pra encodar dados estruturados por-série no campo notes do
 // plano, sem mexer no schema do backend. Mesma convenção da WorkoutsPage.
 const PERF_MARKER = '__PERF__:'
 
-// Redimensiona o array de tipos quando o número de séries muda, preservando
-// os tipos já escolhidos e preenchendo novas séries como 'normal'.
-function resizeSetTypes(types: SetType[], count: number): SetType[] {
-  if (count <= types.length) return types.slice(0, count)
-  return [...types, ...Array<SetType>(count - types.length).fill('normal')]
+function makeDraftSet(repsMin = '8', repsMax = '12', type: SetType = 'normal'): DraftSet {
+  return { repsMin, repsMax, type }
 }
 
-// Serializa o nome/notas do usuário + os tipos de série no formato __PERF__.
-// Só adiciona o marcador quando há ao menos uma série não-normal — assim, sem
-// customização, o comportamento (e o conteúdo de notes) fica idêntico ao de
-// antes. Payload compacto pra caber no limite de 300 chars do backend.
-function buildNotesWithSetTypes(ex: DraftExercise): string | undefined {
-  const userNote = ex.notes.trim().slice(0, 180)
-  const hasCustom = ex.setTypes.some((t) => t !== 'normal')
-  if (!hasCustom) return userNote || undefined
-  const series = ex.setTypes.map((t) => (t === 'normal' ? {} : { setType: t }))
+// Serializa a nota do usuário + a config por-série no formato __PERF__ (lido
+// pela WorkoutsPage; o backend só guarda como texto em notes). Inclui reps
+// (= repsMax, p/ compat com o parser da WorkoutsPage) + repsMin/repsMax/setType
+// por série. Só grava o marcador quando há algo além do padrão (tipo não-normal
+// ou ranges diferentes entre as séries) — assim, sem customização, notes fica
+// igual ao de antes.
+function buildNotesWithSets(ex: DraftExercise): string | undefined {
+  const userNote = ex.notes.trim().slice(0, 150)
+  const first = ex.sets[0]
+  const allNormal = ex.sets.every((s) => s.type === 'normal')
+  const uniformReps = ex.sets.every(
+    (s) => s.repsMin === (first?.repsMin ?? '') && s.repsMax === (first?.repsMax ?? ''),
+  )
+  if (allNormal && uniformReps) return userNote || undefined
+  const series = ex.sets.map((s) => {
+    const min = Number(s.repsMin)
+    const max = Number(s.repsMax)
+    const entry: { reps?: number; repsMin?: number; repsMax?: number; setType?: SetType } = {}
+    if (Number.isFinite(max) && max > 0) {
+      entry.reps = Math.floor(max)
+      entry.repsMax = Math.floor(max)
+    }
+    if (Number.isFinite(min) && min > 0) entry.repsMin = Math.floor(min)
+    if (s.type !== 'normal') entry.setType = s.type
+    return entry
+  })
   const payload = { sets: series.length, series }
   return `${userNote}${userNote ? ' ' : ''}${PERF_MARKER}${JSON.stringify(payload)}`.trim()
 }
@@ -84,10 +98,7 @@ function makeDraftExercise(option: ExerciseOption): DraftExercise {
     thumbnailUrl: option.thumbnailUrl,
     notes: '',
     restSec: 0,
-    setCount: 3,
-    repsMin: '8',
-    repsMax: '12',
-    setTypes: ['normal', 'normal', 'normal'],
+    sets: [makeDraftSet(), makeDraftSet(), makeDraftSet()],
   }
 }
 
@@ -133,6 +144,8 @@ export function CreateRoutineScreen({
   const [restPickerIndex, setRestPickerIndex] = useState<number | null>(null)
   const [infoDialog, setInfoDialog] = useState<{ title: string; message: string } | null>(null)
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; onConfirm: () => void; destructive?: boolean; confirmLabel?: string } | null>(null)
+  // Qual série está com o picker de tipo aberto (exercício + índice da série).
+  const [pickerTarget, setPickerTarget] = useState<{ exIndex: number; setIndex: number } | null>(null)
 
   // Mutações imutáveis sobre o array de exercícios — cada handler
   // retorna um novo array pro setState pra preservar render correto.
@@ -141,6 +154,33 @@ export function CreateRoutineScreen({
   }
   const removeExercise = (index: number) => {
     setExercises((current) => current.filter((_, i) => i !== index))
+  }
+
+  // Mutações por-série dentro de um exercício.
+  const patchSet = (exIndex: number, setIndex: number, patch: Partial<DraftSet>) => {
+    setExercises((current) =>
+      current.map((ex, i) =>
+        i === exIndex
+          ? { ...ex, sets: ex.sets.map((s, j) => (j === setIndex ? { ...s, ...patch } : s)) }
+          : ex,
+      ),
+    )
+  }
+  const addSet = (exIndex: number) => {
+    setExercises((current) =>
+      current.map((ex, i) => {
+        if (i !== exIndex || ex.sets.length >= 20) return ex
+        const last = ex.sets[ex.sets.length - 1]
+        return { ...ex, sets: [...ex.sets, makeDraftSet(last?.repsMin ?? '8', last?.repsMax ?? '12', 'normal')] }
+      }),
+    )
+  }
+  const removeSet = (exIndex: number, setIndex: number) => {
+    setExercises((current) =>
+      current.map((ex, i) =>
+        i === exIndex && ex.sets.length > 1 ? { ...ex, sets: ex.sets.filter((_, j) => j !== setIndex) } : ex,
+      ),
+    )
   }
 
   // Adiciona em batch o que o AddExerciseModal devolve. Filtra os
@@ -216,15 +256,18 @@ export function CreateRoutineScreen({
     onSubmit({
       name: trimmedName,
       exercises: exercises.map((ex) => {
-        const repsMinNum = Number(ex.repsMin)
-        const repsMaxNum = Number(ex.repsMax)
+        // Colunas do plano (sets/repsMin/repsMax) são representativas: contagem
+        // de séries + menor/maior faixa entre elas. O detalhe por-série (reps +
+        // tipo de cada uma) vai no notes via __PERF__.
+        const mins = ex.sets.map((s) => Number(s.repsMin)).filter((n) => Number.isFinite(n) && n > 0)
+        const maxs = ex.sets.map((s) => Number(s.repsMax)).filter((n) => Number.isFinite(n) && n > 0)
         return {
           exerciseId: ex.exerciseId,
-          sets: Math.max(1, ex.setCount),
-          repsMin: Number.isFinite(repsMinNum) && repsMinNum > 0 ? Math.floor(repsMinNum) : undefined,
-          repsMax: Number.isFinite(repsMaxNum) && repsMaxNum > 0 ? Math.floor(repsMaxNum) : undefined,
+          sets: Math.max(1, ex.sets.length),
+          repsMin: mins.length ? Math.floor(Math.min(...mins)) : undefined,
+          repsMax: maxs.length ? Math.floor(Math.max(...maxs)) : undefined,
           restSec: ex.restSec > 0 ? ex.restSec : undefined,
-          notes: buildNotesWithSetTypes(ex),
+          notes: buildNotesWithSets(ex),
         }
       }),
     })
@@ -336,66 +379,59 @@ export function CreateRoutineScreen({
                 Descanso: {restLabel}
               </button>
 
-              {/* Tabela de séries. Hoje é simplificada: 1 contagem total
-                  + 1 faixa de reps. Pesos não vão no plano (preenche
-                  durante treino ativo). Visual replica Hevy mas com
-                  inputs em vez de uma linha por série. */}
-              <div className="mt-3 grid grid-cols-[40px_1fr_1fr] gap-2 border-t border-[var(--line)] pt-2.5 font-mono text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">
-                <span>Séries</span>
+              {/* Tabela de séries — uma linha por série. Toque no badge pra
+                  escolher o tipo (mesmo picker do treino ativo). Cada série tem
+                  seu próprio range de reps. Pesos não vão no plano (preenche no
+                  treino ativo). */}
+              <div className="mt-3 grid grid-cols-[44px_1fr_1fr_32px] gap-2 border-t border-[var(--line)] pt-2.5 font-mono text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">
+                <span>Série</span>
                 <span>Reps mín</span>
                 <span>Reps máx</span>
+                <span />
               </div>
-              <div className="mt-1.5 grid grid-cols-[40px_1fr_1fr] gap-2">
-                <input
-                  value={String(ex.setCount)}
-                  inputMode="numeric"
-                  onChange={(e) => {
-                    const cleaned = e.target.value.replace(/[^\d]/g, '').slice(0, 2)
-                    const num = cleaned === '' ? 1 : Math.max(1, Math.min(20, parseInt(cleaned, 10)))
-                    patchExercise(index, { setCount: num, setTypes: resizeSetTypes(ex.setTypes, num) })
-                  }}
-                  aria-label="Número de séries"
-                  className="w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1.5 text-center text-[14px] font-bold tabular-nums text-[var(--text)]"
-                />
-                <input
-                  value={ex.repsMin}
-                  inputMode="numeric"
-                  onChange={(e) => patchExercise(index, { repsMin: e.target.value.replace(/[^\d]/g, '').slice(0, 3) })}
-                  placeholder="–"
-                  aria-label="Reps mínimas"
-                  className="w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1.5 text-center text-[14px] font-bold tabular-nums text-[var(--text)]"
-                />
-                <input
-                  value={ex.repsMax}
-                  inputMode="numeric"
-                  onChange={(e) => patchExercise(index, { repsMax: e.target.value.replace(/[^\d]/g, '').slice(0, 3) })}
-                  placeholder="–"
-                  aria-label="Reps máximas"
-                  className="w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1.5 text-center text-[14px] font-bold tabular-nums text-[var(--text)]"
-                />
-              </div>
-
-              {/* Tipo de cada série — aquecimento/preparatória/normal/drop/cluster.
-                  Persistido no plano (campo notes via __PERF__) sem mexer no schema. */}
-              <div className="mt-3 border-t border-[var(--line)] pt-2.5">
-                <p className="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">
-                  Tipo de cada série
-                </p>
-                <div className="grid gap-1.5">
-                  {ex.setTypes.map((t, si) => (
-                    <div key={si} className="flex items-center justify-between gap-2">
-                      <span className="text-[12px] font-semibold text-[var(--text)]">Série {si + 1}</span>
-                      <SetTypeSelector
-                        value={t}
-                        onChange={(next) =>
-                          patchExercise(index, {
-                            setTypes: ex.setTypes.map((tt, j) => (j === si ? next : tt)),
-                          })
-                        }
-                      />
-                    </div>
-                  ))}
-                </div>
+              <div className="mt-1.5 grid gap-1.5">
+                {ex.sets.map((s, si) => (
+                  <div key={si} className="grid grid-cols-[44px_1fr_1fr_32px] items-center gap-2">
+                    <SetTypeBadge
+                      index={si}
+                      setType={s.type}
+                      onClick={() => setPickerTarget({ exIndex: index, setIndex: si })}
+                    />
+                    <input
+                      value={s.repsMin}
+                      inputMode="numeric"
+                      onChange={(e) => patchSet(index, si, { repsMin: e.target.value.replace(/[^\d]/g, '').slice(0, 3) })}
+                      placeholder="–"
+                      aria-label={`Série ${si + 1} reps mínimas`}
+                      className="w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1.5 text-center text-[14px] font-bold tabular-nums text-[var(--text)]"
+                    />
+                    <input
+                      value={s.repsMax}
+                      inputMode="numeric"
+                      onChange={(e) => patchSet(index, si, { repsMax: e.target.value.replace(/[^\d]/g, '').slice(0, 3) })}
+                      placeholder="–"
+                      aria-label={`Série ${si + 1} reps máximas`}
+                      className="w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1.5 text-center text-[14px] font-bold tabular-nums text-[var(--text)]"
+                    />
+                    <button
+                      type="button"
+                      aria-label={`Remover série ${si + 1}`}
+                      onClick={() => removeSet(index, si)}
+                      disabled={ex.sets.length <= 1}
+                      className="grid h-8 w-8 place-items-center rounded-md text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-rose-500 disabled:opacity-30"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => addSet(index)}
+                  className="mt-0.5 inline-flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-[var(--line)] py-2 text-[12px] font-bold text-[var(--muted)] transition-colors hover:border-[var(--brand)] hover:text-[var(--brand)]"
+                >
+                  <Plus size={13} />
+                  Adicionar série
+                </button>
               </div>
             </article>
           )
@@ -503,6 +539,16 @@ export function CreateRoutineScreen({
           currentSec={exercises[restPickerIndex].restSec}
           onConfirm={(sec) => patchExercise(restPickerIndex, { restSec: sec })}
           onClose={() => setRestPickerIndex(null)}
+        />
+      )}
+
+      {pickerTarget && exercises[pickerTarget.exIndex]?.sets[pickerTarget.setIndex] && (
+        <SetTypePickerSheet
+          open
+          current={exercises[pickerTarget.exIndex].sets[pickerTarget.setIndex].type}
+          onSelect={(type) => patchSet(pickerTarget.exIndex, pickerTarget.setIndex, { type })}
+          onRemove={() => removeSet(pickerTarget.exIndex, pickerTarget.setIndex)}
+          onClose={() => setPickerTarget(null)}
         />
       )}
 

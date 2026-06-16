@@ -100,12 +100,13 @@ export const reorderPlanExercisesBodySchema = z
 const addPlanExerciseBatchItemSchema = z
   .object({
     exerciseId: z.string().cuid(),
-    sets: z.number().int().min(1).max(12).optional(),
+    sets: z.number().int().min(1).max(20).optional(),
     repsMin: z.number().int().min(1).max(100).optional(),
     repsMax: z.number().int().min(1).max(100).optional(),
     durationSec: z.number().int().min(5).max(4 * 60 * 60).optional(),
     restSec: z.number().int().min(5).max(15 * 60).optional(),
-    notes: z.string().trim().min(1).max(300).optional()
+    // max alto pra acomodar a config por-série encodada no notes (__PERF__).
+    notes: z.string().trim().min(1).max(1000).optional()
   })
   .strict();
 

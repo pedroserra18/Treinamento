@@ -66,7 +66,8 @@ export const createAndSharePlanSchema = z.object({
         repsMin: z.coerce.number().int().min(1).max(100).optional(),
         repsMax: z.coerce.number().int().min(1).max(100).optional(),
         restSec: z.coerce.number().int().min(0).max(3600).optional(),
-        notes: z.string().trim().max(500).optional(),
+        // max alto pra acomodar a config por-série encodada no notes (__PERF__).
+        notes: z.string().trim().max(1000).optional(),
       }),
     )
     .min(1, "Adicione ao menos 1 exercício")
