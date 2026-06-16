@@ -8,7 +8,7 @@ import {
 } from '../lib/exercise-explorer'
 import { resolveBodyweightFlag } from '../lib/exercise-meta'
 import type { CardioType, ExerciseOption, WorkoutPlan } from '../types/workout'
-import { SetTypeSelector } from '../components/common/SetTypeSelector'
+import { SetTypeBadge, SetTypePickerSheet } from '../components/common/SetTypePickerSheet'
 import { type SetType, type DropEntry } from '../components/common/setTypeOptions'
 import {
   addExerciseToPlan,
@@ -414,6 +414,8 @@ export function WorkoutsPage({
 
   const [draftByExercise, setDraftByExercise] = useState<Record<string, PerformanceDraft>>({})
   const [expandedByExercise, setExpandedByExercise] = useState<Record<string, boolean>>({})
+  // Qual série está com o picker de tipo aberto (exercício + índice da série).
+  const [seriesPicker, setSeriesPicker] = useState<{ exerciseId: string; seriesIndex: number } | null>(null)
   const [editingNameByExercise, setEditingNameByExercise] = useState<Record<string, boolean>>({})
   const [customNameByExercise, setCustomNameByExercise] = useState<Record<string, string>>({})
   const [editingPlanNameById, setEditingPlanNameById] = useState<Record<string, boolean>>({})
@@ -1190,15 +1192,17 @@ export function WorkoutsPage({
                               key={`${item.id}-serie-${seriesIndex}`}
                               className="space-y-2 rounded-xl border border-[var(--line)] p-3"
                             >
-                              {/* Header: label + type selector + remove */}
+                              {/* Header: badge (toque abre o picker de tipo, igual
+                                  ao treino ativo) + número da série + remover */}
                               <div className="flex flex-wrap items-center gap-2">
-                                <span className="shrink-0 text-xs font-bold text-[var(--muted)]">
-                                  Serie {seriesIndex + 1}
-                                </span>
-                                <SetTypeSelector
-                                  value={series.setType}
-                                  onChange={(val) => patchSeries(item.id, seriesIndex, { setType: val })}
+                                <SetTypeBadge
+                                  index={seriesIndex}
+                                  setType={series.setType}
+                                  onClick={() => setSeriesPicker({ exerciseId: item.id, seriesIndex })}
                                 />
+                                <span className="shrink-0 text-xs font-bold text-[var(--muted)]">
+                                  Série {seriesIndex + 1}
+                                </span>
                                 <button
                                   type="button"
                                   className="ml-auto rounded-lg border border-red-500/60 px-2 py-1 text-xs font-semibold text-red-300"
@@ -1607,6 +1611,15 @@ export function WorkoutsPage({
           title={infoDialog.title}
           message={infoDialog.message}
           onClose={() => setInfoDialog(null)}
+        />
+      )}
+      {seriesPicker && draftByExercise[seriesPicker.exerciseId]?.series[seriesPicker.seriesIndex] && (
+        <SetTypePickerSheet
+          open
+          current={draftByExercise[seriesPicker.exerciseId].series[seriesPicker.seriesIndex].setType}
+          onSelect={(type) => patchSeries(seriesPicker.exerciseId, seriesPicker.seriesIndex, { setType: type })}
+          onRemove={() => removeSeries(seriesPicker.exerciseId, seriesPicker.seriesIndex)}
+          onClose={() => setSeriesPicker(null)}
         />
       )}
     </section>
