@@ -3,7 +3,7 @@ import {
   createPost, deletePost, updatePostPrivacy, toggleLike, getFeed, getUserPosts,
   followUser, unfollowUser, getFollowers, getFollowing,
   searchUsers, getPublicProfile, getPublicFollowers, getPublicFollowing, getMutualFollowers,
-  sharePlan, getSharedPlan, saveSharedPlan, compareUsers, compareExercise,
+  sharePlan, createAndSharePlan, getSharedPlan, saveSharedPlan, compareUsers, compareExercise,
   adminListRemovedPostsByUser, adminRestorePost,
   listComments, createComment, deleteComment,
 } from "./social.service";
@@ -98,6 +98,11 @@ export async function getMutualFollowersController(req: Request, res: Response) 
 export async function sharePlanController(req: Request, res: Response) {
   const result = await sharePlan(req.context.userId!, req.params["planId"] as string);
   res.json({ data: result });
+}
+
+export async function createAndSharePlanController(req: Request, res: Response) {
+  const result = await createAndSharePlan(req.context.userId!, req.body);
+  res.status(201).json({ data: result });
 }
 
 export async function getSharedPlanController(req: Request, res: Response) {

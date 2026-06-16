@@ -238,7 +238,10 @@ export async function listUserWorkoutPlans(userId: string) {
       status: {
         in: ["ACTIVE", "DRAFT"]
       },
-      archivedAt: null
+      archivedAt: null,
+      // Templates ocultos (ex.: rotinas criadas via "Criar e enviar") existem
+      // só pra servir o link compartilhado — não entram nas rotinas do criador.
+      isTemplate: false
     },
     orderBy: [{ createdAt: "desc" }],
     include: {
@@ -377,7 +380,7 @@ export async function createWorkoutPlan(userId: string, payload: CreateWorkoutPl
   // Tier gate: conta rotinas ATIVAS+não-archived do user. Archived/deleted
   // não contam (libera slot). PRO bypassa via assertWithinLimit.
   const currentCount = await prisma.workoutPlan.count({
-    where: { userId, archivedAt: null, status: { in: ["ACTIVE", "DRAFT"] } }
+    where: { userId, archivedAt: null, status: { in: ["ACTIVE", "DRAFT"] }, isTemplate: false }
   });
   await assertWithinLimit(userId, "workoutPlans", currentCount);
 
@@ -403,7 +406,7 @@ export async function createWorkoutPlanWithExercises(
   payload: CreateWorkoutPlanWithExercisesBody
 ) {
   const currentCount = await prisma.workoutPlan.count({
-    where: { userId, archivedAt: null, status: { in: ["ACTIVE", "DRAFT"] } }
+    where: { userId, archivedAt: null, status: { in: ["ACTIVE", "DRAFT"] }, isTemplate: false }
   });
   await assertWithinLimit(userId, "workoutPlans", currentCount);
 

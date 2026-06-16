@@ -245,6 +245,31 @@ export async function sharePlan(authorizedFetch: AuthorizedFetch, planId: string
   return handleResponse<{ token: string }>(res)
 }
 
+// "Criar e enviar rotina": cria a rotina como template oculto + gera o link
+// num único request. A rotina NÃO entra nas rotinas do criador — só serve o
+// link. Quem abre o link salva a cópia dele.
+export async function createAndSharePlan(
+  authorizedFetch: AuthorizedFetch,
+  data: {
+    name: string
+    exercises: Array<{
+      exerciseId: string
+      sets: number
+      repsMin?: number
+      repsMax?: number
+      restSec?: number
+      notes?: string
+    }>
+  },
+): Promise<{ token: string }> {
+  const res = await authorizedFetch(`${API_URL}/social/plans/share-new`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  return handleResponse<{ token: string }>(res)
+}
+
 export async function getSharedPlan(authorizedFetch: AuthorizedFetch, token: string): Promise<SharedPlanData> {
   const res = await authorizedFetch(`${API_URL}/social/shared/${token}`)
   return handleResponse<SharedPlanData>(res)

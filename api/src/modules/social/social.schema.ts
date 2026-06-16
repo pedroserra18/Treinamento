@@ -53,6 +53,28 @@ export const commentsQuerySchema = z.object({
   pageSize: z.coerce.number().int().positive().max(50).default(20),
 });
 
+// "Criar e enviar rotina": o criador monta uma rotina e gera um link, sem que
+// a rotina entre nas rotinas dele. O backend cria um template oculto + o
+// shared link numa transação. Limites espelham o builder do app.
+export const createAndSharePlanSchema = z.object({
+  name: z.string().trim().min(2, "Nome muito curto").max(120),
+  exercises: z
+    .array(
+      z.object({
+        exerciseId: z.string().min(1),
+        sets: z.coerce.number().int().min(1).max(20),
+        repsMin: z.coerce.number().int().min(1).max(100).optional(),
+        repsMax: z.coerce.number().int().min(1).max(100).optional(),
+        restSec: z.coerce.number().int().min(0).max(3600).optional(),
+        notes: z.string().trim().max(500).optional(),
+      }),
+    )
+    .min(1, "Adicione ao menos 1 exercício")
+    .max(50),
+});
+
+export type CreateAndSharePlanBody = z.infer<typeof createAndSharePlanSchema>;
+
 export type CreatePostBody = z.infer<typeof createPostSchema>;
 export type UpdatePostPrivacyBody = z.infer<typeof updatePostPrivacySchema>;
 export type FeedQuery = z.infer<typeof feedQuerySchema>;

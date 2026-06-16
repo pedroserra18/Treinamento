@@ -58,7 +58,7 @@ import { ConfirmDialog } from '../components/common/ConfirmDialog'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePushNotifications } from '../hooks/usePushNotifications'
 import { cancelBackendNotification, scheduleBackendNotification } from '../services/pushService'
-import { createPost, sharePlan, type PostPrivacy } from '../services/socialService'
+import { createPost, sharePlan, createAndSharePlan, type PostPrivacy } from '../services/socialService'
 import { WorkoutsPage } from './WorkoutsPage'
 import { WorkoutRecommendationsPage } from './WorkoutRecommendationsPage'
 import { type SetType, type DropEntry } from '../components/common/setTypeOptions'
@@ -3603,10 +3603,9 @@ export function TrainPage() {
   }
 
   // "Criar e enviar rotina": monta uma rotina (mesmo builder do "Nova rotina")
-  // e, ao concluir, cria o plano + gera o link de compartilhamento e abre o
-  // modal de envio (WhatsApp/Instagram/copiar). O plano fica nas Minhas Rotinas
-  // do criador — o link aponta pro plano vivo, então ele precisa persistir.
-  // 100% reuso de createWorkoutPlanWithExercises + sharePlan + shareLinkModal.
+  // e, ao concluir, cria a rotina como TEMPLATE OCULTO + gera o link e abre o
+  // modal de envio (WhatsApp/Instagram/copiar). A rotina NÃO entra nas Minhas
+  // Rotinas do criador — fica salva só pra quem abrir o link e salvar.
   const handleCreateAndSendRoutine = async (data: {
     name: string
     exercises: Array<{
@@ -3621,23 +3620,13 @@ export function TrainPage() {
     setScreen('DASHBOARD')
     try {
       setError(null)
-      const real = await createWorkoutPlanWithExercises(authorizedFetch, {
+      const { token } = await createAndSharePlan(authorizedFetch, {
         name: data.name,
-        source: 'CUSTOM',
         exercises: data.exercises,
       })
-      setPlans((current) => {
-        const next = [real, ...current]
-        setWorkoutPlansCache(next)
-        return next
-      })
-      invalidateWorkoutPlansCache()
-      const { token } = await sharePlan(authorizedFetch, real.id)
       const link = `${window.location.origin}/shared/${token}`
-      setShareLinkModal({ link, planName: real.name })
+      setShareLinkModal({ link, planName: data.name })
     } catch (err) {
-      // Limite do tier FREE: mostra o dialog de upgrade padrão (sem poluir error).
-      if (catchPlanLimitError(err, showPlanLimit)) return
       setError(err instanceof Error ? err.message : 'Erro ao criar e enviar rotina')
     }
   }

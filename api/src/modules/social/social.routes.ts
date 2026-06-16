@@ -4,7 +4,7 @@ import { requireAuth, optionalAuth } from "../../middlewares/auth.middleware";
 import { validateRequest as validate } from "../../middlewares/validation.middleware";
 import {
   createPostSchema, feedQuerySchema, userPostsQuerySchema, searchUsersSchema, updatePostPrivacySchema,
-  createCommentSchema, commentsQuerySchema,
+  createCommentSchema, commentsQuerySchema, createAndSharePlanSchema,
 } from "./social.schema";
 import {
   createPostController, deletePostController, updatePostPrivacyController, toggleLikeController,
@@ -12,7 +12,7 @@ import {
   unfollowController, getFollowersController, getFollowingController,
   searchUsersController, getPublicProfileController,
   getPublicFollowersController, getPublicFollowingController, getMutualFollowersController,
-  sharePlanController, getSharedPlanController, saveSharedPlanController,
+  sharePlanController, createAndSharePlanController, getSharedPlanController, saveSharedPlanController,
   compareUsersController, compareExerciseController,
   listCommentsController, createCommentController, deleteCommentController,
 } from "./social.controller";
@@ -60,6 +60,7 @@ router.get("/users/:userId/compare", requireAuth, asyncHandler(compareUsersContr
 router.get("/users/:userId/compare-exercise", requireAuth, asyncHandler(compareExerciseController));
 
 // Share plan
+router.post("/plans/share-new", requireAuth, validate({ body: createAndSharePlanSchema }), asyncHandler(createAndSharePlanController));
 router.post("/plans/:planId/share", requireAuth, asyncHandler(sharePlanController));
 router.get("/shared/:token", asyncHandler(getSharedPlanController));
 router.post("/shared/:token/save", requireAuth, asyncHandler(saveSharedPlanController));
