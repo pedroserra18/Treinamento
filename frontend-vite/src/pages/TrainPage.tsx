@@ -23,7 +23,7 @@ import { useShowPlanLimit } from '../components/plan/use-plan-limit'
 import { catchPlanLimitError } from '../lib/plan-features'
 import {
   Flame, Layers, Dumbbell, Plus, Play, Pencil, Sparkles, MoreHorizontal,
-  MoreVertical, ArrowLeft, Check,
+  MoreVertical, ArrowLeft, Check, Send,
   Activity, X, ClipboardList,
 } from 'lucide-react'
 import { SkeletonCard } from '../components/common/Skeleton'
@@ -117,7 +117,7 @@ import {
 import type { Competition, CompetitionEntryKind } from '../types/competition'
 import { sha256OfDataUrl } from '../lib/photo-hash'
 
-type TrainScreen = 'DASHBOARD' | 'ACTIVE' | 'SUMMARY' | 'EDIT' | 'RECOMMENDATIONS' | 'NEW_ROUTINE'
+type TrainScreen = 'DASHBOARD' | 'ACTIVE' | 'SUMMARY' | 'EDIT' | 'RECOMMENDATIONS' | 'NEW_ROUTINE' | 'SEND_ROUTINE'
 type TrainOriginMode = 'EMPTY' | 'ROUTINE'
 
 type ExerciseSetInput = {
@@ -3602,6 +3602,46 @@ export function TrainPage() {
     }
   }
 
+  // "Criar e enviar rotina": monta uma rotina (mesmo builder do "Nova rotina")
+  // e, ao concluir, cria o plano + gera o link de compartilhamento e abre o
+  // modal de envio (WhatsApp/Instagram/copiar). O plano fica nas Minhas Rotinas
+  // do criador — o link aponta pro plano vivo, então ele precisa persistir.
+  // 100% reuso de createWorkoutPlanWithExercises + sharePlan + shareLinkModal.
+  const handleCreateAndSendRoutine = async (data: {
+    name: string
+    exercises: Array<{
+      exerciseId: string
+      sets: number
+      repsMin?: number
+      repsMax?: number
+      restSec?: number
+      notes?: string
+    }>
+  }) => {
+    setScreen('DASHBOARD')
+    try {
+      setError(null)
+      const real = await createWorkoutPlanWithExercises(authorizedFetch, {
+        name: data.name,
+        source: 'CUSTOM',
+        exercises: data.exercises,
+      })
+      setPlans((current) => {
+        const next = [real, ...current]
+        setWorkoutPlansCache(next)
+        return next
+      })
+      invalidateWorkoutPlansCache()
+      const { token } = await sharePlan(authorizedFetch, real.id)
+      const link = `${window.location.origin}/shared/${token}`
+      setShareLinkModal({ link, planName: real.name })
+    } catch (err) {
+      // Limite do tier FREE: mostra o dialog de upgrade padrão (sem poluir error).
+      if (catchPlanLimitError(err, showPlanLimit)) return
+      setError(err instanceof Error ? err.message : 'Erro ao criar e enviar rotina')
+    }
+  }
+
   const handleExportPDF = (plan: WorkoutPlan) => {
     const exerciseRows = plan.exercises
       .map((item, i) => {
@@ -4221,6 +4261,19 @@ export function TrainPage() {
         </motion.header>
         <WorkoutRecommendationsPage />
       </section>
+    )
+  }
+
+  if (screen === 'SEND_ROUTINE') {
+    return (
+      <Suspense fallback={null}>
+        <CreateRoutineScreen
+          title="Criar e enviar"
+          submitLabel="Criar e enviar"
+          onCancel={() => setScreen('DASHBOARD')}
+          onSubmit={(data) => void handleCreateAndSendRoutine(data)}
+        />
+      </Suspense>
     )
   }
 
@@ -5500,6 +5553,14 @@ export function TrainPage() {
           >
             <Plus size={12} />
             Nova rotina
+          </button>
+          <button
+            type="button"
+            onClick={() => setScreen('SEND_ROUTINE')}
+            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--line)] bg-[var(--surface)] px-3 py-1.5 text-[12px] font-semibold text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
+          >
+            <Send size={12} />
+            Criar e enviar
           </button>
         </div>
       </motion.div>

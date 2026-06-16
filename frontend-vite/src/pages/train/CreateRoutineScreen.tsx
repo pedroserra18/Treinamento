@@ -61,9 +61,14 @@ function makeDraftExercise(option: ExerciseOption): DraftExercise {
 }
 
 export function CreateRoutineScreen({
-  onCancel, onSubmit,
+  onCancel, onSubmit, title = 'Criar Rotina', submitLabel = 'Salvar',
 }: {
   onCancel: () => void
+  // Cabeçalho/CTA customizáveis pra reaproveitar a tela em outros fluxos
+  // (ex.: "Criar e enviar rotina"), mantendo o builder idêntico. Default =
+  // o fluxo "Nova rotina".
+  title?: string
+  submitLabel?: string
   // Optimistic UI: a tela valida os inputs e devolve os dados PRONTOS pro
   // parent gravar. O parent insere uma rotina otimista, navega imediato
   // pra DASHBOARD e dispara o backend em background. Sem `Promise<>` aqui
@@ -224,7 +229,7 @@ export function CreateRoutineScreen({
         >
           Cancelar
         </button>
-        <h1 className="truncate text-[15px] font-bold text-[var(--text)]">Criar Rotina</h1>
+        <h1 className="truncate text-[15px] font-bold text-[var(--text)]">{title}</h1>
         <button
           type="button"
           onClick={handleSave}
@@ -232,7 +237,7 @@ export function CreateRoutineScreen({
           style={{ touchAction: 'manipulation' }}
           className="rounded-xl bg-[var(--brand)] px-4 py-1.5 text-[13px] font-bold text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)] disabled:opacity-60"
         >
-          {saving ? 'Salvando…' : 'Salvar'}
+          {saving ? 'Salvando…' : submitLabel}
         </button>
       </motion.header>
 
