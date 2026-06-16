@@ -2401,7 +2401,6 @@ export function ProgressPage() {
                       <input
                         type="file"
                         accept="image/*"
-                        capture="environment"
                         onChange={(e) => handleMeasurementPhotoFile(e.target.files?.[0] ?? null)}
                         className="w-full rounded-lg border border-[var(--line)] bg-transparent px-2.5 py-1.5 text-sm"
                       />
