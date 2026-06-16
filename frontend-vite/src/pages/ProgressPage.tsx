@@ -546,7 +546,7 @@ function BodyMetricChart({
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, delay }}
-      className="rounded-[14px] border border-[var(--line)] bg-[var(--surface)] p-5"
+      className="rounded-[16px] border border-[var(--line)] bg-[var(--surface)] p-5"
     >
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-[14px] font-semibold text-[var(--text)]">{label}</h3>
@@ -1496,7 +1496,7 @@ function TabSwitcher({
   return (
     <div
       ref={containerRef}
-      className="relative inline-flex rounded-[14px] border border-[var(--line)] bg-[var(--surface)] p-[5px] shadow-[0_2px_12px_-6px_rgba(40,15,5,0.08)]"
+      className="relative inline-flex rounded-[16px] border border-[var(--line)] bg-[var(--surface)] p-[5px] shadow-[0_2px_12px_-6px_rgba(40,15,5,0.08)]"
     >
       {glide && (
         <motion.span
@@ -1923,7 +1923,7 @@ export function ProgressPage() {
   }
 
   return (
-    <section className="space-y-3.5">
+    <section className="space-y-4">
       {/* Voltar ao perfil — só mobile/tablet (no desktop Progresso é item de nav) */}
       <Link
         to="/profile"
@@ -1938,29 +1938,27 @@ export function ProgressPage() {
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35, ease: 'easeOut' }}
-        className="rounded-[18px] border border-[var(--line)] bg-[var(--surface)] p-4 sm:p-6"
+        className="rounded-[16px] border border-[var(--line)] bg-[var(--surface)] p-4 sm:p-6"
       >
         <div className="flex flex-col gap-5 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
           <div className="min-w-0 sm:flex-1">
-            <p className="inline-flex items-center gap-2 font-mono text-[10.5px] font-semibold uppercase tracking-[0.22em] text-[var(--brand-strong)]">
-              <span
-                className="inline-block h-[7px] w-[7px] rounded-full bg-[var(--brand)]"
-                style={{ boxShadow: '0 0 0 0 rgba(255,90,60,0.55)', animation: 'tech-pulse 1.6s ease-out infinite' }}
-              />
+            <p className="inline-flex items-center gap-2 font-mono text-[10.5px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">
+              <span className="inline-block h-[6px] w-[6px] rounded-full bg-[var(--brand)]" />
               Progresso
               {lastSession && (
-                <>
-                  <span className="opacity-60">·</span>
-                  <span>Última sessão {formatShortDate(lastSession)}</span>
-                </>
+                <span className="font-sans text-[11px] font-normal normal-case tracking-normal text-[var(--muted)]">
+                  · Última sessão {formatShortDate(lastSession)}
+                </span>
               )}
             </p>
             <h1 className="mt-1.5 text-[28px] font-semibold tracking-tight text-[var(--text)] sm:text-[32px]">
               Seu <span className="font-serif-accent text-[var(--brand-strong)]">acompanhamento</span>
             </h1>
-            <p className="mt-2 max-w-xl text-[14px] leading-relaxed text-[var(--muted)]">
-              Fixe exercícios principais, acompanhe carga, repetições e volume — e registre sua evolução corporal com fotos e medidas.
-            </p>
+            {summaryDays.length === 0 && measurements.length === 0 && exerciseProgress.length === 0 && (
+              <p className="mt-2 max-w-xl text-[14px] leading-relaxed text-[var(--muted)]">
+                Fixe exercícios principais, acompanhe carga, repetições e volume — e registre sua evolução corporal com fotos e medidas.
+              </p>
+            )}
             {(summaryDays.length > 0 || measurements.length > 0) && (
               <button
                 type="button"
@@ -2057,7 +2055,7 @@ export function ProgressPage() {
 
       {/* ───── EXERCISE PANEL ───── */}
       {tab === 'exercise' && (
-        <div className="space-y-2.5">
+        <div className="space-y-3">
           {/* Pinned card */}
           <motion.section
             initial={{ opacity: 0, y: 8 }}
@@ -2257,7 +2255,7 @@ export function ProgressPage() {
 
       {/* ───── BODY PANEL ───── */}
       {tab === 'body' && (
-        <div className="space-y-2.5">
+        <div className="space-y-3">
           {measurements.length === 0 && !loading ? (
             <motion.section
               initial={{ opacity: 0, y: 8 }}
@@ -2300,12 +2298,12 @@ export function ProgressPage() {
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3, delay: 0.1 }}
-              className="rounded-[14px] border border-[var(--line)] bg-[var(--surface)] p-5"
+              className="rounded-[16px] border border-[var(--line)] bg-[var(--surface)] p-5"
             >
               <div className="mb-3 flex items-center justify-between gap-2">
                 <h3 className="text-[14px] font-semibold text-[var(--text)]">Medidas</h3>
-                <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
-                  VS 30 DIAS
+                <span className="text-[11px] font-medium text-[var(--muted)]">
+                  vs. 30 dias
                 </span>
               </div>
 
@@ -2380,7 +2378,7 @@ export function ProgressPage() {
                 transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
                 className="overflow-hidden"
               >
-                <div className="rounded-[14px] border border-[var(--line)] bg-[var(--surface)] p-5">
+                <div className="rounded-[16px] border border-[var(--line)] bg-[var(--surface)] p-5">
                   <h3 className="mb-3 text-[14px] font-semibold text-[var(--text)]">Novo registro corporal</h3>
                   <div className="grid gap-2.5 sm:grid-cols-3">
                     <FormField label="Data">
@@ -2467,7 +2465,7 @@ export function ProgressPage() {
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, delay: 0.14 }}
-            className="rounded-[14px] border border-[var(--line)] bg-[var(--surface)] p-5"
+            className="rounded-[16px] border border-[var(--line)] bg-[var(--surface)] p-5"
           >
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-[14px] font-semibold text-[var(--text)]">Linha do tempo de fotos</h3>
@@ -2490,8 +2488,8 @@ export function ProgressPage() {
                     Ver todas
                   </button>
                 )}
-                <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
-                  {measurements.length} REGISTROS
+                <span className="text-[11px] font-medium text-[var(--muted)]">
+                  {measurements.length} {measurements.length === 1 ? 'registro' : 'registros'}
                 </span>
               </div>
             </div>
@@ -2537,7 +2535,7 @@ export function ProgressPage() {
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3, delay: 0.18 }}
-              className="rounded-[14px] border border-[var(--line)] bg-[var(--surface)] p-5"
+              className="rounded-[16px] border border-[var(--line)] bg-[var(--surface)] p-5"
             >
               <h3 className="mb-3 text-[14px] font-semibold text-[var(--text)]">Histórico corporal</h3>
               <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
