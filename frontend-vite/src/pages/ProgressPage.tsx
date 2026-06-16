@@ -281,10 +281,10 @@ function MuscleVolumeCard({ rows }: { rows: Array<{ group: string; volumeKg: num
       transition={{ duration: 0.3, delay: 0.1 }}
       className="rounded-[16px] border border-[var(--line)] bg-[var(--surface)] p-5"
     >
-      <div className="mb-3 flex items-end justify-between gap-2">
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
         <h3 className="text-[14px] font-semibold text-[var(--text)]">Distribuição por grupo</h3>
-        <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
-          ÚLTIMOS 30 DIAS · {total.toLocaleString('pt-BR')} KG
+        <span className="text-[11px] font-medium text-[var(--muted)]">
+          Últimos 30 dias · {total.toLocaleString('pt-BR')} kg
         </span>
       </div>
       <div className="space-y-2">
@@ -294,12 +294,12 @@ function MuscleVolumeCard({ rows }: { rows: Array<{ group: string; volumeKg: num
           const label = MUSCLE_LABEL_PT[row.group] ?? row.group
           return (
             <div key={row.group} className="space-y-1">
-              <div className="flex items-baseline justify-between gap-2 font-mono text-[11px]">
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="h-[6px] w-[6px] rounded-full" style={{ background: tone.dot }} />
-                  <b className="font-semibold text-[var(--text)]">{label}</b>
+              <div className="flex items-baseline justify-between gap-2 text-[11px]">
+                <span className="inline-flex min-w-0 items-center gap-1.5">
+                  <span className="h-[6px] w-[6px] shrink-0 rounded-full" style={{ background: tone.dot }} />
+                  <b className="truncate font-semibold text-[var(--text)]">{label}</b>
                 </span>
-                <span className="text-[var(--muted)]">
+                <span className="shrink-0 tabular-nums text-[var(--muted)]">
                   {row.volumeKg.toLocaleString('pt-BR')} kg
                   <span className="ml-2 inline-block w-9 text-right font-semibold text-[var(--text)]">{pct}%</span>
                 </span>
@@ -470,7 +470,7 @@ function RecentPrsCard({ progress }: { progress: ExerciseProgressItem[] }) {
                 {expandedTimeline.map((entry, i) => (
                   <li
                     key={`${entry.date.toISOString()}-${i}`}
-                    className="flex items-baseline gap-2 text-[11px] tabular-nums text-[var(--muted)]"
+                    className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[11px] tabular-nums text-[var(--muted)]"
                   >
                     <b className="text-[var(--text)]">
                       {entry.loadKg}
