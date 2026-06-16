@@ -393,6 +393,93 @@ function RecentPrsCard({ progress }: { progress: ExerciseProgressItem[] }) {
     [expandedProgress],
   )
 
+  // One row renderer shared between the highlighted (hero) most-recent PR and
+  // the plain list below it, so the two stay in sync. `hero` only changes the
+  // chrome (amber band + star vs. flat row + muscle dot), never the content.
+  const renderPr = (pr: RecentPr, idx: number, hero: boolean) => {
+    const tone = TONE_STYLE[muscleTone(pr.primaryMuscleGroup)]
+    const daysAgo = daysAgoFrom(pr.date)
+    const isExpanded = expandedExerciseId === pr.exerciseId
+    return (
+      <li key={`${pr.exerciseId}-${pr.date.toISOString()}-${idx}`}>
+        <button
+          type="button"
+          onClick={() => setExpandedExerciseId(isExpanded ? null : pr.exerciseId)}
+          aria-expanded={isExpanded}
+          className={
+            hero
+              ? `flex w-full items-center gap-3 rounded-[12px] border border-amber-300/50 bg-amber-50 px-3 py-2.5 text-left transition-colors hover:bg-amber-100/70 dark:border-amber-500/25 dark:bg-amber-500/10 dark:hover:bg-amber-500/15 ${isExpanded ? 'ring-2 ring-amber-300/60 dark:ring-amber-500/30' : ''}`
+              : `flex w-full items-center gap-3 rounded-[10px] px-2 py-2 text-left transition-colors hover:bg-[var(--surface-hover)] ${isExpanded ? 'bg-[var(--surface-hover)]' : ''}`
+          }
+        >
+          {hero ? (
+            <span
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-amber-400 text-[14px] font-bold text-amber-900"
+              aria-hidden
+            >
+              ★
+            </span>
+          ) : (
+            <span className="h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: tone.dot }} aria-hidden />
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[13px] font-semibold text-[var(--text)]">{pr.exerciseName}</p>
+            <p className="mt-0.5 text-[11px] text-[var(--muted)]">
+              {hero && <span className="font-semibold text-amber-600 dark:text-amber-400">Novo recorde · </span>}
+              {MUSCLE_LABEL_PT[pr.primaryMuscleGroup] ?? pr.primaryMuscleGroup}
+              <span className="mx-1.5 opacity-50">·</span>
+              há {daysAgo}d
+            </p>
+          </div>
+          <span className="shrink-0 text-right tabular-nums">
+            <b className="text-[14px] font-semibold text-[var(--text)]">{pr.loadKg}</b>
+            <span className="ml-1 text-[10px] text-[var(--muted)]">kg</span>
+            {pr.reps != null && <span className="ml-2 text-[10.5px] text-[var(--muted)]">× {pr.reps}</span>}
+          </span>
+          <ChevronDown
+            size={14}
+            className={`shrink-0 text-[var(--muted)] transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+          />
+        </button>
+        <AnimatePresence initial={false}>
+          {isExpanded && (
+            <motion.div
+              key="timeline"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+              className="overflow-hidden"
+            >
+              <ol className="mb-1 mt-2 space-y-1 border-l-2 border-amber-300/40 pl-3 dark:border-amber-500/25">
+                {expandedTimeline.map((entry, i) => (
+                  <li
+                    key={`${entry.date.toISOString()}-${i}`}
+                    className="flex items-baseline gap-2 text-[11px] tabular-nums text-[var(--muted)]"
+                  >
+                    <b className="text-[var(--text)]">
+                      {entry.loadKg}
+                      <span className="ml-0.5 text-[9.5px] text-[var(--muted)]">kg</span>
+                    </b>
+                    {entry.reps != null && <span className="text-[10px]">× {entry.reps}</span>}
+                    <span className="opacity-50">·</span>
+                    <span>{entry.date.toLocaleDateString('pt-BR')}</span>
+                    {entry.deltaKg != null && entry.deltaKg > 0 && (
+                      <span className="text-emerald-600 dark:text-emerald-400">▲ +{entry.deltaKg}kg</span>
+                    )}
+                    {i === expandedTimeline.length - 1 && (
+                      <span className="text-[9.5px] uppercase tracking-wider opacity-70">primeiro PR</span>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </li>
+    )
+  }
+
   return (
     <motion.section
       initial={{ opacity: 0, y: 8 }}
@@ -402,8 +489,8 @@ function RecentPrsCard({ progress }: { progress: ExerciseProgressItem[] }) {
     >
       <div className="mb-3 flex items-end justify-between gap-2">
         <h3 className="text-[14px] font-semibold text-[var(--text)]">Últimos PRs</h3>
-        <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">
-          {prs.length} REGISTROS
+        <span className="text-[11px] font-medium text-[var(--muted)]">
+          {prs.length} {prs.length === 1 ? 'recorde' : 'recordes'}
         </span>
       </div>
       {prs.length === 0 ? (
@@ -411,86 +498,16 @@ function RecentPrsCard({ progress }: { progress: ExerciseProgressItem[] }) {
           Sem PRs ainda. Bata uma carga maior que qualquer sessão anterior e ela aparece aqui.
         </p>
       ) : (
-        <ul className="space-y-1.5">
-          {prs.map((pr, idx) => {
-            const tone = TONE_STYLE[muscleTone(pr.primaryMuscleGroup)]
-            const daysAgo = daysAgoFrom(pr.date)
-            const isExpanded = expandedExerciseId === pr.exerciseId
-            return (
-              <li key={`${pr.exerciseId}-${pr.date.toISOString()}-${idx}`}>
-                <button
-                  type="button"
-                  onClick={() => setExpandedExerciseId(isExpanded ? null : pr.exerciseId)}
-                  aria-expanded={isExpanded}
-                  className={`flex w-full items-center gap-3 rounded-[10px] border border-[#f1c84a]/40 bg-gradient-to-r from-[#fffaea] to-[var(--surface-hover)] px-3 py-2 text-left transition-colors hover:from-[#fff5d6] dark:from-[#3d2e09]/40 dark:to-[var(--surface-hover)] ${
-                    isExpanded ? 'ring-2 ring-[#f1c84a]/60' : ''
-                  }`}
-                >
-                  <span
-                    className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-[12px] font-bold"
-                    style={{ background: '#f4c443', color: '#5a4209' }}
-                    aria-hidden
-                  >
-                    ★
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[13px] font-semibold text-[var(--text)]">{pr.exerciseName}</p>
-                    <p className="mt-0.5 font-mono text-[10.5px] text-[var(--muted)]">
-                      <span className="inline-flex items-center gap-1">
-                        <span className="h-[5px] w-[5px] rounded-full" style={{ background: tone.dot }} />
-                        {MUSCLE_LABEL_PT[pr.primaryMuscleGroup] ?? pr.primaryMuscleGroup}
-                      </span>
-                      <span className="mx-1.5 opacity-50">·</span>
-                      {pr.date.toLocaleDateString('pt-BR')}
-                      <span className="mx-1.5 opacity-50">·</span>
-                      há {daysAgo}d
-                    </p>
-                  </div>
-                  <span className="shrink-0 text-right font-mono">
-                    <b className="text-[14px] font-semibold text-[var(--text)]">{pr.loadKg}</b>
-                    <span className="ml-1 text-[10px] text-[var(--muted)]">kg</span>
-                    {pr.reps != null && (
-                      <span className="ml-2 text-[10.5px] text-[var(--muted)]">× {pr.reps}</span>
-                    )}
-                  </span>
-                  <ChevronDown
-                    size={14}
-                    className={`shrink-0 text-[var(--muted)] transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                  />
-                </button>
-                <AnimatePresence initial={false}>
-                  {isExpanded && (
-                    <motion.div
-                      key="timeline"
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-                      className="overflow-hidden"
-                    >
-                      <ol className="mt-2 space-y-1 border-l-2 border-[#f1c84a]/40 pl-3">
-                        {expandedTimeline.map((entry, i) => (
-                          <li key={`${entry.date.toISOString()}-${i}`} className="flex items-baseline gap-2 font-mono text-[11px] text-[var(--muted)]">
-                            <b className="text-[var(--text)]">{entry.loadKg}<span className="ml-0.5 text-[9.5px] text-[var(--muted)]">kg</span></b>
-                            {entry.reps != null && <span className="text-[10px]">× {entry.reps}</span>}
-                            <span className="opacity-50">·</span>
-                            <span>{entry.date.toLocaleDateString('pt-BR')}</span>
-                            {entry.deltaKg != null && entry.deltaKg > 0 && (
-                              <span className="text-emerald-600 dark:text-emerald-400">▲ +{entry.deltaKg}kg</span>
-                            )}
-                            {i === expandedTimeline.length - 1 && (
-                              <span className="text-[9.5px] uppercase tracking-wider opacity-70">primeiro PR</span>
-                            )}
-                          </li>
-                        ))}
-                      </ol>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </li>
-            )
-          })}
-        </ul>
+        <div className="space-y-2.5">
+          {/* Destaque: PR mais recente */}
+          <ul>{renderPr(prs[0], 0, true)}</ul>
+          {/* Demais PRs: lista limpa com divisórias */}
+          {prs.length > 1 && (
+            <ul className="divide-y divide-[var(--line)]">
+              {prs.slice(1).map((pr, i) => renderPr(pr, i + 1, false))}
+            </ul>
+          )}
+        </div>
       )}
     </motion.section>
   )
