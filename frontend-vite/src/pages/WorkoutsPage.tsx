@@ -353,7 +353,16 @@ type WorkoutsPageProps = {
   onlySelectedPlan?: boolean
   showCreateSection?: boolean
   createOnlyMode?: boolean
+  // Fired SÍNCRONO quando saveFullPlan dispara — antes do save terminar.
+  // Permite ao parent navegar imediato (UI otimista) enquanto as N updates
+  // rodam em paralelo no backend. Opcional pra back-compat com callers
+  // que não querem optimistic.
+  onPlanSaveStarted?: (planId: string) => void
+  // Fired quando o save completa com sucesso. Continua sendo o sinal
+  // padrão pra fechar editor / sincronizar lista do parent.
   onPlanSaved?: (planId: string) => void
+  // Fired quando o save falha (alguma update retornou false ou throw).
+  onPlanSaveFailed?: (planId: string, error: Error) => void
   // Quando true, o botão "Salvar treino completo" do cabeçalho do
   // plano fica escondido — o caller renderiza o salvar em outro lugar
   // (ex.: header do TrainPage no modo EDIT, estilo Hevy).
@@ -369,7 +378,9 @@ export function WorkoutsPage({
   onlySelectedPlan = false,
   showCreateSection = true,
   createOnlyMode = false,
+  onPlanSaveStarted,
   onPlanSaved,
+  onPlanSaveFailed,
   hideInlineSaveButton = false,
   saveSignal = 0,
 }: WorkoutsPageProps) {
@@ -738,22 +749,31 @@ export function WorkoutsPage({
     }
   }
 
-  const saveFullPlan = async (plan: WorkoutPlan) => {
-    try {
-      const results = await Promise.all(plan.exercises.map((entry) => saveExerciseMetrics(plan.id, entry.id, false)))
-      if (!results.every(Boolean)) {
-        return
-      }
+  const saveFullPlan = (plan: WorkoutPlan) => {
+    // OPTIMISTIC: dispara onPlanSaveStarted ANTES de aguardar os updates.
+    // Caller (ex: TrainPage EDIT) usa isso pra navegar imediato (~0ms
+    // percebido). As N updates rodam em paralelo em background.
+    onPlanSaveStarted?.(plan.id)
 
-      // Dispara o callback imediato — quem chama (TrainPage EDIT) já faz
-      // reloadPlans próprio, então não precisa segurar o user esperando
-      // loadAll local. loadAll roda em background pra refletir a mudança
-      // se o componente continuar montado.
-      onPlanSaved?.(plan.id)
-      void loadAll().catch(() => {})
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao salvar treino completo')
-    }
+    const promise = Promise.all(
+      plan.exercises.map((entry) => saveExerciseMetrics(plan.id, entry.id, false)),
+    )
+
+    promise
+      .then((results) => {
+        if (!results.every(Boolean)) {
+          onPlanSaveFailed?.(plan.id, new Error('Alguma atualização falhou'))
+          return
+        }
+        onPlanSaved?.(plan.id)
+        // Local reload pra atualizar a vista da WorkoutsPage caso ainda
+        // esteja montada. Se desmontada (caller navegou), promise vira
+        // no-op (React ignora setState em unmounted).
+        void loadAll().catch(() => {})
+      })
+      .catch((err) => {
+        onPlanSaveFailed?.(plan.id, err instanceof Error ? err : new Error('Erro ao salvar treino completo'))
+      })
   }
 
   // Aplica a nova ordem retornada pelo ReorderExercisesSheet. O backend

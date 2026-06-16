@@ -3,13 +3,7 @@ import { motion } from 'framer-motion'
 import {
   MoreVertical, Timer, Plus, Dumbbell,
 } from 'lucide-react'
-import type { ExerciseOption, WorkoutPlan } from '../../types/workout'
-import { useAuth } from '../../hooks/useAuth'
-import { useShowPlanLimit } from '../../components/plan/use-plan-limit'
-import { catchPlanLimitError } from '../../lib/plan-features'
-import {
-  createWorkoutPlanWithExercises,
-} from '../../services/workoutService'
+import type { ExerciseOption } from '../../types/workout'
 import { pushRecentExerciseId } from '../../lib/recent-exercises'
 import { formatClock } from '../../lib/workout-timing'
 import { AddExerciseModal } from './AddExerciseModal'
@@ -67,16 +61,25 @@ function makeDraftExercise(option: ExerciseOption): DraftExercise {
 }
 
 export function CreateRoutineScreen({
-  onCancel, onSaved,
+  onCancel, onSubmit,
 }: {
   onCancel: () => void
-  // onSaved recebe o plan completo (com exercises hidratados) pra que o
-  // parent atualize lista local sem precisar de reloadPlans → 0 round-trips
-  // extra depois do save.
-  onSaved: (created: WorkoutPlan) => void
+  // Optimistic UI: a tela valida os inputs e devolve os dados PRONTOS pro
+  // parent gravar. O parent insere uma rotina otimista, navega imediato
+  // pra DASHBOARD e dispara o backend em background. Sem `Promise<>` aqui
+  // — o save é fire-and-forget do ponto de vista desta tela.
+  onSubmit: (data: {
+    name: string
+    exercises: Array<{
+      exerciseId: string
+      sets: number
+      repsMin?: number
+      repsMax?: number
+      restSec?: number
+      notes?: string
+    }>
+  }) => void
 }) {
-  const { authorizedFetch } = useAuth()
-  const showPlanLimit = useShowPlanLimit()
 
   // Rascunho da rotina sendo construída. Tudo client-side até clicar
   // Salvar — se o usuário cancela, nada vai pro backend.
@@ -152,9 +155,11 @@ export function CreateRoutineScreen({
     })
   }
 
-  // Salvar: cria plano e adiciona exercícios em série. Loading state
-  // bloqueia botão duplicado e mostra "Salvando..." no header.
-  const handleSave = async () => {
+  // Optimistic UI: valida os inputs e devolve os dados pro parent.
+  // O parent insere a rotina otimista na DASHBOARD, navega imediato e
+  // dispara o save em background. Daqui em diante esta tela é descartada
+  // — não esperamos o backend, não mostramos "Salvando…". User sente 0ms.
+  const handleSave = () => {
     if (saving) return
     const trimmedName = name.trim()
     if (trimmedName.length < 2) {
@@ -172,40 +177,21 @@ export function CreateRoutineScreen({
       return
     }
     setSaving(true)
-    try {
-      // Endpoint combinado: criar plan + adicionar exercícios em UMA
-      // transação atômica e UM round-trip. Antes eram 3 hops sequenciais
-      // (createPlan + batch + reloadPlans) → agora é 1 hop, ~300ms no
-      // Render free tier. Resposta já vem com o plan hidratado pro parent
-      // atualizar a lista sem refetch.
-      const created = await createWorkoutPlanWithExercises(authorizedFetch, {
-        name: trimmedName,
-        source: 'CUSTOM',
-        exercises: exercises.map((ex) => {
-          const repsMinNum = Number(ex.repsMin)
-          const repsMaxNum = Number(ex.repsMax)
-          return {
-            exerciseId: ex.exerciseId,
-            sets: Math.max(1, ex.setCount),
-            repsMin: Number.isFinite(repsMinNum) && repsMinNum > 0 ? Math.floor(repsMinNum) : undefined,
-            repsMax: Number.isFinite(repsMaxNum) && repsMaxNum > 0 ? Math.floor(repsMaxNum) : undefined,
-            restSec: ex.restSec > 0 ? ex.restSec : undefined,
-            notes: ex.notes.trim() || undefined,
-          }
-        }),
-      })
-      onSaved(created)
-    } catch (err) {
-      if (catchPlanLimitError(err, showPlanLimit)) {
-        setSaving(false)
-        return
-      }
-      setInfoDialog({
-        title: 'Erro ao salvar rotina',
-        message: err instanceof Error ? err.message : 'Falha desconhecida — tente novamente.',
-      })
-      setSaving(false)
-    }
+    onSubmit({
+      name: trimmedName,
+      exercises: exercises.map((ex) => {
+        const repsMinNum = Number(ex.repsMin)
+        const repsMaxNum = Number(ex.repsMax)
+        return {
+          exerciseId: ex.exerciseId,
+          sets: Math.max(1, ex.setCount),
+          repsMin: Number.isFinite(repsMinNum) && repsMinNum > 0 ? Math.floor(repsMinNum) : undefined,
+          repsMax: Number.isFinite(repsMaxNum) && repsMaxNum > 0 ? Math.floor(repsMaxNum) : undefined,
+          restSec: ex.restSec > 0 ? ex.restSec : undefined,
+          notes: ex.notes.trim() || undefined,
+        }
+      }),
+    })
   }
 
   const handleCancelClick = () => {
@@ -241,7 +227,7 @@ export function CreateRoutineScreen({
         <h1 className="truncate text-[15px] font-bold text-[var(--text)]">Criar Rotina</h1>
         <button
           type="button"
-          onClick={() => void handleSave()}
+          onClick={handleSave}
           disabled={saving}
           style={{ touchAction: 'manipulation' }}
           className="rounded-xl bg-[var(--brand)] px-4 py-1.5 text-[13px] font-bold text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)] disabled:opacity-60"

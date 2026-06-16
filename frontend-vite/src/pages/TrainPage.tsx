@@ -19,6 +19,8 @@ import { CSS } from '@dnd-kit/utilities'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useScrollLock } from '../hooks/useScrollLock'
+import { useShowPlanLimit } from '../components/plan/use-plan-limit'
+import { catchPlanLimitError } from '../lib/plan-features'
 import {
   Flame, Layers, Dumbbell, Plus, Play, Pencil, Sparkles, MoreHorizontal,
   MoreVertical, ArrowLeft, Check,
@@ -1241,6 +1243,7 @@ function PlanUpdateDialog({
 
 export function TrainPage() {
   const { authorizedFetch, user } = useAuth()
+  const showPlanLimit = useShowPlanLimit()
   const isProfilePrivate = user?.isPrivate ?? false
   const allowedPrivacies: PostPrivacy[] = isProfilePrivate ? ['FRIENDS', 'PRIVATE'] : ['PUBLIC', 'FRIENDS', 'PRIVATE']
   const defaultPrivacy: PostPrivacy = isProfilePrivate ? 'FRIENDS' : 'PUBLIC'
@@ -1263,6 +1266,17 @@ export function TrainPage() {
 
   const [activePlanId, setActivePlanId] = useState<string>('')
   const [activePlanName, setActivePlanName] = useState<string>('Treinamento vazio')
+  // IDs de rotinas otimistas (criadas na hora pela CreateRoutineScreen,
+  // mostradas IMEDIATAMENTE na DASHBOARD enquanto o backend persiste em
+  // background). Card com id desse Set renderiza "Salvando rotina..."
+  // em vez dos botões Iniciar/Editar — evita o user iniciar treino com
+  // id temporário que daria 404 no startWorkoutSession.
+  const [optimisticPlanIds, setOptimisticPlanIds] = useState<Set<string>>(() => new Set())
+  // IDs de rotinas com update em vôo (clicou "Atualizar" no EDIT mas as
+  // updates ainda não confirmaram). Card mostra "Atualizando…" e bloqueia
+  // Iniciar pra evitar começar treino com metadados antigos enquanto o
+  // backend ainda processa o save da edição.
+  const [updatingPlanIds, setUpdatingPlanIds] = useState<Set<string>>(() => new Set())
   type RoutineFilter = 'ALL' | 'AI' | 'CUSTOM'
   const [routineFilter, setRoutineFilter] = useState<RoutineFilter>('ALL')
   const [originMode, setOriginMode] = useState<TrainOriginMode>('EMPTY')
@@ -4215,17 +4229,80 @@ export function TrainPage() {
       <Suspense fallback={null}>
         <CreateRoutineScreen
           onCancel={() => setScreen('DASHBOARD')}
-          onSaved={(created) => {
-            // Endpoint combinado já devolveu o plan hidratado. Atualizamos
-            // state + cache na hora (sem round-trip de reloadPlans) e
-            // navegamos imediato. O cache invalidate marca como stale pra
-            // próxima entrada na página puxar do banco e validar.
-            const next = [created, ...plans.filter((p) => p.id !== created.id)]
-            setPlans(next)
-            setWorkoutPlansCache(next)
-            setActivePlanId(created.id)
-            invalidateWorkoutPlansCache()
+          onSubmit={(data) => {
+            // OPTIMISTIC UI: insere o plan "fantasma" na DASHBOARD na hora
+            // e navega instantâneo (~0ms percebido). Backend gravando em
+            // background — se falhar, removemos o ghost + mostra erro.
+            // Render free tier tem ~2s de baseline, esse path elimina a
+            // espera percebida.
+            const tempId = `optimistic-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+            const optimisticPlan: WorkoutPlan = {
+              id: tempId,
+              name: data.name,
+              description: null,
+              status: 'ACTIVE',
+              createdAt: new Date().toISOString(),
+              exercises: [],
+              cardio: [],
+            }
+            // Insere no topo + marca como otimista (pra UI bloquear ações
+            // até o save confirmar). Não toca cache persistido — quando
+            // o backend confirmar, aí sim atualizamos cache com plan real.
+            setPlans((current) => [optimisticPlan, ...current])
+            setOptimisticPlanIds((current) => {
+              const next = new Set(current)
+              next.add(tempId)
+              return next
+            })
             setScreen('DASHBOARD')
+
+            // Save em background.
+            void createWorkoutPlanWithExercises(authorizedFetch, {
+              name: data.name,
+              source: 'CUSTOM',
+              exercises: data.exercises,
+            })
+              .then((real) => {
+                // Substitui o ghost pelo plan real (hidratado com exercises
+                // do backend). activePlanId apontava pro tempId? Atualiza.
+                setPlans((current) => {
+                  const next = current.map((p) => (p.id === tempId ? real : p))
+                  setWorkoutPlansCache(next)
+                  return next
+                })
+                setOptimisticPlanIds((current) => {
+                  const next = new Set(current)
+                  next.delete(tempId)
+                  return next
+                })
+                setActivePlanId((curr) => (curr === tempId ? real.id : curr))
+                invalidateWorkoutPlansCache()
+              })
+              .catch((err) => {
+                // Plan limit (tier FREE estourou): mostra o dialog padrão
+                // de upgrade e remove o ghost. Não polui o setError.
+                if (catchPlanLimitError(err, showPlanLimit)) {
+                  setPlans((current) => current.filter((p) => p.id !== tempId))
+                  setOptimisticPlanIds((current) => {
+                    const next = new Set(current)
+                    next.delete(tempId)
+                    return next
+                  })
+                  return
+                }
+                // Falha real (rede, validação backend): rollback total.
+                setPlans((current) => current.filter((p) => p.id !== tempId))
+                setOptimisticPlanIds((current) => {
+                  const next = new Set(current)
+                  next.delete(tempId)
+                  return next
+                })
+                setError(
+                  err instanceof Error
+                    ? `Falha ao salvar rotina: ${err.message}`
+                    : 'Falha ao salvar rotina',
+                )
+              })
           }}
         />
       </Suspense>
@@ -4266,15 +4343,33 @@ export function TrainPage() {
           createOnlyMode={false}
           hideInlineSaveButton
           saveSignal={editSaveSignal}
-          onPlanSaved={() => {
-            // Navega IMEDIATO sem esperar reloadPlans. Edição mexe em
-            // metadados (sets/reps/rest/notas) de exercícios já existentes
-            // — a DASHBOARD mostra só o nome da rotina e contagem, que não
-            // mudou. reloadPlans roda em background pra atualizar
-            // detalhes na próxima abertura. Invalidate marca cache stale.
+          onPlanSaveStarted={(planId) => {
+            // OPTIMISTIC EDIT: marca rotina como "atualizando" e navega
+            // IMEDIATO pra DASHBOARD. As N updates rodam em background.
+            // ~0ms percebido, mesmo no Render free tier (~2s real).
+            setUpdatingPlanIds((current) => {
+              const next = new Set(current)
+              next.add(planId)
+              return next
+            })
             invalidateWorkoutPlansCache()
             setScreen('DASHBOARD')
-            void reloadPlans(activePlanId).catch(() => {})
+          }}
+          onPlanSaved={(planId) => {
+            setUpdatingPlanIds((current) => {
+              const next = new Set(current)
+              next.delete(planId)
+              return next
+            })
+            void reloadPlans(planId).catch(() => {})
+          }}
+          onPlanSaveFailed={(planId, err) => {
+            setUpdatingPlanIds((current) => {
+              const next = new Set(current)
+              next.delete(planId)
+              return next
+            })
+            setError(`Falha ao atualizar rotina: ${err.message}`)
           }}
         />
       </section>
@@ -5498,6 +5593,13 @@ export function TrainPage() {
             const estMin = estimatePlanMinutes(plan)
             const isAi = isAiSourcedPlan(plan)
             const lastUse = lastUseByPlanId[plan.id]
+            const isOptimistic = optimisticPlanIds.has(plan.id)
+            const isUpdating = updatingPlanIds.has(plan.id)
+            // Ambos os estados bloqueiam ações (Iniciar/Editar/menu) porque:
+            // - Optimistic: id ainda é tempId, startWorkoutSession daria 404.
+            // - Updating: rotina existe mas os metadados de exercícios estão
+            //   sendo atualizados; começar agora pegaria valores antigos.
+            const isBusy = isOptimistic || isUpdating
             return (
               <article
                 key={plan.id}
@@ -5522,6 +5624,11 @@ export function TrainPage() {
                   </h3>
 
                   <div data-routine-menu className="absolute right-2.5 top-2.5">
+                    {/* Menu de ações fica escondido enquanto a rotina está
+                        em vôo — deletar/compartilhar/duplicar precisam do id
+                        real do backend (optimistic) ou de estado consistente
+                        (updating). Reaparece quando o save confirmar (~1-2s). */}
+                    {isBusy ? null : (
                     <button
                       type="button"
                       aria-label={`Mais opções da rotina ${plan.name}`}
@@ -5543,8 +5650,9 @@ export function TrainPage() {
                     >
                       <MoreHorizontal size={14} />
                     </button>
+                    )}
 
-                    {openRoutineMenuId === plan.id && routineMenuAnchor
+                    {!isBusy && openRoutineMenuId === plan.id && routineMenuAnchor
                       ? createPortal(
                           <div
                             data-routine-menu
@@ -5639,28 +5747,41 @@ export function TrainPage() {
                   )}
                 </p>
 
-                {/* Actions: Iniciar (primary, flex-1) + Editar */}
-                <div className="flex gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => beginRoutineTraining(plan)}
-                    className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg border border-[var(--brand)] bg-[var(--brand)] px-3 text-[12.5px] font-semibold text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)]"
-                  >
-                    <Play size={12} fill="currentColor" />
-                    Iniciar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActivePlanId(plan.id)
-                      setScreen('EDIT')
-                    }}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 text-[12.5px] font-medium text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
-                  >
-                    <Pencil size={12} />
-                    Editar
-                  </button>
-                </div>
+                {/* Actions: Iniciar (primary, flex-1) + Editar.
+                    Em rotinas otimistas (criadas na hora, backend salvando
+                    em background) ou em atualização (clicou Atualizar no
+                    EDIT, updates em vôo), substituímos pelos placeholders —
+                    se o user clicasse Iniciar agora, startWorkoutSession
+                    daria 404 (optimistic) ou pegaria metadados antigos
+                    (updating). ~1-2s até confirmar e voltar ao normal. */}
+                {isBusy ? (
+                  <div className="flex h-9 items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--line)] bg-[var(--surface-hover)] px-3 text-[12px] font-semibold text-[var(--muted)]">
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--brand)]" />
+                    {isOptimistic ? 'Salvando rotina…' : 'Atualizando rotina…'}
+                  </div>
+                ) : (
+                  <div className="flex gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => beginRoutineTraining(plan)}
+                      className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg border border-[var(--brand)] bg-[var(--brand)] px-3 text-[12.5px] font-semibold text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)]"
+                    >
+                      <Play size={12} fill="currentColor" />
+                      Iniciar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActivePlanId(plan.id)
+                        setScreen('EDIT')
+                      }}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 text-[12.5px] font-medium text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
+                    >
+                      <Pencil size={12} />
+                      Editar
+                    </button>
+                  </div>
+                )}
               </article>
             )
           })}
