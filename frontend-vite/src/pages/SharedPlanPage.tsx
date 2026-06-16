@@ -186,9 +186,14 @@ export function SharedPlanPage() {
                     {item.restSec && (
                       <p className="text-xs text-[var(--muted)]">Descanso {item.restSec}s</p>
                     )}
-                    {item.notes && !item.notes.startsWith('__PERF__:') && (
-                      <p className="mt-0.5 text-[11px] text-[var(--muted)] italic line-clamp-1">{item.notes}</p>
-                    )}
+                    {(() => {
+                      // notes pode conter dados estruturados por-série após o
+                      // marcador __PERF__ — mostra só a nota legível do usuário.
+                      const clean = (item.notes ?? '').split('__PERF__:')[0].trim()
+                      return clean ? (
+                        <p className="mt-0.5 text-[11px] text-[var(--muted)] italic line-clamp-1">{clean}</p>
+                      ) : null
+                    })()}
                   </div>
                 </div>
               ))}

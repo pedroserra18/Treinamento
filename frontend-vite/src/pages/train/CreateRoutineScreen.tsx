@@ -14,6 +14,8 @@ import { RestTimePickerSheet } from './RestTimePickerSheet'
 import { CreateExerciseModal } from './CreateExerciseModal'
 import { InfoDialog } from '../../components/common/InfoDialog'
 import { ConfirmDialog } from '../../components/common/ConfirmDialog'
+import { SetTypeSelector } from '../../components/common/SetTypeSelector'
+import type { SetType } from '../../components/common/setTypeOptions'
 
 // Tela "Criar Rotina" no estilo Hevy: header [Cancelar / Título / Salvar]
 // + input de título da rotina + lista de exercícios + botão Adicionar.
@@ -40,6 +42,34 @@ type DraftExercise = {
   setCount: number
   repsMin: string
   repsMax: string
+  // Tipo de cada série (aquecimento/preparatória/normal/drop/cluster). Sempre
+  // alinhado com setCount: índice i = tipo da série i+1. Persistido no campo
+  // notes via o marcador __PERF__ (mesmo formato da WorkoutsPage).
+  setTypes: SetType[]
+}
+
+// Marcador usado pra encodar dados estruturados por-série no campo notes do
+// plano, sem mexer no schema do backend. Mesma convenção da WorkoutsPage.
+const PERF_MARKER = '__PERF__:'
+
+// Redimensiona o array de tipos quando o número de séries muda, preservando
+// os tipos já escolhidos e preenchendo novas séries como 'normal'.
+function resizeSetTypes(types: SetType[], count: number): SetType[] {
+  if (count <= types.length) return types.slice(0, count)
+  return [...types, ...Array<SetType>(count - types.length).fill('normal')]
+}
+
+// Serializa o nome/notas do usuário + os tipos de série no formato __PERF__.
+// Só adiciona o marcador quando há ao menos uma série não-normal — assim, sem
+// customização, o comportamento (e o conteúdo de notes) fica idêntico ao de
+// antes. Payload compacto pra caber no limite de 300 chars do backend.
+function buildNotesWithSetTypes(ex: DraftExercise): string | undefined {
+  const userNote = ex.notes.trim().slice(0, 180)
+  const hasCustom = ex.setTypes.some((t) => t !== 'normal')
+  if (!hasCustom) return userNote || undefined
+  const series = ex.setTypes.map((t) => (t === 'normal' ? {} : { setType: t }))
+  const payload = { sets: series.length, series }
+  return `${userNote}${userNote ? ' ' : ''}${PERF_MARKER}${JSON.stringify(payload)}`.trim()
 }
 
 function makeLocalId(): string {
@@ -57,6 +87,7 @@ function makeDraftExercise(option: ExerciseOption): DraftExercise {
     setCount: 3,
     repsMin: '8',
     repsMax: '12',
+    setTypes: ['normal', 'normal', 'normal'],
   }
 }
 
@@ -193,7 +224,7 @@ export function CreateRoutineScreen({
           repsMin: Number.isFinite(repsMinNum) && repsMinNum > 0 ? Math.floor(repsMinNum) : undefined,
           repsMax: Number.isFinite(repsMaxNum) && repsMaxNum > 0 ? Math.floor(repsMaxNum) : undefined,
           restSec: ex.restSec > 0 ? ex.restSec : undefined,
-          notes: ex.notes.trim() || undefined,
+          notes: buildNotesWithSetTypes(ex),
         }
       }),
     })
@@ -321,7 +352,7 @@ export function CreateRoutineScreen({
                   onChange={(e) => {
                     const cleaned = e.target.value.replace(/[^\d]/g, '').slice(0, 2)
                     const num = cleaned === '' ? 1 : Math.max(1, Math.min(20, parseInt(cleaned, 10)))
-                    patchExercise(index, { setCount: num })
+                    patchExercise(index, { setCount: num, setTypes: resizeSetTypes(ex.setTypes, num) })
                   }}
                   aria-label="Número de séries"
                   className="w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1.5 text-center text-[14px] font-bold tabular-nums text-[var(--text)]"
@@ -342,6 +373,29 @@ export function CreateRoutineScreen({
                   aria-label="Reps máximas"
                   className="w-full rounded-lg border border-[var(--line)] bg-transparent px-2 py-1.5 text-center text-[14px] font-bold tabular-nums text-[var(--text)]"
                 />
+              </div>
+
+              {/* Tipo de cada série — aquecimento/preparatória/normal/drop/cluster.
+                  Persistido no plano (campo notes via __PERF__) sem mexer no schema. */}
+              <div className="mt-3 border-t border-[var(--line)] pt-2.5">
+                <p className="mb-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">
+                  Tipo de cada série
+                </p>
+                <div className="grid gap-1.5">
+                  {ex.setTypes.map((t, si) => (
+                    <div key={si} className="flex items-center justify-between gap-2">
+                      <span className="text-[12px] font-semibold text-[var(--text)]">Série {si + 1}</span>
+                      <SetTypeSelector
+                        value={t}
+                        onChange={(next) =>
+                          patchExercise(index, {
+                            setTypes: ex.setTypes.map((tt, j) => (j === si ? next : tt)),
+                          })
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
             </article>
           )
