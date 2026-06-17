@@ -36,24 +36,28 @@ export function MiniActiveWorkoutBar() {
 
   // Âncora local do relógio: `base` = segundos no instante do anchor,
   // `at` = Date.now() do anchor, `running` = se o treino está rodando. O tick
-  // avança SEMPRE pelo relógio local (base + (now - at)) — então nunca congela
-  // enquanto o treino roda, mesmo com o TrainPage desmontado ou o setInterval
-  // estrangulado. Re-ancoramos no valor AUTORITATIVO (deriveElapsedSec, que usa
-  // elapsedSec + lastSavedAt do snapshot) quando: chega snapshot novo do
-  // TrainPage, e ao voltar pro foreground/bfcache. Padrão de mini-player de
-  // apps grandes.
-  // Inicializa zerado (sem Date.now no render — regra de pureza do React); o
-  // anchor real é setado no efeito de mount via reanchor().
+  // avança SEMPRE pelo relógio local (base + (now - at)) — então é fluido e
+  // nunca congela, mesmo com o TrainPage desmontado ou o setInterval
+  // estrangulado, e se autocorrige após background (usa Date.now() a cada tick).
+  //
+  // CRÍTICO: re-ancoramos APENAS quando o estado running muda (iniciar/pausar/
+  // retomar) — NUNCA em cada gravação do snapshot. O snapshot é gravado o tempo
+  // todo (marcar série, navegar, cada segundo do descanso) e, quando a tela
+  // ativa está fora de foco, ele carrega um elapsedSec DEFASADO com lastSavedAt
+  // FRESCO → deriveElapsedSec ≈ valor congelado. Re-ancorar nisso a cada
+  // gravação congelava o relógio. Entre re-âncoras, o relógio local é a fonte.
   const anchorRef = useRef<{ base: number; at: number; running: boolean }>({
     base: 0,
     at: 0,
     running: false,
   })
+  const prevRunningRef = useRef<boolean | null>(null)
 
   const reanchor = useCallback((snap: ActiveWorkoutSnapshot | null) => {
     const running = snap?.isWorkoutRunning ?? false
     const base = snap ? deriveElapsedSec(snap) : 0
     anchorRef.current = { base, at: Date.now(), running }
+    prevRunningRef.current = running
     setElapsedSec(base)
   }, [])
 
@@ -61,29 +65,35 @@ export function MiniActiveWorkoutBar() {
     return subscribeActiveWorkout(() => {
       const next = readActiveWorkout()
       setSnapshot(next)
-      reanchor(next)
+      // Só re-ancora na MUDANÇA de running (iniciar/pausar/retomar). Em
+      // gravações normais o relógio local segue contando sozinho.
+      const running = next?.isWorkoutRunning ?? false
+      if (running !== prevRunningRef.current) {
+        reanchor(next)
+      }
     })
   }, [reanchor])
 
   useEffect(() => {
     // Anchor inicial: muta só o ref (sem setState no corpo do efeito — o render
-    // inicial já exibe o valor via deriveElapsedSec no useState). Os ticks/
-    // callbacks atualizam o state daí em diante.
+    // inicial já exibe o valor via deriveElapsedSec no useState).
     const initial = readActiveWorkout()
     anchorRef.current = {
       base: initial ? deriveElapsedSec(initial) : 0,
       at: Date.now(),
       running: initial?.isWorkoutRunning ?? false,
     }
+    prevRunningRef.current = anchorRef.current.running
     const tick = () => {
       const a = anchorRef.current
       setElapsedSec(a.running ? a.base + Math.floor((Date.now() - a.at) / 1000) : a.base)
     }
     const id = window.setInterval(tick, 1000)
-    // Ao voltar pro foreground / bfcache / foco da janela, re-ancora no valor
-    // fresco do storage (corrige qualquer período suspenso de uma vez).
+    // No foreground/bfcache/foco, só recomputa o relógio local (que já é
+    // wall-clock e se autocorrige) — NÃO re-ancora do snapshot, pra não pegar
+    // um elapsedSec defasado.
     const onResume = () => {
-      if (document.visibilityState === 'visible') reanchor(readActiveWorkout())
+      if (document.visibilityState === 'visible') tick()
     }
     document.addEventListener('visibilitychange', onResume)
     window.addEventListener('pageshow', onResume)
@@ -94,7 +104,7 @@ export function MiniActiveWorkoutBar() {
       window.removeEventListener('pageshow', onResume)
       window.removeEventListener('focus', onResume)
     }
-  }, [reanchor])
+  }, [])
 
   const isInsideActiveView =
     location.pathname === '/train' && snapshot?.screen === 'ACTIVE'
