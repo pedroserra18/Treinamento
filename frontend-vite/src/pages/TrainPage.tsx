@@ -1712,16 +1712,21 @@ export function TrainPage() {
   // thread ocupado) nem congela ao voltar de background — antes o modelo
   // acumulativo (`current + delta`) causava esses travamentos. Re-ancora ao
   // entrar em ACTIVE+running, ao retomar (pause→play) e na edição manual.
+  // IMPORTANTE: roda enquanto o treino está rodando em QUALQUER tela (não só na
+  // ACTIVE). Antes, ao sair da tela ativa o elapsedSec congelava, mas o app
+  // continuava gravando o snapshot com lastSavedAt fresco → snapshot
+  // inconsistente (tempo congelado + timestamp atual) → as duas durações (tela
+  // ativa e mini barra) divergiam e ficavam atrás da realidade. Mantendo o tick
+  // sempre ativo, elapsedSec nunca congela, o snapshot fica sempre consistente,
+  // e os dois cronômetros derivam do MESMO relógio de parede → idênticos e
+  // precisos. Modelo de âncora: cada tick mostra base + (now - at).
   useEffect(() => {
-    if (screen !== 'ACTIVE' || !isWorkoutRunning) {
+    if (!isWorkoutRunning) {
       return
     }
     // base = maior entre o elapsed atual e o valor AUTORITATIVO do snapshot
-    // (mesma sessão). Isso recupera o tempo que passou enquanto a tela ativa
-    // estava fora de foco (ex.: você navegou pra Home e voltou) — antes o
-    // cronômetro ancorava no elapsedSec congelado e aparecia ATRASADO/"travado"
-    // ao reentrar. Math.max nunca anda pra trás; a guarda por startedAt evita
-    // pegar snapshot de uma sessão antiga ao iniciar um treino novo.
+    // (mesma sessão) — nunca anda pra trás; a guarda por startedAt evita pegar
+    // snapshot de uma sessão antiga ao iniciar um treino novo.
     let base = elapsedSecRef.current
     const snap = readActiveWorkout()
     if (
@@ -1747,7 +1752,7 @@ export function TrainPage() {
       window.clearInterval(id)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [isWorkoutRunning, screen, timerNonce, startedAt])
+  }, [isWorkoutRunning, timerNonce, startedAt])
 
   // Hydrate the active workout on mount. If the user navigated away from
   // /train mid-session, the data is restored here and the clock is
