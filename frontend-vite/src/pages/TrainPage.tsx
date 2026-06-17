@@ -89,6 +89,7 @@ import { saveWorkoutSessionImage } from '../lib/workout-session-image'
 import { optimizeImageFileToDataUrl } from '../lib/image-processing'
 import { vibrate } from '../lib/haptics'
 import { useWakeLock } from '../hooks/useWakeLock'
+import { useActiveWorkoutElapsed } from '../hooks/useActiveWorkoutElapsed'
 import type { WorkoutPlan, CardioType, CardioEntryInput, ExerciseOption } from '../types/workout'
 import {
   addPlanExercisesBatch,
@@ -1696,6 +1697,12 @@ export function TrainPage() {
   // Mantém a tela acesa enquanto o usuário está na tela de treino ativo —
   // como Hevy/Strava (timer/descanso sempre visíveis sem precisar tocar).
   useWakeLock(screen === 'ACTIVE')
+
+  // Relógio ÚNICO de duração (mesma fonte da mini barra) — garante que a tela
+  // ativa e a mini barra mostram EXATAMENTE o mesmo tempo, sem diferença. O
+  // `elapsedSec` (state) segue sendo a fonte que alimenta o snapshot e o
+  // finalizar; este aqui é só pra EXIBIR de forma idêntica em todo lugar.
+  const displayElapsedSec = useActiveWorkoutElapsed()
 
   // Espelha elapsedSec num ref pra o tick ancorar no valor atual sem precisar
   // de elapsedSec nas deps (o que reiniciaria o efeito a cada segundo).
@@ -4606,7 +4613,7 @@ export function TrainPage() {
               <h1 className="truncate text-xl font-bold tracking-tight text-[var(--text)] sm:text-2xl">Treino ativo: {activePlanName}</h1>
               <p className="mt-1 text-sm text-[var(--muted)]">Cronômetro geral e descanso por exercício.</p>
             </div>
-            <p className="text-3xl font-bold tabular-nums text-[var(--text)]">{formatClock(elapsedSec)}</p>
+            <p className="text-3xl font-bold tabular-nums text-[var(--text)]">{formatClock(displayElapsedSec)}</p>
           </div>
 
           {/* Mini-summary — Volume + Séries + Progresso. Cronômetro

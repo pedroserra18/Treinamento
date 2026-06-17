@@ -1,15 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Trash2 } from 'lucide-react'
 import {
   ACTIVE_WORKOUT_DISCARD_EVENT,
   clearActiveWorkout,
-  deriveElapsedSec,
   readActiveWorkout,
   subscribeActiveWorkout,
   type ActiveWorkoutSnapshot,
 } from '../../lib/active-workout-storage'
+import { useActiveWorkoutElapsed } from '../../hooks/useActiveWorkoutElapsed'
 
 function formatClock(totalSec: number): string {
   const safe = Math.max(0, Math.floor(totalSec))
@@ -27,83 +27,18 @@ function formatClock(totalSec: number): string {
 // mounted TrainPage can reset its in-memory state too.
 export function MiniActiveWorkoutBar() {
   const [snapshot, setSnapshot] = useState<ActiveWorkoutSnapshot | null>(() => readActiveWorkout())
-  const [elapsedSec, setElapsedSec] = useState<number>(() => {
-    const initial = readActiveWorkout()
-    return initial ? deriveElapsedSec(initial) : 0
-  })
+  // Relógio ÚNICO compartilhado — exatamente o mesmo valor da tela de treino
+  // ativo (zero diferença entre os cronômetros).
+  const elapsedSec = useActiveWorkoutElapsed()
   const navigate = useNavigate()
   const location = useLocation()
 
-  // Âncora local do relógio: `base` = segundos no instante do anchor,
-  // `at` = Date.now() do anchor, `running` = se o treino está rodando. O tick
-  // avança SEMPRE pelo relógio local (base + (now - at)) — então é fluido e
-  // nunca congela, mesmo com o TrainPage desmontado ou o setInterval
-  // estrangulado, e se autocorrige após background (usa Date.now() a cada tick).
-  //
-  // CRÍTICO: re-ancoramos APENAS quando o estado running muda (iniciar/pausar/
-  // retomar) — NUNCA em cada gravação do snapshot. O snapshot é gravado o tempo
-  // todo (marcar série, navegar, cada segundo do descanso) e, quando a tela
-  // ativa está fora de foco, ele carrega um elapsedSec DEFASADO com lastSavedAt
-  // FRESCO → deriveElapsedSec ≈ valor congelado. Re-ancorar nisso a cada
-  // gravação congelava o relógio. Entre re-âncoras, o relógio local é a fonte.
-  const anchorRef = useRef<{ base: number; at: number; running: boolean }>({
-    base: 0,
-    at: 0,
-    running: false,
-  })
-  const prevRunningRef = useRef<boolean | null>(null)
-
-  const reanchor = useCallback((snap: ActiveWorkoutSnapshot | null) => {
-    const running = snap?.isWorkoutRunning ?? false
-    const base = snap ? deriveElapsedSec(snap) : 0
-    anchorRef.current = { base, at: Date.now(), running }
-    prevRunningRef.current = running
-    setElapsedSec(base)
-  }, [])
-
+  // Mantém o snapshot atualizado só pra exibir nome/estado e decidir esconder a
+  // barra na tela ativa — o TEMPO vem do hook compartilhado acima.
   useEffect(() => {
     return subscribeActiveWorkout(() => {
-      const next = readActiveWorkout()
-      setSnapshot(next)
-      // Só re-ancora na MUDANÇA de running (iniciar/pausar/retomar). Em
-      // gravações normais o relógio local segue contando sozinho.
-      const running = next?.isWorkoutRunning ?? false
-      if (running !== prevRunningRef.current) {
-        reanchor(next)
-      }
+      setSnapshot(readActiveWorkout())
     })
-  }, [reanchor])
-
-  useEffect(() => {
-    // Anchor inicial: muta só o ref (sem setState no corpo do efeito — o render
-    // inicial já exibe o valor via deriveElapsedSec no useState).
-    const initial = readActiveWorkout()
-    anchorRef.current = {
-      base: initial ? deriveElapsedSec(initial) : 0,
-      at: Date.now(),
-      running: initial?.isWorkoutRunning ?? false,
-    }
-    prevRunningRef.current = anchorRef.current.running
-    const tick = () => {
-      const a = anchorRef.current
-      setElapsedSec(a.running ? a.base + Math.floor((Date.now() - a.at) / 1000) : a.base)
-    }
-    const id = window.setInterval(tick, 1000)
-    // No foreground/bfcache/foco, só recomputa o relógio local (que já é
-    // wall-clock e se autocorrige) — NÃO re-ancora do snapshot, pra não pegar
-    // um elapsedSec defasado.
-    const onResume = () => {
-      if (document.visibilityState === 'visible') tick()
-    }
-    document.addEventListener('visibilitychange', onResume)
-    window.addEventListener('pageshow', onResume)
-    window.addEventListener('focus', onResume)
-    return () => {
-      window.clearInterval(id)
-      document.removeEventListener('visibilitychange', onResume)
-      window.removeEventListener('pageshow', onResume)
-      window.removeEventListener('focus', onResume)
-    }
   }, [])
 
   const isInsideActiveView =
