@@ -1697,33 +1697,34 @@ export function TrainPage() {
   // como Hevy/Strava (timer/descanso sempre visíveis sem precisar tocar).
   useWakeLock(screen === 'ACTIVE')
 
+  // Espelha elapsedSec num ref pra o tick ancorar no valor atual sem precisar
+  // de elapsedSec nas deps (o que reiniciaria o efeito a cada segundo).
+  const elapsedSecRef = useRef(elapsedSec)
+  useEffect(() => {
+    elapsedSecRef.current = elapsedSec
+  }, [elapsedSec])
+  // Bump pra forçar re-âncora do cronômetro (ex.: edição manual de tempo).
+  const [timerNonce, setTimerNonce] = useState(0)
+
+  // Cronômetro de duração — modelo de ÂNCORA (igual à mini barra): cada tick
+  // mostra `base + (now - at)` por wall-clock, ou seja, SEMPRE o tempo real.
+  // Assim não pula/segura número quando o setInterval dispara irregular (main
+  // thread ocupado) nem congela ao voltar de background — antes o modelo
+  // acumulativo (`current + delta`) causava esses travamentos. Re-ancora ao
+  // entrar em ACTIVE+running, ao retomar (pause→play) e na edição manual.
   useEffect(() => {
     if (screen !== 'ACTIVE' || !isWorkoutRunning) {
       return
     }
-
-    // Tick baseado em wall-clock — `delta` é quantos segundos REAIS
-    // passaram desde o último tick, não o "1" presumido do setInterval.
-    // Isso faz o cronômetro se autocorrigir quando iOS pausa o
-    // setInterval em background: o próximo tick depois de voltar
-    // pulará pra frente pelo tempo todo de ausência, sem depender de
-    // eventos de visibilidade.
-    let lastTickMs = Date.now()
-    const advance = () => {
-      const now = Date.now()
-      const delta = Math.floor((now - lastTickMs) / 1000)
-      if (delta <= 0) return
-      // Avança o âncora pelos segundos INTEIROS consumidos (não `= now`), pra
-      // não descartar o resto sub-segundo a cada tick — antes isso causava
-      // drift acumulado (vários minutos numa sessão longa).
-      lastTickMs += delta * 1000
-      setElapsedSec((current) => current + delta)
+    const base = elapsedSecRef.current
+    const at = Date.now()
+    const tick = () => {
+      setElapsedSec(base + Math.floor((Date.now() - at) / 1000))
     }
-    const id = window.setInterval(advance, 1000)
-    // Ao voltar pro foreground, corrige na hora o tempo que o iOS passou com
-    // o setInterval suspenso (sem esperar o próximo tick).
+    const id = window.setInterval(tick, 1000)
+    // Ressincroniza na hora ao voltar pro foreground (sem esperar o tick).
     const onVisible = () => {
-      if (document.visibilityState === 'visible') advance()
+      if (document.visibilityState === 'visible') tick()
     }
     document.addEventListener('visibilitychange', onVisible)
 
@@ -1731,7 +1732,7 @@ export function TrainPage() {
       window.clearInterval(id)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [isWorkoutRunning, screen])
+  }, [isWorkoutRunning, screen, timerNonce])
 
   // Hydrate the active workout on mount. If the user navigated away from
   // /train mid-session, the data is restored here and the clock is
@@ -3263,6 +3264,10 @@ export function TrainPage() {
     }
 
     setElapsedSec(minutes * 60)
+    // Mantém o ref e re-ancora o cronômetro pra a edição manual não ser
+    // sobrescrita pelo próximo tick (que ancora em elapsedSecRef).
+    elapsedSecRef.current = minutes * 60
+    setTimerNonce((n) => n + 1)
     setManualTimerMinutes('')
   }
 
@@ -4483,7 +4488,7 @@ export function TrainPage() {
                     key="rest-running"
                     initial={{ y: 100, opacity: 0 }}
                     animate={{ y: 0, opacity: 1 }}
-                    className={`fixed bottom-20 left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2 overflow-hidden rounded-2xl border shadow-2xl px-4 py-3 bg-[var(--surface)] lg:bottom-3 ${
+                    className={`fixed bottom-[calc(env(safe-area-inset-bottom)_+_4.25rem)] left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2 overflow-hidden rounded-2xl border shadow-2xl px-4 py-3 bg-[var(--surface)] lg:bottom-3 ${
                       isLow ? 'border-red-500/40 animate-pulse' : 'border-green-500/40'
                     }`}
                   >
@@ -4547,7 +4552,7 @@ export function TrainPage() {
                   initial={{ y: 100, opacity: 0, scale: 0.95 }}
                   animate={{ y: 0, opacity: 1, scale: 1 }}
                   transition={{ type: 'spring', stiffness: 280, damping: 20 }}
-                  className="fixed bottom-3 left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2 overflow-hidden rounded-2xl border border-green-500/40 bg-[var(--surface)] shadow-2xl px-4 py-3 pointer-events-none"
+                  className="fixed bottom-[calc(env(safe-area-inset-bottom)_+_4.25rem)] left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2 overflow-hidden rounded-2xl border border-green-500/40 bg-[var(--surface)] shadow-2xl px-4 py-3 pointer-events-none lg:bottom-3"
                 >
                   <div
                     aria-hidden
