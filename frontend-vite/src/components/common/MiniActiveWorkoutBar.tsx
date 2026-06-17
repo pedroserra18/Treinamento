@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Trash2 } from 'lucide-react'
@@ -34,6 +34,16 @@ export function MiniActiveWorkoutBar() {
   const navigate = useNavigate()
   const location = useLocation()
 
+  // Ref com o snapshot mais recente — o tick lê daqui em vez de depender de
+  // [snapshot] no efeito. Sem isso, como o TrainPage grava o snapshot 1x/seg
+  // durante o treino, o efeito recriava o interval/listeners a cada segundo
+  // (app inteiro) → jank/"travando" ao navegar. Com o ref, o interval é único
+  // e estável pela vida do componente.
+  const snapshotRef = useRef<ActiveWorkoutSnapshot | null>(snapshot)
+  useEffect(() => {
+    snapshotRef.current = snapshot
+  }, [snapshot])
+
   useEffect(() => {
     return subscribeActiveWorkout(() => {
       const next = readActiveWorkout()
@@ -43,24 +53,28 @@ export function MiniActiveWorkoutBar() {
   }, [])
 
   // Relógio por WALL-CLOCK — recomputa a cada tick a partir do âncora do
-  // snapshot (elapsedSec + lastSavedAt) em vez de somar +1/seg. Isso evita o
-  // drift quando o iOS pausa/estrangula o setInterval em segundo plano / tela
-  // bloqueada (o "+1/seg" antigo ficava minutos pra trás). Também ressincroniza
-  // ao voltar pro foreground, pra corrigir na hora qualquer período suspenso.
+  // snapshot (elapsedSec + lastSavedAt), nunca somando +1/seg. Assim não há
+  // drift quando o iOS pausa/estrangula o setInterval em segundo plano, e a
+  // ressync no foreground/bfcache corrige na hora qualquer período suspenso.
+  // Interval ÚNICO (deps []) — lê o snapshot via ref pra não recriar a cada
+  // gravação do TrainPage.
   useEffect(() => {
-    if (!snapshot?.isWorkoutRunning) return
-    const sync = () => setElapsedSec(deriveElapsedSec(snapshot))
-    sync()
-    const id = window.setInterval(sync, 1000)
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') sync()
+    const tick = () => {
+      const snap = snapshotRef.current
+      setElapsedSec(snap ? deriveElapsedSec(snap) : 0)
     }
-    document.addEventListener('visibilitychange', onVisible)
+    const id = window.setInterval(tick, 1000)
+    const onResume = () => {
+      if (document.visibilityState === 'visible') tick()
+    }
+    document.addEventListener('visibilitychange', onResume)
+    window.addEventListener('pageshow', onResume)
     return () => {
       window.clearInterval(id)
-      document.removeEventListener('visibilitychange', onVisible)
+      document.removeEventListener('visibilitychange', onResume)
+      window.removeEventListener('pageshow', onResume)
     }
-  }, [snapshot])
+  }, [])
 
   const isInsideActiveView =
     location.pathname === '/train' && snapshot?.screen === 'ACTIVE'
