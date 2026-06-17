@@ -1716,7 +1716,22 @@ export function TrainPage() {
     if (screen !== 'ACTIVE' || !isWorkoutRunning) {
       return
     }
-    const base = elapsedSecRef.current
+    // base = maior entre o elapsed atual e o valor AUTORITATIVO do snapshot
+    // (mesma sessão). Isso recupera o tempo que passou enquanto a tela ativa
+    // estava fora de foco (ex.: você navegou pra Home e voltou) — antes o
+    // cronômetro ancorava no elapsedSec congelado e aparecia ATRASADO/"travado"
+    // ao reentrar. Math.max nunca anda pra trás; a guarda por startedAt evita
+    // pegar snapshot de uma sessão antiga ao iniciar um treino novo.
+    let base = elapsedSecRef.current
+    const snap = readActiveWorkout()
+    if (
+      snap?.isWorkoutRunning &&
+      snap.startedAt &&
+      startedAt &&
+      new Date(snap.startedAt).getTime() === startedAt.getTime()
+    ) {
+      base = Math.max(base, deriveElapsedSec(snap))
+    }
     const at = Date.now()
     const tick = () => {
       setElapsedSec(base + Math.floor((Date.now() - at) / 1000))
@@ -1732,7 +1747,7 @@ export function TrainPage() {
       window.clearInterval(id)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [isWorkoutRunning, screen, timerNonce])
+  }, [isWorkoutRunning, screen, timerNonce, startedAt])
 
   // Hydrate the active workout on mount. If the user navigated away from
   // /train mid-session, the data is restored here and the clock is
