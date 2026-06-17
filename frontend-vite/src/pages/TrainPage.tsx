@@ -391,9 +391,21 @@ function estimatePlanMinutes(plan: WorkoutPlan): number {
   return Math.max(5, Math.round(totalSec / 60))
 }
 
+// Chave de dia no fuso LOCAL (não UTC). Evita que sessões perto da meia-noite
+// sejam classificadas no dia errado (ex.: Brasil UTC-3, treino às 22h vira o
+// dia seguinte em UTC).
+function localDayKey(d: Date): string {
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+}
+
 function relativeDaysFromNow(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime()
-  const d = Math.floor(ms / (1000 * 60 * 60 * 24))
+  const then = new Date(iso)
+  const now = new Date()
+  // Diferença em DIAS DE CALENDÁRIO (local), não janelas de 24h — assim
+  // "ontem 23h" não vira "hoje" só porque passaram menos de 24h.
+  const startThen = new Date(then.getFullYear(), then.getMonth(), then.getDate())
+  const startNow = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const d = Math.round((startNow.getTime() - startThen.getTime()) / (1000 * 60 * 60 * 24))
   if (d <= 0) return 'hoje'
   if (d === 1) return 'ontem'
   if (d < 7) return `há ${d} dias`
@@ -3813,8 +3825,10 @@ export function TrainPage() {
             //   • A duração anterior é minimamente significativa (≥5 min)
             //     pra não comparar contra um treino abortado.
             const lastSession = originMode === 'ROUTINE' && activePlanId ? lastUseByPlanId[activePlanId] : null
-            const lastDayKey = lastSession ? new Date(lastSession.endedAt).toISOString().slice(0, 10) : null
-            const todayKey = new Date().toISOString().slice(0, 10)
+            // Dia LOCAL (não UTC) pra não suprimir/exibir a comparação errado
+            // perto da meia-noite (Brasil UTC-3).
+            const lastDayKey = lastSession ? localDayKey(new Date(lastSession.endedAt)) : null
+            const todayKey = localDayKey(new Date())
             const isDifferentDay = lastDayKey != null && lastDayKey !== todayKey
             const lastDurationMin = lastSession?.durationSec ? Math.round(lastSession.durationSec / 60) : null
             const currentDurationMin = Math.max(1, Math.round(elapsedSec / 60))
@@ -3923,6 +3937,17 @@ export function TrainPage() {
               </p>
               <p className="text-[11px] text-[var(--muted)]">Aparece no feed e no histórico (opcional)</p>
             </div>
+            {summaryImagePreview && (
+              <button
+                type="button"
+                onClick={() => handleSummaryImage(null)}
+                style={{ touchAction: 'manipulation' }}
+                className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[12px] font-semibold text-red-500 transition-colors hover:bg-red-500/10 hover:text-red-600"
+              >
+                <X size={13} />
+                Remover foto
+              </button>
+            )}
           </div>
 
           {!savedSessionId ? (
