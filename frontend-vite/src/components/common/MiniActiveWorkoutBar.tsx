@@ -42,15 +42,25 @@ export function MiniActiveWorkoutBar() {
     })
   }, [])
 
-  // Self-contained 1s clock — TrainPage is unmounted on other routes so
-  // we cannot rely on its interval. Only ticks while running.
+  // Relógio por WALL-CLOCK — recomputa a cada tick a partir do âncora do
+  // snapshot (elapsedSec + lastSavedAt) em vez de somar +1/seg. Isso evita o
+  // drift quando o iOS pausa/estrangula o setInterval em segundo plano / tela
+  // bloqueada (o "+1/seg" antigo ficava minutos pra trás). Também ressincroniza
+  // ao voltar pro foreground, pra corrigir na hora qualquer período suspenso.
   useEffect(() => {
     if (!snapshot?.isWorkoutRunning) return
-    const id = window.setInterval(() => {
-      setElapsedSec((current) => current + 1)
-    }, 1000)
-    return () => window.clearInterval(id)
-  }, [snapshot?.isWorkoutRunning])
+    const sync = () => setElapsedSec(deriveElapsedSec(snapshot))
+    sync()
+    const id = window.setInterval(sync, 1000)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') sync()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [snapshot])
 
   const isInsideActiveView =
     location.pathname === '/train' && snapshot?.screen === 'ACTIVE'

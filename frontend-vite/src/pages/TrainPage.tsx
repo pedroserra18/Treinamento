@@ -1703,14 +1703,28 @@ export function TrainPage() {
     // pulará pra frente pelo tempo todo de ausência, sem depender de
     // eventos de visibilidade.
     let lastTickMs = Date.now()
-    const id = window.setInterval(() => {
+    const advance = () => {
       const now = Date.now()
-      const delta = Math.max(1, Math.floor((now - lastTickMs) / 1000))
-      lastTickMs = now
+      const delta = Math.floor((now - lastTickMs) / 1000)
+      if (delta <= 0) return
+      // Avança o âncora pelos segundos INTEIROS consumidos (não `= now`), pra
+      // não descartar o resto sub-segundo a cada tick — antes isso causava
+      // drift acumulado (vários minutos numa sessão longa).
+      lastTickMs += delta * 1000
       setElapsedSec((current) => current + delta)
-    }, 1000)
+    }
+    const id = window.setInterval(advance, 1000)
+    // Ao voltar pro foreground, corrige na hora o tempo que o iOS passou com
+    // o setInterval suspenso (sem esperar o próximo tick).
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') advance()
+    }
+    document.addEventListener('visibilitychange', onVisible)
 
-    return () => window.clearInterval(id)
+    return () => {
+      window.clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [isWorkoutRunning, screen])
 
   // Hydrate the active workout on mount. If the user navigated away from
