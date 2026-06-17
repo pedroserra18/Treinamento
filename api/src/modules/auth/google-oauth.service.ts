@@ -19,6 +19,10 @@ type SafeUser = {
   sex: "MALE" | "FEMALE" | "OTHER";
   availableDaysPerWeek: number | null;
   onboardingCompleted: boolean;
+  // Aceite de termos — sem isso, o login com Google volta o usuário sem o
+  // aceite e o TermsAcceptanceGate pediria re-aceite a CADA login.
+  acceptedTermsAt: string | null;
+  acceptedTermsVersion: string | null;
 };
 
 type AuthTokens = {
@@ -44,6 +48,8 @@ function toSafeUser(user: {
   sex: "MALE" | "FEMALE" | "OTHER";
   availableDaysPerWeek: number | null;
   onboardingCompletedAt: Date | null;
+  acceptedTermsAt: Date | null;
+  acceptedTermsVersion: string | null;
 }): SafeUser {
   return {
     id: user.id,
@@ -53,7 +59,9 @@ function toSafeUser(user: {
     role: user.role,
     sex: user.sex,
     availableDaysPerWeek: user.availableDaysPerWeek,
-    onboardingCompleted: Boolean(user.onboardingCompletedAt && user.availableDaysPerWeek)
+    onboardingCompleted: Boolean(user.onboardingCompletedAt && user.availableDaysPerWeek),
+    acceptedTermsAt: user.acceptedTermsAt ? user.acceptedTermsAt.toISOString() : null,
+    acceptedTermsVersion: user.acceptedTermsVersion ?? null
   };
 }
 
@@ -247,6 +255,8 @@ export async function loginWithGoogleCode(
           sex: true,
           availableDaysPerWeek: true,
           onboardingCompletedAt: true,
+          acceptedTermsAt: true,
+          acceptedTermsVersion: true,
           isDeleted: true,
           status: true
         }
@@ -283,6 +293,8 @@ export async function loginWithGoogleCode(
       sex: true,
       availableDaysPerWeek: true,
       onboardingCompletedAt: true,
+      acceptedTermsAt: true,
+      acceptedTermsVersion: true,
       isDeleted: true,
       status: true
     }
@@ -342,7 +354,9 @@ export async function loginWithGoogleCode(
       role: true,
       sex: true,
       availableDaysPerWeek: true,
-      onboardingCompletedAt: true
+      onboardingCompletedAt: true,
+      acceptedTermsAt: true,
+      acceptedTermsVersion: true
     }
   });
 
@@ -401,6 +415,8 @@ export async function linkGoogleToAuthenticatedUser(
       sex: true,
       availableDaysPerWeek: true,
       onboardingCompletedAt: true,
+      acceptedTermsAt: true,
+      acceptedTermsVersion: true,
       isDeleted: true,
       status: true
     }
