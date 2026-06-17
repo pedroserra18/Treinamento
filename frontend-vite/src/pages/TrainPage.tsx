@@ -23,7 +23,7 @@ import { useShowPlanLimit } from '../components/plan/use-plan-limit'
 import { catchPlanLimitError } from '../lib/plan-features'
 import {
   Flame, Layers, Dumbbell, Plus, Play, Pencil, Sparkles, MoreHorizontal,
-  MoreVertical, ArrowLeft, Check, Send,
+  MoreVertical, ArrowLeft, Check, Send, Image as ImageIcon, Camera,
   Activity, X, ClipboardList,
 } from 'lucide-react'
 import { SkeletonCard } from '../components/common/Skeleton'
@@ -3893,44 +3893,36 @@ export function TrainPage() {
             )
           })()}
 
-          {/* Foto — compacta quando vazia (botão pequeno), expande pra
-              preview grande quando há imagem. Antes ocupava ~220px de
-              altura mesmo sem foto (área tracejada gigante). */}
-          <div>
-            {summaryImagePreview ? (
-              <label className="block cursor-pointer overflow-hidden rounded-2xl border border-[var(--line)]">
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(event) => handleSummaryImage(event.target.files?.[0] ?? null)}
-                  className="hidden"
-                />
-                <div className="relative">
-                  <img
-                    src={summaryImagePreview}
-                    alt="Preview do treino"
-                    className="mx-auto block w-full max-h-72 object-cover"
-                    style={{ aspectRatio: '4 / 5' }}
-                  />
-                  <span className="absolute right-2.5 top-2.5 rounded-full bg-black/60 px-2.5 py-0.5 text-[11px] font-semibold text-white backdrop-blur-sm">
-                    Trocar foto
-                  </span>
-                </div>
-              </label>
-            ) : (
-              <label
-                className="flex cursor-pointer items-center justify-center gap-2 rounded-2xl border border-dashed border-[var(--line)] px-3 py-2.5 text-sm font-semibold text-[var(--muted)] transition-colors hover:border-[var(--brand)]/40 hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
-              >
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(event) => handleSummaryImage(event.target.files?.[0] ?? null)}
-                  className="hidden"
-                />
-                <Plus size={14} />
-                Adicionar foto <span className="text-[11px] font-normal text-[var(--muted)]">(opcional)</span>
-              </label>
-            )}
+          {/* Foto do treino — círculo destacado no estilo do feed. Vazio mostra
+              um ícone de galeria; com foto vira a imagem do usuário (preview de
+              como vai ficar salva no feed e no histórico). */}
+          <div className="flex flex-col items-center gap-2.5 rounded-2xl border border-[var(--line)] bg-[var(--surface-hover)]/40 p-4">
+            <label className="group relative cursor-pointer" style={{ touchAction: 'manipulation' }}>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(event) => handleSummaryImage(event.target.files?.[0] ?? null)}
+                className="hidden"
+              />
+              <span className="grid h-24 w-24 place-items-center overflow-hidden rounded-full border-2 border-[var(--line)] bg-[var(--surface)] transition-colors group-hover:border-[var(--brand)]/60">
+                {summaryImagePreview ? (
+                  <img src={summaryImagePreview} alt="Foto do treino" className="h-full w-full object-cover" />
+                ) : (
+                  <ImageIcon size={30} className="text-[var(--muted)]" />
+                )}
+              </span>
+              {/* Selo de ação no canto (estilo "editar foto"): câmera quando vazio,
+                  lápis quando já há foto. */}
+              <span className="absolute -bottom-0.5 -right-0.5 grid h-7 w-7 place-items-center rounded-full border-2 border-[var(--surface)] bg-[var(--brand)] text-white shadow-[0_4px_10px_-4px_rgba(255,90,60,0.6)]">
+                {summaryImagePreview ? <Pencil size={13} /> : <Camera size={14} />}
+              </span>
+            </label>
+            <div className="text-center">
+              <p className="text-[13px] font-bold text-[var(--text)]">
+                {summaryImagePreview ? 'Trocar foto' : 'Adicionar foto'}
+              </p>
+              <p className="text-[11px] text-[var(--muted)]">Aparece no feed e no histórico (opcional)</p>
+            </div>
           </div>
 
           {!savedSessionId ? (
