@@ -93,15 +93,32 @@ export function FeedPage() {
     return () => clearTimeout(id)
   }, [toast])
 
-  const handleLike = async (postId: string) => {
-    try {
-      const result = await toggleLike(authorizedFetch, postId)
-      setPosts((prev) => prev.map((p) =>
-        p.id === postId
-          ? { ...p, likedByMe: result.liked, likesCount: p.likesCount + (result.liked ? 1 : -1) }
-          : p
-      ))
-    } catch { /* silent */ }
+  const handleLike = (postId: string) => {
+    const target = posts.find((p) => p.id === postId)
+    if (!target) return
+    const prevLiked = target.likedByMe
+    const prevCount = target.likesCount
+    // OPTIMISTIC: vira o coração + contagem na hora (0ms percebido); dispara o
+    // backend em background e reconcilia com a verdade do servidor. Em erro,
+    // faz rollback pro estado anterior.
+    setPosts((prev) => prev.map((p) =>
+      p.id === postId
+        ? { ...p, likedByMe: !prevLiked, likesCount: prevCount + (prevLiked ? -1 : 1) }
+        : p
+    ))
+    toggleLike(authorizedFetch, postId)
+      .then((result) => {
+        setPosts((prev) => prev.map((p) =>
+          p.id === postId
+            ? { ...p, likedByMe: result.liked, likesCount: prevCount + (result.liked ? 1 : 0) - (prevLiked ? 1 : 0) }
+            : p
+        ))
+      })
+      .catch(() => {
+        setPosts((prev) => prev.map((p) =>
+          p.id === postId ? { ...p, likedByMe: prevLiked, likesCount: prevCount } : p
+        ))
+      })
   }
 
   const handleSearch = (q: string) => {
