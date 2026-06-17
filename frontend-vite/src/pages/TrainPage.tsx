@@ -87,6 +87,8 @@ import {
 import { formatClock } from '../lib/workout-timing'
 import { saveWorkoutSessionImage } from '../lib/workout-session-image'
 import { optimizeImageFileToDataUrl } from '../lib/image-processing'
+import { vibrate } from '../lib/haptics'
+import { useWakeLock } from '../hooks/useWakeLock'
 import type { WorkoutPlan, CardioType, CardioEntryInput, ExerciseOption } from '../types/workout'
 import {
   addPlanExercisesBatch,
@@ -1691,6 +1693,10 @@ export function TrainPage() {
       })
   }, [reloadPlans])
 
+  // Mantém a tela acesa enquanto o usuário está na tela de treino ativo —
+  // como Hevy/Strava (timer/descanso sempre visíveis sem precisar tocar).
+  useWakeLock(screen === 'ACTIVE')
+
   useEffect(() => {
     if (screen !== 'ACTIVE' || !isWorkoutRunning) {
       return
@@ -2107,6 +2113,10 @@ export function TrainPage() {
 
   useEffect(() => {
     if (!restFinishedName) return
+
+    // Haptic ao zerar o descanso (foreground). Quando a aba está hidden, o
+    // browser ignora navigator.vibrate — aí quem vibra é a notificação abaixo.
+    vibrate([80, 40, 80])
 
     // Notif local foi pensada pra cobrir o caso "app aberto mas em outra
     // aba"; com o app em foreground/visible, ela vira ruído visual (banner
@@ -2714,6 +2724,9 @@ export function TrainPage() {
       // closure stale e a estado vazio inicial.
       const target = activeExercises[exerciseIndex]
       const targetSet = target?.sets[setIndex]
+      // Haptic curto ao MARCAR a série (não ao desmarcar) — vale pra qualquer
+      // tipo de exercício, inclusive peso corporal.
+      if (targetSet && !targetSet.checked) vibrate(18)
       if (target && targetSet && !targetSet.checked && !isEffectiveBodyweightExercise(target)) {
         const weightRaw = targetSet.weightKg.trim().replace(',', '.')
         const weight = weightRaw ? Number(weightRaw) : NaN
@@ -3520,14 +3533,11 @@ export function TrainPage() {
         workoutPlanId: originMode === 'ROUTINE' ? activePlanId : undefined,
       })
 
-      const notesSegments: string[] = []
-      if (summaryImageFile) {
-        notesSegments.push(`[Imagem anexada localmente: ${summaryImageFile.name}]`)
-      }
-
+      // A foto do treino é salva por outro caminho (IndexedDB local + post no
+      // feed). Não injetamos placeholder nas notes da sessão — antes o texto
+      // "[Imagem anexada localmente: ...]" vazava no histórico.
       await completeWorkoutSession(authorizedFetch, started.id, {
         durationSec,
-        notes: notesSegments.join('\n\n') || undefined,
         exercises: performedSets.length > 0 ? performedSets : undefined,
         cardio: cardioEntries.length > 0 ? cardioEntries : undefined,
       })
