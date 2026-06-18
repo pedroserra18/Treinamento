@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ChevronRight, RefreshCw, Search, Inbox, AlertTriangle, Flag } from 'lucide-react'
+import { ChevronRight, RefreshCw, Search, Inbox, AlertTriangle, Flag, FileText, Clock } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import {
   STATUS_COLORS,
@@ -136,6 +136,19 @@ export function AdminSupportPage() {
     return groups
   }, [items])
 
+  // Ordena por urgência: SLA estourado primeiro, depois "aguardando resposta",
+  // depois o resto — dentro de cada grupo, atividade mais recente no topo.
+  const sortedItems = useMemo(() => {
+    const rank = (t: SupportTicketSummary): number => {
+      const needsReply = t.lastMessageRole === 'USER' && t.status !== 'RESOLVED' && t.status !== 'CLOSED'
+      if (!needsReply) return 2
+      return Date.now() - new Date(t.lastActivityAt).getTime() > SLA_MS ? 0 : 1
+    }
+    return [...items].sort(
+      (a, b) => rank(a) - rank(b) || new Date(b.lastActivityAt).getTime() - new Date(a.lastActivityAt).getTime(),
+    )
+  }, [items])
+
   return (
     <section className="space-y-4">
       <motion.header
@@ -161,35 +174,40 @@ export function AdminSupportPage() {
             </span>
           ) : null}
         </p>
-        <div className="relative mt-3 flex flex-wrap gap-2">
+        {/* Ações (atalhos) — estilo de borda/ghost pra NÃO se confundir com os
+            chips de filtro (que usam preenchimento sólido quando ativos).
+            Denúncias ganha tom de alerta vermelho só quando há pendências. */}
+        <div className="relative mt-4 flex flex-wrap items-center gap-2">
           <Link
             to="/admin/support/reports"
-            className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-bold shadow-sm transition-colors ${
+            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
               reportsCount && reportsCount > 0
-                ? 'bg-red-500 text-white hover:bg-red-600'
-                : 'bg-[var(--brand)] text-white hover:opacity-90'
+                ? 'border-red-500/40 bg-red-500/10 text-red-500 hover:bg-red-500/15'
+                : 'border-[var(--line)] text-[var(--text)] hover:bg-[var(--surface-hover)]'
             }`}
           >
-            <Flag size={13} />
+            <Flag size={13} className={reportsCount && reportsCount > 0 ? 'text-red-500' : 'text-[var(--muted)]'} />
             Denúncias
             {reportsCount && reportsCount > 0 ? (
-              <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white px-1 text-[10px] font-extrabold text-red-600">
+              <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-extrabold text-white">
                 {reportsCount > 99 ? '99+' : reportsCount}
               </span>
             ) : null}
           </Link>
           <Link
             to="/admin/support/templates"
-            className="rounded-full border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
+            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--line)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
           >
+            <FileText size={13} className="text-[var(--muted)]" />
             Respostas prontas
           </Link>
           <button
             type="button"
             onClick={handleAutoClose}
             disabled={autoClosing}
-            className="rounded-full border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)] disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--line)] px-3 py-1.5 text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)] disabled:opacity-50"
           >
+            <Clock size={13} className="text-[var(--muted)]" />
             {autoClosing ? 'Processando...' : 'Auto-fechar inativos'}
           </button>
           {autoCloseInfo ? <span className="self-center text-[11px] text-[var(--muted)]">{autoCloseInfo}</span> : null}
@@ -250,7 +268,7 @@ export function AdminSupportPage() {
         </div>
       ) : (
         <ul className="space-y-2">
-          {items.map((t) => {
+          {sortedItems.map((t) => {
             const needsReply = t.lastMessageRole === 'USER' && t.status !== 'RESOLVED' && t.status !== 'CLOSED'
             const slaBreached = needsReply && Date.now() - new Date(t.lastActivityAt).getTime() > SLA_MS
             return (
