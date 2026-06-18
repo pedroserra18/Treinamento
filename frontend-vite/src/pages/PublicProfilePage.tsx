@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
@@ -19,6 +19,9 @@ import { ArrowLeft } from 'lucide-react'
 
 
 type ListPanel = 'followers' | 'following' | 'mutual' | null
+
+// Bate com o pageSize do getUserPosts no backend. Página incompleta = fim.
+const POSTS_PAGE_SIZE = 20
 
 // Full-screen "page push" wrapper used to make the compare panel feel like
 // a separate route without actually changing the URL. Slides in from the
@@ -163,6 +166,14 @@ export function PublicProfilePage() {
   const [mutuals, setMutuals] = useState<SimpleUser[]>([])
   const [mutualsLoaded, setMutualsLoaded] = useState(false)
   const [viewer, setViewer] = useState<{ src: string; alt: string } | null>(null)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [reachedEnd, setReachedEnd] = useState(false)
+  // Scroll infinito dos posts: refs lidos dentro do observer sem stale closure.
+  const pageRef = useRef(1)
+  const loadingMoreRef = useRef(false)
+  const reachedEndRef = useRef(false)
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  const onReachBottomRef = useRef<() => void>(() => {})
 
   const isSelf = me?.id === userId
 
@@ -176,6 +187,11 @@ export function PublicProfilePage() {
       ])
       setProfile(prof)
       setPosts(userPosts)
+      // Reancora a paginação. Se a 1ª página veio incompleta, não há mais.
+      pageRef.current = 1
+      const done = userPosts.length < POSTS_PAGE_SIZE
+      reachedEndRef.current = done
+      setReachedEnd(done)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar perfil')
     } finally {
@@ -184,6 +200,52 @@ export function PublicProfilePage() {
   }, [authorizedFetch, userId])
 
   useEffect(() => { void load() }, [load])
+
+  // Busca a próxima página de posts e anexa (dedupe). 1 request por vez.
+  const fetchNextPage = useCallback(async () => {
+    if (!userId || loadingMoreRef.current || reachedEndRef.current) return
+    loadingMoreRef.current = true
+    setLoadingMore(true)
+    try {
+      const next = pageRef.current + 1
+      const data = await getUserPosts(authorizedFetch, userId, next)
+      pageRef.current = next
+      if (data.length < POSTS_PAGE_SIZE) {
+        reachedEndRef.current = true
+        setReachedEnd(true)
+      }
+      if (data.length > 0) {
+        setPosts((prev) => {
+          const seen = new Set(prev.map((p) => p.id))
+          return [...prev, ...data.filter((p) => !seen.has(p.id))]
+        })
+      }
+    } catch {
+      // Silencioso: tenta de novo no próximo gatilho de scroll.
+    } finally {
+      loadingMoreRef.current = false
+      setLoadingMore(false)
+    }
+  }, [authorizedFetch, userId])
+
+  onReachBottomRef.current = () => {
+    if (!reachedEndRef.current && !loadingMoreRef.current) void fetchNextPage()
+  }
+
+  // Sentinela só faz sentido quando há posts e ainda pode ter mais. rootMargin
+  // grande pré-carrega antes do fim (rolagem fluida). Reanexa via canPaginate.
+  const canPaginate = posts.length > 0 && !reachedEnd
+  useEffect(() => {
+    if (!canPaginate) return
+    const el = sentinelRef.current
+    if (!el) return
+    const obs = new IntersectionObserver(
+      (entries) => { if (entries[0]?.isIntersecting) onReachBottomRef.current() },
+      { rootMargin: '800px 0px' },
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [canPaginate])
 
   const handleFollow = async () => {
     if (!profile || !userId) return
@@ -474,6 +536,17 @@ export function PublicProfilePage() {
             onShare={handleShare}
           />
         ))}
+
+        {/* Scroll infinito: sentinela carrega a próxima página antes do fim. */}
+        {canPaginate && <div ref={sentinelRef} aria-hidden className="h-px w-full" />}
+        {loadingMore && (
+          <div className="flex justify-center py-4" aria-label="Carregando mais posts">
+            <span className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--line)] border-t-[var(--brand)]" />
+          </div>
+        )}
+        {reachedEnd && posts.length > POSTS_PAGE_SIZE && (
+          <p className="py-2 text-center text-xs text-[var(--muted)]">Todos os posts foram carregados.</p>
+        )}
       </div>
 
       <AnimatePresence>
