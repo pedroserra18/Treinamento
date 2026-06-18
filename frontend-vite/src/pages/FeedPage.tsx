@@ -98,27 +98,27 @@ export function FeedPage() {
     if (!target) return
     const prevLiked = target.likedByMe
     const prevCount = target.likesCount
-    // OPTIMISTIC: vira o coração + contagem na hora (0ms percebido); dispara o
-    // backend em background e reconcilia com a verdade do servidor. Em erro,
-    // faz rollback pro estado anterior.
-    setPosts((prev) => prev.map((p) =>
-      p.id === postId
-        ? { ...p, likedByMe: !prevLiked, likesCount: prevCount + (prevLiked ? -1 : 1) }
-        : p
-    ))
+
+    // Atualiza o estado E o cache do feed juntos. Sem sincronizar o cache, ao
+    // sair e voltar rápido a página remontava lendo o cache antigo → a curtida
+    // "sumia" e depois reaparecia inconsistente (contagem subia mas likedByMe
+    // ficava false, dava pra curtir de novo). Como o cache é de módulo, o patch
+    // vale mesmo se a página foi desmontada — a próxima visita vê o estado certo.
+    const patch = (liked: boolean, count: number) => {
+      setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, likedByMe: liked, likesCount: count } : p)))
+      const cached = feedFirstPageCache.peek()
+      if (cached) {
+        feedFirstPageCache.set(
+          cached.map((p) => (p.id === postId ? { ...p, likedByMe: liked, likesCount: count } : p)),
+        )
+      }
+    }
+
+    // OPTIMISTIC (0ms) → reconcilia com a verdade do servidor (rollback em erro).
+    patch(!prevLiked, prevCount + (prevLiked ? -1 : 1))
     toggleLike(authorizedFetch, postId)
-      .then((result) => {
-        setPosts((prev) => prev.map((p) =>
-          p.id === postId
-            ? { ...p, likedByMe: result.liked, likesCount: prevCount + (result.liked ? 1 : 0) - (prevLiked ? 1 : 0) }
-            : p
-        ))
-      })
-      .catch(() => {
-        setPosts((prev) => prev.map((p) =>
-          p.id === postId ? { ...p, likedByMe: prevLiked, likesCount: prevCount } : p
-        ))
-      })
+      .then((result) => patch(result.liked, prevCount + (result.liked ? 1 : 0) - (prevLiked ? 1 : 0)))
+      .catch(() => patch(prevLiked, prevCount))
   }
 
   const handleSearch = (q: string) => {
