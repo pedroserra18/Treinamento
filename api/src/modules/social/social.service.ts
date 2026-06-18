@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../../config/prisma";
 import { AppError } from "../../shared/errors/app-error";
 import { CreatePostBody } from "./social.schema";
@@ -331,20 +332,31 @@ export async function toggleLike(userId: string, postId: string) {
   const post = await prisma.workoutPost.findUnique({ where: { id: postId }, select: { id: true, userId: true, privacy: true, removedAt: true } });
   if (!post || post.removedAt) throw new AppError("Post não encontrado", { statusCode: 404, code: "POST_NOT_FOUND" });
 
-  const existing = await prisma.postLike.findUnique({ where: { postId_userId: { postId, userId } } });
-
-  if (existing) {
-    await prisma.$transaction([
-      prisma.postLike.delete({ where: { postId_userId: { postId, userId } } }),
-      prisma.workoutPost.update({ where: { id: postId }, data: { likesCount: { decrement: 1 } } }),
-    ]);
-    return { liked: false };
+  // Toggle à prova de corrida (toque rápido / UI otimista disparando 2x):
+  // numa transação, deleteMany (idempotente) decide o "unlike"; se nada foi
+  // apagado, cria o like. Mantém o contador likesCount consistente. Se um
+  // create concorrente ganhar a corrida (P2002), a transação reverte e tratamos
+  // como "já curtido" — antes isso virava 500 (PrismaClientKnownRequestError).
+  let liked: boolean;
+  try {
+    liked = await prisma.$transaction(async (tx) => {
+      const deleted = await tx.postLike.deleteMany({ where: { postId, userId } });
+      if (deleted.count > 0) {
+        await tx.workoutPost.update({ where: { id: postId }, data: { likesCount: { decrement: 1 } } });
+        return false;
+      }
+      await tx.postLike.create({ data: { postId, userId } });
+      await tx.workoutPost.update({ where: { id: postId }, data: { likesCount: { increment: 1 } } });
+      return true;
+    });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      return { liked: true };
+    }
+    throw err;
   }
 
-  await prisma.$transaction([
-    prisma.postLike.create({ data: { postId, userId } }),
-    prisma.workoutPost.update({ where: { id: postId }, data: { likesCount: { increment: 1 } } }),
-  ]);
+  if (!liked) return { liked: false };
 
   // Notifica o autor — pula se for o próprio user curtindo o próprio post.
   // Best-effort: erros aqui não fazem o like falhar (already curtido no DB).
