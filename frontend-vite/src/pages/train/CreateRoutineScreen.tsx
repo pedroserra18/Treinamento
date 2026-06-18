@@ -16,6 +16,7 @@ import { InfoDialog } from '../../components/common/InfoDialog'
 import { ConfirmDialog } from '../../components/common/ConfirmDialog'
 import { SetTypeBadge, SetTypePickerSheet } from '../../components/common/SetTypePickerSheet'
 import type { SetType } from '../../components/common/setTypeOptions'
+import { serializePerfNotes, type PerfSeries } from '../../lib/perf-notes'
 
 // Tela "Criar Rotina" no estilo Hevy: header [Cancelar / Título / Salvar]
 // + input de título da rotina + lista de exercícios + botão Adicionar.
@@ -48,10 +49,6 @@ type DraftExercise = {
   sets: DraftSet[]
 }
 
-// Marcador usado pra encodar dados estruturados por-série no campo notes do
-// plano, sem mexer no schema do backend. Mesma convenção da WorkoutsPage.
-const PERF_MARKER = '__PERF__:'
-
 function makeDraftSet(repsMin = '8', repsMax = '12', type: SetType = 'normal'): DraftSet {
   return { repsMin, repsMax, type }
 }
@@ -70,10 +67,10 @@ function buildNotesWithSets(ex: DraftExercise): string | undefined {
     (s) => s.repsMin === (first?.repsMin ?? '') && s.repsMax === (first?.repsMax ?? ''),
   )
   if (allNormal && uniformReps) return userNote || undefined
-  const series = ex.sets.map((s) => {
+  const series: PerfSeries[] = ex.sets.map((s) => {
     const min = Number(s.repsMin)
     const max = Number(s.repsMax)
-    const entry: { reps?: number; repsMin?: number; repsMax?: number; setType?: SetType } = {}
+    const entry: PerfSeries = {}
     if (Number.isFinite(max) && max > 0) {
       entry.reps = Math.floor(max)
       entry.repsMax = Math.floor(max)
@@ -82,8 +79,7 @@ function buildNotesWithSets(ex: DraftExercise): string | undefined {
     if (s.type !== 'normal') entry.setType = s.type
     return entry
   })
-  const payload = { sets: series.length, series }
-  return `${userNote}${userNote ? ' ' : ''}${PERF_MARKER}${JSON.stringify(payload)}`.trim()
+  return serializePerfNotes(userNote, { sets: series.length, series })
 }
 
 function makeLocalId(): string {

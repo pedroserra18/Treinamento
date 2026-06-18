@@ -10,6 +10,7 @@ import { resolveBodyweightFlag } from '../lib/exercise-meta'
 import type { CardioType, ExerciseOption, WorkoutPlan } from '../types/workout'
 import { SetTypeBadge, SetTypePickerSheet } from '../components/common/SetTypePickerSheet'
 import { type SetType, type DropEntry } from '../components/common/setTypeOptions'
+import { parsePerfPayload, stripPerfMarker, serializePerfNotes } from '../lib/perf-notes'
 import {
   addExerciseToPlan,
   addPlanCardio,
@@ -72,8 +73,6 @@ type PerformanceDraft = {
   rangeMax: string
 }
 
-const PERF_MARKER = '__PERF__:'
-
 function createSeriesDraft(initial?: Partial<SeriesDraft>): SeriesDraft {
   return {
     reps: initial?.reps ?? '',
@@ -96,67 +95,46 @@ function estimate1rm(weightKg: number, reps: number): number {
 }
 
 function parsePerformanceFromNotes(notes: string | null): Partial<PerformanceDraft> {
-  if (!notes || !notes.includes(PERF_MARKER)) {
+  const parsed = parsePerfPayload(notes)
+  if (!parsed) {
     return {}
   }
 
-  const markerIndex = notes.indexOf(PERF_MARKER)
-  const raw = notes.slice(markerIndex + PERF_MARKER.length).trim()
-
-  try {
-    const parsed = JSON.parse(raw) as {
-      reps?: number
-      sets?: number
-      series?: Array<{
-        reps?: number
-        loadKg?: number
-        rpe?: number
-        rir?: number
-        setType?: SetType
-        dropSets?: Array<{ weightKg?: number; reps?: number }>
-        clusterReps?: number
-        clusterCount?: number
-      }>
-    }
-
-    if (Array.isArray(parsed.series) && parsed.series.length > 0) {
-      return {
-        series: parsed.series.map((entry) =>
-          createSeriesDraft({
-            reps: entry.reps != null ? String(entry.reps) : '',
-            loadKg: entry.loadKg != null ? String(entry.loadKg) : '',
-            rpe: entry.rpe != null ? String(entry.rpe) : '',
-            rir: entry.rir != null ? String(entry.rir) : '',
-            setType: entry.setType ?? 'normal',
-            dropSets:
-              Array.isArray(entry.dropSets) && entry.dropSets.length > 0
-                ? entry.dropSets.map((d) => ({
-                    weightKg: d.weightKg != null ? String(d.weightKg) : '',
-                    reps: d.reps != null ? String(d.reps) : '',
-                  }))
-                : [{ weightKg: '', reps: '' }],
-            clusterReps: entry.clusterReps != null ? String(entry.clusterReps) : '',
-            clusterCount: entry.clusterCount != null ? String(entry.clusterCount) : '',
-          }),
-        ),
-      }
-    }
-
-    const sets = Math.max(1, Number(parsed.sets ?? 1))
+  if (Array.isArray(parsed.series) && parsed.series.length > 0) {
     return {
-      series: Array.from({ length: sets }, () =>
+      series: parsed.series.map((entry) =>
         createSeriesDraft({
-          reps: parsed.reps != null ? String(parsed.reps) : '',
+          reps: entry.reps != null ? String(entry.reps) : '',
+          loadKg: entry.loadKg != null ? String(entry.loadKg) : '',
+          rpe: entry.rpe != null ? String(entry.rpe) : '',
+          rir: entry.rir != null ? String(entry.rir) : '',
+          setType: entry.setType ?? 'normal',
+          dropSets:
+            Array.isArray(entry.dropSets) && entry.dropSets.length > 0
+              ? entry.dropSets.map((d) => ({
+                  weightKg: d.weightKg != null ? String(d.weightKg) : '',
+                  reps: d.reps != null ? String(d.reps) : '',
+                }))
+              : [{ weightKg: '', reps: '' }],
+          clusterReps: entry.clusterReps != null ? String(entry.clusterReps) : '',
+          clusterCount: entry.clusterCount != null ? String(entry.clusterCount) : '',
         }),
       ),
     }
-  } catch {
-    return {}
+  }
+
+  const sets = Math.max(1, Number(parsed.sets ?? 1))
+  return {
+    series: Array.from({ length: sets }, () =>
+      createSeriesDraft({
+        reps: parsed.reps != null ? String(parsed.reps) : '',
+      }),
+    ),
   }
 }
 
 function buildNotesWithPerformance(existing: string | null, draft: PerformanceDraft): string {
-  const base = (existing ?? '').split(PERF_MARKER)[0].trim()
+  const base = stripPerfMarker(existing)
   const validSeries = draft.series
     .map((entry) => {
       const setType = entry.setType ?? 'normal'
@@ -208,7 +186,7 @@ function buildNotesWithPerformance(existing: string | null, draft: PerformanceDr
     series: validSeries,
   }
 
-  return `${base}${base ? ' ' : ''}${PERF_MARKER}${JSON.stringify(payload)}`.trim()
+  return serializePerfNotes(base, payload)
 }
 
 function isDuplicateExerciseError(message: string): boolean {

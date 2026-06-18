@@ -4,6 +4,7 @@ import { motion } from 'framer-motion'
 import { useAuth } from '../hooks/useAuth'
 import { saveSharedPlan, type SharedPlanData } from '../services/socialService'
 import { invalidateWorkoutPlansCache } from '../lib/workout-plans-cache'
+import { stripPerfMarker } from '../lib/perf-notes'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1'
 
@@ -189,7 +190,7 @@ export function SharedPlanPage() {
                     {(() => {
                       // notes pode conter dados estruturados por-série após o
                       // marcador __PERF__ — mostra só a nota legível do usuário.
-                      const clean = (item.notes ?? '').split('__PERF__:')[0].trim()
+                      const clean = stripPerfMarker(item.notes)
                       return clean ? (
                         <p className="mt-0.5 text-[11px] text-[var(--muted)] italic line-clamp-1">{clean}</p>
                       ) : null

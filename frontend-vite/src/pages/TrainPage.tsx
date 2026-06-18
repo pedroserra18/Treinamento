@@ -91,6 +91,7 @@ import { useWakeLock } from '../hooks/useWakeLock'
 import { useActiveWorkoutElapsed } from '../hooks/useActiveWorkoutElapsed'
 import type { WorkoutPlan, CardioType, CardioEntryInput, ExerciseOption } from '../types/workout'
 import type { RoutineInitial } from './train/CreateRoutineScreen'
+import { parsePerfPayload, stripPerfMarker } from '../lib/perf-notes'
 import {
   addPlanExercisesBatch,
   deletePlanExercisesBatch,
@@ -737,31 +738,19 @@ function SendToCompetitionCta({
 // Converte um plano salvo pro formato do builder (CreateRoutineScreen),
 // reidratando as séries do marcador __PERF__ quando presente. Usado pela
 // tela "Editar Rotina" pra abrir já preenchida.
-const PERF_MARKER_EDIT = '__PERF__:'
 function planToRoutineInitial(plan: WorkoutPlan): RoutineInitial {
   return {
     name: plan.name,
     exercises: plan.exercises.map((ex) => {
-      const rawNotes = ex.notes ?? ''
-      const idx = rawNotes.indexOf(PERF_MARKER_EDIT)
-      let userNote = rawNotes
+      const userNote = stripPerfMarker(ex.notes)
+      const payload = parsePerfPayload(ex.notes)
       let sets: RoutineInitial['exercises'][number]['sets'] = []
-      if (idx >= 0) {
-        userNote = rawNotes.slice(0, idx).trim()
-        try {
-          const parsed = JSON.parse(rawNotes.slice(idx + PERF_MARKER_EDIT.length).trim()) as {
-            series?: Array<{ reps?: number; repsMin?: number; repsMax?: number; setType?: SetType }>
-          }
-          if (Array.isArray(parsed.series) && parsed.series.length > 0) {
-            sets = parsed.series.map((s) => ({
-              repsMin: s.repsMin != null ? String(s.repsMin) : s.reps != null ? String(s.reps) : '',
-              repsMax: s.repsMax != null ? String(s.repsMax) : s.reps != null ? String(s.reps) : '',
-              type: s.setType ?? 'normal',
-            }))
-          }
-        } catch {
-          /* nota corrompida — cai no fallback pelas colunas do plano */
-        }
+      if (payload?.series && payload.series.length > 0) {
+        sets = payload.series.map((s) => ({
+          repsMin: s.repsMin != null ? String(s.repsMin) : s.reps != null ? String(s.reps) : '',
+          repsMax: s.repsMax != null ? String(s.repsMax) : s.reps != null ? String(s.reps) : '',
+          type: s.setType ?? 'normal',
+        }))
       }
       if (sets.length === 0) {
         const count = Math.max(1, ex.sets ?? 3)

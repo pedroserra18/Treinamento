@@ -1,4 +1,4 @@
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
@@ -11,6 +11,8 @@ import { feedFirstPageCache } from '../lib/feed-cache'
 import { shareLink } from '../lib/share'
 import { followingCache } from '../lib/social-cache'
 import { SkeletonCard } from '../components/common/Skeleton'
+import { Toast } from '../components/common/Toast'
+import { useToast } from '../hooks/useToast'
 import { FeedPostCard, Avatar } from '../components/common/FeedPostCard'
 import { Rss, Search } from 'lucide-react'
 
@@ -52,7 +54,7 @@ export function FeedPage() {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const [loadingMore, setLoadingMore] = useState(false)
   const [reachedEnd, setReachedEnd] = useState(false)
-  const [toast, setToast] = useState<string | null>(null)
+  const { toast, showToast: setToast } = useToast()
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   // Paginação infinita: page já carregada do servidor + guards anti-corrida
@@ -136,12 +138,6 @@ export function FeedPage() {
   }, [authorizedFetch])
 
 
-  // Auto-dismiss toast after a couple of seconds so it stops nagging.
-  useEffect(() => {
-    if (!toast) return
-    const id = setTimeout(() => setToast(null), 2200)
-    return () => clearTimeout(id)
-  }, [toast])
 
   // Coalesce de curtidas. A UI vira na hora (otimista) usando este ref como
   // FONTE DE VERDADE da rajada — imune ao timing de render —, mas só UMA
@@ -486,18 +482,7 @@ export function FeedPage() {
       )}
 
       {/* Toast for share & friends */}
-      <AnimatePresence>
-        {toast && (
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 12 }}
-            className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full border border-[var(--line)] bg-[var(--surface)] px-4 py-2 text-xs font-semibold text-[var(--text)] shadow-lg"
-          >
-            {toast}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <Toast message={toast} />
     </section>
   )
 }

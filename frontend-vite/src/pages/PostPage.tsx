@@ -4,6 +4,8 @@ import { ArrowLeft } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { FeedPostCard } from '../components/common/FeedPostCard'
 import { SkeletonCard } from '../components/common/Skeleton'
+import { Toast } from '../components/common/Toast'
+import { useToast } from '../hooks/useToast'
 import { feedFirstPageCache } from '../lib/feed-cache'
 import { shareLink } from '../lib/share'
 import {
@@ -21,13 +23,7 @@ export function PostPage() {
   const [post, setPost] = useState<FeedPost | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [toast, setToast] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!toast) return
-    const id = window.setTimeout(() => setToast(null), 2200)
-    return () => window.clearTimeout(id)
-  }, [toast])
+  const { toast, showToast: setToast } = useToast()
 
   const load = useCallback(async () => {
     if (!postId) return
@@ -138,13 +134,7 @@ export function PostPage() {
         />
       )}
 
-      {toast && (
-        <div className="fixed inset-x-0 bottom-24 z-[9999] flex justify-center px-4">
-          <div className="rounded-full bg-[var(--text)] px-4 py-2 text-sm font-semibold text-[var(--surface)] shadow-lg">
-            {toast}
-          </div>
-        </div>
-      )}
+      <Toast message={toast} />
     </section>
   )
 }
