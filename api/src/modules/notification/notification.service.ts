@@ -8,6 +8,7 @@ export type NotificationType =
   | "POST_COMMENT"
   | "POST_LIKE"
   | "POST_COMMENT_REPLY"
+  | "POST_REPORTED"
   | "USER_FOLLOWED"
   // Support
   | "SUPPORT_TICKET_CREATED"
@@ -40,6 +41,7 @@ const TYPE_TO_CATEGORY: Record<NotificationType, NotificationCategory> = {
   POST_COMMENT: "SOCIAL",
   POST_LIKE: "SOCIAL",
   POST_COMMENT_REPLY: "SOCIAL",
+  POST_REPORTED: "SUPPORT", // denúncia → fila de moderação do admin (suporte)
   USER_FOLLOWED: "SOCIAL",
   SUPPORT_TICKET_CREATED: "SUPPORT",
   SUPPORT_TICKET_REPLIED: "SUPPORT",

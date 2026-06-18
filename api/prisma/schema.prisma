@@ -250,6 +250,7 @@ model User {
   workoutPosts      WorkoutPost[]
   postLikes         PostLike[]
   postComments      PostComment[]
+  postReports       PostReport[]
   sharedPlans       SharedPlan[]
   notifications     Notification[]
   notificationPreferences NotificationPreferences?
@@ -695,11 +696,52 @@ model WorkoutPost {
   workoutSession WorkoutSession? @relation(fields: [workoutSessionId], references: [id], onDelete: SetNull)
   likes          PostLike[]
   comments       PostComment[]
+  reports        PostReport[]
 
   @@index([userId, createdAt])
   @@index([privacy, createdAt])
   @@index([removedAt])
   @@map("workout_posts")
+}
+
+// Denúncia de um post pela comunidade. Cai na fila de moderação do admin
+// (área de Suporte). Unique (postId, reporterId) = cada usuário denuncia um
+// post no máximo 1 vez (idempotente, evita inflar a contagem com spam).
+// status: PENDING (aguardando admin) → REVIEWED (admin agiu/removeu) ou
+// DISMISSED (admin considerou ok). reviewedById guarda qual admin decidiu.
+model PostReport {
+  id           String           @id @default(cuid())
+  postId       String
+  reporterId   String
+  reason       PostReportReason
+  details      String?          @db.VarChar(500)
+  status       PostReportStatus @default(PENDING)
+  reviewedById String?
+  reviewedAt   DateTime?
+  createdAt    DateTime         @default(now())
+
+  post     WorkoutPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  reporter User        @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, reporterId])
+  @@index([status, createdAt])
+  @@index([postId])
+  @@map("post_reports")
+}
+
+enum PostReportReason {
+  SPAM
+  HARASSMENT
+  INAPPROPRIATE
+  VIOLENCE
+  MISINFORMATION
+  OTHER
+}
+
+enum PostReportStatus {
+  PENDING
+  REVIEWED
+  DISMISSED
 }
 
 model PostLike {

@@ -232,6 +232,46 @@ export async function adminRestorePost(fetcher: AuthorizedFetch, postId: string)
   }
 }
 
+// ─── Denúncias de posts (moderação) ────────────────────────────────────────
+
+export type PostReportReason = 'SPAM' | 'HARASSMENT' | 'INAPPROPRIATE' | 'VIOLENCE' | 'MISINFORMATION' | 'OTHER'
+
+export type PostReportItem = {
+  id: string
+  reason: PostReportReason
+  details: string | null
+  createdAt: string
+  reporter: { id: string; name: string | null; handle: string }
+  post: {
+    id: string
+    caption: string | null
+    photoUrl: string | null
+    createdAt: string
+    user: { id: string; name: string | null; handle: string; avatarUrl: string | null }
+  }
+}
+
+export async function adminListReports(fetcher: AuthorizedFetch): Promise<{ items: PostReportItem[] }> {
+  const res = await fetcher(`${API_URL}/admin/support/reports`)
+  return handle(res)
+}
+
+export async function adminResolveReport(
+  fetcher: AuthorizedFetch,
+  reportId: string,
+  action: 'DISMISS' | 'REMOVE_POST'
+): Promise<void> {
+  const res = await fetcher(`${API_URL}/admin/support/reports/${reportId}/resolve`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action }),
+  })
+  if (!res.ok) {
+    const json = await res.json().catch(() => null)
+    throw new Error(json?.error?.message ?? 'Erro ao resolver denúncia')
+  }
+}
+
 export const TOPIC_LABELS: Record<TicketTopic, string> = {
   ACCOUNT: 'Conta',
   POST_REMOVED: 'Post removido',

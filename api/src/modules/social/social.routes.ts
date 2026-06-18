@@ -4,11 +4,11 @@ import { requireAuth, optionalAuth } from "../../middlewares/auth.middleware";
 import { validateRequest as validate } from "../../middlewares/validation.middleware";
 import {
   createPostSchema, feedQuerySchema, userPostsQuerySchema, searchUsersSchema, updatePostPrivacySchema,
-  createCommentSchema, commentsQuerySchema, createAndSharePlanSchema,
+  createCommentSchema, commentsQuerySchema, createAndSharePlanSchema, reportPostSchema,
 } from "./social.schema";
 import {
   createPostController, deletePostController, updatePostPrivacyController, toggleLikeController,
-  getFeedController, getPostController, getUserPostsController, followController,
+  getFeedController, getPostController, getUserPostsController, reportPostController, followController,
   unfollowController, getFollowersController, getFollowingController,
   searchUsersController, getPublicProfileController,
   getPublicFollowersController, getPublicFollowingController, getMutualFollowersController,
@@ -28,6 +28,7 @@ router.get("/posts/:postId", requireAuth, asyncHandler(getPostController));
 router.delete("/posts/:postId", requireAuth, asyncHandler(deletePostController));
 router.patch("/posts/:postId/privacy", requireAuth, validate({ body: updatePostPrivacySchema }), asyncHandler(updatePostPrivacyController));
 router.post("/posts/:postId/like", requireAuth, asyncHandler(toggleLikeController));
+router.post("/posts/:postId/report", requireAuth, validate({ body: reportPostSchema }), asyncHandler(reportPostController));
 
 // Comments
 router.get("/posts/:postId/comments", requireAuth, validate({ query: commentsQuerySchema }), asyncHandler(listCommentsController));

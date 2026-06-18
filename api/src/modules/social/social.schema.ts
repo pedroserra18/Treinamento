@@ -53,6 +53,18 @@ export const commentsQuerySchema = z.object({
   pageSize: z.coerce.number().int().positive().max(50).default(20),
 });
 
+// Denúncia de post. `reason` bate com o enum PostReportReason do Prisma.
+// `details` é opcional (texto livre curto pro denunciante explicar).
+export const reportPostSchema = z.object({
+  reason: z.enum(["SPAM", "HARASSMENT", "INAPPROPRIATE", "VIOLENCE", "MISINFORMATION", "OTHER"]),
+  details: z.string().trim().max(500).optional(),
+});
+
+// Admin decide o destino da denúncia.
+export const resolveReportSchema = z.object({
+  action: z.enum(["DISMISS", "REMOVE_POST"]),
+});
+
 // "Criar e enviar rotina": o criador monta uma rotina e gera um link, sem que
 // a rotina entre nas rotinas dele. O backend cria um template oculto + o
 // shared link numa transação. Limites espelham o builder do app.
@@ -83,3 +95,5 @@ export type UserPostsQuery = z.infer<typeof userPostsQuerySchema>;
 export type SearchUsersQuery = z.infer<typeof searchUsersSchema>;
 export type CreateCommentBody = z.infer<typeof createCommentSchema>;
 export type CommentsQuery = z.infer<typeof commentsQuerySchema>;
+export type ReportPostBody = z.infer<typeof reportPostSchema>;
+export type ResolveReportBody = z.infer<typeof resolveReportSchema>;

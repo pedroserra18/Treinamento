@@ -22,7 +22,10 @@ import {
 import {
   adminListRemovedPostsController,
   adminRestorePostController,
+  adminListReportsController,
+  adminResolveReportController,
 } from "../social/social.controller";
+import { resolveReportSchema } from "../social/social.schema";
 import {
   adminListQuerySchema,
   adminReplySchema,
@@ -123,6 +126,21 @@ router.post(
   requireAuth,
   requireAdminRole,
   asyncHandler(autoCloseController)
+);
+
+// Denúncias de posts (moderação da comunidade → fila do admin)
+router.get(
+  "/admin/support/reports",
+  requireAuth,
+  requireAdminRole,
+  asyncHandler(adminListReportsController)
+);
+router.patch(
+  "/admin/support/reports/:reportId/resolve",
+  requireAuth,
+  requireAdminRole,
+  validateRequest({ body: resolveReportSchema }),
+  asyncHandler(adminResolveReportController)
 );
 
 // Removed posts review (used from support tickets)

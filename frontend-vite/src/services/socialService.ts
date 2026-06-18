@@ -198,6 +198,22 @@ export async function createComment(
   return handleResponse<PostComment>(res)
 }
 
+export type ReportReason = 'SPAM' | 'HARASSMENT' | 'INAPPROPRIATE' | 'VIOLENCE' | 'MISINFORMATION' | 'OTHER'
+
+export async function reportPost(
+  authorizedFetch: AuthorizedFetch,
+  postId: string,
+  reason: ReportReason,
+  details?: string,
+): Promise<{ reported: boolean; alreadyReported: boolean }> {
+  const res = await authorizedFetch(`${API_URL}/social/posts/${postId}/report`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason, details: details?.trim() || undefined }),
+  })
+  return handleResponse<{ reported: boolean; alreadyReported: boolean }>(res)
+}
+
 export async function deleteComment(
   authorizedFetch: AuthorizedFetch,
   postId: string,

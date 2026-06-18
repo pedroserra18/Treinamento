@@ -146,6 +146,12 @@ export function AdminSupportPage() {
         </p>
         <div className="relative mt-3 flex flex-wrap gap-2">
           <Link
+            to="/admin/support/reports"
+            className="rounded-full border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
+          >
+            Denúncias
+          </Link>
+          <Link
             to="/admin/support/templates"
             className="rounded-full border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
           >

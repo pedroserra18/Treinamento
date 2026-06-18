@@ -3,8 +3,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { createPortal } from 'react-dom'
 import { useAuth } from '../../hooks/useAuth'
 import {
-  listComments, createComment, deleteComment,
-  type FeedPost, type PostPrivacy,
+  listComments, createComment, deleteComment, reportPost,
+  type FeedPost, type PostPrivacy, type ReportReason,
   type WorkoutExerciseSummary, type WorkoutSet, type PostComment,
 } from '../../services/socialService'
 import { WorkoutPostImage } from './WorkoutPostImage'
@@ -12,7 +12,7 @@ import { peekComments, setCommentsCache } from '../../lib/comments-cache'
 import {
   Users, Heart, Globe2, Lock,
   Trash2, MoreHorizontal, MessageCircle, Share2,
-  ArrowRight, ChevronUp, Send, X, Check, BarChart3, Activity, Link2,
+  ArrowRight, ChevronUp, Send, X, Check, BarChart3, Activity, Link2, Flag,
 } from 'lucide-react'
 
 const CARDIO_PT: Record<string, string> = {
@@ -332,16 +332,18 @@ const PRIVACY_OPTIONS: { value: PostPrivacy; label: string; icon: typeof Globe2 
 // Renderizado via portal com posição `fixed` pra NUNCA ser cortado pelo
 // `overflow-hidden` do card. Fecha em: clique-fora, Esc e scroll.
 function PostMenu({
-  postId, isOwner, canDelete, privacy, ownerIsPrivate, savingPrivacy, onPrivacyChange, onDelete,
+  postId, isOwner, canDelete, canReport, privacy, ownerIsPrivate, savingPrivacy, onPrivacyChange, onDelete, onReport,
 }: {
   postId: string
   isOwner: boolean
   canDelete: boolean
+  canReport: boolean
   privacy: PostPrivacy
   ownerIsPrivate: boolean
   savingPrivacy: boolean
   onPrivacyChange: (next: PostPrivacy) => void
   onDelete: () => void
+  onReport: () => void
 }) {
   const [open, setOpen] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -434,6 +436,21 @@ function PostMenu({
             {copied ? 'Copiado!' : 'Copiar link'}
           </button>
 
+          {canReport && (
+            <>
+              <div className="border-t border-[var(--line)]" />
+              <button
+                role="menuitem"
+                type="button"
+                onClick={() => { setOpen(false); onReport() }}
+                className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
+              >
+                <Flag size={15} />
+                Denunciar
+              </button>
+            </>
+          )}
+
           {isOwner && (
             <>
               <div className="border-t border-[var(--line)]" />
@@ -482,6 +499,128 @@ function PostMenu({
         document.body,
       )}
     </>
+  )
+}
+
+// ─── Report dialog ─────────────────────────────────────────────────────────
+
+const REPORT_REASONS: { value: ReportReason; label: string }[] = [
+  { value: 'SPAM', label: 'Spam ou enganoso' },
+  { value: 'HARASSMENT', label: 'Assédio ou bullying' },
+  { value: 'INAPPROPRIATE', label: 'Conteúdo impróprio' },
+  { value: 'VIOLENCE', label: 'Violência' },
+  { value: 'MISINFORMATION', label: 'Informação falsa' },
+  { value: 'OTHER', label: 'Outro' },
+]
+
+// Diálogo de denúncia. Montado só quando aberto (o parent faz `{open && ...}`),
+// então o estado nasce limpo a cada abertura — sem reset via effect.
+function ReportDialog({ postId, onClose }: { postId: string; onClose: () => void }) {
+  const { authorizedFetch } = useAuth()
+  const [reason, setReason] = useState<ReportReason | null>(null)
+  const [details, setDetails] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [done, setDone] = useState<null | 'sent' | 'already'>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const submit = async () => {
+    if (!reason || submitting) return
+    setSubmitting(true)
+    setError(null)
+    try {
+      const res = await reportPost(authorizedFetch, postId, reason, details)
+      setDone(res.alreadyReported ? 'already' : 'sent')
+      window.setTimeout(onClose, 1600)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao enviar denúncia')
+      setSubmitting(false)
+    }
+  }
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[10000] flex items-end justify-center bg-black/50 sm:items-center sm:p-4"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md rounded-t-2xl border border-[var(--line)] bg-[var(--surface)] p-5 shadow-2xl sm:rounded-2xl"
+      >
+        {done ? (
+          <div className="py-6 text-center">
+            <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-[var(--brand)]/15 text-[var(--brand)]">
+              <Check size={24} />
+            </div>
+            <p className="text-base font-bold text-[var(--text)]">
+              {done === 'already' ? 'Você já tinha denunciado' : 'Denúncia enviada'}
+            </p>
+            <p className="mt-1 text-sm text-[var(--muted)]">Obrigado. Nossa equipe vai analisar.</p>
+          </div>
+        ) : (
+          <>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-base font-bold text-[var(--text)]">Denunciar post</h3>
+              <button type="button" onClick={onClose} className="text-[var(--muted)] hover:text-[var(--text)]">
+                <X size={18} />
+              </button>
+            </div>
+            <p className="mb-3 text-sm text-[var(--muted)]">Por que você está denunciando?</p>
+            <div className="space-y-1.5">
+              {REPORT_REASONS.map((r) => (
+                <button
+                  key={r.value}
+                  type="button"
+                  onClick={() => setReason(r.value)}
+                  className={`flex w-full items-center justify-between rounded-xl border px-3.5 py-2.5 text-left text-sm transition-colors ${
+                    reason === r.value
+                      ? 'border-[var(--brand)] bg-[var(--brand)]/10 text-[var(--text)]'
+                      : 'border-[var(--line)] text-[var(--text)] hover:bg-[var(--surface-hover)]'
+                  }`}
+                >
+                  {r.label}
+                  {reason === r.value && <Check size={16} className="text-[var(--brand)]" />}
+                </button>
+              ))}
+            </div>
+            <textarea
+              value={details}
+              onChange={(e) => setDetails(e.target.value)}
+              maxLength={500}
+              placeholder="Detalhes (opcional)"
+              rows={2}
+              className="mt-3 w-full resize-none rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3.5 py-2.5 text-sm text-[var(--text)] placeholder:text-[var(--muted)] focus:border-[var(--brand)] focus:outline-none"
+            />
+            {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 rounded-full border border-[var(--line)] px-4 py-2.5 text-sm font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={!reason || submitting}
+                onClick={() => void submit()}
+                className="flex-1 rounded-full bg-red-500 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-40"
+              >
+                {submitting ? 'Enviando...' : 'Enviar denúncia'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -815,6 +954,7 @@ export function FeedPostCard({
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [commentsCount, setCommentsCount] = useState(post.commentsCount)
   const [savingPrivacy, setSavingPrivacy] = useState(false)
+  const [reportOpen, setReportOpen] = useState(false)
   const hasValidPhoto = Boolean(post.photoUrl) && !post.photoUrl!.startsWith('blob:')
 
   const handlePrivacy = async (next: PostPrivacy) => {
@@ -894,11 +1034,13 @@ export function FeedPostCard({
               postId={post.id}
               isOwner={isOwn}
               canDelete={canDelete}
+              canReport={!isOwn}
               privacy={post.privacy}
               ownerIsPrivate={ownerIsPrivate}
               savingPrivacy={savingPrivacy}
               onPrivacyChange={(next) => void handlePrivacy(next)}
               onDelete={() => onDelete(post.id)}
+              onReport={() => setReportOpen(true)}
             />
           </div>
         </header>
@@ -1042,6 +1184,8 @@ export function FeedPostCard({
           )}
         </AnimatePresence>
       </div>
+
+      {reportOpen && <ReportDialog postId={post.id} onClose={() => setReportOpen(false)} />}
     </article>
   )
 }

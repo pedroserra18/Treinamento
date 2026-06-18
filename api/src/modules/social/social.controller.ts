@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import {
   createPost, deletePost, updatePostPrivacy, toggleLike, getFeed, getPostById, getUserPosts,
+  reportPost, adminListReports, adminResolveReport,
   followUser, unfollowUser, getFollowers, getFollowing,
   searchUsers, getPublicProfile, getPublicFollowers, getPublicFollowing, getMutualFollowers,
   sharePlan, createAndSharePlan, getSharedPlan, saveSharedPlan, compareUsers, compareExercise,
@@ -9,7 +10,7 @@ import {
 } from "./social.service";
 import {
   CreatePostBody, FeedQuery, UserPostsQuery, SearchUsersQuery, UpdatePostPrivacyBody,
-  CreateCommentBody, CommentsQuery,
+  CreateCommentBody, CommentsQuery, ReportPostBody, ResolveReportBody,
 } from "./social.schema";
 
 export async function createPostController(req: Request, res: Response) {
@@ -139,6 +140,23 @@ export async function adminListRemovedPostsController(req: Request, res: Respons
 export async function adminRestorePostController(req: Request, res: Response) {
   await adminRestorePost(req.params["postId"] as string);
   res.status(204).end();
+}
+
+export async function reportPostController(req: Request, res: Response) {
+  const { reason, details } = req.body as ReportPostBody;
+  const result = await reportPost(req.context.userId!, req.params["postId"] as string, reason, details);
+  res.status(201).json({ data: result });
+}
+
+export async function adminListReportsController(_req: Request, res: Response) {
+  const items = await adminListReports();
+  res.json({ data: { items } });
+}
+
+export async function adminResolveReportController(req: Request, res: Response) {
+  const { action } = req.body as ResolveReportBody;
+  const result = await adminResolveReport(req.context.userId!, req.params["reportId"] as string, action);
+  res.json({ data: result });
 }
 
 export async function listCommentsController(req: Request, res: Response) {

@@ -33,6 +33,7 @@ export function notificationLink(item: Pick<NotificationItem, 'type' | 'metadata
   switch (item.type) {
     case 'POST_LIKE':
     case 'POST_COMMENT':
+    case 'POST_REPORTED':
       return postId ? `/post/${postId}` : '/feed'
     case 'POST_REMOVED_BY_ADMIN':
       return '/profile'

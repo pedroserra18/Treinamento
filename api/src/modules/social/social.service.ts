@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, PostReportReason } from "@prisma/client";
 import { prisma } from "../../config/prisma";
 import { AppError } from "../../shared/errors/app-error";
 import { CreatePostBody } from "./social.schema";
@@ -240,6 +240,11 @@ export async function deletePost(userId: string, postId: string, userRole?: stri
     await prisma.workoutPost.update({
       where: { id: postId },
       data: { removedAt: new Date(), removedByAdminId: userId },
+    });
+    // Removeu o post → resolve as denúncias pendentes desse post (admin agiu).
+    await prisma.postReport.updateMany({
+      where: { postId, status: "PENDING" },
+      data: { status: "REVIEWED", reviewedById: userId, reviewedAt: new Date() },
     });
   }
 
@@ -490,6 +495,119 @@ export async function getPostById(viewerId: string, postId: string) {
   const likedByMe = !!(await prisma.postLike.findFirst({ where: { userId: viewerId, postId } }));
   const shaped = transformPost({ ...rest, user: publicUser });
   return { ...shaped, likedByMe, workoutSummary: summariseSession(rest.workoutSession ?? null) };
+}
+
+// Denúncia de um post pela comunidade. Cai na fila de moderação do admin.
+// Idempotente (1 denúncia por usuário/post) e só notifica os admins na
+// primeira denúncia do post, pra não inundar a caixa deles.
+export async function reportPost(
+  reporterId: string,
+  postId: string,
+  reason: PostReportReason,
+  details?: string,
+) {
+  const post = await prisma.workoutPost.findUnique({
+    where: { id: postId },
+    select: { id: true, userId: true, removedAt: true },
+  });
+  if (!post || post.removedAt) {
+    throw new AppError("Post não encontrado", { statusCode: 404, code: "POST_NOT_FOUND" });
+  }
+  if (post.userId === reporterId) {
+    throw new AppError("Você não pode denunciar o próprio post", { statusCode: 400, code: "CANNOT_REPORT_OWN_POST" });
+  }
+
+  let created: { id: string };
+  try {
+    created = await prisma.postReport.create({
+      data: { postId, reporterId, reason, details: details?.trim() || null },
+      select: { id: true },
+    });
+  } catch (err) {
+    // Já denunciou (unique postId+reporterId) ou corrida de cliques (P2002).
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      return { reported: true, alreadyReported: true };
+    }
+    throw err;
+  }
+
+  // Notifica admins só na 1ª denúncia do post (in-app + push, categoria SUPPORT).
+  const totalForPost = await prisma.postReport.count({ where: { postId } });
+  if (totalForPost === 1) {
+    const admins = await prisma.user.findMany({
+      where: { role: "ADMIN", isDeleted: false },
+      select: { id: true },
+    });
+    await Promise.all(
+      admins.map((a) =>
+        notifyUser({
+          userId: a.id,
+          type: "POST_REPORTED",
+          title: "Post denunciado",
+          body: "Um post foi denunciado pela comunidade. Toque para revisar.",
+          metadata: { postId, reportId: created.id, reason },
+          url: `/post/${postId}`,
+          tag: `report-${postId}`,
+        }).catch(() => undefined)
+      )
+    );
+  }
+
+  return { reported: true, alreadyReported: false };
+}
+
+// Lista as denúncias pendentes pro admin (fila de moderação). Pula posts já
+// removidos. Flat list ordenada da mais recente; o admin age por post.
+export async function adminListReports() {
+  return prisma.postReport.findMany({
+    where: { status: "PENDING", post: { removedAt: null } },
+    orderBy: { createdAt: "desc" },
+    take: 200,
+    select: {
+      id: true,
+      reason: true,
+      details: true,
+      createdAt: true,
+      reporter: { select: { id: true, name: true, handle: true } },
+      post: {
+        select: {
+          id: true,
+          caption: true,
+          photoUrl: true,
+          createdAt: true,
+          user: { select: { id: true, name: true, handle: true, avatarUrl: true } },
+        },
+      },
+    },
+  });
+}
+
+// Admin decide: REMOVE_POST reusa o fluxo de remoção (marca removido, notifica
+// o autor e resolve as denúncias); DISMISS marca as denúncias do post como
+// dispensadas (admin considerou o conteúdo ok).
+export async function adminResolveReport(
+  adminId: string,
+  reportId: string,
+  action: "DISMISS" | "REMOVE_POST",
+) {
+  const report = await prisma.postReport.findUnique({
+    where: { id: reportId },
+    select: { id: true, postId: true },
+  });
+  if (!report) {
+    throw new AppError("Denúncia não encontrada", { statusCode: 404, code: "REPORT_NOT_FOUND" });
+  }
+
+  if (action === "REMOVE_POST") {
+    await deletePost(adminId, report.postId, "ADMIN");
+    return { action };
+  }
+
+  await prisma.postReport.updateMany({
+    where: { postId: report.postId, status: "PENDING" },
+    data: { status: "DISMISSED", reviewedById: adminId, reviewedAt: new Date() },
+  });
+  return { action };
 }
 
 export async function followUser(followerId: string, followingId: string) {
