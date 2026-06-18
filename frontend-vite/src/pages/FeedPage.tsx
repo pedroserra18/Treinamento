@@ -93,32 +93,72 @@ export function FeedPage() {
     return () => clearTimeout(id)
   }, [toast])
 
-  const handleLike = (postId: string) => {
-    const target = posts.find((p) => p.id === postId)
-    if (!target) return
-    const prevLiked = target.likedByMe
-    const prevCount = target.likesCount
+  // Coalesce de curtidas. A UI vira na hora (otimista) usando este ref como
+  // FONTE DE VERDADE da rajada — imune ao timing de render —, mas só UMA
+  // requisição roda por post de cada vez. Quando ela responde, se o estado
+  // final ainda diferir do servidor, manda só mais uma pra acertar. Assim,
+  // martelar o botão não dispara dezenas de requests concorrentes (que deixavam
+  // lento/piscando) nem causa corrida. `baseCount` = curtidas de outras pessoas
+  // (sem a sua), ancorado no início da rajada e limpo ao sincronizar.
+  const likeStateRef = useRef<
+    Map<string, { liked: boolean; baseCount: number; serverLiked: boolean; inFlight: boolean }>
+  >(new Map())
 
-    // Atualiza o estado E o cache do feed juntos. Sem sincronizar o cache, ao
-    // sair e voltar rápido a página remontava lendo o cache antigo → a curtida
-    // "sumia" e depois reaparecia inconsistente (contagem subia mas likedByMe
-    // ficava false, dava pra curtir de novo). Como o cache é de módulo, o patch
-    // vale mesmo se a página foi desmontada — a próxima visita vê o estado certo.
-    const patch = (liked: boolean, count: number) => {
-      setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, likedByMe: liked, likesCount: count } : p)))
-      const cached = feedFirstPageCache.peek()
-      if (cached) {
-        feedFirstPageCache.set(
-          cached.map((p) => (p.id === postId ? { ...p, likedByMe: liked, likesCount: count } : p)),
-        )
-      }
+  const patchLikeUI = (postId: string, liked: boolean, count: number) => {
+    setPosts((prev) => prev.map((p) => (p.id === postId ? { ...p, likedByMe: liked, likesCount: count } : p)))
+    const cached = feedFirstPageCache.peek()
+    if (cached) {
+      feedFirstPageCache.set(
+        cached.map((p) => (p.id === postId ? { ...p, likedByMe: liked, likesCount: count } : p)),
+      )
     }
+  }
 
-    // OPTIMISTIC (0ms) → reconcilia com a verdade do servidor (rollback em erro).
-    patch(!prevLiked, prevCount + (prevLiked ? -1 : 1))
+  const flushLike = (postId: string) => {
+    const e = likeStateRef.current.get(postId)
+    if (!e || e.inFlight) return
+    if (e.liked === e.serverLiked) {
+      // Já em sincronia com o servidor — limpa pro próximo toque reancorar a
+      // partir do post atual (pega curtidas de outras pessoas que chegarem).
+      likeStateRef.current.delete(postId)
+      return
+    }
+    e.inFlight = true
     toggleLike(authorizedFetch, postId)
-      .then((result) => patch(result.liked, prevCount + (result.liked ? 1 : 0) - (prevLiked ? 1 : 0)))
-      .catch(() => patch(prevLiked, prevCount))
+      .then((result) => {
+        const cur = likeStateRef.current.get(postId)
+        if (!cur) return
+        cur.serverLiked = result.liked
+        cur.inFlight = false
+        flushLike(postId)
+      })
+      .catch(() => {
+        const cur = likeStateRef.current.get(postId)
+        if (!cur) return
+        cur.inFlight = false
+        // Falha de rede: alinha intenção e UI com a última verdade do servidor.
+        cur.liked = cur.serverLiked
+        patchLikeUI(postId, cur.serverLiked, cur.baseCount + (cur.serverLiked ? 1 : 0))
+      })
+  }
+
+  const handleLike = (postId: string) => {
+    let e = likeStateRef.current.get(postId)
+    if (!e) {
+      const p = posts.find((x) => x.id === postId)
+      if (!p) return
+      e = {
+        liked: p.likedByMe,
+        baseCount: Math.max(0, p.likesCount - (p.likedByMe ? 1 : 0)),
+        serverLiked: p.likedByMe,
+        inFlight: false,
+      }
+      likeStateRef.current.set(postId, e)
+    }
+    // Vira a intenção no ref (fonte de verdade) e atualiza a UI na hora.
+    e.liked = !e.liked
+    patchLikeUI(postId, e.liked, e.baseCount + (e.liked ? 1 : 0))
+    flushLike(postId)
   }
 
   const handleSearch = (q: string) => {
