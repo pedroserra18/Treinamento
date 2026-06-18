@@ -1238,19 +1238,30 @@ export async function toggleReaction(userId: string, competitionId: string, entr
   await assertActiveMembership(userId, competitionId);
   await assertEntryInCompetition(competitionId, entryId);
 
-  const existing = await prisma.competitionEntryReaction.findUnique({
-    where: { entryId_userId_kind: { entryId, userId, kind: payload.kind } },
-    select: { id: true }
+  // Toggle à prova de corrida (toques rápidos / UI otimista disparando 2x):
+  // deleteMany é idempotente (apagar 0 não dá erro). Se nada foi apagado, a
+  // reação não existia → cria. Um create concorrente pode ganhar a corrida e
+  // estourar a unique (P2002) — nesse caso a reação já está lá, então tratamos
+  // como "added" em vez de crashar (antes isso virava 500 no Sentry).
+  const deleted = await prisma.competitionEntryReaction.deleteMany({
+    where: { entryId, userId, kind: payload.kind }
   });
-
-  if (existing) {
-    await prisma.competitionEntryReaction.delete({ where: { id: existing.id } });
+  if (deleted.count > 0) {
     return { action: "removed" as const, kind: payload.kind };
   }
 
-  await prisma.competitionEntryReaction.create({
-    data: { entryId, userId, kind: payload.kind }
-  });
+  try {
+    await prisma.competitionEntryReaction.create({
+      data: { entryId, userId, kind: payload.kind }
+    });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      // Corrida: outra requisição criou a mesma reação primeiro. O estado final
+      // é o mesmo (reação presente) → não é erro.
+      return { action: "added" as const, kind: payload.kind };
+    }
+    throw err;
+  }
   return { action: "added" as const, kind: payload.kind };
 }
 
