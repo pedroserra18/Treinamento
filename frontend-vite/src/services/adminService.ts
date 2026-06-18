@@ -50,7 +50,9 @@ function toAdminUser(value: Record<string, unknown>): AdminUser {
     handle: typeof value.handle === 'string' ? value.handle : null,
     avatarUrl: typeof value.avatarUrl === 'string' ? value.avatarUrl : null,
     email,
-    accountType: inferredTest ? 'TEST' : accountTypeFromApi ?? 'REAL',
+    // Confia no accountType persistido da API (fonte da verdade). O regex
+    // local fica só como fallback se a API for antiga e não enviar o campo.
+    accountType: accountTypeFromApi ?? (inferredTest ? 'TEST' : 'REAL'),
     role: (value.role ?? 'USER') as AdminUser['role'],
     status: String(value.status ?? ''),
     createdAt: String(value.createdAt ?? ''),

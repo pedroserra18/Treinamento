@@ -5,6 +5,7 @@ import { OAuth2Client } from "google-auth-library";
 import { createHash, randomUUID } from "node:crypto";
 import { AppError } from "../../shared/errors/app-error";
 import { deriveHandleBase, generateUniqueHandle } from "../../shared/utils/handle";
+import { classifyAccountType } from "../../shared/utils/account-type";
 import { trackEvent } from "../../shared/services/event-log.service";
 import { EventContext } from "../../shared/utils/event-context";
 
@@ -343,6 +344,7 @@ export async function loginWithGoogleCode(
       email: google.email,
       normalizedEmail: google.email,
       sex: "OTHER",
+      accountType: classifyAccountType(google.email),
       status: "ACTIVE",
       emailVerifiedAt: new Date()
     },

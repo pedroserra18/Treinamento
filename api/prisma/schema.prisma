@@ -27,6 +27,14 @@ enum UserSex {
   OTHER
 }
 
+// Classificação real vs teste, persistida no cadastro (antes era inferida por
+// regex no e-mail a cada leitura). Permite paginar/contar no banco e mantém a
+// classificação estável. Detectada via classifyAccountType() no signup.
+enum AccountType {
+  REAL
+  TEST
+}
+
 // Objetivo PERMANENTE do usuário, definido no onboarding e editável em
 // Configurações → Perfil. Diferente do "goal" passado pro quiz da IA
 // (que é específico do plano que o user tá gerando agora). O perfil
@@ -219,6 +227,8 @@ model User {
   acceptedTermsVersion  String?
   onboardingCompletedAt DateTime?
   role                UserRole        @default(USER)
+  // Real vs teste — gravado no signup. Default REAL (signups normais).
+  accountType         AccountType     @default(REAL)
   status              AccountStatus   @default(PENDING)
   emailVerifiedAt     DateTime?
   mfaEnabled          Boolean         @default(false)
@@ -273,6 +283,7 @@ model User {
   @@index([role])
   @@index([lastLoginAt])
   @@index([onboardingCompletedAt])
+  @@index([accountType, createdAt])
 
   @@map("users")
 }

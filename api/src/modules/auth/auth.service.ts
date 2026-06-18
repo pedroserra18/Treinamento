@@ -7,6 +7,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { AppError } from "../../shared/errors/app-error";
 import { LoginBody, OnboardingCompleteBody, ProfileUpdateBody, RefreshBody, RegisterBody } from "./auth.schema";
 import { generateUniqueHandle } from "../../shared/utils/handle";
+import { classifyAccountType } from "../../shared/utils/account-type";
 import { verifyRegisterEmailCode } from "./registration-verification.service";
 import { trackEvent } from "../../shared/services/event-log.service";
 import { EventContext } from "../../shared/utils/event-context";
@@ -302,6 +303,7 @@ export async function registerWithEmail(
       email: data.email,
       normalizedEmail: data.email,
       passwordHash,
+      accountType: classifyAccountType(data.email),
       status: "ACTIVE",
       // Aceite dos termos vindo do checkbox no signup. Quando o cliente é
       // antigo e não envia, mantém null e o gate pede aceite na primeira
