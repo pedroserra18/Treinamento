@@ -10,6 +10,7 @@ import {
 import {
   adminGetTicket,
   adminListTickets,
+  adminTicketCounts,
   adminReply,
   adminUpdateStatus,
   autoCloseStaleTickets,
@@ -74,6 +75,11 @@ export async function adminReplyController(req: Request, res: Response): Promise
   const adminId = req.context.userId as string;
   const message = await adminReply(adminId, req.params["ticketId"] as string, req.body as AdminReplyInput);
   res.status(201).json({ data: { message }, meta: meta(req) });
+}
+
+export async function adminTicketCountsController(req: Request, res: Response): Promise<void> {
+  const counts = await adminTicketCounts();
+  res.status(200).json({ data: counts, meta: meta(req) });
 }
 
 export async function adminUpdateStatusController(req: Request, res: Response): Promise<void> {

@@ -3,6 +3,7 @@ import { useTheme } from '../../hooks/useTheme'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { searchExercisesForPlan } from '../../services/workoutService'
+import { adminListReports } from '../../services/supportService'
 import type { ExerciseOption } from '../../types/workout'
 import { ThemeToggle } from '../common/ThemeToggle'
 import { BrandLogo } from '../common/BrandLogo'
@@ -39,6 +40,7 @@ type NavItem = {
   icon: React.ReactNode
   authRequired?: boolean
   adminOnly?: boolean
+  badge?: number
 }
 
 export function AppShell({ children }: AppShellProps) {
@@ -54,6 +56,33 @@ export function AppShell({ children }: AppShellProps) {
   const [explorerResults, setExplorerResults] = useState<ExerciseOption[]>([])
   const explorerRequestIdRef = useRef(0)
   const explorerSearchCacheRef = useRef<Map<string, ExerciseOption[]>>(new Map())
+
+  // Badge de denúncias pendentes no atalho do admin (#5). Só admins; poll 60s
+  // + ao focar a aba. Silencioso — se falhar, o badge só não aparece.
+  const [pendingReports, setPendingReports] = useState(0)
+  const isAdmin = isAuthenticated && user?.role === 'ADMIN'
+  useEffect(() => {
+    // Não-admin não vê o item, então não precisa zerar o estado aqui.
+    if (!isAdmin) return
+    let alive = true
+    const fetchCount = async () => {
+      try {
+        const data = await adminListReports(authorizedFetch)
+        if (alive) setPendingReports(data.items.length)
+      } catch {
+        // silencioso
+      }
+    }
+    void fetchCount()
+    const interval = setInterval(() => void fetchCount(), 60_000)
+    const onFocus = () => void fetchCount()
+    window.addEventListener('focus', onFocus)
+    return () => {
+      alive = false
+      clearInterval(interval)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [isAdmin, authorizedFetch])
 
   const fetchExplorerResults = useCallback(
     async (query: string, muscle: string, limit: number) => {
@@ -123,7 +152,7 @@ export function AppShell({ children }: AppShellProps) {
     { to: '/progress', label: 'Progr.', icon: <TrendingUp size={15} />, authRequired: true },
     { to: '/desafios', label: 'Desafios', icon: <Trophy size={15} />, authRequired: true },
     { to: '/admin/users', label: 'Usuários', icon: <Users size={15} />, authRequired: true, adminOnly: true },
-    { to: '/admin/support', label: 'Suporte', icon: <LifeBuoy size={15} />, authRequired: true, adminOnly: true },
+    { to: '/admin/support', label: 'Suporte', icon: <LifeBuoy size={15} />, authRequired: true, adminOnly: true, badge: pendingReports },
   ]
 
   const profileItem: NavItem = isAuthenticated
@@ -191,6 +220,11 @@ export function AppShell({ children }: AppShellProps) {
           >
             {item.icon}
             <span>{item.label}</span>
+            {item.badge && item.badge > 0 ? (
+              <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-extrabold text-white">
+                {item.badge > 99 ? '99+' : item.badge}
+              </span>
+            ) : null}
           </NavLink>
         ))}
       </nav>
@@ -228,7 +262,14 @@ export function AppShell({ children }: AppShellProps) {
       <nav className="fixed bottom-0 left-0 right-0 z-20 flex items-center justify-around border-t border-[var(--line)] bg-[var(--surface)]/95 px-2 pb-safe pt-2 backdrop-blur-md lg:hidden">
         {bottomNavItems.map((item) => (
           <NavLink key={item.to} to={item.to} end={item.to === '/'} className={bottomNavLinkClass}>
-            {item.icon}
+            <span className="relative">
+              {item.icon}
+              {item.badge && item.badge > 0 ? (
+                <span className="absolute -right-2 -top-1.5 inline-flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-red-500 px-0.5 text-[9px] font-extrabold text-white">
+                  {item.badge > 9 ? '9+' : item.badge}
+                </span>
+              ) : null}
+            </span>
             <span>{item.label}</span>
           </NavLink>
         ))}

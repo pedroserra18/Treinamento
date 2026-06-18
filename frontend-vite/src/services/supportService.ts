@@ -114,6 +114,11 @@ export async function adminListTickets(
   return handle(res)
 }
 
+export async function adminTicketCounts(fetcher: AuthorizedFetch): Promise<Partial<Record<TicketStatus, number>>> {
+  const res = await fetcher(`${API_URL}/admin/support/tickets/counts`)
+  return handle(res)
+}
+
 export async function adminGetTicket(fetcher: AuthorizedFetch, ticketId: string): Promise<SupportTicketDetail> {
   const res = await fetcher(`${API_URL}/admin/support/tickets/${ticketId}`)
   return handle(res)

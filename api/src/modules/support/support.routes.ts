@@ -6,6 +6,7 @@ import { asyncHandler } from "../../shared/utils/async-handler";
 import {
   adminGetTicketController,
   adminListTicketsController,
+  adminTicketCountsController,
   adminReplyController,
   adminUpdateStatusController,
   autoCloseController,
@@ -73,6 +74,13 @@ router.get(
   requireAdminRole,
   validateRequest({ query: adminListQuerySchema }),
   asyncHandler(adminListTicketsController)
+);
+// IMPORTANTE: declarar antes de /tickets/:ticketId, senão "counts" casa como id.
+router.get(
+  "/admin/support/tickets/counts",
+  requireAuth,
+  requireAdminRole,
+  asyncHandler(adminTicketCountsController)
 );
 router.get(
   "/admin/support/tickets/:ticketId",

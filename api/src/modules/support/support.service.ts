@@ -318,6 +318,17 @@ export async function adminListTickets(query: AdminListQuery) {
   };
 }
 
+// Contagem global por status (pros badges dos filtros). groupBy é 1 query só.
+export async function adminTicketCounts(): Promise<Record<string, number>> {
+  const grouped = await prisma.supportTicket.groupBy({
+    by: ["status"],
+    _count: { _all: true },
+  });
+  const out: Record<string, number> = {};
+  for (const g of grouped) out[g.status] = g._count._all;
+  return out;
+}
+
 export async function adminGetTicket(ticketId: string) {
   const ticket = await prisma.supportTicket.findUnique({
     where: { id: ticketId },
