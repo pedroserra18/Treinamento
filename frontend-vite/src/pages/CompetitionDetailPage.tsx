@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useQueryClient } from '@tanstack/react-query'
@@ -248,7 +248,62 @@ export function CompetitionDetailPage() {
   type FeedPage = { items: CompetitionFeedItem[]; nextCursor: string | null }
   type FeedCache = { pages: FeedPage[]; pageParams: unknown[] }
 
-  const handleReact = async (entryId: string, kind: CompetitionReactionKind) => {
+  // Coalesce de reações (mesmo padrão do like do feed): só 1 requisição por
+  // (entry+kind) de cada vez; ao responder, se o estado final ainda diferir do
+  // servidor, manda só mais uma. Evita dezenas de requests concorrentes ao
+  // martelar (lento/piscando). A UI/contagem já é otimista via o cache do
+  // react-query abaixo.
+  const reactStateRef = useRef<
+    Map<string, { inFlight: boolean; desired: boolean; serverMine: boolean }>
+  >(new Map())
+
+  const flushReact = (key: string, entryId: string, kind: CompetitionReactionKind) => {
+    const e = reactStateRef.current.get(key)
+    if (!e || e.inFlight) return
+    if (e.desired === e.serverMine) {
+      reactStateRef.current.delete(key)
+      return
+    }
+    e.inFlight = true
+    reactionMut
+      .mutateAsync({ entryId, kind })
+      .then((res) => {
+        const cur = reactStateRef.current.get(key)
+        if (!cur) return
+        cur.serverMine = res.action === 'added'
+        cur.inFlight = false
+        flushReact(key, entryId, kind)
+      })
+      .catch((err) => {
+        reactStateRef.current.delete(key)
+        void qc.invalidateQueries({ queryKey: competitionKeys.feed(competitionId) })
+        setError(err instanceof Error ? err.message : 'Falha ao reagir')
+      })
+  }
+
+  const handleReact = (entryId: string, kind: CompetitionReactionKind) => {
+    const key = `${entryId}:${kind}`
+    let e = reactStateRef.current.get(key)
+    if (!e) {
+      // serverMine inicial = estado atual no cache (antes deste toque).
+      const data = qc.getQueryData<FeedCache>(competitionKeys.feed(competitionId))
+      let currentMine = false
+      if (data) {
+        for (const page of data.pages) {
+          const item = page.items.find((it) => it.id === entryId)
+          if (item) {
+            currentMine = item.reactions.find((r) => r.kind === kind)?.mine ?? false
+            break
+          }
+        }
+      }
+      e = { inFlight: false, desired: currentMine, serverMine: currentMine }
+      reactStateRef.current.set(key, e)
+    }
+    e.desired = !e.desired
+
+    // Optimistic cache patch (UI + contagem) — funcional, lê o cache mais
+    // recente, então a contagem fica certa mesmo com toques rápidos.
     qc.setQueryData<FeedCache>(competitionKeys.feed(competitionId), (data) => {
       if (!data) return data
       return {
@@ -278,12 +333,8 @@ export function CompetitionDetailPage() {
         })),
       }
     })
-    try {
-      await reactionMut.mutateAsync({ entryId, kind })
-    } catch (err) {
-      void qc.invalidateQueries({ queryKey: competitionKeys.feed(competitionId) })
-      setError(err instanceof Error ? err.message : 'Falha ao reagir')
-    }
+
+    flushReact(key, entryId, kind)
   }
 
   const handleDeleteEntry = async (entry: CompetitionFeedItem) => {
