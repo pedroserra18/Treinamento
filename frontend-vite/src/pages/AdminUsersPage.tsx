@@ -7,17 +7,19 @@ import {
   deactivateUserByAdmin,
   deleteUserByAdmin,
   getUserDetailForAdmin,
+  listUsersForAdmin,
   reactivateUserByAdmin,
   updateUserPlanByAdmin,
   updateUserRoleByAdmin,
 } from '../services/adminService'
-import type { AdminSortBy, AdminUserDetail } from '../types/admin'
+import type { AdminSortBy, AdminUser, AdminUserDetail } from '../types/admin'
 import {
   Ban,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Crown,
+  Download,
   RotateCcw,
   Search,
   ShieldCheck,
@@ -120,6 +122,47 @@ function onboardingProgress(u: {
 }): { filled: number; total: number } {
   const fields = [u.birthDate, u.availableDaysPerWeek, u.heightCm, u.weightKg, u.experienceLevel, u.primaryGoal]
   return { filled: fields.filter((v) => v !== null && v !== undefined).length, total: fields.length }
+}
+
+// Quais campos do onboarding ainda faltam (pra mostrar no detalhe). Útil pra
+// contas antigas que "completaram" o fluxo velho mas não têm os campos novos.
+function onboardingMissing(u: {
+  birthDate: string | null
+  availableDaysPerWeek: number | null
+  heightCm: number | null
+  weightKg: number | null
+  experienceLevel: string | null
+  primaryGoal: string | null
+}): string[] {
+  const map: [unknown, string][] = [
+    [u.birthDate, 'Nascimento'],
+    [u.availableDaysPerWeek, 'Dias/semana'],
+    [u.heightCm, 'Altura'],
+    [u.weightKg, 'Peso'],
+    [u.experienceLevel, 'Experiência'],
+    [u.primaryGoal, 'Objetivo'],
+  ]
+  return map.filter(([v]) => v === null || v === undefined).map(([, label]) => label)
+}
+
+// ─── CSV helpers ──────────────────────────────────────────────────────────────
+
+function csvCell(value: unknown): string {
+  const s = value === null || value === undefined ? '' : String(value)
+  // Escapa se tiver vírgula, aspas, quebra de linha ou ; (separador comum no Excel BR).
+  return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+
+function downloadCsv(headers: string[], rows: (string | number | null)[][], filename: string): void {
+  const lines = [headers, ...rows].map((r) => r.map(csvCell).join(','))
+  // BOM faz o Excel abrir UTF-8 corretamente (acentos).
+  const blob = new Blob([String.fromCharCode(0xFEFF) + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 function CountUp({ target }: { target: number }) {
@@ -440,6 +483,8 @@ function UserDrawer({
   }
 
   const onb = u ? onboardingProgress(u) : { filled: 0, total: 6 }
+  const onbFully = onb.filled === onb.total
+  const onbMissing = u ? onboardingMissing(u) : []
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -554,10 +599,10 @@ function UserDrawer({
               <DetailRow
                 label="Onboarding"
                 value={
-                  u.onboardingCompletedAt ? (
+                  onbFully ? (
                     <span className="inline-flex items-center gap-1.5">
                       <span className="text-emerald-600 dark:text-emerald-400">Completo</span>
-                      <span className="text-[var(--muted)]">· {formatDate(u.onboardingCompletedAt)}</span>
+                      {u.onboardingCompletedAt ? <span className="text-[var(--muted)]">· {formatDate(u.onboardingCompletedAt)}</span> : null}
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-2">
@@ -567,11 +612,17 @@ function UserDrawer({
                           style={{ width: `${Math.max(8, Math.round((onb.filled / onb.total) * 100))}%` }}
                         />
                       </span>
-                      <span className="text-amber-600 dark:text-amber-400">Parcial · {onb.filled}/{onb.total}</span>
+                      <span className="text-amber-600 dark:text-amber-400">{onb.filled}/{onb.total}</span>
                     </span>
                   )
                 }
               />
+              {!onbFully && onbMissing.length > 0 ? (
+                <DetailRow
+                  label="Faltando"
+                  value={<span className="text-right text-amber-600 dark:text-amber-400">{onbMissing.join(', ')}</span>}
+                />
+              ) : null}
               <DetailRow label="Nascimento" value={u.birthDate ? formatDate(u.birthDate) : '—'} />
               <DetailRow label="Sexo" value={u.sex === 'MALE' ? 'Masculino' : u.sex === 'FEMALE' ? 'Feminino' : 'Outro'} />
               <DetailRow label="Altura" value={u.heightCm ? `${u.heightCm} cm` : '—'} />
@@ -734,6 +785,8 @@ export function AdminUsersPage() {
   const [toasts, setToasts] = useState<{ id: number; msg: string; kind: 'ok' | 'err' }[]>([])
   const searchRef = useRef<HTMLInputElement>(null)
 
+  const [exporting, setExporting] = useState(false)
+
   const pushToast = useCallback((msg: string, kind: 'ok' | 'err') => {
     const id = Date.now() + Math.random()
     setToasts((t) => [...t, { id, msg, kind }])
@@ -859,6 +912,55 @@ export function AdminUsersPage() {
     setOnbFilter('')
     setPlanFilter('')
     setQuery('')
+  }
+
+  // Exporta TODOS os usuários que casam com os filtros atuais (pagina até o
+  // fim), não só a página visível. Monta o CSV no cliente e baixa.
+  const handleExportCsv = async () => {
+    if (exporting) return
+    setExporting(true)
+    try {
+      const all: AdminUser[] = []
+      let p = 1
+      for (;;) {
+        const res = await listUsersForAdmin(authorizedFetch, p, 100, listingOptions)
+        all.push(...res.items)
+        if (res.items.length === 0 || all.length >= res.total || p >= 200) break
+        p++
+      }
+      const headers = [
+        'Nome', 'E-mail', 'Handle', 'Acesso', 'Assinatura', 'Status', 'Conta',
+        'Onboarding', 'Altura (cm)', 'Peso (kg)', 'Experiência', 'Objetivo',
+        'Dias/semana', 'Cadastro', 'Último login',
+      ]
+      const rows = all.map((u): (string | number | null)[] => {
+        const onb = onboardingProgress(u)
+        const fully = onb.filled === onb.total
+        return [
+          u.name ?? '',
+          u.email,
+          u.handle ? `@${u.handle}` : '',
+          u.role,
+          u.role === 'ADMIN' ? 'auto-PRO' : u.plan,
+          u.status,
+          u.accountType,
+          fully ? 'Completo' : `Parcial ${onb.filled}/${onb.total}`,
+          u.heightCm ?? '',
+          u.weightKg ?? '',
+          u.experienceLevel ? EXPERIENCE_LABELS[u.experienceLevel] ?? u.experienceLevel : '',
+          u.primaryGoal ? GOAL_LABELS[u.primaryGoal] ?? u.primaryGoal : '',
+          u.availableDaysPerWeek ?? '',
+          u.createdAt ? new Date(u.createdAt).toLocaleDateString('pt-BR') : '',
+          u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString('pt-BR') : '',
+        ]
+      })
+      downloadCsv(headers, rows, `usuarios-${new Date().toISOString().slice(0, 10)}.csv`)
+      pushToast(`${all.length} usuário(s) exportado(s).`, 'ok')
+    } catch (err) {
+      pushToast(err instanceof Error ? err.message : 'Erro ao exportar', 'err')
+    } finally {
+      setExporting(false)
+    }
   }
 
   const runAction = async () => {
@@ -1037,6 +1139,16 @@ export function AdminUsersPage() {
               <X size={12} /> Limpar
             </button>
           ) : null}
+          <button
+            type="button"
+            onClick={() => void handleExportCsv()}
+            disabled={exporting || total === 0}
+            title="Exporta todos os usuários que casam com os filtros atuais"
+            className="ml-auto inline-flex items-center gap-1.5 rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface)] disabled:opacity-50"
+          >
+            <Download size={13} />
+            {exporting ? 'Exportando…' : 'Exportar CSV'}
+          </button>
         </div>
       </div>
 
@@ -1086,8 +1198,10 @@ export function AdminUsersPage() {
                     const isSelf = u.id === authUser?.id
                     const isAdmin = u.role === 'ADMIN'
                     const isActive = u.status !== 'DISABLED'
-                    const onboarded = Boolean(u.onboardingCompletedAt)
+                    // Completude real = campos preenchidos, não a flag antiga
+                    // (contas velhas "completaram" o fluxo com menos campos).
                     const onb = onboardingProgress(u)
+                    const onboarded = onb.filled === onb.total
                     const onbPct = onboarded ? 100 : Math.max(8, Math.round((onb.filled / onb.total) * 100))
                     return (
                       <tr
