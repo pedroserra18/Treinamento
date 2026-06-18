@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import {
-  toggleLike, deletePost, updatePostPrivacy,
+  getFeed, toggleLike, deletePost, updatePostPrivacy,
   searchUsers, followUser, unfollowUser,
   type FeedPost, type PostPrivacy, type UserSearchResult,
 } from '../services/socialService'
@@ -15,6 +15,9 @@ import { FeedPostCard, Avatar } from '../components/common/FeedPostCard'
 import { Rss, Search } from 'lucide-react'
 
 const PAGE_SIZE = 5
+// Tamanho de página do servidor (bate com o pageSize do getFeed). Quando uma
+// página volta com menos que isso, chegamos ao fim do feed.
+const SERVER_PAGE_SIZE = 20
 
 
 // ─── Feed filters config ───────────────────────────────────────────────────
@@ -47,9 +50,18 @@ export function FeedPage() {
     () => new Set((cachedFollowing ?? []).map((u) => u.id)),
   )
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [reachedEnd, setReachedEnd] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  // Paginação infinita: page já carregada do servidor + guards anti-corrida
+  // (refs pra serem lidos dentro do IntersectionObserver sem stale closure).
+  const pageRef = useRef(1)
+  const loadingMoreRef = useRef(false)
+  const reachedEndRef = useRef(false)
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  const onReachBottomRef = useRef<() => void>(() => {})
 
   // Cmd/Ctrl + K focuses the search input — design hints at the shortcut so
   // we actually wire it up rather than leave it cosmetic.
@@ -77,6 +89,12 @@ export function FeedPage() {
       ])
       setPosts(data)
       setFollowingIds(new Set(following.map((u) => u.id)))
+      // Reancora a paginação na página 1. Se já veio incompleta, não há
+      // página 2 — evita um request extra (caso comum: feed com < 20 posts).
+      pageRef.current = 1
+      const done = data.length < SERVER_PAGE_SIZE
+      reachedEndRef.current = done
+      setReachedEnd(done)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao carregar feed')
     } finally {
@@ -86,6 +104,37 @@ export function FeedPage() {
 
   useEffect(() => { void load() }, [load])
   useEffect(() => { setVisibleCount(PAGE_SIZE) }, [filter])
+
+  // Busca a próxima página do servidor e anexa (dedupe por id). Guardas em ref
+  // garantem 1 request por vez e param no fim do feed.
+  const fetchNextPage = useCallback(async () => {
+    if (loadingMoreRef.current || reachedEndRef.current) return
+    loadingMoreRef.current = true
+    setLoadingMore(true)
+    try {
+      const next = pageRef.current + 1
+      const data = await getFeed(authorizedFetch, next)
+      pageRef.current = next
+      if (data.length < SERVER_PAGE_SIZE) {
+        reachedEndRef.current = true
+        setReachedEnd(true)
+      }
+      if (data.length > 0) {
+        setPosts((prev) => {
+          const seen = new Set(prev.map((p) => p.id))
+          return [...prev, ...data.filter((p) => !seen.has(p.id))]
+        })
+        // Revela os recém-chegados pra eles aparecerem ao rolar.
+        setVisibleCount((c) => c + data.length)
+      }
+    } catch {
+      // Silencioso: tenta de novo no próximo gatilho de scroll.
+    } finally {
+      loadingMoreRef.current = false
+      setLoadingMore(false)
+    }
+  }, [authorizedFetch])
+
 
   // Auto-dismiss toast after a couple of seconds so it stops nagging.
   useEffect(() => {
@@ -245,6 +294,35 @@ export function FeedPage() {
   const visiblePosts = sortedPosts.slice(0, visibleCount)
   const hasMore = visibleCount < sortedPosts.length
 
+  // Ao chegar perto do fim: primeiro revela o que já está em memória; quando
+  // tudo já apareceu, busca a próxima página do servidor. Reatribuído a cada
+  // render pra enxergar o estado atual (o observer chama via ref).
+  onReachBottomRef.current = () => {
+    if (hasMore) {
+      setVisibleCount((c) => c + PAGE_SIZE)
+    } else if (!reachedEndRef.current && !loadingMoreRef.current) {
+      void fetchNextPage()
+    }
+  }
+
+  const showSentinel = !loading && sortedPosts.length > 0
+
+  // Observa o sentinela no fim da lista. rootMargin grande = pré-carrega antes
+  // de bater no fim (rolagem fluida, estilo Hevy/Strava). Reanexa quando o
+  // sentinela passa a existir (showSentinel) — a lógica vive num ref pra
+  // sempre enxergar o estado atual sem recriar o observer a cada render.
+  useEffect(() => {
+    if (!showSentinel) return
+    const el = sentinelRef.current
+    if (!el) return
+    const obs = new IntersectionObserver(
+      (entries) => { if (entries[0]?.isIntersecting) onReachBottomRef.current() },
+      { rootMargin: '800px 0px' },
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [showSentinel])
+
   return (
     <section className="space-y-4">
       {/* ─── Header card ───────────────────────────────────────── */}
@@ -392,17 +470,18 @@ export function FeedPage() {
         ))}
       </div>
 
-      {hasMore && (
-        <button
-          type="button"
-          onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
-          className="w-full rounded-2xl border border-[var(--line)] bg-[var(--surface)] py-3 text-sm font-semibold text-[var(--muted)] transition-colors hover:text-[var(--text)]"
-        >
-          Carregar mais ({sortedPosts.length - visibleCount} restantes)
-        </button>
+      {/* Sentinela do scroll infinito — quando entra na viewport (com folga de
+          800px), revela mais / busca a próxima página. Fica sempre montado
+          após a 1ª carga pra o observer ter o que observar. */}
+      {showSentinel && <div ref={sentinelRef} aria-hidden className="h-px w-full" />}
+
+      {(loadingMore || (hasMore && !reachedEndRef.current)) && (
+        <div className="flex justify-center py-4" aria-label="Carregando mais posts">
+          <span className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--line)] border-t-[var(--brand)]" />
+        </div>
       )}
 
-      {!hasMore && sortedPosts.length > PAGE_SIZE && (
+      {reachedEnd && !hasMore && sortedPosts.length > PAGE_SIZE && (
         <p className="py-2 text-center text-xs text-[var(--muted)]">Todos os posts foram carregados.</p>
       )}
 
