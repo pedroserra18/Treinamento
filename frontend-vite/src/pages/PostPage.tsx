@@ -5,6 +5,7 @@ import { useAuth } from '../hooks/useAuth'
 import { FeedPostCard } from '../components/common/FeedPostCard'
 import { SkeletonCard } from '../components/common/Skeleton'
 import { feedFirstPageCache } from '../lib/feed-cache'
+import { shareLink } from '../lib/share'
 import {
   getPost, toggleLike, deletePost, updatePostPrivacy,
   type FeedPost, type PostPrivacy,
@@ -20,6 +21,13 @@ export function PostPage() {
   const [post, setPost] = useState<FeedPost | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!toast) return
+    const id = window.setTimeout(() => setToast(null), 2200)
+    return () => window.clearTimeout(id)
+  }, [toast])
 
   const load = useCallback(async () => {
     if (!postId) return
@@ -83,11 +91,9 @@ export function PostPage() {
 
   const handleShare = async (id: string) => {
     const url = `${window.location.origin}/post/${id}`
-    try {
-      await navigator.clipboard.writeText(url)
-    } catch {
-      /* clipboard indisponível — silencioso */
-    }
+    const result = await shareLink({ url, title: 'SerraAthlo', text: 'Confira este treino 💪' })
+    if (result === 'copied') setToast('Link copiado!')
+    else if (result === 'failed') setToast('Não foi possível compartilhar')
   }
 
   return (
@@ -130,6 +136,14 @@ export function PostPage() {
           onProfileClick={(id) => navigate(id === user?.id ? '/profile' : `/u/${id}`)}
           onShare={handleShare}
         />
+      )}
+
+      {toast && (
+        <div className="fixed inset-x-0 bottom-24 z-[9999] flex justify-center px-4">
+          <div className="rounded-full bg-[var(--text)] px-4 py-2 text-sm font-semibold text-[var(--surface)] shadow-lg">
+            {toast}
+          </div>
+        </div>
       )}
     </section>
   )

@@ -14,6 +14,7 @@ import {
 import { ImageViewer } from '../components/common/ImageViewer'
 import { UserComparePanel } from '../components/common/UserComparePanel'
 import { FeedPostCard } from '../components/common/FeedPostCard'
+import { shareLink } from '../lib/share'
 import { ArrowLeft } from 'lucide-react'
 
 
@@ -279,9 +280,8 @@ export function PublicProfilePage() {
 
   const handleShare = async (postId: string) => {
     const url = `${window.location.origin}/post/${postId}`
-    try {
-      await navigator.clipboard.writeText(url)
-    } catch { /* silent — clipboard pode falhar fora de https/usuário */ }
+    // Bandeja nativa quando der; senão copia o link (fallback silencioso).
+    await shareLink({ url, title: 'SerraAthlo', text: 'Confira este treino 💪' })
   }
 
   if (loadingProfile) {

@@ -8,6 +8,7 @@ import {
   type FeedPost, type PostPrivacy, type UserSearchResult,
 } from '../services/socialService'
 import { feedFirstPageCache } from '../lib/feed-cache'
+import { shareLink } from '../lib/share'
 import { followingCache } from '../lib/social-cache'
 import { SkeletonCard } from '../components/common/Skeleton'
 import { FeedPostCard, Avatar } from '../components/common/FeedPostCard'
@@ -224,12 +225,10 @@ export function FeedPage() {
   // people can paste it back into a future deep-link route.
   const handleShare = async (postId: string) => {
     const url = `${window.location.origin}/post/${postId}`
-    try {
-      await navigator.clipboard.writeText(url)
-      setToast('Link copiado!')
-    } catch {
-      setToast('Não foi possível copiar — tenta manualmente')
-    }
+    const result = await shareLink({ url, title: 'SerraAthlo', text: 'Confira este treino 💪' })
+    if (result === 'copied') setToast('Link copiado!')
+    else if (result === 'failed') setToast('Não foi possível compartilhar')
+    // 'shared' (bandeja nativa) → o próprio SO já deu o feedback, sem toast.
   }
 
   const sortedPosts = useMemo(() => {

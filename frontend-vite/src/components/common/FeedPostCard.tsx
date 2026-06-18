@@ -1,5 +1,6 @@
 import { motion, AnimatePresence } from 'framer-motion'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useAuth } from '../../hooks/useAuth'
 import {
   listComments, createComment, deleteComment,
@@ -11,7 +12,7 @@ import { peekComments, setCommentsCache } from '../../lib/comments-cache'
 import {
   Users, Heart, Globe2, Lock,
   Trash2, MoreHorizontal, MessageCircle, Share2,
-  ArrowRight, ChevronUp, Send, X, Check, BarChart3, Activity,
+  ArrowRight, ChevronUp, Send, X, Check, BarChart3, Activity, Link2,
 } from 'lucide-react'
 
 const CARDIO_PT: Record<string, string> = {
@@ -326,63 +327,161 @@ const PRIVACY_OPTIONS: { value: PostPrivacy; label: string; icon: typeof Globe2 
   { value: 'PRIVATE', label: 'Privado', icon: Lock },
 ]
 
-function PrivacyMenu({
-  current, ownerIsPrivate, saving, onChange,
+// Menu "..." de opções do post (estilo Instagram/Strava). Agrupa as ações
+// que antes ficavam soltas no header (privacidade, deletar) + "Copiar link".
+// Renderizado via portal com posição `fixed` pra NUNCA ser cortado pelo
+// `overflow-hidden` do card. Fecha em: clique-fora, Esc e scroll.
+function PostMenu({
+  postId, isOwner, canDelete, privacy, ownerIsPrivate, savingPrivacy, onPrivacyChange, onDelete,
 }: {
-  current: PostPrivacy
+  postId: string
+  isOwner: boolean
+  canDelete: boolean
+  privacy: PostPrivacy
   ownerIsPrivate: boolean
-  saving: boolean
-  onChange: (next: PostPrivacy) => void
+  savingPrivacy: boolean
+  onPrivacyChange: (next: PostPrivacy) => void
+  onDelete: () => void
 }) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  const allowed = ownerIsPrivate ? PRIVACY_OPTIONS.filter((o) => o.value !== 'PUBLIC') : PRIVACY_OPTIONS
-  const currentOption = PRIVACY_OPTIONS.find((o) => o.value === current) ?? PRIVACY_OPTIONS[0]
-  const Icon = currentOption.icon
+  const [copied, setCopied] = useState(false)
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  const place = useCallback(() => {
+    const r = btnRef.current?.getBoundingClientRect()
+    if (!r) return
+    setPos({ top: r.bottom + 6, right: Math.max(8, window.innerWidth - r.right) })
+  }, [])
+
+  // Posição é calculada no clique (abaixo), não aqui — evita setState dentro do
+  // effect. Este effect só reposiciona no resize e fecha no scroll (menu fixed
+  // não acompanha a rolagem do feed — fechar é o comportamento esperado).
+  useLayoutEffect(() => {
+    if (!open) return
+    const close = () => setOpen(false)
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', close, true)
+    return () => {
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', close, true)
+    }
+  }, [open, place])
+
+  const toggle = () => {
+    if (open) { setOpen(false); return }
+    place()
+    setOpen(true)
+  }
 
   useEffect(() => {
     if (!open) return
-    const onClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (btnRef.current?.contains(t) || menuRef.current?.contains(t)) return
+      setOpen(false)
     }
-    document.addEventListener('mousedown', onClick)
-    return () => document.removeEventListener('mousedown', onClick)
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
   }, [open])
 
+  const allowedPrivacy = ownerIsPrivate ? PRIVACY_OPTIONS.filter((o) => o.value !== 'PUBLIC') : PRIVACY_OPTIONS
+
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/post/${postId}`)
+      setCopied(true)
+      window.setTimeout(() => { setCopied(false); setOpen(false) }, 1100)
+    } catch {
+      setOpen(false)
+    }
+  }
+
   return (
-    <div className="relative" ref={ref}>
+    <>
       <button
+        ref={btnRef}
         type="button"
-        onClick={() => setOpen((v) => !v)}
-        disabled={saving}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] px-2.5 py-1.5 text-xs font-semibold text-[var(--muted)] hover:text-[var(--text)] disabled:opacity-50"
-        title="Alterar privacidade"
+        onClick={toggle}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="Mais opções"
+        className="inline-flex items-center justify-center rounded-lg border border-[var(--line)] bg-[var(--surface-hover)] px-2.5 py-1.5 text-[var(--muted)] transition-colors hover:text-[var(--text)]"
       >
-        <Icon size={12} />
-        {currentOption.label}
+        <MoreHorizontal size={16} />
       </button>
-      {open && (
-        <div className="absolute right-0 z-20 mt-1 w-40 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--surface)] shadow-lg">
-          {allowed.map((opt) => {
-            const OptIcon = opt.icon
-            const active = opt.value === current
-            return (
+
+      {open && pos && createPortal(
+        <div
+          ref={menuRef}
+          role="menu"
+          style={{ position: 'fixed', top: pos.top, right: pos.right, zIndex: 9999 }}
+          className="w-52 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] shadow-2xl"
+        >
+          <button
+            role="menuitem"
+            type="button"
+            onClick={() => void copyLink()}
+            className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
+          >
+            {copied ? <Check size={15} className="text-[var(--brand)]" /> : <Link2 size={15} />}
+            {copied ? 'Copiado!' : 'Copiar link'}
+          </button>
+
+          {isOwner && (
+            <>
+              <div className="border-t border-[var(--line)]" />
+              <p className="px-3.5 pb-1 pt-2.5 text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">
+                Privacidade
+              </p>
+              {allowedPrivacy.map((opt) => {
+                const OptIcon = opt.icon
+                const active = opt.value === privacy
+                return (
+                  <button
+                    key={opt.value}
+                    role="menuitemradio"
+                    aria-checked={active}
+                    type="button"
+                    disabled={savingPrivacy}
+                    onClick={() => { if (!active) onPrivacyChange(opt.value); setOpen(false) }}
+                    className={`flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm transition-colors disabled:opacity-50 ${
+                      active ? 'text-[var(--brand)]' : 'text-[var(--text)] hover:bg-[var(--surface-hover)]'
+                    }`}
+                  >
+                    <OptIcon size={15} />
+                    <span className="flex-1">{opt.label}</span>
+                    {active && <Check size={15} />}
+                  </button>
+                )
+              })}
+            </>
+          )}
+
+          {canDelete && (
+            <>
+              <div className="border-t border-[var(--line)]" />
               <button
-                key={opt.value}
+                role="menuitem"
                 type="button"
-                onClick={() => { setOpen(false); if (!active) onChange(opt.value) }}
-                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs ${
-                  active ? 'bg-[var(--surface-hover)] text-[var(--brand)]' : 'text-[var(--text)] hover:bg-[var(--surface-hover)]'
-                }`}
+                onClick={() => { setOpen(false); onDelete() }}
+                className="flex w-full items-center gap-2.5 px-3.5 py-2.5 text-left text-sm text-red-400 transition-colors hover:bg-red-500/10"
               >
-                <OptIcon size={13} />
-                {opt.label}
+                <Trash2 size={15} />
+                {isOwner ? 'Deletar' : 'Remover'}
               </button>
-            )
-          })}
-        </div>
+            </>
+          )}
+        </div>,
+        document.body,
       )}
-    </div>
+    </>
   )
 }
 
@@ -781,7 +880,7 @@ export function FeedPostCard({
             </div>
           )}
 
-          <div className="flex w-full flex-wrap items-center justify-end gap-1.5 sm:w-auto">
+          <div className="flex items-center justify-end gap-1.5">
             {relLabel && (
               <ChipBtn
                 icon={Users}
@@ -789,36 +888,18 @@ export function FeedPostCard({
                 tone={isOwn ? 'brand' : 'default'}
               />
             )}
-            {isOwn ? (
-              <>
-                <PrivacyMenu
-                  current={post.privacy}
-                  ownerIsPrivate={ownerIsPrivate}
-                  saving={savingPrivacy}
-                  onChange={(next) => void handlePrivacy(next)}
-                />
-                {canDelete && (
-                  <ChipBtn
-                    icon={Trash2}
-                    label="Deletar"
-                    tone="warn"
-                    onClick={() => onDelete(post.id)}
-                    title="Deletar post"
-                  />
-                )}
-              </>
-            ) : (
-              canDelete && (
-                <ChipBtn
-                  icon={Trash2}
-                  label="Remover"
-                  tone="warn"
-                  onClick={() => onDelete(post.id)}
-                  title="Remover como administrador"
-                />
-              )
-            )}
-            <ChipBtn icon={MoreHorizontal} title="Mais opções" />
+            {/* Tudo que era botão solto (privacidade, deletar) agora mora aqui
+                dentro — header limpo, só "..." + a etiqueta de relação. */}
+            <PostMenu
+              postId={post.id}
+              isOwner={isOwn}
+              canDelete={canDelete}
+              privacy={post.privacy}
+              ownerIsPrivate={ownerIsPrivate}
+              savingPrivacy={savingPrivacy}
+              onPrivacyChange={(next) => void handlePrivacy(next)}
+              onDelete={() => onDelete(post.id)}
+            />
           </div>
         </header>
 
