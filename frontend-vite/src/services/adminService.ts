@@ -59,6 +59,11 @@ function toAdminUser(value: Record<string, unknown>): AdminUser {
       typeof value.onboardingCompletedAt === 'string' ? value.onboardingCompletedAt : null,
     availableDaysPerWeek:
       typeof value.availableDaysPerWeek === 'number' ? value.availableDaysPerWeek : null,
+    birthDate: typeof value.birthDate === 'string' ? value.birthDate : null,
+    heightCm: typeof value.heightCm === 'number' ? value.heightCm : null,
+    weightKg: typeof value.weightKg === 'number' ? value.weightKg : null,
+    experienceLevel: typeof value.experienceLevel === 'string' ? value.experienceLevel : null,
+    primaryGoal: typeof value.primaryGoal === 'string' ? value.primaryGoal : null,
     mfaEnabled: Boolean(value.mfaEnabled),
     plan: value.plan === 'PRO' ? 'PRO' : 'FREE',
     planExpiresAt: typeof value.planExpiresAt === 'string' ? value.planExpiresAt : null,

@@ -95,6 +95,33 @@ const EVENT_LABELS: Record<string, string> = {
   admin_user_plan_changed: 'Assinatura alterada',
 }
 
+const EXPERIENCE_LABELS: Record<string, string> = {
+  BEGINNER: 'Iniciante',
+  INTERMEDIATE: 'Intermediário',
+  ADVANCED: 'Avançado',
+}
+const GOAL_LABELS: Record<string, string> = {
+  STRENGTH: 'Força',
+  HYPERTROPHY: 'Hipertrofia',
+  WEIGHT_LOSS: 'Emagrecimento',
+  ENDURANCE: 'Resistência',
+  GENERAL_FITNESS: 'Saúde geral',
+}
+
+// Progresso do onboarding = quantos dos 6 campos do quiz foram preenchidos.
+// `sex` é excluído porque tem default OTHER (nunca é nulo → não sinaliza nada).
+function onboardingProgress(u: {
+  birthDate: string | null
+  availableDaysPerWeek: number | null
+  heightCm: number | null
+  weightKg: number | null
+  experienceLevel: string | null
+  primaryGoal: string | null
+}): { filled: number; total: number } {
+  const fields = [u.birthDate, u.availableDaysPerWeek, u.heightCm, u.weightKg, u.experienceLevel, u.primaryGoal]
+  return { filled: fields.filter((v) => v !== null && v !== undefined).length, total: fields.length }
+}
+
 function CountUp({ target }: { target: number }) {
   const [value, setValue] = useState(0)
   useEffect(() => {
@@ -412,6 +439,8 @@ function UserDrawer({
     setRoleDraft(u.role)
   }
 
+  const onb = u ? onboardingProgress(u) : { filled: 0, total: 6 }
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -522,9 +551,33 @@ function UserDrawer({
               ) : null}
               <DetailRow label="MFA / 2FA" value={u.mfaEnabled ? <span className="text-emerald-600 dark:text-emerald-400">Ativado</span> : <span className="text-[var(--muted)]">Desativado</span>} />
               <DetailRow label="E-mail verificado" value={u.emailVerifiedAt ? formatDate(u.emailVerifiedAt) : <span className="text-[var(--muted)]">Não</span>} />
-              <DetailRow label="Onboarding" value={u.onboardingCompletedAt ? formatDate(u.onboardingCompletedAt) : <span className="text-amber-600 dark:text-amber-400">Pendente</span>} />
+              <DetailRow
+                label="Onboarding"
+                value={
+                  u.onboardingCompletedAt ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="text-emerald-600 dark:text-emerald-400">Completo</span>
+                      <span className="text-[var(--muted)]">· {formatDate(u.onboardingCompletedAt)}</span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-2">
+                      <span className="inline-block h-[5px] w-14 overflow-hidden rounded-full bg-[var(--line)]">
+                        <span
+                          className="block h-full rounded-full bg-amber-400"
+                          style={{ width: `${Math.max(8, Math.round((onb.filled / onb.total) * 100))}%` }}
+                        />
+                      </span>
+                      <span className="text-amber-600 dark:text-amber-400">Parcial · {onb.filled}/{onb.total}</span>
+                    </span>
+                  )
+                }
+              />
               <DetailRow label="Nascimento" value={u.birthDate ? formatDate(u.birthDate) : '—'} />
               <DetailRow label="Sexo" value={u.sex === 'MALE' ? 'Masculino' : u.sex === 'FEMALE' ? 'Feminino' : 'Outro'} />
+              <DetailRow label="Altura" value={u.heightCm ? `${u.heightCm} cm` : '—'} />
+              <DetailRow label="Peso" value={u.weightKg ? `${u.weightKg} kg` : '—'} />
+              <DetailRow label="Experiência" value={u.experienceLevel ? EXPERIENCE_LABELS[u.experienceLevel] ?? u.experienceLevel : '—'} />
+              <DetailRow label="Objetivo" value={u.primaryGoal ? GOAL_LABELS[u.primaryGoal] ?? u.primaryGoal : '—'} />
               <DetailRow label="Cadastro" value={`${formatDate(u.createdAt)} · ${relativeTime(u.createdAt)}`} />
               <DetailRow label="Último login" value={u.lastLoginAt ? `${formatDate(u.lastLoginAt)} · ${relativeTime(u.lastLoginAt)}` : '—'} />
             </div>
@@ -1034,6 +1087,8 @@ export function AdminUsersPage() {
                     const isAdmin = u.role === 'ADMIN'
                     const isActive = u.status !== 'DISABLED'
                     const onboarded = Boolean(u.onboardingCompletedAt)
+                    const onb = onboardingProgress(u)
+                    const onbPct = onboarded ? 100 : Math.max(8, Math.round((onb.filled / onb.total) * 100))
                     return (
                       <tr
                         key={u.id}
@@ -1119,11 +1174,11 @@ export function AdminUsersPage() {
                           </div>
                         </td>
                         <td>
-                          <span className="inline-flex items-center gap-2 text-xs font-medium">
+                          <span className="inline-flex items-center gap-2 text-xs font-medium" title={onboarded ? 'Onboarding completo' : `${onb.filled} de ${onb.total} campos preenchidos`}>
                             <span className="inline-block h-[5px] w-9 overflow-hidden rounded-full bg-[var(--line)]">
-                              <span className={`block h-full rounded-full ${onboarded ? 'bg-emerald-500' : 'bg-amber-400'}`} style={{ width: onboarded ? '100%' : '40%' }} />
+                              <span className={`block h-full rounded-full ${onboarded ? 'bg-emerald-500' : 'bg-amber-400'}`} style={{ width: `${onbPct}%` }} />
                             </span>
-                            <span className={onboarded ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}>{onboarded ? 'OK' : 'Parcial'}</span>
+                            <span className={onboarded ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}>{onboarded ? 'OK' : `${onb.filled}/${onb.total}`}</span>
                           </span>
                         </td>
                         <td className="!pr-4" onClick={(e) => e.stopPropagation()}>

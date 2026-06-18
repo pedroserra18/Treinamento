@@ -11,6 +11,11 @@ export type AdminUser = {
   lastLoginAt: string | null
   onboardingCompletedAt: string | null
   availableDaysPerWeek: number | null
+  birthDate: string | null
+  heightCm: number | null
+  weightKg: number | null
+  experienceLevel: string | null
+  primaryGoal: string | null
   mfaEnabled: boolean
   plan: 'FREE' | 'PRO'
   planExpiresAt: string | null
@@ -53,6 +58,10 @@ export type AdminUserDetail = {
     sex: string
     birthDate: string | null
     availableDaysPerWeek: number | null
+    heightCm: number | null
+    weightKg: number | null
+    experienceLevel: string | null
+    primaryGoal: string | null
     onboardingCompletedAt: string | null
     emailVerifiedAt: string | null
     mfaEnabled: boolean

@@ -64,6 +64,12 @@ export async function listRegisteredUsers(query: ListUsersQuery) {
       lastLoginAt: true,
       onboardingCompletedAt: true,
       availableDaysPerWeek: true,
+      // Campos do onboarding pra calcular o progresso real (x/6) na tabela.
+      birthDate: true,
+      heightCm: true,
+      weightKg: true,
+      experienceLevel: true,
+      primaryGoal: true,
       mfaEnabled: true,
       // Plan tier: exibido como pill no painel admin pra dar visão rápida
       // de quem é PRO, e habilita ordenação/filtragem por tier.
@@ -556,6 +562,10 @@ export async function getUserDetail(targetUserId: string) {
       sex: true,
       birthDate: true,
       availableDaysPerWeek: true,
+      heightCm: true,
+      weightKg: true,
+      experienceLevel: true,
+      primaryGoal: true,
       onboardingCompletedAt: true,
       emailVerifiedAt: true,
       mfaEnabled: true,
