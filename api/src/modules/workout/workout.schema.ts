@@ -136,6 +136,17 @@ export const createWorkoutPlanWithExercisesBodySchema = z
   })
   .strict();
 
+// Update combinado: atualiza nome + SUBSTITUI todos os exercícios do plano
+// numa única transação. Usado pela tela "Editar rotina" (mesmo builder do
+// criar). Substituição total evita diff incremental e mantém atômico.
+export const updateWorkoutPlanWithExercisesBodySchema = z
+  .object({
+    name: z.string().trim().min(2).max(120),
+    description: z.string().trim().min(1).max(500).optional(),
+    exercises: z.array(addPlanExerciseBatchItemSchema).min(0).max(50)
+  })
+  .strict();
+
 export const completeWorkoutParamsSchema = z
   .object({
     sessionId: z.string().cuid()
@@ -296,6 +307,7 @@ export type ReorderPlanExercisesBody = z.infer<typeof reorderPlanExercisesBodySc
 export type AddPlanExercisesBatchBody = z.infer<typeof addPlanExercisesBatchBodySchema>;
 export type DeletePlanExercisesBatchBody = z.infer<typeof deletePlanExercisesBatchBodySchema>;
 export type CreateWorkoutPlanWithExercisesBody = z.infer<typeof createWorkoutPlanWithExercisesBodySchema>;
+export type UpdateWorkoutPlanWithExercisesBody = z.infer<typeof updateWorkoutPlanWithExercisesBodySchema>;
 export type CompleteWorkoutParams = z.infer<typeof completeWorkoutParamsSchema>;
 export type CompleteWorkoutBody = z.infer<typeof completeWorkoutBodySchema>;
 export type ListWorkoutHistoryQuery = z.infer<typeof listWorkoutHistoryQuerySchema>;

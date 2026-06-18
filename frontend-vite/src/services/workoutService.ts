@@ -617,6 +617,40 @@ export async function createWorkoutPlanWithExercises(
   return payload.data as WorkoutPlan
 }
 
+// Update combinado pra "Editar rotina": atualiza nome + SUBSTITUI todos os
+// exercícios numa única transação no backend. Mesmo formato do create.
+export async function updateWorkoutPlanWithExercises(
+  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  planId: string,
+  input: {
+    name: string
+    description?: string
+    exercises: Array<{
+      exerciseId: string
+      sets?: number
+      repsMin?: number
+      repsMax?: number
+      durationSec?: number
+      restSec?: number
+      notes?: string
+    }>
+  },
+): Promise<WorkoutPlan> {
+  const response = await authorizedFetch(`${API_URL}/workouts/plans/${planId}/with-exercises`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+
+  const payload = await parsePayload(response)
+
+  if (!response.ok) {
+    throw new Error(payload.errorMessage ?? 'Falha ao atualizar rotina')
+  }
+
+  return payload.data as WorkoutPlan
+}
+
 // Batch atômico — todos os exercícios são inseridos em uma única transação
 // no backend, eliminando race conditions do @@unique(workoutPlanId, orderIndex)
 // e cortando N round-trips pra 1. Use em vez do loop de addExerciseToPlan

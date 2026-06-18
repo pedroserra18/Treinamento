@@ -13,6 +13,7 @@ import {
   CreateManualHistoryBody,
   CreateWorkoutPlanBody,
   CreateWorkoutPlanWithExercisesBody,
+  UpdateWorkoutPlanWithExercisesBody,
   CompleteWorkoutBody,
   CompleteWorkoutParams,
   DeletePlanExercisesBatchBody,
@@ -473,6 +474,94 @@ export async function createWorkoutPlanWithExercises(
   // cliente atualizar a lista local sem refetch — economiza mais 1 round-trip.
   const full = await prisma.workoutPlan.findFirstOrThrow({
     where: { id: planId, userId },
+    include: {
+      exercises: {
+        orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
+        include: {
+          exercise: {
+            select: {
+              id: true,
+              name: true,
+              primaryMuscleGroup: true,
+              difficulty: true,
+              equipment: true,
+              isBodyweight: true,
+              allowsExtraLoad: true,
+              trackingType: true,
+              thumbnailUrl: true,
+              videoUrl: true
+            }
+          }
+        }
+      },
+      cardio: {
+        orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
+        select: { id: true, orderIndex: true, type: true, durationSec: true, distanceMeters: true, notes: true }
+      }
+    }
+  });
+
+  return full;
+}
+
+// Update combinado pra tela "Editar rotina": atualiza o nome e SUBSTITUI
+// todos os exercícios numa única transação (delete-all + createMany). Atômico
+// — sem janela de "rotina sem exercícios" se algo falhar no meio.
+export async function updateWorkoutPlanWithExercises(
+  userId: string,
+  params: WorkoutPlanParams,
+  payload: UpdateWorkoutPlanWithExercisesBody
+) {
+  await assertOwnedPlan(params.planId, userId);
+
+  const incomingIds = payload.exercises.map((item) => item.exerciseId);
+  if (new Set(incomingIds).size !== incomingIds.length) {
+    throw new AppError("Exercicio duplicado no lote", {
+      statusCode: 400,
+      code: "PLAN_EXERCISE_BATCH_DUPLICATE"
+    });
+  }
+  if (incomingIds.length > 0) {
+    const availableCount = await prisma.exercise.count({
+      where: {
+        id: { in: incomingIds },
+        isActive: true,
+        OR: [{ scope: "GLOBAL" }, { scope: "PRIVATE", ownerUserId: userId }]
+      }
+    });
+    if (availableCount !== incomingIds.length) {
+      throw new AppError("Exercise not found", { statusCode: 404, code: "EXERCISE_NOT_FOUND" });
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.workoutPlan.update({
+      where: { id: params.planId },
+      data: {
+        name: payload.name,
+        ...(payload.description !== undefined ? { description: payload.description } : {})
+      }
+    });
+    await tx.workoutPlanExercise.deleteMany({ where: { workoutPlanId: params.planId } });
+    if (payload.exercises.length > 0) {
+      await tx.workoutPlanExercise.createMany({
+        data: payload.exercises.map((item, i) => ({
+          workoutPlanId: params.planId,
+          exerciseId: item.exerciseId,
+          orderIndex: i + 1,
+          sets: item.sets,
+          repsMin: item.repsMin,
+          repsMax: item.repsMax,
+          durationSec: item.durationSec,
+          restSec: item.restSec,
+          notes: item.notes
+        }))
+      });
+    }
+  });
+
+  const full = await prisma.workoutPlan.findFirstOrThrow({
+    where: { id: params.planId, userId },
     include: {
       exercises: {
         orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],

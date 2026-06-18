@@ -90,6 +90,20 @@ function makeLocalId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
 }
 
+// Formato de pré-preenchimento (modo "Editar rotina"). O parent já resolve o
+// nome do exercício, thumb e as séries (incl. parsing do __PERF__).
+export type RoutineInitial = {
+  name: string
+  exercises: Array<{
+    exerciseId: string
+    exerciseName: string
+    thumbnailUrl: string | null
+    notes: string
+    restSec: number
+    sets: Array<{ repsMin: string; repsMax: string; type: SetType }>
+  }>
+}
+
 function makeDraftExercise(option: ExerciseOption): DraftExercise {
   return {
     localId: makeLocalId(),
@@ -103,9 +117,12 @@ function makeDraftExercise(option: ExerciseOption): DraftExercise {
 }
 
 export function CreateRoutineScreen({
-  onCancel, onSubmit, title = 'Criar Rotina', submitLabel = 'Salvar',
+  onCancel, onSubmit, title = 'Criar Rotina', submitLabel = 'Salvar', initial,
 }: {
   onCancel: () => void
+  // Pré-preenchimento opcional pro modo "Editar rotina". Quando presente, a
+  // tela abre com o nome + exercícios já carregados; o builder é idêntico.
+  initial?: RoutineInitial
   // Cabeçalho/CTA customizáveis pra reaproveitar a tela em outros fluxos
   // (ex.: "Criar e enviar rotina"), mantendo o builder idêntico. Default =
   // o fluxo "Nova rotina".
@@ -130,9 +147,20 @@ export function CreateRoutineScreen({
 
   // Rascunho da rotina sendo construída. Tudo client-side até clicar
   // Salvar — se o usuário cancela, nada vai pro backend.
-  const [name, setName] = useState('')
-  const [exercises, setExercises] = useState<DraftExercise[]>([])
+  const [name, setName] = useState(initial?.name ?? '')
+  const [exercises, setExercises] = useState<DraftExercise[]>(() =>
+    (initial?.exercises ?? []).map((e) => ({
+      localId: makeLocalId(),
+      exerciseId: e.exerciseId,
+      exerciseName: e.exerciseName,
+      thumbnailUrl: e.thumbnailUrl,
+      notes: e.notes,
+      restSec: e.restSec,
+      sets: e.sets.length > 0 ? e.sets.map((s) => makeDraftSet(s.repsMin, s.repsMax, s.type)) : [makeDraftSet()],
+    })),
+  )
   const [saving, setSaving] = useState(false)
+  const isEdit = Boolean(initial)
 
   // Modais reutilizando os mesmos componentes do treino ativo + edit
   // de rotina, mantendo UX consistente entre as 3 superfícies.
@@ -279,8 +307,10 @@ export function CreateRoutineScreen({
       return
     }
     setConfirmDialog({
-      title: 'Descartar rotina?',
-      message: 'Você vai perder o que preencheu até agora. Esta ação não pode ser desfeita.',
+      title: isEdit ? 'Descartar alterações?' : 'Descartar rotina?',
+      message: isEdit
+        ? 'As mudanças feitas nesta rotina não serão salvas.'
+        : 'Você vai perder o que preencheu até agora. Esta ação não pode ser desfeita.',
       confirmLabel: 'Descartar',
       destructive: true,
       onConfirm: onCancel,
@@ -319,7 +349,7 @@ export function CreateRoutineScreen({
           tudo). Auto-foco pra pular logo pra digitação. */}
       <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
         <input
-          autoFocus
+          autoFocus={!isEdit}
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Título da rotina"

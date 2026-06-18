@@ -59,7 +59,6 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { usePushNotifications } from '../hooks/usePushNotifications'
 import { cancelBackendNotification, scheduleBackendNotification } from '../services/pushService'
 import { createPost, sharePlan, createAndSharePlan, type PostPrivacy } from '../services/socialService'
-import { WorkoutsPage } from './WorkoutsPage'
 import { WorkoutRecommendationsPage } from './WorkoutRecommendationsPage'
 import { type SetType, type DropEntry } from '../components/common/setTypeOptions'
 import {
@@ -91,11 +90,13 @@ import { vibrate } from '../lib/haptics'
 import { useWakeLock } from '../hooks/useWakeLock'
 import { useActiveWorkoutElapsed } from '../hooks/useActiveWorkoutElapsed'
 import type { WorkoutPlan, CardioType, CardioEntryInput, ExerciseOption } from '../types/workout'
+import type { RoutineInitial } from './train/CreateRoutineScreen'
 import {
   addPlanExercisesBatch,
   deletePlanExercisesBatch,
   completeWorkoutSession,
   createWorkoutPlanWithExercises,
+  updateWorkoutPlanWithExercises,
   deleteWorkoutPlan,
   getExercisePersonalRecords,
   getLatestExercisePerformance,
@@ -733,6 +734,53 @@ function SendToCompetitionCta({
 // Visual identity of each set type for the compact series row — letter,
 // colour, label. The series number itself takes the role of the picker
 // button (Hevy-style) so tapping it surfaces the bottom sheet below.
+// Converte um plano salvo pro formato do builder (CreateRoutineScreen),
+// reidratando as séries do marcador __PERF__ quando presente. Usado pela
+// tela "Editar Rotina" pra abrir já preenchida.
+const PERF_MARKER_EDIT = '__PERF__:'
+function planToRoutineInitial(plan: WorkoutPlan): RoutineInitial {
+  return {
+    name: plan.name,
+    exercises: plan.exercises.map((ex) => {
+      const rawNotes = ex.notes ?? ''
+      const idx = rawNotes.indexOf(PERF_MARKER_EDIT)
+      let userNote = rawNotes
+      let sets: RoutineInitial['exercises'][number]['sets'] = []
+      if (idx >= 0) {
+        userNote = rawNotes.slice(0, idx).trim()
+        try {
+          const parsed = JSON.parse(rawNotes.slice(idx + PERF_MARKER_EDIT.length).trim()) as {
+            series?: Array<{ reps?: number; repsMin?: number; repsMax?: number; setType?: SetType }>
+          }
+          if (Array.isArray(parsed.series) && parsed.series.length > 0) {
+            sets = parsed.series.map((s) => ({
+              repsMin: s.repsMin != null ? String(s.repsMin) : s.reps != null ? String(s.reps) : '',
+              repsMax: s.repsMax != null ? String(s.repsMax) : s.reps != null ? String(s.reps) : '',
+              type: s.setType ?? 'normal',
+            }))
+          }
+        } catch {
+          /* nota corrompida — cai no fallback pelas colunas do plano */
+        }
+      }
+      if (sets.length === 0) {
+        const count = Math.max(1, ex.sets ?? 3)
+        const min = ex.repsMin != null ? String(ex.repsMin) : ''
+        const max = ex.repsMax != null ? String(ex.repsMax) : ''
+        sets = Array.from({ length: count }, () => ({ repsMin: min, repsMax: max, type: 'normal' as SetType }))
+      }
+      return {
+        exerciseId: ex.exercise.id,
+        exerciseName: ex.customName ?? ex.exercise.name,
+        thumbnailUrl: ex.exercise.thumbnailUrl,
+        notes: userNote,
+        restSec: ex.restSec ?? 0,
+        sets,
+      }
+    }),
+  }
+}
+
 const SET_TYPE_GLYPH: Record<SetType, { letter: string | null; label: string; color: string; bg: string }> = {
   normal:  { letter: null,  label: 'Série Normal',       color: 'var(--text)',  bg: 'transparent' },
   warmup:  { letter: 'W',   label: 'Série de Aquecimento', color: '#b58400', bg: '#fff6d6' },
@@ -1405,10 +1453,6 @@ export function TrainPage() {
   // Picker de duração no resumo (estilo iOS wheel). Substitui o input
   // livre por uma UX mais previsível.
   const [durationPickerOpen, setDurationPickerOpen] = useState(false)
-  // Contador que dispara o save da rotina no modo EDIT via signal pra
-  // WorkoutsPage. Incrementa quando o usuário toca "Atualizar" no header
-  // sticky — WorkoutsPage observa via useEffect e chama saveFullPlan.
-  const [editSaveSignal, setEditSaveSignal] = useState(0)
   // Diálogo de confirmação genérico (descartar treino, finalizar com
   // sets em branco, etc.). O onConfirm é guardado pra disparar quando
   // o usuário aceita.
@@ -4426,69 +4470,72 @@ export function TrainPage() {
   }
 
   if (screen === 'EDIT') {
+    const editingPlan = plans.find((p) => p.id === activePlanId) ?? null
     return (
-      <section className="space-y-3">
-        {/* Header estilo Hevy — Cancelar / Editar Rotina / Atualizar.
-            Atualizar dispara o save dentro do WorkoutsPage via signal. */}
-        <motion.header
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="sticky top-safe-plus-2 z-30 flex items-center justify-between gap-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)]/95 px-3 py-2.5 backdrop-blur-md"
-        >
-          <button
-            type="button"
-            onClick={() => setScreen('DASHBOARD')}
-            className="text-[14px] font-semibold text-[var(--muted)] transition-colors hover:text-[var(--text)]"
-          >
-            Cancelar
-          </button>
-          <h1 className="truncate text-[15px] font-bold text-[var(--text)]">Editar Rotina</h1>
-          <button
-            type="button"
-            onClick={() => setEditSaveSignal((v) => v + 1)}
-            style={{ touchAction: 'manipulation' }}
-            className="rounded-xl bg-[var(--brand)] px-4 py-1.5 text-[13px] font-bold text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)]"
-          >
-            Atualizar
-          </button>
-        </motion.header>
-        <WorkoutsPage
-          selectedPlanId={activePlanId}
-          onlySelectedPlan
-          showCreateSection={false}
-          createOnlyMode={false}
-          hideInlineSaveButton
-          saveSignal={editSaveSignal}
-          onPlanSaveStarted={(planId) => {
-            // OPTIMISTIC EDIT: marca rotina como "atualizando" e navega
-            // IMEDIATO pra DASHBOARD. As N updates rodam em background.
-            // ~0ms percebido, mesmo no Render free tier (~2s real).
-            setUpdatingPlanIds((current) => {
-              const next = new Set(current)
-              next.add(planId)
-              return next
-            })
-            invalidateWorkoutPlansCache()
-            setScreen('DASHBOARD')
-          }}
-          onPlanSaved={(planId) => {
-            setUpdatingPlanIds((current) => {
-              const next = new Set(current)
-              next.delete(planId)
-              return next
-            })
-            void reloadPlans(planId).catch(() => {})
-          }}
-          onPlanSaveFailed={(planId, err) => {
-            setUpdatingPlanIds((current) => {
-              const next = new Set(current)
-              next.delete(planId)
-              return next
-            })
-            setError(`Falha ao atualizar rotina: ${err.message}`)
-          }}
-        />
-      </section>
+      <Suspense fallback={null}>
+        {editingPlan ? (
+          <CreateRoutineScreen
+            title="Editar Rotina"
+            submitLabel="Atualizar"
+            initial={planToRoutineInitial(editingPlan)}
+            onCancel={() => setScreen('DASHBOARD')}
+            onSubmit={(data) => {
+              const planId = editingPlan.id
+              // OPTIMISTIC EDIT: marca a rotina como "atualizando", navega
+              // imediato pra DASHBOARD e roda o update atômico em background.
+              setUpdatingPlanIds((current) => {
+                const next = new Set(current)
+                next.add(planId)
+                return next
+              })
+              invalidateWorkoutPlansCache()
+              setScreen('DASHBOARD')
+
+              void updateWorkoutPlanWithExercises(authorizedFetch, planId, {
+                name: data.name,
+                exercises: data.exercises,
+              })
+                .then((real) => {
+                  setPlans((current) => {
+                    const next = current.map((p) => (p.id === planId ? real : p))
+                    setWorkoutPlansCache(next)
+                    return next
+                  })
+                  setUpdatingPlanIds((current) => {
+                    const next = new Set(current)
+                    next.delete(planId)
+                    return next
+                  })
+                  invalidateWorkoutPlansCache()
+                })
+                .catch((err) => {
+                  setUpdatingPlanIds((current) => {
+                    const next = new Set(current)
+                    next.delete(planId)
+                    return next
+                  })
+                  setError(
+                    err instanceof Error
+                      ? `Falha ao atualizar rotina: ${err.message}`
+                      : 'Falha ao atualizar rotina',
+                  )
+                  void reloadPlans(planId).catch(() => {})
+                })
+            }}
+          />
+        ) : (
+          <section className="space-y-3">
+            <p className="text-sm text-[var(--muted)]">Rotina não encontrada.</p>
+            <button
+              type="button"
+              onClick={() => setScreen('DASHBOARD')}
+              className="rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
+            >
+              Voltar
+            </button>
+          </section>
+        )}
+      </Suspense>
     )
   }
 
