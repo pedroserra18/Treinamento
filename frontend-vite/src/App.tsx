@@ -82,6 +82,7 @@ const OnboardingPage = lazyNamed(() => import('./pages/OnboardingPage'), 'Onboar
 const WorkoutRecommendationsPage = lazyNamed(() => import('./pages/WorkoutRecommendationsPage'), 'WorkoutRecommendationsPage')
 const AIWorkoutPage = lazyNamed(() => import('./pages/AIWorkoutPage'), 'AIWorkoutPage')
 const FeedPage = lazyNamed(() => import('./pages/FeedPage'), 'FeedPage')
+const PostPage = lazyNamed(() => import('./pages/PostPage'), 'PostPage')
 const PublicProfilePage = lazyNamed(() => import('./pages/PublicProfilePage'), 'PublicProfilePage')
 const SharedPlanPage = lazyNamed(() => import('./pages/SharedPlanPage'), 'SharedPlanPage')
 const SupportPage = lazyNamed(() => import('./pages/SupportPage'), 'SupportPage')
@@ -240,6 +241,14 @@ function AnimatedRoutes() {
                 element={
                   <ProtectedRoute>
                     <FeedPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/post/:postId"
+                element={
+                  <ProtectedRoute>
+                    <PostPage />
                   </ProtectedRoute>
                 }
               />

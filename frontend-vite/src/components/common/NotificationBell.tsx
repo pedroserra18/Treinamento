@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useNavigate } from 'react-router-dom'
 import { Bell } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAuth } from '../../hooks/useAuth'
@@ -7,6 +8,7 @@ import {
   listNotifications,
   markAllNotificationsRead,
   markNotificationRead,
+  notificationLink,
   type NotificationItem,
 } from '../../services/notificationService'
 
@@ -31,6 +33,7 @@ type Position = { top: number; left: number; width: number }
 
 export function NotificationBell() {
   const { isAuthenticated, authorizedFetch } = useAuth()
+  const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState<NotificationItem[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
@@ -119,6 +122,13 @@ export function NotificationBell() {
     }
   }
 
+  const handleNotificationClick = (n: NotificationItem) => {
+    if (!n.readAt) void handleMarkOne(n.id)
+    const link = notificationLink(n)
+    setOpen(false)
+    if (link) navigate(link)
+  }
+
   const handleMarkAll = async () => {
     if (unreadCount === 0) return
     const now = new Date().toISOString()
@@ -197,7 +207,7 @@ export function NotificationBell() {
                         <li key={n.id}>
                           <button
                             type="button"
-                            onClick={() => isUnread && void handleMarkOne(n.id)}
+                            onClick={() => handleNotificationClick(n)}
                             className={`flex w-full flex-col gap-1 px-3 py-3 text-left transition-colors hover:bg-[var(--surface-hover)] ${
                               isUnread ? 'bg-[color-mix(in_srgb,var(--brand)_8%,transparent)]' : ''
                             }`}

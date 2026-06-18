@@ -131,6 +131,11 @@ export async function getFeed(authorizedFetch: AuthorizedFetch, page = 1): Promi
   return handleResponse<FeedPost[]>(res)
 }
 
+export async function getPost(authorizedFetch: AuthorizedFetch, postId: string): Promise<FeedPost> {
+  const res = await authorizedFetch(`${API_URL}/social/posts/${postId}`)
+  return handleResponse<FeedPost>(res)
+}
+
 export async function createPost(
   authorizedFetch: AuthorizedFetch,
   data: { workoutSessionId?: string; caption?: string; photoUrl?: string; privacy: PostPrivacy }

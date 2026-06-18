@@ -1785,7 +1785,7 @@ async function notifyOvertakesAfterEntry(
       title: "Você foi ultrapassado",
       body: `${posterLabel} passou na sua frente em "${compLabel}"`,
       metadata: { competitionId, posterUserId },
-      url: `/competition/${competitionId}`,
+      url: `/desafios/${competitionId}`,
       tag: `overtake-${competitionId}`
     }).catch(() => undefined);
   }
@@ -1853,7 +1853,7 @@ export async function notifyCompetitionsEndingSoon(): Promise<{
         title: "Competição acabando",
         body: `"${compName}" termina em ${hoursLeft}h. Bate a última prova!`,
         metadata: { competitionId: comp.id, hoursLeft },
-        url: `/competition/${comp.id}`,
+        url: `/desafios/${comp.id}`,
         tag: `ending-${comp.id}`
       }).catch(() => undefined);
       notificationsSent += 1;

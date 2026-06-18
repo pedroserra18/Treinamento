@@ -88,7 +88,7 @@ export type NotifyUserInput = {
   body: string;
   metadata?: Record<string, unknown>;
   // URL pra deep-link quando o user toca no push. Default null = abre
-  // raiz do app. Ex.: "/competition/abc123" pra cair direto na tela.
+  // raiz do app. Ex.: "/post/abc123" ou "/desafios/abc123" pra cair direto na tela.
   url?: string | null;
   // Tag opcional pra coalesce visual na bandeja de notificação do iOS.
   // Mesma tag = sistema substitui a anterior em vez de empilhar.

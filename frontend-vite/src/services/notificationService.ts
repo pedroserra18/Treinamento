@@ -17,6 +17,40 @@ export type NotificationsPayload = {
   unreadCount: number
 }
 
+// Deriva o destino in-app de uma notificação a partir do seu type + metadata.
+// Espelha as `url`s que o backend manda no push (mas o sininho não recebe
+// `url`, só metadata — por isso derivamos aqui). Retorna null quando não há
+// destino útil (a notificação fica clicável mas só marca como lida).
+export function notificationLink(item: Pick<NotificationItem, 'type' | 'metadata'>): string | null {
+  const meta = item.metadata ?? {}
+  const str = (k: string): string | null => (typeof meta[k] === 'string' ? (meta[k] as string) : null)
+
+  const postId = str('postId')
+  const competitionId = str('competitionId')
+  const followerUserId = str('followerUserId')
+  const inviteToken = str('inviteToken')
+
+  switch (item.type) {
+    case 'POST_LIKE':
+    case 'POST_COMMENT':
+      return postId ? `/post/${postId}` : '/feed'
+    case 'POST_REMOVED_BY_ADMIN':
+      return '/profile'
+    case 'USER_FOLLOWED':
+      return followerUserId ? `/u/${followerUserId}` : null
+    case 'COMPETITION_INVITE_RECEIVED':
+      return inviteToken ? `/desafios/convite/${inviteToken}` : (competitionId ? `/desafios/${competitionId}` : '/desafios')
+    case 'COMPETITION_STARTED':
+    case 'COMPETITION_FINISHED':
+    case 'COMPETITION_MEMBER_JOINED':
+    case 'COMPETITION_RANKING_OVERTAKEN':
+    case 'COMPETITION_ENDING_SOON':
+      return competitionId ? `/desafios/${competitionId}` : '/desafios'
+    default:
+      return null
+  }
+}
+
 async function handleResponse<T>(res: Response): Promise<T> {
   const json = await res.json().catch(() => null)
   if (!res.ok) throw new Error(json?.error?.message ?? 'Erro na requisição')

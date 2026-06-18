@@ -369,9 +369,8 @@ export async function toggleLike(userId: string, postId: string) {
       title: "Curtiram seu post",
       body: `${likerLabel} curtiu seu treino`,
       metadata: { postId, likerUserId: userId },
-      // Deep link pro feed — não temos rota pra post individual ainda,
-      // /feed leva o user pra ver tudo.
-      url: "/feed",
+      // Deep link direto pro post que foi curtido.
+      url: `/post/${postId}`,
       // Mesma tag por post coalesce múltiplos likes recentes em uma
       // notificação visual (mais N curtidas em vez de 10 banners).
       tag: `like-${postId}`
@@ -452,6 +451,45 @@ export async function getUserPosts(viewerId: string | undefined, targetUserId: s
     const shaped = transformPost(p);
     return { ...shaped, workoutSummary: summariseSession(p.workoutSession ?? null) };
   });
+}
+
+// Busca um único post (deep-link de notificação: "Curtiram seu post" leva ao
+// post exato). Aplica as mesmas regras de privacidade do feed/perfil — se o
+// viewer não pode ver, devolve 404 (não revela existência).
+export async function getPostById(viewerId: string, postId: string) {
+  const raw = await prisma.workoutPost.findUnique({
+    where: { id: postId },
+    select: {
+      ...POST_SELECT,
+      removedAt: true,
+      userId: true,
+      user: { select: { id: true, name: true, handle: true, avatarUrl: true, isPrivate: true } },
+    },
+  });
+  if (!raw || raw.removedAt) {
+    throw new AppError("Post não encontrado", { statusCode: 404, code: "POST_NOT_FOUND" });
+  }
+
+  const { removedAt: _removedAt, userId: authorId, user, ...rest } = raw;
+  const { isPrivate: authorIsPrivate, ...publicUser } = user;
+
+  const isSelf = viewerId === authorId;
+  let canView = isSelf;
+  if (!canView) {
+    const isFollowing = !!(await prisma.follow.findUnique({
+      where: { followerId_followingId: { followerId: viewerId, followingId: authorId } },
+    }));
+    if (rest.privacy === "PUBLIC") canView = !authorIsPrivate || isFollowing;
+    else if (rest.privacy === "FRIENDS") canView = isFollowing;
+    else canView = false; // PRIVATE
+  }
+  if (!canView) {
+    throw new AppError("Post não encontrado", { statusCode: 404, code: "POST_NOT_FOUND" });
+  }
+
+  const likedByMe = !!(await prisma.postLike.findFirst({ where: { userId: viewerId, postId } }));
+  const shaped = transformPost({ ...rest, user: publicUser });
+  return { ...shaped, likedByMe, workoutSummary: summariseSession(rest.workoutSession ?? null) };
 }
 
 export async function followUser(followerId: string, followingId: string) {
@@ -933,7 +971,7 @@ export async function createComment(userId: string, postId: string, content: str
       title: `${commenterLabel} comentou no seu post`,
       body: preview,
       metadata: { postId, commentId: created.id },
-      url: "/feed",
+      url: `/post/${postId}`,
       tag: `comment-${postId}`
     });
   }

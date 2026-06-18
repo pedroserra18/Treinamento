@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import {
-  createPost, deletePost, updatePostPrivacy, toggleLike, getFeed, getUserPosts,
+  createPost, deletePost, updatePostPrivacy, toggleLike, getFeed, getPostById, getUserPosts,
   followUser, unfollowUser, getFollowers, getFollowing,
   searchUsers, getPublicProfile, getPublicFollowers, getPublicFollowing, getMutualFollowers,
   sharePlan, createAndSharePlan, getSharedPlan, saveSharedPlan, compareUsers, compareExercise,
@@ -38,6 +38,11 @@ export async function getFeedController(req: Request, res: Response) {
   const { page, pageSize } = req.query as unknown as FeedQuery;
   const posts = await getFeed(req.context.userId!, page, pageSize);
   res.json({ data: posts });
+}
+
+export async function getPostController(req: Request, res: Response) {
+  const post = await getPostById(req.context.userId!, req.params["postId"] as string);
+  res.json({ data: post });
 }
 
 export async function getUserPostsController(req: Request, res: Response) {

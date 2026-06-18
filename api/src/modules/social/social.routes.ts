@@ -8,7 +8,7 @@ import {
 } from "./social.schema";
 import {
   createPostController, deletePostController, updatePostPrivacyController, toggleLikeController,
-  getFeedController, getUserPostsController, followController,
+  getFeedController, getPostController, getUserPostsController, followController,
   unfollowController, getFollowersController, getFollowingController,
   searchUsersController, getPublicProfileController,
   getPublicFollowersController, getPublicFollowingController, getMutualFollowersController,
@@ -24,6 +24,7 @@ router.get("/feed", requireAuth, validate({ query: feedQuerySchema }), asyncHand
 
 // Posts
 router.post("/posts", requireAuth, validate({ body: createPostSchema }), asyncHandler(createPostController));
+router.get("/posts/:postId", requireAuth, asyncHandler(getPostController));
 router.delete("/posts/:postId", requireAuth, asyncHandler(deletePostController));
 router.patch("/posts/:postId/privacy", requireAuth, validate({ body: updatePostPrivacySchema }), asyncHandler(updatePostPrivacyController));
 router.post("/posts/:postId/like", requireAuth, asyncHandler(toggleLikeController));
