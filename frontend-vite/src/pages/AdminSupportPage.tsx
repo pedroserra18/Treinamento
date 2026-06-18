@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ChevronRight, RefreshCw, Search, Inbox, AlertTriangle } from 'lucide-react'
+import { ChevronRight, RefreshCw, Search, Inbox, AlertTriangle, Flag } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import {
   STATUS_COLORS,
   STATUS_LABELS,
   TOPIC_LABELS,
   adminAutoClose,
+  adminListReports,
   adminListTickets,
   type SupportTicketSummary,
   type TicketStatus,
@@ -45,6 +46,7 @@ export function AdminSupportPage() {
   const [search, setSearch] = useState('')
   const [autoClosing, setAutoClosing] = useState(false)
   const [autoCloseInfo, setAutoCloseInfo] = useState<string | null>(null)
+  const [reportsCount, setReportsCount] = useState<number | null>(null)
 
   const refresh = async () => {
     setLoading(true)
@@ -69,6 +71,20 @@ export function AdminSupportPage() {
     void refresh()
   }, [statusFilter]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Contagem de denúncias pendentes pro badge do botão. Silencioso.
+  const refreshReportsCount = async () => {
+    try {
+      const data = await adminListReports(authorizedFetch)
+      setReportsCount(data.items.length)
+    } catch {
+      // silencioso — o badge só não aparece
+    }
+  }
+
+  useEffect(() => {
+    void refreshReportsCount()
+  }, [authorizedFetch]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Atualização ao vivo da fila: poll a cada 20s + refetch ao focar a aba,
   // silencioso (não mexe no loading). Lê o filtro/busca atuais via ref para
   // não reiniciar o timer a cada tecla.
@@ -86,6 +102,7 @@ export function AdminSupportPage() {
         })
         setItems(data.items)
         setTotal(data.total)
+        void refreshReportsCount()
       } catch {
         // silencioso
       }
@@ -97,7 +114,7 @@ export function AdminSupportPage() {
       clearInterval(interval)
       window.removeEventListener('focus', onFocus)
     }
-  }, [authorizedFetch])
+  }, [authorizedFetch]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleAutoClose = async () => {
     setAutoClosing(true)
@@ -147,9 +164,19 @@ export function AdminSupportPage() {
         <div className="relative mt-3 flex flex-wrap gap-2">
           <Link
             to="/admin/support/reports"
-            className="rounded-full border border-[var(--line)] px-3 py-1 text-xs font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
+            className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-bold shadow-sm transition-colors ${
+              reportsCount && reportsCount > 0
+                ? 'bg-red-500 text-white hover:bg-red-600'
+                : 'bg-[var(--brand)] text-white hover:opacity-90'
+            }`}
           >
+            <Flag size={13} />
             Denúncias
+            {reportsCount && reportsCount > 0 ? (
+              <span className="ml-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-white px-1 text-[10px] font-extrabold text-red-600">
+                {reportsCount > 99 ? '99+' : reportsCount}
+              </span>
+            ) : null}
           </Link>
           <Link
             to="/admin/support/templates"
