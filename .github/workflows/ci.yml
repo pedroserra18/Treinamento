@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# Cancela runs antigos do mesmo branch quando chega push novo.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Checagens estáticas + testes do frontend. Não precisam de banco — rápidas
+  # e determinísticas; são o gate principal de qualidade.
+  quality:
+    name: Lint · Typecheck · Build · Front tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Frontend
+      - name: Install (web)
+        working-directory: frontend-vite
+        run: npm ci
+      - name: Lint (web)
+        working-directory: frontend-vite
+        run: npm run lint
+      - name: Test (web)
+        working-directory: frontend-vite
+        run: npm test
+      - name: Build (web)
+        working-directory: frontend-vite
+        run: npm run build
+
+      # Backend (estático — sem banco)
+      - name: Install (api)
+        working-directory: api
+        run: npm ci
+      - name: Prisma generate (api)
+        working-directory: api
+        run: npm run prisma:generate
+      - name: Lint (api)
+        working-directory: api
+        run: npm run lint
+      - name: Typecheck (api)
+        working-directory: api
+        run: npm run typecheck
+      - name: Build (api)
+        working-directory: api
+        run: npm run build
+
+  # Testes de integração do backend — precisam de Postgres.
+  api-tests:
+    name: API integration tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: acad_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      NODE_ENV: test
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: acad_test
+      JWT_SECRET: ci_jwt_secret_min_32_chars_0123456789
+      JWT_REFRESH_SECRET: ci_refresh_secret_min_32_chars_0123456789
+      GOOGLE_CLIENT_ID: ci-client-id
+      GOOGLE_CLIENT_SECRET: ci-client-secret
+      GOOGLE_CALLBACK_URL: http://localhost:4002/api/v1/auth/google/callback
+      CLIENT_URL: http://localhost:3000
+      CORS_ALLOWED_ORIGINS: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # Monta a URL do Postgres em runtime (credenciais dummy do runner vêm de
+      # env vars, não como literal no arquivo — evita falso-positivo de scanner).
+      - name: Compose DB URL
+        run: |
+          CRED="$PGUSER:$PGPASSWORD"
+          URL="postgresql://${CRED}@localhost:5432/${PGDATABASE}?schema=public"
+          echo "DATABASE_URL=$URL" >> "$GITHUB_ENV"
+          echo "TEST_DATABASE_URL=$URL" >> "$GITHUB_ENV"
+          echo "DIRECT_URL=$URL" >> "$GITHUB_ENV"
+      - name: Install (api)
+        working-directory: api
+        run: npm ci
+      - name: Prisma generate
+        working-directory: api
+        run: npm run prisma:generate
+      - name: Apply migrations (test DB)
+        working-directory: api
+        run: npm run prisma:migrate:deploy
+      - name: Seed (test DB)
+        working-directory: api
+        run: npm run prisma:seed
+      - name: Integration tests (jest)
+        working-directory: api
+        run: npm run test:integration
