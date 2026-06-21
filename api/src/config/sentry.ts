@@ -4,7 +4,18 @@ import { Request } from "express";
 
 const sentryEnabled = Boolean(env.sentryDsn);
 
-const tracesSampleRate = env.nodeEnv === "production" ? 0.2 : 1;
+// Amostragem de performance traces. Cada transação é ENVIADA do servidor pro
+// Sentry → é egress que conta na banda do Render (free tier = 5 GB/mês). Com
+// 0.2 isso gerava ~126k transações/semana. Default baixo (0.05) corta ~4x esse
+// egress sem afetar a captura de ERROS (erros não são amostrados). Ajustável
+// via SENTRY_TRACES_SAMPLE_RATE (ex.: "0" desliga tracing por completo).
+function resolveTracesSampleRate(): number {
+  if (env.nodeEnv !== "production") return 1;
+  const raw = Number(process.env.SENTRY_TRACES_SAMPLE_RATE);
+  return Number.isFinite(raw) && raw >= 0 && raw <= 1 ? raw : 0.05;
+}
+
+const tracesSampleRate = resolveTracesSampleRate();
 
 if (sentryEnabled) {
   Sentry.init({
