@@ -22,6 +22,11 @@ jobs:
         with:
           node-version: 20
 
+      # Deps do root (eslint + tooling). O lint da API usa o eslint do root
+      # via PATH ancestral (a API não tem eslint como devDep próprio).
+      - name: Install (root)
+        run: npm install --no-audit --no-fund
+
       # Frontend
       - name: Install (web)
         working-directory: frontend-vite

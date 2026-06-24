@@ -447,6 +447,7 @@ async function main() {
       email: "admin@local.dev",
       normalizedEmail: "admin@local.dev",
       name: "Local Admin",
+      handle: "local_admin",
       status: "ACTIVE",
       emailVerifiedAt: new Date()
     }
