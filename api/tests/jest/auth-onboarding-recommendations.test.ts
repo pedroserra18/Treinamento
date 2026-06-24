@@ -14,6 +14,7 @@ describe("Auth + Onboarding + Recommendations", () => {
 
     const register = await request(app).post("/api/v1/auth/register").send({
       name: "Jest Auth User",
+      handle: `jauth${Date.now()}${Math.floor(Math.random() * 1000)}`,
       email,
       password: "Password123!"
     });
@@ -43,6 +44,7 @@ describe("Auth + Onboarding + Recommendations", () => {
 
     await request(app).post("/api/v1/auth/register").send({
       name: "Jest Onboarding User",
+      handle: `jonb${Date.now()}${Math.floor(Math.random() * 1000)}`,
       email,
       password: "Password123!"
     });

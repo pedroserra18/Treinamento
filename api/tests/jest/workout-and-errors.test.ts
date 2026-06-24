@@ -13,6 +13,7 @@ async function createOnboardedUserToken() {
 
   await request(app).post("/api/v1/auth/register").send({
     name: "Jest Workout User",
+    handle: `jwk${Date.now()}${Math.floor(Math.random() * 100000)}`,
     email,
     password: "Password123!"
   });
