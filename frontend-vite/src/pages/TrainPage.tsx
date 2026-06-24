@@ -3920,7 +3920,9 @@ export function TrainPage() {
             const todayKey = localDayKey(new Date())
             const isDifferentDay = lastDayKey != null && lastDayKey !== todayKey
             const lastDurationMin = lastSession?.durationSec ? Math.round(lastSession.durationSec / 60) : null
-            const currentDurationMin = Math.max(1, Math.round(elapsedSec / 60))
+            // Usa a duração EXIBIDA (respeita a edição manual do usuário), não o
+            // elapsed cru do cronômetro — mesma fonte do card "Duração" acima.
+            const currentDurationMin = parseDurationMin(summaryDurationMin, Math.max(1, Math.round(elapsedSec / 60)))
             const canCompareDuration = isDifferentDay && lastDurationMin != null && lastDurationMin >= 5
             const durationDelta = canCompareDuration ? currentDurationMin - lastDurationMin! : null
 
