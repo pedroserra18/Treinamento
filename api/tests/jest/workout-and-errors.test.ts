@@ -28,7 +28,13 @@ async function createOnboardedUserToken() {
   await request(app)
     .post("/api/v1/auth/onboarding/complete")
     .set("Authorization", `Bearer ${token}`)
-    .send({ sex: "MALE", availableDaysPerWeek: 4 })
+    .send({
+      sex: "MALE",
+      availableDaysPerWeek: 4,
+      experienceLevel: "INTERMEDIATE",
+      primaryGoal: "HYPERTROPHY",
+      birthDate: "1998-05-10"
+    })
     .expect(200);
 
   return token;

@@ -66,7 +66,13 @@ describe("Auth + Onboarding + Recommendations", () => {
     const completeOnboarding = await request(app)
       .post("/api/v1/auth/onboarding/complete")
       .set("Authorization", `Bearer ${token}`)
-      .send({ sex: "FEMALE", availableDaysPerWeek: 5 });
+      .send({
+        sex: "FEMALE",
+        availableDaysPerWeek: 5,
+        experienceLevel: "BEGINNER",
+        primaryGoal: "WEIGHT_LOSS",
+        birthDate: "1995-03-22"
+      });
 
     expect(completeOnboarding.status).toBe(200);
     expect(completeOnboarding.body.data.user.onboardingCompleted).toBe(true);
