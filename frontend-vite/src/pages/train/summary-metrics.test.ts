@@ -21,6 +21,7 @@ const baseInput = {
   activePlanId: '',
   lastUseByPlanId: {} as Record<string, LastUseInfo>,
   elapsedSec: 0,
+  summaryDurationMin: '',
 }
 
 describe('computeSummaryMetrics — PRs novos', () => {
@@ -129,5 +130,19 @@ describe('computeSummaryMetrics — vs último treino', () => {
       },
     })
     expect(m.durationDelta).toBeNull()
+  })
+
+  it('usa a duração editada manualmente (summaryDurationMin) e não o cronômetro', () => {
+    const m = computeSummaryMetrics({
+      ...baseInput,
+      originMode: 'ROUTINE',
+      activePlanId: 'p1',
+      elapsedSec: 30 * 60, // cronômetro marcou 30min...
+      summaryDurationMin: '50', // ...mas o usuário editou pra 50min
+      lastUseByPlanId: {
+        p1: { endedAt: yesterdayIso(), durationSec: 45 * 60, planId: 'p1', planName: 'X' },
+      },
+    })
+    expect(m.durationDelta).toBe(5) // 50 - 45, não 30 - 45
   })
 })

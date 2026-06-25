@@ -2,7 +2,7 @@
 // concluídas, comparação de duração vs último treino). Função pura — recebe o
 // estado relevante e devolve os números prontos pra renderizar. Fica separada
 // do componente pra poder ser testada sem montar React.
-import { localDayKey } from './helpers'
+import { localDayKey, parseDurationMin } from './helpers'
 import type { ActiveExercise, TrainOriginMode } from './types'
 
 export type LastUseInfo = {
@@ -33,6 +33,7 @@ export function computeSummaryMetrics(input: {
   activePlanId: string
   lastUseByPlanId: Record<string, LastUseInfo>
   elapsedSec: number
+  summaryDurationMin: string
 }): SummaryMetrics {
   const {
     prByExerciseId,
@@ -42,6 +43,7 @@ export function computeSummaryMetrics(input: {
     activePlanId,
     lastUseByPlanId,
     elapsedSec,
+    summaryDurationMin,
   } = input
 
   const newPrs = Object.entries(prByExerciseId).reduce<SummaryNewPr[]>((acc, [exId, currentPr]) => {
@@ -70,7 +72,10 @@ export function computeSummaryMetrics(input: {
   const todayKey = localDayKey(new Date())
   const isDifferentDay = lastDayKey != null && lastDayKey !== todayKey
   const lastDurationMin = lastSession?.durationSec ? Math.round(lastSession.durationSec / 60) : null
-  const currentDurationMin = Math.max(1, Math.round(elapsedSec / 60))
+  // Usa a duração que o usuário vê/editou no resumo (summaryDurationMin),
+  // caindo pro tempo do cronômetro só quando ele não mexeu. Sem isso, editar
+  // a duração manualmente não refletia no card "vs último treino".
+  const currentDurationMin = parseDurationMin(summaryDurationMin, Math.max(1, Math.round(elapsedSec / 60)))
   const canCompareDuration = isDifferentDay && lastDurationMin != null && lastDurationMin >= 5
   const durationDelta = canCompareDuration ? currentDurationMin - lastDurationMin! : null
 

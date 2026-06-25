@@ -14,6 +14,7 @@ export function SummaryMetricsCards({
   activePlanId,
   lastUseByPlanId,
   elapsedSec,
+  summaryDurationMin,
   totals,
 }: {
   prByExerciseId: Record<string, number | null>
@@ -23,6 +24,7 @@ export function SummaryMetricsCards({
   activePlanId: string
   lastUseByPlanId: Record<string, LastUseInfo>
   elapsedSec: number
+  summaryDurationMin: string
   totals: { totalSeries: number; totalVolumeKg: number }
 }) {
   const {
@@ -42,6 +44,7 @@ export function SummaryMetricsCards({
     activePlanId,
     lastUseByPlanId,
     elapsedSec,
+    summaryDurationMin,
   })
 
   return (

@@ -2808,6 +2808,7 @@ export function TrainPage() {
             activePlanId={activePlanId}
             lastUseByPlanId={lastUseByPlanId}
             elapsedSec={elapsedSec}
+            summaryDurationMin={summaryDurationMin}
             totals={totals}
           />
 
