@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { createPortal } from 'react-dom'
 import {
   DndContext,
@@ -74,12 +74,7 @@ import {
 import { workoutHistoryCache } from '../lib/workout-history-cache'
 import { feedFirstPageCache } from '../lib/feed-cache'
 import { getIntensityMode, setIntensityMode, type IntensityMode } from '../lib/intensity-preference'
-import {
-  getNotificationPermission,
-  requestNotificationPermission,
-  showLocalNotification,
-  type NotificationPermissionState,
-} from '../lib/notifications'
+import { showLocalNotification } from '../lib/notifications'
 import { formatClock } from '../lib/workout-timing'
 import { saveWorkoutSessionImage } from '../lib/workout-session-image'
 import { optimizeImageFileToDataUrl } from '../lib/image-processing'
@@ -124,7 +119,7 @@ import {
   postCompetitionEntry,
   uploadCompetitionPhoto,
 } from '../services/competitionService'
-import type { Competition, CompetitionEntryKind } from '../types/competition'
+import type { Competition } from '../types/competition'
 import { sha256OfDataUrl } from '../lib/photo-hash'
 import {
   calculateTotals,
@@ -136,6 +131,9 @@ import {
   sanitizeDecimalInput,
   toFiniteNumber,
 } from './train/helpers'
+import { NotificationsRow } from './train/NotificationsRow'
+import { PrCelebrationBanner } from './train/PrCelebrationBanner'
+import { SendToCompetitionCta } from './train/SendToCompetitionCta'
 
 function parsePositiveInt(value: string, fallback = 0): number {
   const n = Number(value)
@@ -167,272 +165,6 @@ function estimatePlanMinutes(plan: WorkoutPlan): number {
     return acc + sets * (35 + rest)
   }, 0)
   return Math.max(5, Math.round(totalSec / 60))
-}
-
-// Floating "novo PR!" banner. Stays visible for ~3s, auto-dismisses,
-// Linha de "ativar notificações" dentro do popover do timer. Mostra
-// estado atual + botão pra pedir permissão. O click no botão é o gesto
-// explícito do usuário que o iOS Safari exige pra atender o request.
-// Renderiza nada quando o browser não suporta Notification API.
-function NotificationsRow({ onClose }: { onClose: () => void }) {
-  const [perm, setPerm] = useState<NotificationPermissionState>(() => getNotificationPermission())
-  if (perm === 'unsupported') return null
-
-  return (
-    <div className="mt-1 rounded-lg border border-[var(--line)] p-2">
-      <label className="block text-[11px] font-mono uppercase tracking-wider text-[var(--muted)]">
-        Notificação de descanso
-      </label>
-      <div className="mt-1.5">
-        {perm === 'granted' ? (
-          <p className="text-[12px] font-semibold text-emerald-500">
-            ✓ Ativada — vai vibrar quando o descanso acabar
-          </p>
-        ) : perm === 'denied' ? (
-          <p className="text-[11px] leading-relaxed text-[var(--muted)]">
-            Bloqueada. Ative nas configurações do navegador (cadeado na URL → Notificações).
-          </p>
-        ) : (
-          <button
-            type="button"
-            onClick={async () => {
-              const next = await requestNotificationPermission()
-              setPerm(next)
-              if (next === 'granted') onClose()
-            }}
-            style={{ touchAction: 'manipulation' }}
-            className="w-full rounded-md bg-[var(--brand)] py-1.5 text-[12px] font-bold text-white shadow-[0_4px_10px_-4px_rgba(255,90,60,0.55)] hover:bg-[var(--brand-strong)]"
-          >
-            Ativar notificações
-          </button>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// and is rendered through a portal so it floats above the page's
-// framer-motion transform context. The `key` on celebration.id forces
-// a remount when another PR fires while one is still showing, so the
-// animation replays instead of stacking.
-function PrCelebrationBanner({
-  celebration, onDismiss,
-}: {
-  celebration: { id: number; exerciseName: string; loadKg: number; previousKg: number | null } | null
-  onDismiss: () => void
-}) {
-  // Keep onDismiss in a ref so re-renders of the parent (the 1s workout
-  // timer ticks every second) don't reset the auto-dismiss timeout. Only
-  // celebration.id is a real signal to (re)start the timer.
-  const dismissRef = useRef(onDismiss)
-  useEffect(() => {
-    dismissRef.current = onDismiss
-  }, [onDismiss])
-  const celebrationId = celebration?.id ?? null
-  useEffect(() => {
-    if (celebrationId == null) return
-    const id = window.setTimeout(() => dismissRef.current(), 4000)
-    return () => window.clearTimeout(id)
-  }, [celebrationId])
-
-  return createPortal(
-    <AnimatePresence>
-      {celebration && (
-        <motion.div
-          key={`pr-${celebration.id}`}
-          initial={{ y: -80, opacity: 0, scale: 0.92 }}
-          animate={{ y: 0, opacity: 1, scale: 1 }}
-          exit={{ y: -60, opacity: 0, scale: 0.96 }}
-          transition={{ type: 'spring', stiffness: 320, damping: 22 }}
-          className="fixed left-1/2 top-4 z-[60] w-[calc(100%-1.5rem)] max-w-md -translate-x-1/2 overflow-hidden rounded-2xl border-2 border-[#f1c84a] shadow-[0_18px_40px_-10px_rgba(241,200,74,0.55)] sm:top-6"
-          style={{ background: 'linear-gradient(135deg, #fff6d6 0%, #ffe28a 100%)' }}
-          role="status"
-          aria-live="polite"
-        >
-          {/* Sparkle background flair — purely decorative */}
-          <span
-            aria-hidden
-            className="pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full opacity-40"
-            style={{ background: 'radial-gradient(circle, #ffffff 0%, transparent 70%)' }}
-          />
-          <div className="relative flex items-center gap-3 px-4 py-3 sm:px-5 sm:py-3.5">
-            <motion.span
-              initial={{ rotate: -25, scale: 0 }}
-              animate={{ rotate: 0, scale: 1 }}
-              transition={{ type: 'spring', stiffness: 380, damping: 14, delay: 0.05 }}
-              className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#f4c443] text-lg font-black text-[#5a4209] shadow-inner sm:h-11 sm:w-11 sm:text-xl"
-              aria-hidden
-            >
-              ★
-            </motion.span>
-            <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#7a5a08] sm:text-[12px]">
-                Novo PR!
-              </p>
-              <p className="mt-0.5 truncate text-sm font-bold text-[#3a2a00] sm:text-base">
-                {celebration.exerciseName}
-              </p>
-              <p className="mt-0.5 font-mono text-[11px] text-[#6a4a00] sm:text-[12px]">
-                <b className="text-[13px] font-extrabold text-[#3a2a00] sm:text-[14px]">{celebration.loadKg} kg</b>
-                {celebration.previousKg != null && (
-                  <span className="ml-2">
-                    ▲ +{Number((celebration.loadKg - celebration.previousKg).toFixed(1))} kg vs {celebration.previousKg} kg
-                  </span>
-                )}
-                {celebration.previousKg == null && (
-                  <span className="ml-2">primeiro PR neste exercício</span>
-                )}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={onDismiss}
-              aria-label="Fechar"
-              className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-[#6a4a00] transition-colors hover:bg-[#f1c84a]/40"
-            >
-              <X size={14} />
-            </button>
-          </div>
-        </motion.div>
-      )}
-    </AnimatePresence>,
-    document.body,
-  )
-}
-
-// "Enviar para desafio" CTA shown on the workout summary when the user
-// has an active competition. If the user is in a BOTH-type room, they
-// pick which counter to log (training vs cardio). Photo is required —
-// the button is disabled with a hint otherwise.
-function SendToCompetitionCta({
-  competition, hasPhoto, savedSessionId, didTraining, didCardio, status, error, onSend,
-}: {
-  competition: Competition
-  hasPhoto: boolean
-  savedSessionId: string | null
-  didTraining: boolean
-  didCardio: boolean
-  status: 'idle' | 'sending' | 'sent' | 'error'
-  error: string | null
-  onSend: (kinds: CompetitionEntryKind[]) => void
-}) {
-  const isLobby = competition.status === 'LOBBY'
-  // Which kinds the user is allowed to post — must have done that kind in
-  // the workout AND the comp must accept it. Drives the buttons below.
-  const canTraining =
-    didTraining && (competition.type === 'TRAINING' || competition.type === 'BOTH')
-  const canCardio =
-    didCardio && (competition.type === 'CARDIO' || competition.type === 'BOTH')
-  const canBoth = canTraining && canCardio && competition.type === 'BOTH'
-
-  // Nothing matches → skip the whole card entirely. The user will still
-  // see the regular "Treino salvo" line but no challenge prompt.
-  if (!canTraining && !canCardio) {
-    return (
-      <div className="rounded-2xl border border-amber-400/30 bg-[var(--surface-hover)] p-3">
-        <p className="text-[11.5px] text-[var(--muted)]">
-          <b className="font-semibold text-[var(--text)]">{competition.name ?? 'Seu desafio'}</b>{' '}
-          — {competition.type === 'TRAINING'
-            ? 'esse desafio é só de treino. Faça pelo menos uma série pra contar.'
-            : competition.type === 'CARDIO'
-              ? 'esse desafio é só de cardio. Adicione uma atividade de cardio pra contar.'
-              : 'faça pelo menos uma série ou um cardio pra contar.'}
-        </p>
-      </div>
-    )
-  }
-
-  const disabledBase = isLobby || !hasPhoto || !savedSessionId || status === 'sending' || status === 'sent'
-
-  return (
-    <div className="rounded-2xl border border-amber-400/50 bg-gradient-to-br from-amber-50 to-[var(--surface)] p-4 sm:p-5 dark:from-amber-500/5">
-      <div className="flex flex-wrap items-start gap-3">
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-amber-400 text-base font-extrabold text-amber-900">
-          🏆
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-[12px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
-            {isLobby ? 'Desafio aguardando início' : 'Desafio em andamento'}
-          </p>
-          <p className="text-sm font-semibold text-[var(--text)]">{competition.name ?? 'Seu desafio'}</p>
-
-          {isLobby && (
-            <p className="mt-1 text-[11px] text-[var(--muted)]">
-              O admin precisa iniciar a sala antes que treinos comecem a contar.
-              Vá em <b className="text-[var(--text)]">/desafios</b> e clique em "Iniciar agora".
-            </p>
-          )}
-          {!isLobby && !hasPhoto && (
-            <p className="mt-1 text-[11px] text-[var(--muted)]">
-              Adicione uma foto na seção acima pra registrar a prova do dia.
-            </p>
-          )}
-          {canBoth && hasPhoto && !isLobby && status === 'idle' && (
-            <p className="mt-1 text-[11px] text-[var(--muted)]">
-              Você fez treino e cardio na mesma sessão — pode contar os 2 dias com uma foto só (2 pontos).
-            </p>
-          )}
-          {status === 'sent' && (
-            <p className="mt-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
-              ✓ Prova enviada! Cai no feed da sala.
-            </p>
-          )}
-          {status === 'error' && error && (
-            <p className="mt-1 text-[11px] text-red-500">{error}</p>
-          )}
-        </div>
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-2">
-        {/* Primary button: the most-rewarding option for the state.
-            - BOTH comp + did both: "Contar treino + cardio" (2 points)
-            - else: single button for what was done */}
-        {canBoth ? (
-          <>
-            <button
-              type="button"
-              disabled={disabledBase}
-              onClick={() => onSend(['TRAINING', 'CARDIO'])}
-              className="rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white hover:bg-[var(--brand-strong)] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {status === 'sending' ? 'Enviando…' : status === 'sent' ? 'Enviado' : 'Contar treino + cardio (2 pts)'}
-            </button>
-            <button
-              type="button"
-              disabled={disabledBase}
-              onClick={() => onSend(['TRAINING'])}
-              className="rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-xs font-semibold text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Só treino
-            </button>
-            <button
-              type="button"
-              disabled={disabledBase}
-              onClick={() => onSend(['CARDIO'])}
-              className="rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-xs font-semibold text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Só cardio
-            </button>
-          </>
-        ) : (
-          <button
-            type="button"
-            disabled={disabledBase}
-            onClick={() => onSend([canTraining ? 'TRAINING' : 'CARDIO'])}
-            className="rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white hover:bg-[var(--brand-strong)] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {status === 'sending'
-              ? 'Enviando…'
-              : status === 'sent'
-                ? 'Enviado'
-                : canTraining
-                  ? competition.type === 'BOTH' ? 'Contar como treino' : 'Enviar para o desafio'
-                  : competition.type === 'BOTH' ? 'Contar como cardio' : 'Enviar para o desafio'}
-          </button>
-        )}
-      </div>
-    </div>
-  )
 }
 
 // Converte um plano salvo pro formato do builder (CreateRoutineScreen),
