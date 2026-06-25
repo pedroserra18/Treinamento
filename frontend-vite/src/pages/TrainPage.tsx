@@ -19,7 +19,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useShowPlanLimit } from '../components/plan/use-plan-limit'
 import { catchPlanLimitError } from '../lib/plan-features'
 import {
-  Flame, Layers, Dumbbell, Plus, Play, Pencil, Sparkles, MoreHorizontal,
+  Flame, Dumbbell, Plus, Play, Pencil, Sparkles, MoreHorizontal,
   MoreVertical, ArrowLeft, Check, Send, Image as ImageIcon, Camera,
   X,
 } from 'lucide-react'
@@ -124,7 +124,6 @@ import { sha256OfDataUrl } from '../lib/photo-hash'
 import {
   calculateTotals,
   createSet,
-  localDayKey,
   mapPlanToActiveExercises,
   parseDurationMin,
   relativeDaysFromNow,
@@ -134,6 +133,7 @@ import {
 import { NotificationsRow } from './train/NotificationsRow'
 import { PrCelebrationBanner } from './train/PrCelebrationBanner'
 import { SendToCompetitionCta } from './train/SendToCompetitionCta'
+import { SummaryMetricsCards } from './train/SummaryMetricsCards'
 
 function parsePositiveInt(value: string, fallback = 0): number {
   const n = Number(value)
@@ -2800,109 +2800,16 @@ export function TrainPage() {
           {/* Cards de métricas — Volume + Séries sempre; PRs/Sets
               concluídos/vs último treino só se houver informação útil.
               Cards reduzidos (text-2xl + p-3.5) pra economizar tela. */}
-          {(() => {
-            const newPrs = Object.entries(prByExerciseId).reduce<{ name: string; load: number; previous: number | null }[]>((acc, [exId, currentPr]) => {
-              if (currentPr == null) return acc
-              const previous = prSnapshotAtStart[exId] ?? null
-              if (previous == null || currentPr > previous) {
-                const ex = activeExercises.find((e) => e.exerciseId === exId)
-                if (ex) acc.push({ name: ex.exerciseName, load: currentPr, previous })
-              }
-              return acc
-            }, [])
-
-            const totalSetsAttempted = activeExercises.reduce((s, ex) => s + ex.sets.length, 0)
-            const completedSetsCount = activeExercises.reduce((s, ex) => s + ex.sets.filter((set) => set.checked).length, 0)
-            const completePct = totalSetsAttempted > 0 ? Math.round((completedSetsCount / totalSetsAttempted) * 100) : 0
-
-            // "vs último treino" só faz sentido quando:
-            //   • A rotina já tem ≥1 sessão anterior em outro dia (não
-            //     o que acabamos de fazer) — evita comparar contra a
-            //     versão de hoje mais cedo, que confunde.
-            //   • A duração anterior é minimamente significativa (≥5 min)
-            //     pra não comparar contra um treino abortado.
-            const lastSession = originMode === 'ROUTINE' && activePlanId ? lastUseByPlanId[activePlanId] : null
-            // Dia LOCAL (não UTC) pra não suprimir/exibir a comparação errado
-            // perto da meia-noite (Brasil UTC-3).
-            const lastDayKey = lastSession ? localDayKey(new Date(lastSession.endedAt)) : null
-            const todayKey = localDayKey(new Date())
-            const isDifferentDay = lastDayKey != null && lastDayKey !== todayKey
-            const lastDurationMin = lastSession?.durationSec ? Math.round(lastSession.durationSec / 60) : null
-            const currentDurationMin = Math.max(1, Math.round(elapsedSec / 60))
-            const canCompareDuration = isDifferentDay && lastDurationMin != null && lastDurationMin >= 5
-            const durationDelta = canCompareDuration ? currentDurationMin - lastDurationMin! : null
-
-            const hasSecondRow = newPrs.length > 0 || durationDelta != null || completePct < 100
-
-            return (
-              <>
-                <div className="grid gap-2.5 sm:grid-cols-2">
-                  <div className="relative overflow-hidden rounded-2xl border border-[var(--brand)]/20 bg-gradient-to-br from-[color-mix(in_srgb,var(--brand)_12%,var(--surface))] to-[var(--surface)] p-3.5">
-                    <div className="flex items-center gap-1.5 text-[var(--brand)]">
-                      <Flame size={14} />
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">Volume</p>
-                    </div>
-                    <p className="mt-1.5 text-2xl font-black text-[var(--text)]">
-                      {Math.round(totals.totalVolumeKg).toLocaleString('pt-BR')}{' '}
-                      <span className="text-base font-semibold text-[var(--muted)]">kg</span>
-                    </p>
-                  </div>
-                  <div className="relative overflow-hidden rounded-2xl border border-[var(--accent-blue)]/20 bg-gradient-to-br from-[color-mix(in_srgb,var(--accent-blue)_10%,var(--surface))] to-[var(--surface)] p-3.5">
-                    <div className="flex items-center gap-1.5 text-[var(--accent-blue)]">
-                      <Layers size={14} />
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">Séries</p>
-                    </div>
-                    <p className="mt-1.5 text-2xl font-black text-[var(--text)]">{totals.totalSeries}</p>
-                  </div>
-                </div>
-
-                {hasSecondRow && (
-                  <div className="grid gap-2.5 sm:grid-cols-2">
-                    {newPrs.length > 0 && (
-                      <div className="rounded-2xl border border-amber-400/30 bg-gradient-to-br from-amber-500/10 to-[var(--surface)] p-3.5">
-                        <div className="flex items-center gap-1.5 text-amber-500">
-                          <Sparkles size={14} />
-                          <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">PRs novos</p>
-                        </div>
-                        <p className="mt-1.5 text-2xl font-black text-[var(--text)]">{newPrs.length}</p>
-                        <ul className="mt-1 space-y-0.5 text-[11px] text-[var(--muted)]">
-                          {newPrs.slice(0, 3).map((pr) => (
-                            <li key={pr.name} className="truncate">
-                              • {pr.name}: <b className="text-amber-600">{pr.load}kg</b>
-                              {pr.previous != null ? <span className="text-[var(--muted)]"> (era {pr.previous}kg)</span> : null}
-                            </li>
-                          ))}
-                          {newPrs.length > 3 && <li className="italic">+ {newPrs.length - 3} mais</li>}
-                        </ul>
-                      </div>
-                    )}
-                    {completePct < 100 && (
-                      <div className="rounded-2xl border border-[var(--line)] p-3.5">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">Sets concluídos</p>
-                        <p className="mt-1.5 text-2xl font-black text-[var(--text)]">
-                          {completedSetsCount}<span className="text-base font-semibold text-[var(--muted)]">/{totalSetsAttempted}</span>
-                        </p>
-                        <p className="mt-0.5 text-[11px] text-[var(--muted)]">{completePct}% das séries marcadas</p>
-                      </div>
-                    )}
-                    {durationDelta != null && (
-                      <div className="rounded-2xl border border-[var(--line)] p-3.5">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">vs último treino</p>
-                        <p className={`mt-1.5 text-2xl font-black tabular-nums ${
-                          durationDelta < 0 ? 'text-emerald-500' : durationDelta > 0 ? 'text-[var(--text)]' : 'text-[var(--muted)]'
-                        }`}>
-                          {durationDelta > 0 ? '+' : ''}{durationDelta}<span className="text-base font-semibold text-[var(--muted)]"> min</span>
-                        </p>
-                        <p className="mt-0.5 text-[11px] text-[var(--muted)]">
-                          Anterior: {lastDurationMin}min · {relativeDaysFromNow(lastSession!.endedAt)}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </>
-            )
-          })()}
+          <SummaryMetricsCards
+            prByExerciseId={prByExerciseId}
+            prSnapshotAtStart={prSnapshotAtStart}
+            activeExercises={activeExercises}
+            originMode={originMode}
+            activePlanId={activePlanId}
+            lastUseByPlanId={lastUseByPlanId}
+            elapsedSec={elapsedSec}
+            totals={totals}
+          />
 
           {/* Foto do treino — círculo destacado no estilo do feed. Vazio mostra
               um ícone de galeria; com foto vira a imagem do usuário (preview de
