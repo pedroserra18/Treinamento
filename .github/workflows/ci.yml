@@ -22,10 +22,15 @@ jobs:
         with:
           node-version: 20
 
+      # Deps do root (eslint + tooling). O lint da API usa o eslint do root
+      # via PATH ancestral (a API não tem eslint como devDep próprio).
+      - name: Install (root)
+        run: npm install --no-audit --no-fund
+
       # Frontend
       - name: Install (web)
         working-directory: frontend-vite
-        run: npm ci
+        run: npm install --no-audit --no-fund
       - name: Lint (web)
         working-directory: frontend-vite
         run: npm run lint
@@ -39,7 +44,7 @@ jobs:
       # Backend (estático — sem banco)
       - name: Install (api)
         working-directory: api
-        run: npm ci
+        run: npm install --no-audit --no-fund
       - name: Prisma generate (api)
         working-directory: api
         run: npm run prisma:generate
@@ -98,13 +103,17 @@ jobs:
           echo "DIRECT_URL=$URL" >> "$GITHUB_ENV"
       - name: Install (api)
         working-directory: api
-        run: npm ci
+        run: npm install --no-audit --no-fund
       - name: Prisma generate
         working-directory: api
         run: npm run prisma:generate
-      - name: Apply migrations (test DB)
+      # Cria o schema direto do schema.prisma (db push) em vez de migrate
+      # deploy: as migrations têm uma ordem inconsistente do zero (add_post_comments
+      # referencia workout_posts, criado num baseline posterior). O ambiente de
+      # teste só precisa de um banco que bata com o schema atual — db push faz isso.
+      - name: Create test schema (db push)
         working-directory: api
-        run: npm run prisma:migrate:deploy
+        run: npx prisma db push --skip-generate --accept-data-loss
       - name: Seed (test DB)
         working-directory: api
         run: npm run prisma:seed

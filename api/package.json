@@ -21,7 +21,7 @@
     "prisma:seed": "prisma db seed",
     "prisma:reset": "prisma migrate reset --skip-seed=false",
     "test": "jest --runInBand",
-    "test:integration": "jest --runInBand --config jest.config.ts"
+    "test:integration": "jest --runInBand --config jest.config.cjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
