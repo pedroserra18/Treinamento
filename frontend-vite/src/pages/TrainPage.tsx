@@ -134,6 +134,8 @@ import { NotificationsRow } from './train/NotificationsRow'
 import { PrCelebrationBanner } from './train/PrCelebrationBanner'
 import { SendToCompetitionCta } from './train/SendToCompetitionCta'
 import { SummaryMetricsCards } from './train/SummaryMetricsCards'
+import { RestTimerBar } from './train/RestTimerBar'
+import { ActiveProgressStats } from './train/ActiveProgressStats'
 
 function parsePositiveInt(value: string, fallback = 0): number {
   const n = Number(value)
@@ -3345,8 +3347,6 @@ export function TrainPage() {
   }
 
   if (screen === 'ACTIVE') {
-    const runningExercise = activeExercises.find((e) => e.restRunning)
-
     return (
       <section className="space-y-4">
 
@@ -3357,103 +3357,12 @@ export function TrainPage() {
         <PrCelebrationBanner celebration={prCelebration} onDismiss={() => setPrCelebration(null)} />
 
         {/* Fixed bottom rest timer bar — rendered via portal to escape framer-motion transform context */}
-        {runningExercise
-          ? createPortal(
-              (() => {
-                const isLow = runningExercise.restRemainingSec <= 10
-                const runningIndex = activeExercises.indexOf(runningExercise)
-                return (
-                  <motion.div
-                    key="rest-running"
-                    initial={{ y: 100, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
-                    className={`fixed bottom-[calc(env(safe-area-inset-bottom)_+_4.25rem)] left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2 overflow-hidden rounded-2xl border shadow-2xl px-4 py-3 bg-[var(--surface)] lg:bottom-3 ${
-                      isLow ? 'border-red-500/40 animate-pulse' : 'border-green-500/40'
-                    }`}
-                  >
-                    <div
-                      aria-hidden
-                      className="pointer-events-none absolute left-0 top-0 h-1 transition-[width] duration-1000 ease-linear"
-                      style={{
-                        width: `${runningExercise.restDurationSec > 0
-                          ? Math.max(0, Math.min(100, (runningExercise.restRemainingSec / runningExercise.restDurationSec) * 100))
-                          : 0}%`,
-                        background: isLow
-                          ? 'linear-gradient(90deg, #ef4444, #f97316)'
-                          : 'var(--tech-gradient)',
-                      }}
-                    />
-                    <div className="flex items-center gap-2 sm:gap-3">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
-                          Descansando
-                        </p>
-                        <p className="truncate text-sm font-semibold text-[var(--text)]">
-                          {runningExercise.exerciseName}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => adjustRestTimer(runningIndex, -15)}
-                        className="shrink-0 rounded-xl border border-[var(--line)] px-2.5 py-2 text-xs font-bold text-[var(--muted)] sm:px-3"
-                      >
-                        −15s
-                      </button>
-                      <p className={`shrink-0 text-3xl font-black tabular-nums sm:text-4xl ${
-                        isLow ? 'text-red-400' : 'text-green-400'
-                      }`}>
-                        {formatClock(runningExercise.restRemainingSec)}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => adjustRestTimer(runningIndex, 15)}
-                        className="shrink-0 rounded-xl border border-[var(--line)] px-2.5 py-2 text-xs font-bold text-[var(--muted)] sm:px-3"
-                      >
-                        +15s
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => toggleRestTimer(runningIndex)}
-                        className="shrink-0 rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--text)] sm:px-4"
-                      >
-                        Pular
-                      </button>
-                    </div>
-                  </motion.div>
-                )
-              })(),
-              document.body,
-            )
-          : restFinishedName
-            ? createPortal(
-                <motion.div
-                  key="rest-finished"
-                  initial={{ y: 100, opacity: 0, scale: 0.95 }}
-                  animate={{ y: 0, opacity: 1, scale: 1 }}
-                  transition={{ type: 'spring', stiffness: 280, damping: 20 }}
-                  className="fixed bottom-[calc(env(safe-area-inset-bottom)_+_4.25rem)] left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2 overflow-hidden rounded-2xl border border-green-500/40 bg-[var(--surface)] shadow-2xl px-4 py-3 pointer-events-none lg:bottom-3"
-                >
-                  <div
-                    aria-hidden
-                    className="pointer-events-none absolute inset-0 opacity-30"
-                    style={{ background: 'radial-gradient(circle at 50% 50%, rgba(16,185,129,0.45), transparent 70%)' }}
-                  />
-                  <div className="relative flex items-center justify-center gap-3">
-                    <motion.span
-                      initial={{ scale: 0, rotate: -180 }}
-                      animate={{ scale: 1, rotate: 0 }}
-                      transition={{ type: 'spring', stiffness: 350, damping: 15, delay: 0.05 }}
-                      className="text-2xl text-green-400"
-                    >
-                      ✓
-                    </motion.span>
-                    <p className="text-base font-bold text-[var(--text)]">Descanso concluído</p>
-                    <span className="text-sm text-[var(--muted)]">— {restFinishedName}</span>
-                  </div>
-                </motion.div>,
-                document.body,
-              )
-            : null}
+        <RestTimerBar
+          activeExercises={activeExercises}
+          restFinishedName={restFinishedName}
+          onAdjust={adjustRestTimer}
+          onToggle={toggleRestTimer}
+        />
 
         <motion.header
           initial={{ opacity: 0, y: 8 }}
@@ -3472,48 +3381,7 @@ export function TrainPage() {
               já está no canto direito do header, não repete aqui.
               Progresso usa "exercícios com pelo menos uma série
               concluída" como sinal de avanço prático. */}
-          {(() => {
-            const totalExercises = activeExercises.length
-            const completedExercises = activeExercises.filter(
-              (ex) => ex.sets.some((s) => s.checked)
-            ).length
-            const progressPct = totalExercises > 0
-              ? Math.round((completedExercises / totalExercises) * 100)
-              : 0
-            return (
-              <div className="mt-4 border-t border-dashed border-[var(--line)] pt-3">
-                <div className="grid grid-cols-3 gap-3 text-center sm:text-left">
-                  <div>
-                    <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Volume</p>
-                    <p className="mt-0.5 text-[15px] font-extrabold tabular-nums text-[var(--text)] sm:text-base">
-                      {Math.round(totals.totalVolumeKg).toLocaleString('pt-BR')} <span className="font-mono text-[10px] text-[var(--muted)]">kg</span>
-                    </p>
-                  </div>
-                  <div>
-                    <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Séries</p>
-                    <p className="mt-0.5 text-[15px] font-extrabold tabular-nums text-[var(--text)] sm:text-base">
-                      {totals.totalSeries}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Progresso</p>
-                    <p className="mt-0.5 text-[15px] font-extrabold tabular-nums text-[var(--text)] sm:text-base">
-                      {completedExercises}<span className="font-mono text-[10px] text-[var(--muted)]">/{totalExercises}</span>
-                    </p>
-                  </div>
-                </div>
-                {totalExercises > 0 && (
-                  <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-[var(--surface-hover)]">
-                    <div
-                      className="h-full rounded-full bg-[var(--brand)] transition-all duration-300"
-                      style={{ width: `${progressPct}%` }}
-                      aria-label={`Progresso: ${progressPct}%`}
-                    />
-                  </div>
-                )}
-              </div>
-            )
-          })()}
+          <ActiveProgressStats activeExercises={activeExercises} totals={totals} />
 
           {/* Ações principais sempre visíveis: Voltar + Finalizar.
               Pausar/Retomar e Editar tempo (raros, fluxo de borda) ficam
