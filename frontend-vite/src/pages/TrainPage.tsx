@@ -136,6 +136,7 @@ import { SendToCompetitionCta } from './train/SendToCompetitionCta'
 import { SummaryMetricsCards } from './train/SummaryMetricsCards'
 import { RestTimerBar } from './train/RestTimerBar'
 import { ActiveProgressStats } from './train/ActiveProgressStats'
+import { computeSetPlaceholders } from './train/set-display'
 
 function parsePositiveInt(value: string, fallback = 0): number {
   const n = Number(value)
@@ -3627,44 +3628,10 @@ export function TrainPage() {
                 {exercise.sets.map((setInput, setIndex) => (
                   (() => {
                     const lastSet = lastPerformanceByExercise[exercise.exerciseId]?.[setIndex + 1]
-                    const weightPlaceholder =
-                      lastSet?.weightKg != null
-                        ? `${lastSet.weightKg} kg`
-                        : 'kg'
                     const isTime = exercise.trackingType === 'TIME'
                     const isDistance = exercise.trackingType === 'DISTANCE'
-                    const repsLabel = isTime ? 'Tempo (s)' : isDistance ? 'Distância (m)' : 'Repeticoes'
-                    const trackingDefault = isTime ? '30' : isDistance ? '20' : exercise.suggestedReps
-                    const lastValueForPlaceholder = isTime
-                      ? lastSet?.durationSec
-                      : isDistance
-                        ? lastSet?.distanceMeters
-                        : lastSet?.reps
-                    const repsPlaceholder =
-                      lastValueForPlaceholder != null
-                        ? String(lastValueForPlaceholder)
-                        : trackingDefault || 'reps'
-                    const rirPlaceholder =
-                      lastSet?.rir != null
-                        ? String(lastSet.rir)
-                        : 'rir'
-                    const rpePlaceholder =
-                      lastSet?.rpe != null
-                        ? String(lastSet.rpe)
-                        : 'rpe'
-
-                    // Previous-session label that goes in the Anterior column.
-                    // Falls back to em-dash when there's no prior data.
-                    const previousLabel = (() => {
-                      if (!lastSet) return '—'
-                      if (isTime && lastSet.durationSec != null) return `${lastSet.durationSec}s`
-                      if (isDistance && lastSet.distanceMeters != null) return `${lastSet.distanceMeters}m`
-                      const reps = lastSet.reps
-                      const weight = lastSet.weightKg
-                      if (weight != null && weight > 0 && reps != null) return `${weight}kg × ${reps}`
-                      if (reps != null) return `${reps} reps`
-                      return '—'
-                    })()
+                    const { weightPlaceholder, repsLabel, repsPlaceholder, rirPlaceholder, rpePlaceholder, previousLabel } =
+                      computeSetPlaceholders(lastSet, exercise.trackingType, exercise.suggestedReps)
                     const isComplex = setInput.setType === 'drop' || setInput.setType === 'cluster'
                     const allowedTypes: SetType[] | undefined = isTime || isDistance ? ['normal', 'warmup', 'failure'] : undefined
 
