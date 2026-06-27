@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { createPortal } from 'react-dom'
 import {
   DndContext,
@@ -12,19 +12,16 @@ import {
 import {
   arrayMove,
   SortableContext,
-  useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import { useScrollLock } from '../hooks/useScrollLock'
 import { useShowPlanLimit } from '../components/plan/use-plan-limit'
 import { catchPlanLimitError } from '../lib/plan-features'
 import {
-  Flame, Layers, Dumbbell, Plus, Play, Pencil, Sparkles, MoreHorizontal,
+  Flame, Dumbbell, Plus, Play, Pencil, Sparkles, MoreHorizontal,
   MoreVertical, ArrowLeft, Check, Send, Image as ImageIcon, Camera,
-  Activity, X, ClipboardList,
+  X,
 } from 'lucide-react'
 import { SkeletonCard } from '../components/common/Skeleton'
 // Modais lazy-loaded — não entram no bundle inicial da TrainPage. Cada
@@ -60,7 +57,7 @@ import { usePushNotifications } from '../hooks/usePushNotifications'
 import { cancelBackendNotification, scheduleBackendNotification } from '../services/pushService'
 import { createPost, sharePlan, createAndSharePlan, type PostPrivacy } from '../services/socialService'
 import { WorkoutRecommendationsPage } from './WorkoutRecommendationsPage'
-import { type SetType, type DropEntry } from '../components/common/setTypeOptions'
+import { SET_TYPE_GLYPH, type SetType, type DropEntry } from '../components/common/setTypeOptions'
 import {
   getExerciseExplorerSelectionEventName,
   type ExerciseExplorerSelection,
@@ -77,21 +74,24 @@ import {
 import { workoutHistoryCache } from '../lib/workout-history-cache'
 import { feedFirstPageCache } from '../lib/feed-cache'
 import { getIntensityMode, setIntensityMode, type IntensityMode } from '../lib/intensity-preference'
-import {
-  getNotificationPermission,
-  requestNotificationPermission,
-  showLocalNotification,
-  type NotificationPermissionState,
-} from '../lib/notifications'
+import { showLocalNotification } from '../lib/notifications'
 import { formatClock } from '../lib/workout-timing'
 import { saveWorkoutSessionImage } from '../lib/workout-session-image'
 import { optimizeImageFileToDataUrl } from '../lib/image-processing'
 import { vibrate } from '../lib/haptics'
 import { useWakeLock } from '../hooks/useWakeLock'
 import { useActiveWorkoutElapsed } from '../hooks/useActiveWorkoutElapsed'
-import type { WorkoutPlan, CardioType, CardioEntryInput, ExerciseOption } from '../types/workout'
+import type { WorkoutPlan, CardioEntryInput, ExerciseOption } from '../types/workout'
 import type { RoutineInitial } from './train/CreateRoutineScreen'
 import { parsePerfPayload, stripPerfMarker } from '../lib/perf-notes'
+import { SetTypeBadge, SetTypePickerSheet } from './train/SetTypeControls'
+import { formatDurationCompact, formatSetPerformanceLabel } from './train/train-format'
+import { DurationWarningDialog, PlanUpdateDialog } from './train/TrainDialogs'
+import { SortableExerciseCard } from './train/SortableExerciseCard'
+import type { TrainScreen, TrainOriginMode, TrackingType, ExerciseSetInput, ActiveExercise } from './train/types'
+import { supersetColorFor, nextSupersetGroupId } from './train/superset'
+import { SupersetPickerSheet } from './train/SupersetPickerSheet'
+import { CardioSection } from './train/CardioSection'
 import {
   addPlanExercisesBatch,
   deletePlanExercisesBatch,
@@ -119,87 +119,24 @@ import {
   postCompetitionEntry,
   uploadCompetitionPhoto,
 } from '../services/competitionService'
-import type { Competition, CompetitionEntryKind } from '../types/competition'
+import type { Competition } from '../types/competition'
 import { sha256OfDataUrl } from '../lib/photo-hash'
-
-type TrainScreen = 'DASHBOARD' | 'ACTIVE' | 'SUMMARY' | 'EDIT' | 'RECOMMENDATIONS' | 'NEW_ROUTINE' | 'SEND_ROUTINE'
-type TrainOriginMode = 'EMPTY' | 'ROUTINE'
-
-type ExerciseSetInput = {
-  reps: string
-  weightKg: string
-  rir: string
-  rpe: string
-  setType: SetType
-  dropSets: DropEntry[]
-  clusterReps: string
-  clusterCount: string
-  checked: boolean
-}
-
-type TrackingType = 'REPS' | 'TIME' | 'DISTANCE' | 'REPS_AND_TIME'
-
-type ActiveExercise = {
-  planExerciseId?: string
-  exerciseId: string
-  exerciseName: string
-  equipment: string
-  thumbnailUrl: string | null
-  videoUrl: string | null
-  isBodyweight: boolean
-  allowsExtraLoad: boolean
-  trackingType: TrackingType
-  suggestedReps: string
-  restDurationSec: number
-  restRemainingSec: number
-  restRunning: boolean
-  // Wall-clock (Date.now() ms) em que o descanso DEVE terminar. Null quando
-  // o timer não está rodando. Quando running, `restRemainingSec` é DERIVADO
-  // disso a cada tick (max(0, (restEndsAtMs - now) / 1000)). Isso garante
-  // que o descanso continua progredindo mesmo se o setInterval for pausado
-  // (iOS background, navegação pra outra tela, reload da página, ...) — o
-  // relógio do device não para enquanto o JS estava parado.
-  restEndsAtMs: number | null
-  sets: ExerciseSetInput[]
-  userNote: string
-  // Letra do grupo de supersérie (A, B, C, ...). Exercícios com o
-  // mesmo valor são feitos em ciclo sem descanso entre eles. Null
-  // significa exercício solto. Por enquanto, persiste só na sessão
-  // — a rotina e o histórico de treino não armazenam supersets.
-  supersetGroup?: string | null
-}
-
-// Visual marker colors for superset groups — repeated cyclically when
-// the workout has more than 5 supersets (rare).
-const SUPERSET_COLORS = [
-  '#f97316', // orange-500
-  '#22c55e', // green-500
-  '#3b82f6', // blue-500
-  '#a855f7', // purple-500
-  '#ec4899', // pink-500
-] as const
-
-function supersetColorFor(group: string | null | undefined): string | null {
-  if (!group) return null
-  const code = group.toUpperCase().charCodeAt(0)
-  const offset = (code - 'A'.charCodeAt(0) + SUPERSET_COLORS.length) % SUPERSET_COLORS.length
-  return SUPERSET_COLORS[offset]
-}
-
-// Returns the next free superset letter for a workout — A, B, C, ...
-// or extends past Z if needed (unlikely).
-function nextSupersetGroupId(exercises: ActiveExercise[]): string {
-  const used = new Set(exercises.map((e) => e.supersetGroup).filter((g): g is string => Boolean(g)))
-  for (let i = 0; i < 26; i += 1) {
-    const letter = String.fromCharCode('A'.charCodeAt(0) + i)
-    if (!used.has(letter)) return letter
-  }
-  return `G${used.size + 1}`
-}
-
-function createSet(reps = '', weightKg = '', rir = '', rpe = ''): ExerciseSetInput {
-  return { reps, weightKg, rir, rpe, setType: 'normal', dropSets: [{ weightKg: '', reps: '' }], clusterReps: '', clusterCount: '', checked: false }
-}
+import {
+  calculateTotals,
+  createSet,
+  mapPlanToActiveExercises,
+  parseDurationMin,
+  relativeDaysFromNow,
+  sanitizeDecimalInput,
+  toFiniteNumber,
+} from './train/helpers'
+import { NotificationsRow } from './train/NotificationsRow'
+import { PrCelebrationBanner } from './train/PrCelebrationBanner'
+import { SendToCompetitionCta } from './train/SendToCompetitionCta'
+import { SummaryMetricsCards } from './train/SummaryMetricsCards'
+import { RestTimerBar } from './train/RestTimerBar'
+import { ActiveProgressStats } from './train/ActiveProgressStats'
+import { computeSetPlaceholders } from './train/set-display'
 
 function parsePositiveInt(value: string, fallback = 0): number {
   const n = Number(value)
@@ -208,169 +145,6 @@ function parsePositiveInt(value: string, fallback = 0): number {
   }
 
   return Math.floor(n)
-}
-
-// Parser de duração flexível pra o input de "Duração" no SUMMARY.
-// Aceita variações comuns que o usuário pode escrever sem pensar:
-//   "65"         → 65 min
-//   "1h05"       → 65 min
-//   "1h"         → 60 min
-//   "1:05"       → 65 min
-//   "90min"      → 90 min
-//   "1.5h"       → 90 min  (raro mas inofensivo)
-// Retorna fallback (geralmente o derivado do cronômetro) se nada
-// parsear como duração positiva.
-function parseDurationMin(raw: string, fallback: number): number {
-  const t = raw.trim().toLowerCase().replace(',', '.')
-  if (!t) return fallback
-  // formato HH:MM ou H:MM
-  const colonMatch = t.match(/^(\d+):(\d+)$/)
-  if (colonMatch) {
-    return Math.max(0, parseInt(colonMatch[1], 10) * 60 + parseInt(colonMatch[2], 10))
-  }
-  // formato 1h05 ou 1h
-  const hMatch = t.match(/^(\d+(?:\.\d+)?)h(\d{0,2})?$/)
-  if (hMatch) {
-    const h = parseFloat(hMatch[1])
-    const m = hMatch[2] ? parseInt(hMatch[2], 10) : 0
-    return Math.round(h * 60 + m)
-  }
-  // formato 90min ou 90 m
-  const minMatch = t.match(/^(\d+(?:\.\d+)?)\s*m(in)?$/)
-  if (minMatch) return Math.round(parseFloat(minMatch[1]))
-  // formato inteiro/decimal puro = minutos
-  const numMatch = t.match(/^(\d+(?:\.\d+)?)$/)
-  if (numMatch) return Math.round(parseFloat(numMatch[1]))
-  return fallback
-}
-
-function toFiniteNumber(value: unknown): number | null {
-  if (value == null) {
-    return null
-  }
-
-  // String inputs do nosso form usam vírgula como separador decimal
-  // (locale BR). Normaliza pra ponto antes de passar pro Number,
-  // que só entende ponto. Outros tipos (number) passam intactos.
-  const normalized = typeof value === 'string' ? value.replace(',', '.') : value
-  const parsed = Number(normalized)
-  return Number.isFinite(parsed) ? parsed : null
-}
-
-// Normaliza input decimal pro padrão BR: aceita vírgula e ponto como
-// separador (usuários BR digitam vírgula no teclado virtual; quem cola
-// valor de outro lugar pode trazer ponto), garante UM único separador
-// e limita a `maxDecimals` casas após ele. Mantém como string pra o
-// input controlado conseguir guardar estados intermediários ("50,"
-// digitado mas ainda incompleto).
-function sanitizeDecimalInput(raw: string, maxDecimals = 3): string {
-  // Remove tudo que não é dígito ou separador
-  let cleaned = raw.replace(/[^\d.,]/g, '')
-  // Normaliza vírgula pra ponto pra trabalhar com um separador só
-  cleaned = cleaned.replace(/,/g, '.')
-  // Mantém apenas o PRIMEIRO ponto — pontos subsequentes viram nada
-  const firstDot = cleaned.indexOf('.')
-  if (firstDot !== -1) {
-    cleaned = cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, '')
-    // Trunca a parte decimal pra no máximo maxDecimals dígitos
-    const [intPart, decPart = ''] = cleaned.split('.')
-    cleaned = decPart.length > 0 ? `${intPart}.${decPart.slice(0, maxDecimals)}` : `${intPart}.`
-  }
-  // O usuário viu "vírgula", então devolve assim pro display ficar
-  // consistente com o teclado dele.
-  return cleaned.replace('.', ',')
-}
-
-function mapPlanToActiveExercises(plan: WorkoutPlan): ActiveExercise[] {
-  return plan.exercises.map((entry) => {
-    const exerciseName = entry.customName ?? entry.exercise.name
-    const trackingType = (entry.exercise.trackingType ?? 'REPS') as TrackingType
-    const repsText =
-      trackingType === 'TIME'
-        ? String(entry.durationSec ?? 30)
-        : trackingType === 'DISTANCE'
-          ? '20'
-          : entry.repsMin && entry.repsMax
-            ? `${entry.repsMin}`
-            : String(entry.repsMax ?? entry.repsMin ?? 8)
-
-    return {
-      planExerciseId: entry.id,
-      exerciseId: entry.exercise.id,
-      exerciseName,
-      equipment: entry.exercise.equipment,
-      thumbnailUrl: entry.exercise.thumbnailUrl,
-      videoUrl: entry.exercise.videoUrl,
-      isBodyweight: resolveBodyweightFlag(
-        entry.exercise.isBodyweight,
-        exerciseName,
-        entry.exercise.equipment,
-      ),
-      allowsExtraLoad: entry.exercise.allowsExtraLoad,
-      trackingType,
-      suggestedReps: repsText,
-      restDurationSec: entry.restSec ?? 0,
-      restRemainingSec: entry.restSec ?? 0,
-      restRunning: false,
-      restEndsAtMs: null,
-      sets: Array.from({ length: Math.max(1, entry.sets ?? 3) }, () => createSet()),
-      userNote: '',
-    }
-  })
-}
-
-function calculateTotals(exercises: ActiveExercise[]): { totalSeries: number; totalVolumeKg: number } {
-  let totalSeries = 0
-  let totalVolumeKg = 0
-
-  exercises.forEach((exercise) => {
-    exercise.sets.forEach((setInput) => {
-      // CRITÉRIO ÚNICO: série só conta se foi marcada como concluída
-      // (checked = true). Antes contava também sets com reps preenchido
-      // mas isso causava o "fantasma da série marcada-e-desmarcada" —
-      // o completeSet auto-preenche reps quando marca, e não limpa
-      // quando desmarca, então a série continuava no totalSeries mesmo
-      // após o usuário tirar o ✓. "Séries realizadas" = séries com ✓.
-      if (!setInput.checked) return
-
-      if (setInput.setType === 'drop') {
-        totalSeries += 1
-        setInput.dropSets.forEach((drop) => {
-          const r = Number(drop.reps)
-          const w = toFiniteNumber(drop.weightKg) ?? 0
-          if (Number.isFinite(r) && r > 0 && w > 0) {
-            totalVolumeKg += w * r
-          }
-        })
-        return
-      }
-
-      if (setInput.setType === 'cluster') {
-        totalSeries += 1
-        const cr = Number(setInput.clusterReps)
-        const cc = Number(setInput.clusterCount)
-        const weight = toFiniteNumber(setInput.weightKg) ?? 0
-        if (weight > 0 && Number.isFinite(cr) && cr > 0 && Number.isFinite(cc) && cc > 0) {
-          totalVolumeKg += weight * cr * cc
-        }
-        return
-      }
-
-      const reps = Number(setInput.reps)
-      const effectiveReps = Number.isFinite(reps) && reps > 0 ? reps : Number(exercise.suggestedReps)
-
-      totalSeries += 1
-      const weight = toFiniteNumber(setInput.weightKg) ?? 0
-      if (weight > 0 && Number.isFinite(effectiveReps) && effectiveReps > 0) {
-        totalVolumeKg += weight * effectiveReps
-      }
-    })
-  })
-
-  return {
-    totalSeries,
-    totalVolumeKg: Number(totalVolumeKg.toFixed(2)),
-  }
 }
 
 function isEffectiveBodyweightExercise(exercise: Pick<ActiveExercise, 'isBodyweight' | 'exerciseName' | 'equipment'>): boolean {
@@ -396,345 +170,6 @@ function estimatePlanMinutes(plan: WorkoutPlan): number {
   return Math.max(5, Math.round(totalSec / 60))
 }
 
-// Chave de dia no fuso LOCAL (não UTC). Evita que sessões perto da meia-noite
-// sejam classificadas no dia errado (ex.: Brasil UTC-3, treino às 22h vira o
-// dia seguinte em UTC).
-function localDayKey(d: Date): string {
-  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
-}
-
-function relativeDaysFromNow(iso: string): string {
-  const then = new Date(iso)
-  const now = new Date()
-  // Diferença em DIAS DE CALENDÁRIO (local), não janelas de 24h — assim
-  // "ontem 23h" não vira "hoje" só porque passaram menos de 24h.
-  const startThen = new Date(then.getFullYear(), then.getMonth(), then.getDate())
-  const startNow = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  const d = Math.round((startNow.getTime() - startThen.getTime()) / (1000 * 60 * 60 * 24))
-  if (d <= 0) return 'hoje'
-  if (d === 1) return 'ontem'
-  if (d < 7) return `há ${d} dias`
-  if (d < 14) return 'há 1 semana'
-  if (d < 30) return `há ${Math.floor(d / 7)} semanas`
-  if (d < 60) return 'há 1 mês'
-  if (d < 365) return `há ${Math.floor(d / 30)} meses`
-  if (d < 730) return 'há 1 ano'
-  return `há ${Math.floor(d / 365)} anos`
-}
-
-// Formata uma duração em segundos pra rótulo curto e legível.
-// Usado pra mostrar a duração do último treino na lista de rotinas.
-function formatDurationCompact(sec: number): string {
-  if (sec < 60) return `${sec}s`
-  const totalMin = Math.round(sec / 60)
-  if (totalMin < 60) return `${totalMin}min`
-  const h = Math.floor(totalMin / 60)
-  const m = totalMin % 60
-  if (m === 0) return `${h}h`
-  return `${h}h${String(m).padStart(2, '0')}`
-}
-
-// Monta a string "124 kg × 4 reps" pra usar no body do push de descanso.
-// Cuida dos casos especiais:
-//   • bodyweight (sem barra/halter): só "4 reps", sem peso
-//   • só peso preenchido: "124 kg"
-//   • só reps preenchido: "4 reps"
-//   • nada preenchido: null (caller omite a parte "última: ...")
-// Normaliza ponto pra vírgula (formato BR) e remove decimais redundantes.
-function formatSetPerformanceLabel(
-  set: { weightKg: string; reps: string },
-  isBodyweight: boolean,
-): string | null {
-  const reps = (set.reps ?? '').trim()
-  const weight = (set.weightKg ?? '').trim()
-  if (!reps && !weight) return null
-
-  const repsLabel = reps ? `${reps} reps` : null
-  if (isBodyweight) return repsLabel
-
-  if (!weight) return repsLabel
-  // Substitui o ponto decimal por vírgula (formato BR) e tira o ".0"
-  // que aparece quando o user digitou 100,0 — fica só "100 kg".
-  const trimmedWeight = weight.replace('.', ',').replace(/,0+$/, '')
-  const weightLabel = `${trimmedWeight} kg`
-  return repsLabel ? `${weightLabel} × ${repsLabel}` : weightLabel
-}
-
-const CARDIO_LABELS: Record<CardioType, string> = {
-  WALK: 'Caminhada', RUN: 'Corrida', BIKE: 'Bicicleta', STAIRS: 'Escada',
-  ELLIPTICAL: 'Elíptico', ROW: 'Remo', JUMP_ROPE: 'Corda', SWIM: 'Natação', OTHER: 'Outro',
-}
-const CARDIO_TYPES = Object.keys(CARDIO_LABELS) as CardioType[]
-
-// Floating "novo PR!" banner. Stays visible for ~3s, auto-dismisses,
-// Linha de "ativar notificações" dentro do popover do timer. Mostra
-// estado atual + botão pra pedir permissão. O click no botão é o gesto
-// explícito do usuário que o iOS Safari exige pra atender o request.
-// Renderiza nada quando o browser não suporta Notification API.
-function NotificationsRow({ onClose }: { onClose: () => void }) {
-  const [perm, setPerm] = useState<NotificationPermissionState>(() => getNotificationPermission())
-  if (perm === 'unsupported') return null
-
-  return (
-    <div className="mt-1 rounded-lg border border-[var(--line)] p-2">
-      <label className="block text-[11px] font-mono uppercase tracking-wider text-[var(--muted)]">
-        Notificação de descanso
-      </label>
-      <div className="mt-1.5">
-        {perm === 'granted' ? (
-          <p className="text-[12px] font-semibold text-emerald-500">
-            ✓ Ativada — vai vibrar quando o descanso acabar
-          </p>
-        ) : perm === 'denied' ? (
-          <p className="text-[11px] leading-relaxed text-[var(--muted)]">
-            Bloqueada. Ative nas configurações do navegador (cadeado na URL → Notificações).
-          </p>
-        ) : (
-          <button
-            type="button"
-            onClick={async () => {
-              const next = await requestNotificationPermission()
-              setPerm(next)
-              if (next === 'granted') onClose()
-            }}
-            style={{ touchAction: 'manipulation' }}
-            className="w-full rounded-md bg-[var(--brand)] py-1.5 text-[12px] font-bold text-white shadow-[0_4px_10px_-4px_rgba(255,90,60,0.55)] hover:bg-[var(--brand-strong)]"
-          >
-            Ativar notificações
-          </button>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// and is rendered through a portal so it floats above the page's
-// framer-motion transform context. The `key` on celebration.id forces
-// a remount when another PR fires while one is still showing, so the
-// animation replays instead of stacking.
-function PrCelebrationBanner({
-  celebration, onDismiss,
-}: {
-  celebration: { id: number; exerciseName: string; loadKg: number; previousKg: number | null } | null
-  onDismiss: () => void
-}) {
-  // Keep onDismiss in a ref so re-renders of the parent (the 1s workout
-  // timer ticks every second) don't reset the auto-dismiss timeout. Only
-  // celebration.id is a real signal to (re)start the timer.
-  const dismissRef = useRef(onDismiss)
-  useEffect(() => {
-    dismissRef.current = onDismiss
-  }, [onDismiss])
-  const celebrationId = celebration?.id ?? null
-  useEffect(() => {
-    if (celebrationId == null) return
-    const id = window.setTimeout(() => dismissRef.current(), 4000)
-    return () => window.clearTimeout(id)
-  }, [celebrationId])
-
-  return createPortal(
-    <AnimatePresence>
-      {celebration && (
-        <motion.div
-          key={`pr-${celebration.id}`}
-          initial={{ y: -80, opacity: 0, scale: 0.92 }}
-          animate={{ y: 0, opacity: 1, scale: 1 }}
-          exit={{ y: -60, opacity: 0, scale: 0.96 }}
-          transition={{ type: 'spring', stiffness: 320, damping: 22 }}
-          className="fixed left-1/2 top-4 z-[60] w-[calc(100%-1.5rem)] max-w-md -translate-x-1/2 overflow-hidden rounded-2xl border-2 border-[#f1c84a] shadow-[0_18px_40px_-10px_rgba(241,200,74,0.55)] sm:top-6"
-          style={{ background: 'linear-gradient(135deg, #fff6d6 0%, #ffe28a 100%)' }}
-          role="status"
-          aria-live="polite"
-        >
-          {/* Sparkle background flair — purely decorative */}
-          <span
-            aria-hidden
-            className="pointer-events-none absolute -right-6 -top-6 h-24 w-24 rounded-full opacity-40"
-            style={{ background: 'radial-gradient(circle, #ffffff 0%, transparent 70%)' }}
-          />
-          <div className="relative flex items-center gap-3 px-4 py-3 sm:px-5 sm:py-3.5">
-            <motion.span
-              initial={{ rotate: -25, scale: 0 }}
-              animate={{ rotate: 0, scale: 1 }}
-              transition={{ type: 'spring', stiffness: 380, damping: 14, delay: 0.05 }}
-              className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#f4c443] text-lg font-black text-[#5a4209] shadow-inner sm:h-11 sm:w-11 sm:text-xl"
-              aria-hidden
-            >
-              ★
-            </motion.span>
-            <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#7a5a08] sm:text-[12px]">
-                Novo PR!
-              </p>
-              <p className="mt-0.5 truncate text-sm font-bold text-[#3a2a00] sm:text-base">
-                {celebration.exerciseName}
-              </p>
-              <p className="mt-0.5 font-mono text-[11px] text-[#6a4a00] sm:text-[12px]">
-                <b className="text-[13px] font-extrabold text-[#3a2a00] sm:text-[14px]">{celebration.loadKg} kg</b>
-                {celebration.previousKg != null && (
-                  <span className="ml-2">
-                    ▲ +{Number((celebration.loadKg - celebration.previousKg).toFixed(1))} kg vs {celebration.previousKg} kg
-                  </span>
-                )}
-                {celebration.previousKg == null && (
-                  <span className="ml-2">primeiro PR neste exercício</span>
-                )}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={onDismiss}
-              aria-label="Fechar"
-              className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-[#6a4a00] transition-colors hover:bg-[#f1c84a]/40"
-            >
-              <X size={14} />
-            </button>
-          </div>
-        </motion.div>
-      )}
-    </AnimatePresence>,
-    document.body,
-  )
-}
-
-// "Enviar para desafio" CTA shown on the workout summary when the user
-// has an active competition. If the user is in a BOTH-type room, they
-// pick which counter to log (training vs cardio). Photo is required —
-// the button is disabled with a hint otherwise.
-function SendToCompetitionCta({
-  competition, hasPhoto, savedSessionId, didTraining, didCardio, status, error, onSend,
-}: {
-  competition: Competition
-  hasPhoto: boolean
-  savedSessionId: string | null
-  didTraining: boolean
-  didCardio: boolean
-  status: 'idle' | 'sending' | 'sent' | 'error'
-  error: string | null
-  onSend: (kinds: CompetitionEntryKind[]) => void
-}) {
-  const isLobby = competition.status === 'LOBBY'
-  // Which kinds the user is allowed to post — must have done that kind in
-  // the workout AND the comp must accept it. Drives the buttons below.
-  const canTraining =
-    didTraining && (competition.type === 'TRAINING' || competition.type === 'BOTH')
-  const canCardio =
-    didCardio && (competition.type === 'CARDIO' || competition.type === 'BOTH')
-  const canBoth = canTraining && canCardio && competition.type === 'BOTH'
-
-  // Nothing matches → skip the whole card entirely. The user will still
-  // see the regular "Treino salvo" line but no challenge prompt.
-  if (!canTraining && !canCardio) {
-    return (
-      <div className="rounded-2xl border border-amber-400/30 bg-[var(--surface-hover)] p-3">
-        <p className="text-[11.5px] text-[var(--muted)]">
-          <b className="font-semibold text-[var(--text)]">{competition.name ?? 'Seu desafio'}</b>{' '}
-          — {competition.type === 'TRAINING'
-            ? 'esse desafio é só de treino. Faça pelo menos uma série pra contar.'
-            : competition.type === 'CARDIO'
-              ? 'esse desafio é só de cardio. Adicione uma atividade de cardio pra contar.'
-              : 'faça pelo menos uma série ou um cardio pra contar.'}
-        </p>
-      </div>
-    )
-  }
-
-  const disabledBase = isLobby || !hasPhoto || !savedSessionId || status === 'sending' || status === 'sent'
-
-  return (
-    <div className="rounded-2xl border border-amber-400/50 bg-gradient-to-br from-amber-50 to-[var(--surface)] p-4 sm:p-5 dark:from-amber-500/5">
-      <div className="flex flex-wrap items-start gap-3">
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-amber-400 text-base font-extrabold text-amber-900">
-          🏆
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-[12px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
-            {isLobby ? 'Desafio aguardando início' : 'Desafio em andamento'}
-          </p>
-          <p className="text-sm font-semibold text-[var(--text)]">{competition.name ?? 'Seu desafio'}</p>
-
-          {isLobby && (
-            <p className="mt-1 text-[11px] text-[var(--muted)]">
-              O admin precisa iniciar a sala antes que treinos comecem a contar.
-              Vá em <b className="text-[var(--text)]">/desafios</b> e clique em "Iniciar agora".
-            </p>
-          )}
-          {!isLobby && !hasPhoto && (
-            <p className="mt-1 text-[11px] text-[var(--muted)]">
-              Adicione uma foto na seção acima pra registrar a prova do dia.
-            </p>
-          )}
-          {canBoth && hasPhoto && !isLobby && status === 'idle' && (
-            <p className="mt-1 text-[11px] text-[var(--muted)]">
-              Você fez treino e cardio na mesma sessão — pode contar os 2 dias com uma foto só (2 pontos).
-            </p>
-          )}
-          {status === 'sent' && (
-            <p className="mt-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
-              ✓ Prova enviada! Cai no feed da sala.
-            </p>
-          )}
-          {status === 'error' && error && (
-            <p className="mt-1 text-[11px] text-red-500">{error}</p>
-          )}
-        </div>
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-2">
-        {/* Primary button: the most-rewarding option for the state.
-            - BOTH comp + did both: "Contar treino + cardio" (2 points)
-            - else: single button for what was done */}
-        {canBoth ? (
-          <>
-            <button
-              type="button"
-              disabled={disabledBase}
-              onClick={() => onSend(['TRAINING', 'CARDIO'])}
-              className="rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white hover:bg-[var(--brand-strong)] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {status === 'sending' ? 'Enviando…' : status === 'sent' ? 'Enviado' : 'Contar treino + cardio (2 pts)'}
-            </button>
-            <button
-              type="button"
-              disabled={disabledBase}
-              onClick={() => onSend(['TRAINING'])}
-              className="rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-xs font-semibold text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Só treino
-            </button>
-            <button
-              type="button"
-              disabled={disabledBase}
-              onClick={() => onSend(['CARDIO'])}
-              className="rounded-xl border border-[var(--line)] bg-transparent px-3 py-2 text-xs font-semibold text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Só cardio
-            </button>
-          </>
-        ) : (
-          <button
-            type="button"
-            disabled={disabledBase}
-            onClick={() => onSend([canTraining ? 'TRAINING' : 'CARDIO'])}
-            className="rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white hover:bg-[var(--brand-strong)] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {status === 'sending'
-              ? 'Enviando…'
-              : status === 'sent'
-                ? 'Enviado'
-                : canTraining
-                  ? competition.type === 'BOTH' ? 'Contar como treino' : 'Enviar para o desafio'
-                  : competition.type === 'BOTH' ? 'Contar como cardio' : 'Enviar para o desafio'}
-          </button>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// Visual identity of each set type for the compact series row — letter,
-// colour, label. The series number itself takes the role of the picker
-// button (Hevy-style) so tapping it surfaces the bottom sheet below.
 // Converte um plano salvo pro formato do builder (CreateRoutineScreen),
 // reidratando as séries do marcador __PERF__ quando presente. Usado pela
 // tela "Editar Rotina" pra abrir já preenchida.
@@ -768,530 +203,6 @@ function planToRoutineInitial(plan: WorkoutPlan): RoutineInitial {
       }
     }),
   }
-}
-
-const SET_TYPE_GLYPH: Record<SetType, { letter: string | null; label: string; color: string; bg: string }> = {
-  normal:  { letter: null,  label: 'Série Normal',       color: 'var(--text)',  bg: 'transparent' },
-  warmup:  { letter: 'W',   label: 'Série de Aquecimento', color: '#b58400', bg: '#fff6d6' },
-  preparatory: { letter: 'P', label: 'Série Preparatória', color: '#2f8f6b', bg: '#d7f5e8' },
-  failure: { letter: 'F',   label: 'Série Falhada',     color: '#b14242', bg: '#ffe1d6' },
-  drop:    { letter: 'D',   label: 'Série Drop',        color: '#2c63b8', bg: '#dbe7ff' },
-  cluster: { letter: 'C',   label: 'Cluster Set',       color: '#5b3aa3', bg: '#e8dcff' },
-}
-
-function SetTypeBadge({
-  index, setType, onClick, checked,
-}: {
-  index: number
-  setType: SetType
-  onClick: () => void
-  checked: boolean
-}) {
-  const meta = SET_TYPE_GLYPH[setType]
-  const display = meta.letter ?? String(index + 1)
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={`Série ${index + 1} — ${meta.label}. Toque para mudar o tipo.`}
-      className={`grid h-8 w-8 place-items-center rounded-md text-[13px] font-extrabold transition-colors ${
-        checked ? 'opacity-90' : ''
-      }`}
-      style={{
-        color: setType === 'normal' ? 'var(--text)' : meta.color,
-        background: setType === 'normal' ? 'var(--surface-hover)' : meta.bg,
-        border: '1px solid var(--line)',
-      }}
-    >
-      {display}
-    </button>
-  )
-}
-
-// Bottom sheet to pick the set type (or remove the set). Mobile-first
-// but works on desktop too — a centered modal feels right at any width.
-function SetTypePickerSheet({
-  open, current, allowedTypes, onSelect, onRemove, onClose,
-}: {
-  open: boolean
-  current: SetType
-  allowedTypes?: SetType[]
-  onSelect: (type: SetType) => void
-  onRemove: () => void
-  onClose: () => void
-}) {
-  // Same scroll-lock pattern used by the profile photo viewer — locks both
-  // <html> and <body> so the page underneath cannot scroll while the
-  // picker is up, and restores the previous overflow on close.
-  useScrollLock(open)
-
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [open, onClose])
-
-  if (!open) return null
-
-  const visibleTypes = (allowedTypes ?? (Object.keys(SET_TYPE_GLYPH) as SetType[])).filter((t) =>
-    SET_TYPE_GLYPH[t] !== undefined,
-  )
-
-  return createPortal(
-    <AnimatePresence>
-      <motion.div
-        key="sheet-backdrop"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.18 }}
-        onClick={onClose}
-        className="fixed inset-0 z-[70] flex items-end justify-center bg-black/55 backdrop-blur-sm sm:items-center"
-        role="dialog"
-        aria-modal="true"
-      >
-        <motion.div
-          key="sheet"
-          initial={{ y: 60, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          exit={{ y: 40, opacity: 0 }}
-          transition={{ type: 'spring', stiffness: 340, damping: 28 }}
-          onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-md overflow-hidden rounded-t-2xl border border-b-0 border-[var(--line)] bg-[var(--surface)] pb-safe shadow-2xl sm:mb-0 sm:rounded-2xl sm:border-b"
-        >
-          <div className="mx-auto mt-2 h-1 w-9 rounded-full bg-[var(--line)] sm:hidden" />
-          <h3 className="px-4 pb-2 pt-3 text-center text-[13px] font-bold text-[var(--text)] sm:text-[14px]">
-            Selecionar Tipo de Série
-          </h3>
-          <ul className="border-t border-[var(--line)]">
-            {visibleTypes.map((type) => {
-              const meta = SET_TYPE_GLYPH[type]
-              const display = meta.letter ?? '1'
-              const isCurrent = type === current
-              return (
-                <li key={type}>
-                  <button
-                    type="button"
-                    onClick={() => { onSelect(type); onClose() }}
-                    className={`flex w-full items-center gap-3 border-b border-[var(--line)] px-4 py-3 text-left transition-colors hover:bg-[var(--surface-hover)] ${
-                      isCurrent ? 'bg-[var(--surface-hover)]' : ''
-                    }`}
-                  >
-                    <span
-                      className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-[13px] font-extrabold"
-                      style={{
-                        color: type === 'normal' ? 'var(--text)' : meta.color,
-                        background: type === 'normal' ? 'var(--surface-hover)' : meta.bg,
-                      }}
-                    >
-                      {display}
-                    </span>
-                    <span className="flex-1 text-[14px] font-medium text-[var(--text)]">{meta.label}</span>
-                    {isCurrent && <span className="text-[var(--brand)]">●</span>}
-                  </button>
-                </li>
-              )
-            })}
-            <li>
-              <button
-                type="button"
-                onClick={() => { onRemove(); onClose() }}
-                className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-rose-500/10"
-              >
-                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-[15px] font-extrabold text-rose-500">
-                  ×
-                </span>
-                <span className="flex-1 text-[14px] font-medium text-rose-500">Remover Série</span>
-              </button>
-            </li>
-          </ul>
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>,
-    document.body,
-  )
-}
-
-// Wrapper de drag-to-reorder pra cada card de exercício no treino ativo.
-// Long-press (250ms + 8px de tolerância) ativa o drag, então toques
-// rápidos e scroll continuam funcionando normalmente. O drag NÃO é
-// disparado por interação em <input>/<button>/<select> internos — o
-// pointer já recebeu o gesto desses elementos primeiro e os listeners
-// não burbulham pra cá.
-function SortableExerciseCard({
-  id, children, supersetColor,
-}: {
-  id: string
-  children: React.ReactNode
-  supersetColor: string | null
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
-  const style: React.CSSProperties = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    // Card flutuando: opacidade pra mostrar movimento + z-index pra
-    // ficar sempre na frente dos outros enquanto arrasta.
-    opacity: isDragging ? 0.4 : 1,
-    zIndex: isDragging ? 50 : undefined,
-    // Stripe da supersérie + sombra extra enquanto arrasta pra
-    // simular um "card levantado" no estilo iOS.
-    boxShadow: isDragging
-      ? `${supersetColor ? `inset 4px 0 0 0 ${supersetColor}, ` : ''}0 12px 28px -8px rgba(0,0,0,0.45)`
-      : (supersetColor ? `inset 4px 0 0 0 ${supersetColor}` : undefined),
-    // Manipulation evita que o sistema entenda o long-press como
-    // "selecionar texto" ou "copy menu" no iOS Safari.
-    touchAction: 'manipulation',
-  }
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className="relative overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4"
-      {...attributes}
-      {...listeners}
-    >
-      {children}
-    </div>
-  )
-}
-
-// Picker pra pareamento de supersérie. Lista os OUTROS exercícios do
-// treino (exclui o que abriu o sheet). Tap em um deles pareia os dois
-// no mesmo grupo. Se o alvo já está numa supersérie, mostra o letrão
-// colorido pra o usuário entender que vai entrar no grupo dele.
-function SupersetPickerSheet({
-  open, sourceExerciseName, candidates, onPick, onClose,
-}: {
-  open: boolean
-  sourceExerciseName: string
-  candidates: Array<{ index: number; exercise: ActiveExercise }>
-  onPick: (otherIndex: number) => void
-  onClose: () => void
-}) {
-  useScrollLock(open)
-
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [open, onClose])
-
-  if (!open) return null
-
-  return createPortal(
-    <AnimatePresence>
-      <motion.div
-        key="superset-backdrop"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.18 }}
-        onClick={onClose}
-        className="fixed inset-0 z-[70] flex items-end justify-center bg-black/55 backdrop-blur-sm sm:items-center"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Selecionar exercício para a supersérie"
-      >
-        <motion.div
-          key="superset-sheet"
-          initial={{ y: 60, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          exit={{ y: 40, opacity: 0 }}
-          transition={{ type: 'spring', stiffness: 340, damping: 28 }}
-          onClick={(e) => e.stopPropagation()}
-          className="flex w-full max-w-md flex-col overflow-hidden rounded-t-2xl border border-b-0 border-[var(--line)] bg-[var(--surface)] pb-safe shadow-2xl sm:mb-0 sm:rounded-2xl sm:border-b"
-          style={{ maxHeight: 'min(80vh, 640px)' }}
-        >
-          <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-[var(--line)] sm:hidden" />
-          <h3 className="shrink-0 px-4 pb-1 pt-3 text-center text-[14px] font-bold text-[var(--text)]">
-            Pareie com…
-          </h3>
-          <p className="shrink-0 truncate px-4 pb-2 text-center text-[11.5px] text-[var(--muted)]">
-            {sourceExerciseName}
-          </p>
-          {candidates.length === 0 ? (
-            <p className="border-t border-[var(--line)] px-4 py-8 text-center text-xs text-[var(--muted)]">
-              Adicione pelo menos mais um exercício no treino pra criar uma supersérie.
-            </p>
-          ) : (
-            <ul className="flex-1 overflow-y-auto border-t border-[var(--line)]">
-              {candidates.map(({ index, exercise }) => {
-                const color = supersetColorFor(exercise.supersetGroup)
-                return (
-                  <li key={`${exercise.exerciseId}-${index}`}>
-                    <button
-                      type="button"
-                      onClick={() => { onPick(index); onClose() }}
-                      className="flex w-full items-center gap-3 border-b border-[var(--line)] px-3 py-2 text-left transition-colors hover:bg-[var(--surface-hover)]"
-                    >
-                      {exercise.thumbnailUrl ? (
-                        <img
-                          src={exercise.thumbnailUrl}
-                          alt=""
-                          className="h-10 w-10 shrink-0 rounded-md object-cover"
-                        />
-                      ) : (
-                        <div className="h-10 w-10 shrink-0 rounded-md bg-[var(--surface-hover)]" />
-                      )}
-                      <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--text)]">
-                        {exercise.exerciseName}
-                      </span>
-                      {color && exercise.supersetGroup && (
-                        <span
-                          className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-[11px] font-extrabold text-white"
-                          style={{ backgroundColor: color }}
-                          title={`Já está na supersérie ${exercise.supersetGroup}`}
-                        >
-                          {exercise.supersetGroup}
-                        </span>
-                      )}
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>,
-    document.body,
-  )
-}
-
-// Seção de cardio do treino ativo: lista os cardios adicionados e um mini-form
-// (tipo + minutos + distância opcional em km) para acrescentar mais.
-function CardioSection({ entries, onAdd, onRemove }: {
-  entries: CardioEntryInput[]
-  onAdd: (entry: CardioEntryInput) => void
-  onRemove: (index: number) => void
-}) {
-  const [type, setType] = useState<CardioType>('WALK')
-  const [minutes, setMinutes] = useState('')
-  const [km, setKm] = useState('')
-  const [note, setNote] = useState('')
-
-  const add = () => {
-    const min = parseInt(minutes, 10)
-    if (!Number.isFinite(min) || min <= 0) return
-    const dist = parseFloat(km.replace(',', '.'))
-    const trimmedNote = note.trim()
-    onAdd({
-      type,
-      durationSec: min * 60,
-      distanceMeters: Number.isFinite(dist) && dist > 0 ? Math.round(dist * 1000) : undefined,
-      notes: trimmedNote ? trimmedNote.slice(0, 250) : undefined,
-    })
-    setMinutes('')
-    setKm('')
-    setNote('')
-  }
-
-  return (
-    <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
-      <h2 className="flex items-center gap-2 text-[15px] font-semibold text-[var(--text)]">
-        <Activity size={15} className="text-[var(--brand)]" /> Cardio
-      </h2>
-      <p className="mt-0.5 text-[12px] text-[var(--muted)]">Caminhada, corrida, bike, escada… registre o que fez.</p>
-
-      {entries.length > 0 && (
-        <ul className="mt-3 space-y-1.5">
-          {entries.map((c, i) => (
-            <li key={i} className="rounded-xl border border-[var(--line)] bg-[var(--surface-hover)] px-3 py-2 text-sm">
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-[var(--text)]">{CARDIO_LABELS[c.type]}</span>
-                <span className="text-[var(--muted)]">· {Math.round(c.durationSec / 60)} min</span>
-                {c.distanceMeters ? <span className="text-[var(--muted)]">· {(c.distanceMeters / 1000).toFixed(2).replace(/\.?0+$/, '')} km</span> : null}
-                <button type="button" onClick={() => onRemove(i)} className="ml-auto grid h-6 w-6 place-items-center rounded-md text-[var(--muted)] hover:bg-rose-500/10 hover:text-rose-500" aria-label="Remover cardio">
-                  <X size={13} />
-                </button>
-              </div>
-              {c.notes ? <p className="mt-1 text-[12px] italic text-[var(--muted)]">"{c.notes}"</p> : null}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-[1fr_auto_auto_auto]">
-        <select
-          value={type}
-          onChange={(e) => setType(e.target.value as CardioType)}
-          className="rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)]"
-        >
-          {CARDIO_TYPES.map((t) => <option key={t} value={t}>{CARDIO_LABELS[t]}</option>)}
-        </select>
-        <input
-          type="number"
-          inputMode="numeric"
-          value={minutes}
-          onChange={(e) => setMinutes(e.target.value)}
-          placeholder="min"
-          className="w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] sm:w-20"
-        />
-        <input
-          type="number"
-          inputMode="decimal"
-          value={km}
-          onChange={(e) => setKm(e.target.value)}
-          placeholder="km (opc.)"
-          className="w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] sm:w-24"
-        />
-        <button
-          type="button"
-          onClick={add}
-          disabled={!minutes.trim()}
-          className="col-span-2 rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-[var(--brand-strong)] disabled:opacity-40 sm:col-span-1"
-        >
-          Adicionar
-        </button>
-      </div>
-      <textarea
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        rows={2}
-        maxLength={250}
-        placeholder="Nota (opcional): como foi, ritmo, percurso..."
-        className="mt-2 w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--muted)]"
-      />
-    </div>
-  )
-}
-
-// ─── Dialogs do save flow (Sumário) ──────────────────────────────────────
-// Bottom sheets que aparecem entre o clique em "Salvar Treino" e o save
-// real. Padrão visual herdado de PlanLimitDialog / ConfirmDialog do
-// projeto (centralizado, overlay backdrop blur, ações stack verticais).
-
-function formatMinutesLabel(minutes: number): string {
-  if (minutes < 1) return '0min'
-  if (minutes < 60) return `${minutes}min`
-  const h = Math.floor(minutes / 60)
-  const m = minutes % 60
-  return m === 0 ? `${h}h` : `${h}h ${m}min`
-}
-
-function DurationWarningDialog({
-  warning, onAdjust, onKeep,
-}: {
-  warning: { minutesActual: number; minutesParsed: number; isShort: boolean }
-  onAdjust: () => void
-  onKeep: () => void
-}) {
-  const duracaoLabel = formatMinutesLabel(warning.minutesParsed)
-  const direcao = warning.isShort ? 'menos' : 'mais'
-  return createPortal(
-    // Backdrop NÃO dismissa o dialog — usuário precisa escolher uma das
-    // 2 opções explicitamente. Evita o bug de toque acidental fora do
-    // card disparar "Manter atual" sem o user perceber.
-    <div
-      className="fixed inset-0 z-[80] flex items-end justify-center bg-black/55 p-4 backdrop-blur-sm sm:items-center"
-      role="dialog"
-      aria-modal="true"
-    >
-      <div
-        className="w-full max-w-sm rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-center text-base font-bold text-[var(--text)]">
-          Duração de treino incomum
-        </h2>
-        <p className="mt-2 text-center text-[13px] leading-relaxed text-[var(--muted)]">
-          O seu treino durou <strong className="text-[var(--text)]">{duracaoLabel}</strong>,
-          o que parece {direcao} do que o habitual. Quer ajustá-lo?
-        </p>
-        <div className="mt-5 space-y-2">
-          <button
-            type="button"
-            onClick={onAdjust}
-            className="w-full rounded-2xl bg-[var(--brand)] py-3 text-[14px] font-bold text-white hover:bg-[var(--brand-strong)]"
-          >
-            Ajustar a duração do treino
-          </button>
-          <button
-            type="button"
-            onClick={onKeep}
-            className="w-full rounded-2xl border border-[var(--line)] py-3 text-[13px] font-semibold text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
-          >
-            Manter a duração atual
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  )
-}
-
-function PlanUpdateDialog({
-  state, onApply, onKeep,
-}: {
-  state: { planName: string; addedCount: number; removedCount: number; reordered: boolean; applying: boolean }
-  onApply: () => void
-  onKeep: () => void
-}) {
-  // Mensagem natural em PT-BR. Mostra só o que faz sentido — se não
-  // adicionou nada, omite a parte de "adicionou X". Mesma ideia pra
-  // removidos. Reorder vira frase própria.
-  const parts: string[] = []
-  if (state.addedCount > 0) {
-    parts.push(state.addedCount === 1 ? 'adicionou 1 exercício' : `adicionou ${state.addedCount} exercícios`)
-  }
-  if (state.removedCount > 0) {
-    parts.push(state.removedCount === 1 ? 'removeu 1 exercício' : `removeu ${state.removedCount} exercícios`)
-  }
-  if (state.reordered && parts.length === 0) {
-    parts.push('mudou a ordem dos exercícios')
-  } else if (state.reordered) {
-    parts.push('e mudou a ordem')
-  }
-  const summary = parts.length === 0
-    ? 'A rotina foi alterada nesta sessão.'
-    : `Você ${parts.join(' e ')}.`
-
-  return createPortal(
-    // Backdrop NÃO dismissa — decisão sobre atualizar rotina é definitiva,
-    // user precisa escolher uma das 2 opções explicitamente.
-    <div
-      className="fixed inset-0 z-[80] flex items-end justify-center bg-black/55 p-4 backdrop-blur-sm sm:items-center"
-      role="dialog"
-      aria-modal="true"
-    >
-      <div
-        className="w-full max-w-sm rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Ícone clipboard discreto pra dar contexto visual rápido. */}
-        <div className="mx-auto mb-2 grid h-10 w-10 place-items-center rounded-xl bg-[var(--brand)]/10 text-[var(--brand)]">
-          <ClipboardList size={18} />
-        </div>
-        <h2 className="text-center text-base font-bold text-[var(--text)]">
-          Atualizar "{state.planName}"
-        </h2>
-        <p className="mt-2 text-center text-[13px] leading-relaxed text-[var(--muted)]">
-          {summary}
-        </p>
-        <div className="mt-5 space-y-2">
-          <button
-            type="button"
-            onClick={onApply}
-            disabled={state.applying}
-            className="w-full rounded-2xl bg-[var(--brand)] py-3 text-[14px] font-bold text-white hover:bg-[var(--brand-strong)] disabled:opacity-60"
-          >
-            {state.applying ? 'Atualizando…' : 'Atualizar rotina'}
-          </button>
-          <button
-            type="button"
-            onClick={onKeep}
-            disabled={state.applying}
-            className="w-full rounded-2xl border border-[var(--line)] py-3 text-[13px] font-semibold text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)] disabled:opacity-60"
-          >
-            Manter rotina original
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  )
 }
 
 export function TrainPage() {
@@ -3892,111 +2803,17 @@ export function TrainPage() {
           {/* Cards de métricas — Volume + Séries sempre; PRs/Sets
               concluídos/vs último treino só se houver informação útil.
               Cards reduzidos (text-2xl + p-3.5) pra economizar tela. */}
-          {(() => {
-            const newPrs = Object.entries(prByExerciseId).reduce<{ name: string; load: number; previous: number | null }[]>((acc, [exId, currentPr]) => {
-              if (currentPr == null) return acc
-              const previous = prSnapshotAtStart[exId] ?? null
-              if (previous == null || currentPr > previous) {
-                const ex = activeExercises.find((e) => e.exerciseId === exId)
-                if (ex) acc.push({ name: ex.exerciseName, load: currentPr, previous })
-              }
-              return acc
-            }, [])
-
-            const totalSetsAttempted = activeExercises.reduce((s, ex) => s + ex.sets.length, 0)
-            const completedSetsCount = activeExercises.reduce((s, ex) => s + ex.sets.filter((set) => set.checked).length, 0)
-            const completePct = totalSetsAttempted > 0 ? Math.round((completedSetsCount / totalSetsAttempted) * 100) : 0
-
-            // "vs último treino" só faz sentido quando:
-            //   • A rotina já tem ≥1 sessão anterior em outro dia (não
-            //     o que acabamos de fazer) — evita comparar contra a
-            //     versão de hoje mais cedo, que confunde.
-            //   • A duração anterior é minimamente significativa (≥5 min)
-            //     pra não comparar contra um treino abortado.
-            const lastSession = originMode === 'ROUTINE' && activePlanId ? lastUseByPlanId[activePlanId] : null
-            // Dia LOCAL (não UTC) pra não suprimir/exibir a comparação errado
-            // perto da meia-noite (Brasil UTC-3).
-            const lastDayKey = lastSession ? localDayKey(new Date(lastSession.endedAt)) : null
-            const todayKey = localDayKey(new Date())
-            const isDifferentDay = lastDayKey != null && lastDayKey !== todayKey
-            const lastDurationMin = lastSession?.durationSec ? Math.round(lastSession.durationSec / 60) : null
-            // Usa a duração EXIBIDA (respeita a edição manual do usuário), não o
-            // elapsed cru do cronômetro — mesma fonte do card "Duração" acima.
-            const currentDurationMin = parseDurationMin(summaryDurationMin, Math.max(1, Math.round(elapsedSec / 60)))
-            const canCompareDuration = isDifferentDay && lastDurationMin != null && lastDurationMin >= 5
-            const durationDelta = canCompareDuration ? currentDurationMin - lastDurationMin! : null
-
-            const hasSecondRow = newPrs.length > 0 || durationDelta != null || completePct < 100
-
-            return (
-              <>
-                <div className="grid gap-2.5 sm:grid-cols-2">
-                  <div className="relative overflow-hidden rounded-2xl border border-[var(--brand)]/20 bg-gradient-to-br from-[color-mix(in_srgb,var(--brand)_12%,var(--surface))] to-[var(--surface)] p-3.5">
-                    <div className="flex items-center gap-1.5 text-[var(--brand)]">
-                      <Flame size={14} />
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">Volume</p>
-                    </div>
-                    <p className="mt-1.5 text-2xl font-black text-[var(--text)]">
-                      {Math.round(totals.totalVolumeKg).toLocaleString('pt-BR')}{' '}
-                      <span className="text-base font-semibold text-[var(--muted)]">kg</span>
-                    </p>
-                  </div>
-                  <div className="relative overflow-hidden rounded-2xl border border-[var(--accent-blue)]/20 bg-gradient-to-br from-[color-mix(in_srgb,var(--accent-blue)_10%,var(--surface))] to-[var(--surface)] p-3.5">
-                    <div className="flex items-center gap-1.5 text-[var(--accent-blue)]">
-                      <Layers size={14} />
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">Séries</p>
-                    </div>
-                    <p className="mt-1.5 text-2xl font-black text-[var(--text)]">{totals.totalSeries}</p>
-                  </div>
-                </div>
-
-                {hasSecondRow && (
-                  <div className="grid gap-2.5 sm:grid-cols-2">
-                    {newPrs.length > 0 && (
-                      <div className="rounded-2xl border border-amber-400/30 bg-gradient-to-br from-amber-500/10 to-[var(--surface)] p-3.5">
-                        <div className="flex items-center gap-1.5 text-amber-500">
-                          <Sparkles size={14} />
-                          <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">PRs novos</p>
-                        </div>
-                        <p className="mt-1.5 text-2xl font-black text-[var(--text)]">{newPrs.length}</p>
-                        <ul className="mt-1 space-y-0.5 text-[11px] text-[var(--muted)]">
-                          {newPrs.slice(0, 3).map((pr) => (
-                            <li key={pr.name} className="truncate">
-                              • {pr.name}: <b className="text-amber-600">{pr.load}kg</b>
-                              {pr.previous != null ? <span className="text-[var(--muted)]"> (era {pr.previous}kg)</span> : null}
-                            </li>
-                          ))}
-                          {newPrs.length > 3 && <li className="italic">+ {newPrs.length - 3} mais</li>}
-                        </ul>
-                      </div>
-                    )}
-                    {completePct < 100 && (
-                      <div className="rounded-2xl border border-[var(--line)] p-3.5">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">Sets concluídos</p>
-                        <p className="mt-1.5 text-2xl font-black text-[var(--text)]">
-                          {completedSetsCount}<span className="text-base font-semibold text-[var(--muted)]">/{totalSetsAttempted}</span>
-                        </p>
-                        <p className="mt-0.5 text-[11px] text-[var(--muted)]">{completePct}% das séries marcadas</p>
-                      </div>
-                    )}
-                    {durationDelta != null && (
-                      <div className="rounded-2xl border border-[var(--line)] p-3.5">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--muted)]">vs último treino</p>
-                        <p className={`mt-1.5 text-2xl font-black tabular-nums ${
-                          durationDelta < 0 ? 'text-emerald-500' : durationDelta > 0 ? 'text-[var(--text)]' : 'text-[var(--muted)]'
-                        }`}>
-                          {durationDelta > 0 ? '+' : ''}{durationDelta}<span className="text-base font-semibold text-[var(--muted)]"> min</span>
-                        </p>
-                        <p className="mt-0.5 text-[11px] text-[var(--muted)]">
-                          Anterior: {lastDurationMin}min · {relativeDaysFromNow(lastSession!.endedAt)}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </>
-            )
-          })()}
+          <SummaryMetricsCards
+            prByExerciseId={prByExerciseId}
+            prSnapshotAtStart={prSnapshotAtStart}
+            activeExercises={activeExercises}
+            originMode={originMode}
+            activePlanId={activePlanId}
+            lastUseByPlanId={lastUseByPlanId}
+            elapsedSec={elapsedSec}
+            summaryDurationMin={summaryDurationMin}
+            totals={totals}
+          />
 
           {/* Foto do treino — círculo destacado no estilo do feed. Vazio mostra
               um ícone de galeria; com foto vira a imagem do usuário (preview de
@@ -4531,8 +3348,6 @@ export function TrainPage() {
   }
 
   if (screen === 'ACTIVE') {
-    const runningExercise = activeExercises.find((e) => e.restRunning)
-
     return (
       <section className="space-y-4">
 
@@ -4543,103 +3358,12 @@ export function TrainPage() {
         <PrCelebrationBanner celebration={prCelebration} onDismiss={() => setPrCelebration(null)} />
 
         {/* Fixed bottom rest timer bar — rendered via portal to escape framer-motion transform context */}
-        {runningExercise
-          ? createPortal(
-              (() => {
-                const isLow = runningExercise.restRemainingSec <= 10
-                const runningIndex = activeExercises.indexOf(runningExercise)
-                return (
-                  <motion.div
-                    key="rest-running"
-                    initial={{ y: 100, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
-                    className={`fixed bottom-[calc(env(safe-area-inset-bottom)_+_4.25rem)] left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2 overflow-hidden rounded-2xl border shadow-2xl px-4 py-3 bg-[var(--surface)] lg:bottom-3 ${
-                      isLow ? 'border-red-500/40 animate-pulse' : 'border-green-500/40'
-                    }`}
-                  >
-                    <div
-                      aria-hidden
-                      className="pointer-events-none absolute left-0 top-0 h-1 transition-[width] duration-1000 ease-linear"
-                      style={{
-                        width: `${runningExercise.restDurationSec > 0
-                          ? Math.max(0, Math.min(100, (runningExercise.restRemainingSec / runningExercise.restDurationSec) * 100))
-                          : 0}%`,
-                        background: isLow
-                          ? 'linear-gradient(90deg, #ef4444, #f97316)'
-                          : 'var(--tech-gradient)',
-                      }}
-                    />
-                    <div className="flex items-center gap-2 sm:gap-3">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted)]">
-                          Descansando
-                        </p>
-                        <p className="truncate text-sm font-semibold text-[var(--text)]">
-                          {runningExercise.exerciseName}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => adjustRestTimer(runningIndex, -15)}
-                        className="shrink-0 rounded-xl border border-[var(--line)] px-2.5 py-2 text-xs font-bold text-[var(--muted)] sm:px-3"
-                      >
-                        −15s
-                      </button>
-                      <p className={`shrink-0 text-3xl font-black tabular-nums sm:text-4xl ${
-                        isLow ? 'text-red-400' : 'text-green-400'
-                      }`}>
-                        {formatClock(runningExercise.restRemainingSec)}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => adjustRestTimer(runningIndex, 15)}
-                        className="shrink-0 rounded-xl border border-[var(--line)] px-2.5 py-2 text-xs font-bold text-[var(--muted)] sm:px-3"
-                      >
-                        +15s
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => toggleRestTimer(runningIndex)}
-                        className="shrink-0 rounded-xl border border-[var(--line)] px-3 py-2 text-sm font-semibold text-[var(--text)] sm:px-4"
-                      >
-                        Pular
-                      </button>
-                    </div>
-                  </motion.div>
-                )
-              })(),
-              document.body,
-            )
-          : restFinishedName
-            ? createPortal(
-                <motion.div
-                  key="rest-finished"
-                  initial={{ y: 100, opacity: 0, scale: 0.95 }}
-                  animate={{ y: 0, opacity: 1, scale: 1 }}
-                  transition={{ type: 'spring', stiffness: 280, damping: 20 }}
-                  className="fixed bottom-[calc(env(safe-area-inset-bottom)_+_4.25rem)] left-1/2 z-50 w-[calc(100%-1.5rem)] max-w-5xl -translate-x-1/2 overflow-hidden rounded-2xl border border-green-500/40 bg-[var(--surface)] shadow-2xl px-4 py-3 pointer-events-none lg:bottom-3"
-                >
-                  <div
-                    aria-hidden
-                    className="pointer-events-none absolute inset-0 opacity-30"
-                    style={{ background: 'radial-gradient(circle at 50% 50%, rgba(16,185,129,0.45), transparent 70%)' }}
-                  />
-                  <div className="relative flex items-center justify-center gap-3">
-                    <motion.span
-                      initial={{ scale: 0, rotate: -180 }}
-                      animate={{ scale: 1, rotate: 0 }}
-                      transition={{ type: 'spring', stiffness: 350, damping: 15, delay: 0.05 }}
-                      className="text-2xl text-green-400"
-                    >
-                      ✓
-                    </motion.span>
-                    <p className="text-base font-bold text-[var(--text)]">Descanso concluído</p>
-                    <span className="text-sm text-[var(--muted)]">— {restFinishedName}</span>
-                  </div>
-                </motion.div>,
-                document.body,
-              )
-            : null}
+        <RestTimerBar
+          activeExercises={activeExercises}
+          restFinishedName={restFinishedName}
+          onAdjust={adjustRestTimer}
+          onToggle={toggleRestTimer}
+        />
 
         <motion.header
           initial={{ opacity: 0, y: 8 }}
@@ -4658,48 +3382,7 @@ export function TrainPage() {
               já está no canto direito do header, não repete aqui.
               Progresso usa "exercícios com pelo menos uma série
               concluída" como sinal de avanço prático. */}
-          {(() => {
-            const totalExercises = activeExercises.length
-            const completedExercises = activeExercises.filter(
-              (ex) => ex.sets.some((s) => s.checked)
-            ).length
-            const progressPct = totalExercises > 0
-              ? Math.round((completedExercises / totalExercises) * 100)
-              : 0
-            return (
-              <div className="mt-4 border-t border-dashed border-[var(--line)] pt-3">
-                <div className="grid grid-cols-3 gap-3 text-center sm:text-left">
-                  <div>
-                    <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Volume</p>
-                    <p className="mt-0.5 text-[15px] font-extrabold tabular-nums text-[var(--text)] sm:text-base">
-                      {Math.round(totals.totalVolumeKg).toLocaleString('pt-BR')} <span className="font-mono text-[10px] text-[var(--muted)]">kg</span>
-                    </p>
-                  </div>
-                  <div>
-                    <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Séries</p>
-                    <p className="mt-0.5 text-[15px] font-extrabold tabular-nums text-[var(--text)] sm:text-base">
-                      {totals.totalSeries}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--muted)]">Progresso</p>
-                    <p className="mt-0.5 text-[15px] font-extrabold tabular-nums text-[var(--text)] sm:text-base">
-                      {completedExercises}<span className="font-mono text-[10px] text-[var(--muted)]">/{totalExercises}</span>
-                    </p>
-                  </div>
-                </div>
-                {totalExercises > 0 && (
-                  <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-[var(--surface-hover)]">
-                    <div
-                      className="h-full rounded-full bg-[var(--brand)] transition-all duration-300"
-                      style={{ width: `${progressPct}%` }}
-                      aria-label={`Progresso: ${progressPct}%`}
-                    />
-                  </div>
-                )}
-              </div>
-            )
-          })()}
+          <ActiveProgressStats activeExercises={activeExercises} totals={totals} />
 
           {/* Ações principais sempre visíveis: Voltar + Finalizar.
               Pausar/Retomar e Editar tempo (raros, fluxo de borda) ficam
@@ -4945,44 +3628,10 @@ export function TrainPage() {
                 {exercise.sets.map((setInput, setIndex) => (
                   (() => {
                     const lastSet = lastPerformanceByExercise[exercise.exerciseId]?.[setIndex + 1]
-                    const weightPlaceholder =
-                      lastSet?.weightKg != null
-                        ? `${lastSet.weightKg} kg`
-                        : 'kg'
                     const isTime = exercise.trackingType === 'TIME'
                     const isDistance = exercise.trackingType === 'DISTANCE'
-                    const repsLabel = isTime ? 'Tempo (s)' : isDistance ? 'Distância (m)' : 'Repeticoes'
-                    const trackingDefault = isTime ? '30' : isDistance ? '20' : exercise.suggestedReps
-                    const lastValueForPlaceholder = isTime
-                      ? lastSet?.durationSec
-                      : isDistance
-                        ? lastSet?.distanceMeters
-                        : lastSet?.reps
-                    const repsPlaceholder =
-                      lastValueForPlaceholder != null
-                        ? String(lastValueForPlaceholder)
-                        : trackingDefault || 'reps'
-                    const rirPlaceholder =
-                      lastSet?.rir != null
-                        ? String(lastSet.rir)
-                        : 'rir'
-                    const rpePlaceholder =
-                      lastSet?.rpe != null
-                        ? String(lastSet.rpe)
-                        : 'rpe'
-
-                    // Previous-session label that goes in the Anterior column.
-                    // Falls back to em-dash when there's no prior data.
-                    const previousLabel = (() => {
-                      if (!lastSet) return '—'
-                      if (isTime && lastSet.durationSec != null) return `${lastSet.durationSec}s`
-                      if (isDistance && lastSet.distanceMeters != null) return `${lastSet.distanceMeters}m`
-                      const reps = lastSet.reps
-                      const weight = lastSet.weightKg
-                      if (weight != null && weight > 0 && reps != null) return `${weight}kg × ${reps}`
-                      if (reps != null) return `${reps} reps`
-                      return '—'
-                    })()
+                    const { weightPlaceholder, repsLabel, repsPlaceholder, rirPlaceholder, rpePlaceholder, previousLabel } =
+                      computeSetPlaceholders(lastSet, exercise.trackingType, exercise.suggestedReps)
                     const isComplex = setInput.setType === 'drop' || setInput.setType === 'cluster'
                     const allowedTypes: SetType[] | undefined = isTime || isDistance ? ['normal', 'warmup', 'failure'] : undefined
 
