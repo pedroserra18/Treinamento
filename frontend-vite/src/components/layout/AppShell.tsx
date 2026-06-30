@@ -203,7 +203,7 @@ export function AppShell({ children }: AppShellProps) {
     }`
 
   return (
-    <div className="mx-auto min-h-screen w-full max-w-5xl overflow-x-hidden px-4 pb-24 pt-safe-plus-4 sm:px-6 lg:px-8 lg:pb-8 lg:pt-24">
+    <div className="mx-auto min-h-screen w-full max-w-5xl overflow-x-hidden px-4 pb-24 app-shell-pt sm:px-6 lg:px-8 lg:pb-8">
 
       {/* Navbar pill no topo — apenas desktop (< lg usa a bottom nav).
           justify-between distribui melhor que justify-around quando há

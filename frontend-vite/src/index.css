@@ -28,6 +28,16 @@
 .top-safe-plus-2 { top: calc(env(safe-area-inset-top) + 0.5rem) !important; }
 .top-safe-plus-3 { top: calc(env(safe-area-inset-top) + 0.75rem) !important; }
 
+/* Padding-top do container do AppShell. No mobile: safe-area + 1rem (sem
+   navbar de topo, só a bottom nav). No desktop (lg+): 6rem pra folgar da
+   navbar fixa do topo. Classe própria (com !important) porque o
+   .pt-safe-plus-4 — também !important e definido após o @import do Tailwind —
+   sobrescrevia o `lg:pt-24`, deixando a navbar cobrir o conteúdo no desktop. */
+.app-shell-pt { padding-top: calc(env(safe-area-inset-top) + 1rem) !important; }
+@media (min-width: 1024px) {
+  .app-shell-pt { padding-top: 6rem !important; }
+}
+
 :root {
   --bg: #f7f7f8;
   --surface: #ffffff;

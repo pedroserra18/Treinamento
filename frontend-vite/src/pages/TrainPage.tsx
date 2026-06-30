@@ -24,6 +24,12 @@ import {
   X,
 } from 'lucide-react'
 import { SkeletonCard } from '../components/common/Skeleton'
+// IMPORTANTE: o import do React precisa vir ANTES dos `const X = lazy(...)`
+// abaixo. Em produção (Rollup) os imports são hoisted e a ordem não importa,
+// mas no dev (Vite/esbuild) usar `lazy` antes deste import dá TDZ ("Cannot
+// access 'lazy' before initialization").
+import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import type { Dispatch, SetStateAction } from 'react'
 // Modais lazy-loaded — não entram no bundle inicial da TrainPage. Cada
 // um vira um chunk separado que só baixa quando o user efetivamente
 // abre o respectivo modal. Cortou ~2100 linhas de código + dependências
@@ -52,7 +58,6 @@ const CreateRoutineScreen = lazy(() =>
 )
 import { InfoDialog } from '../components/common/InfoDialog'
 import { ConfirmDialog } from '../components/common/ConfirmDialog'
-import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { usePushNotifications } from '../hooks/usePushNotifications'
 import { cancelBackendNotification, scheduleBackendNotification } from '../services/pushService'
 import { createPost, sharePlan, createAndSharePlan, type PostPrivacy } from '../services/socialService'
