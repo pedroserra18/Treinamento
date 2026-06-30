@@ -114,6 +114,41 @@ describe('workoutSessionReducer', () => {
     expect(reduce(initial, { type: 'SET_MANUAL_TIMER', value: '30' }).manualTimerMinutes).toBe('30')
     expect(reduce(initial, { type: 'SET_PLAN_NAME', name: 'X' }).activePlanName).toBe('X')
     expect(reduce(initial, { type: 'SET_ORIGIN_MODE', mode: 'ROUTINE' }).originMode).toBe('ROUTINE')
+    expect(reduce(initial, { type: 'SET_STARTED_AT', startedAt: START }).startedAt).toBe(START)
+    expect(reduce(initial, { type: 'SET_ENDED_AT', endedAt: END }).endedAt).toBe(END)
+  })
+
+  it('updaters (running/cardio) recebem o valor anterior — base dos setters de compat', () => {
+    expect(reduce({ ...initial, isWorkoutRunning: true }, {
+      type: 'UPDATE_RUNNING', update: (prev) => !prev,
+    }).isWorkoutRunning).toBe(false)
+
+    const withCardio: WorkoutSessionState = { ...initial, cardioEntries: [{ type: 'RUN', durationSec: 60 }] }
+    const next = reduce(withCardio, {
+      type: 'UPDATE_CARDIO',
+      update: (prev) => [...prev, { type: 'BIKE', durationSec: 120 }],
+    })
+    expect(next.cardioEntries).toHaveLength(2)
+  })
+
+  it('bail-out: setar valor igual retorna o MESMO state (não re-renderiza, igual ao useState)', () => {
+    const state: WorkoutSessionState = { ...initial, elapsedSec: 5, screen: 'ACTIVE' }
+    // valor idêntico -> mesma referência de state (useReducer faz bail-out)
+    expect(reduce(state, { type: 'SET_ELAPSED', elapsedSec: 5 })).toBe(state)
+    expect(reduce(state, { type: 'SET_SCREEN', screen: 'ACTIVE' })).toBe(state)
+    // valor diferente -> novo state
+    expect(reduce(state, { type: 'SET_ELAPSED', elapsedSec: 6 })).not.toBe(state)
+  })
+
+  it('bail-out: updater que devolve a MESMA referência preserva o state (caso do tick de descanso)', () => {
+    const exercises = [makeActiveExercise()]
+    const state: WorkoutSessionState = { ...initial, activeExercises: exercises }
+    // updater "sem mudança" devolve o array atual -> bail-out
+    const same = reduce(state, { type: 'UPDATE_ACTIVE_EXERCISES', update: (prev) => prev })
+    expect(same).toBe(state)
+    // updater com mudança -> novo state
+    const changed = reduce(state, { type: 'UPDATE_ACTIVE_EXERCISES', update: (prev) => [...prev] })
+    expect(changed).not.toBe(state)
   })
 
   it('é puro: não muta o state de entrada', () => {

@@ -49,8 +49,12 @@ export type WorkoutSessionAction =
   | { type: 'SET_MANUAL_TIMER'; value: string }
   | { type: 'SET_PLAN_NAME'; name: string }
   | { type: 'SET_ORIGIN_MODE'; mode: TrainOriginMode }
+  | { type: 'SET_STARTED_AT'; startedAt: Date | null }
+  | { type: 'SET_ENDED_AT'; endedAt: Date | null }
+  | { type: 'UPDATE_RUNNING'; update: (prev: boolean) => boolean }
   | { type: 'UPDATE_ACTIVE_EXERCISES'; update: (prev: ActiveExercise[]) => ActiveExercise[] }
   | { type: 'SET_ACTIVE_EXERCISES'; exercises: ActiveExercise[] }
+  | { type: 'UPDATE_CARDIO'; update: (prev: CardioEntryInput[]) => CardioEntryInput[] }
   | { type: 'SET_CARDIO'; entries: CardioEntryInput[] }
 
 export function workoutSessionReducer(
@@ -113,23 +117,41 @@ export function workoutSessionReducer(
         startedAt: null,
         endedAt: null,
       }
+    // Setters de campo único. Fazem BAIL-OUT (retornam o mesmo `state`) quando
+    // o valor não muda — assim o useReducer não re-renderiza, igual ao useState
+    // (Object.is). Crítico p/ os updaters de alta frequência: o tick de descanso
+    // devolve o MESMO array quando nada muda, contando com esse bail-out.
     case 'SET_SCREEN':
-      return { ...state, screen: action.screen }
+      return state.screen === action.screen ? state : { ...state, screen: action.screen }
     case 'SET_ELAPSED':
-      return { ...state, elapsedSec: action.elapsedSec }
+      return state.elapsedSec === action.elapsedSec ? state : { ...state, elapsedSec: action.elapsedSec }
     case 'SET_RUNNING':
-      return { ...state, isWorkoutRunning: action.running }
+      return state.isWorkoutRunning === action.running ? state : { ...state, isWorkoutRunning: action.running }
     case 'SET_MANUAL_TIMER':
-      return { ...state, manualTimerMinutes: action.value }
+      return state.manualTimerMinutes === action.value ? state : { ...state, manualTimerMinutes: action.value }
     case 'SET_PLAN_NAME':
-      return { ...state, activePlanName: action.name }
+      return state.activePlanName === action.name ? state : { ...state, activePlanName: action.name }
     case 'SET_ORIGIN_MODE':
-      return { ...state, originMode: action.mode }
-    case 'UPDATE_ACTIVE_EXERCISES':
-      return { ...state, activeExercises: action.update(state.activeExercises) }
+      return state.originMode === action.mode ? state : { ...state, originMode: action.mode }
+    case 'SET_STARTED_AT':
+      return state.startedAt === action.startedAt ? state : { ...state, startedAt: action.startedAt }
+    case 'SET_ENDED_AT':
+      return state.endedAt === action.endedAt ? state : { ...state, endedAt: action.endedAt }
+    case 'UPDATE_RUNNING': {
+      const next = action.update(state.isWorkoutRunning)
+      return next === state.isWorkoutRunning ? state : { ...state, isWorkoutRunning: next }
+    }
+    case 'UPDATE_ACTIVE_EXERCISES': {
+      const next = action.update(state.activeExercises)
+      return next === state.activeExercises ? state : { ...state, activeExercises: next }
+    }
     case 'SET_ACTIVE_EXERCISES':
-      return { ...state, activeExercises: action.exercises }
+      return state.activeExercises === action.exercises ? state : { ...state, activeExercises: action.exercises }
+    case 'UPDATE_CARDIO': {
+      const next = action.update(state.cardioEntries)
+      return next === state.cardioEntries ? state : { ...state, cardioEntries: next }
+    }
     case 'SET_CARDIO':
-      return { ...state, cardioEntries: action.entries }
+      return state.cardioEntries === action.entries ? state : { ...state, cardioEntries: action.entries }
   }
 }
