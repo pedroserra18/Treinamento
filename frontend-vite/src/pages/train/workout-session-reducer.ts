@@ -1,16 +1,19 @@
-// Reducer PURO do ciclo de vida do treino (Fase 1). Consolida o estado que
-// hoje vive em ~10 useState e que begin*/resetWorkflow/transitionToSummary
-// mutam EM BLOCO. Sendo puro, as transições ficam testáveis sem montar a tela
-// (a tela do TrainPage é pesada demais pra montar em teste). Side-effects
-// (refs, revoke de imagem, notificações, snapshot da rotina) continuam no
-// componente — aqui só entra estado.
+// Reducer PURO da sessão de treino. Consolida o estado que hoje vive em ~18
+// useState e que begin*/resetWorkflow/transitionToSummary mutam EM BLOCO.
+// Sendo puro, as transições ficam testáveis sem montar a tela (o TrainPage é
+// pesado demais pra montar em teste). Side-effects (refs, revoke de imagem,
+// notificações, snapshot da rotina) continuam no componente — aqui só entra
+// estado.
 //
-// Fora deste reducer de propósito: UI efêmera (modais/pickers), lista da
-// dashboard (plans/filtros), histórico/streak e o estado do RESUMO (Fase 2).
+// Cobre: (Fase 1) ciclo de vida do treino + (Fase 2) estado do RESUMO/pós-treino
+// que resetWorkflow zera junto. Fora de propósito: UI efêmera (modais/pickers),
+// lista da dashboard, histórico/streak, e os estados espalhados de PR/share/
+// competição/postPrivacy (não formam grupo coeso).
 import type { ActiveExercise, TrainOriginMode, TrainScreen } from './types'
 import type { CardioEntryInput } from '../../types/workout'
 
 export type WorkoutSessionState = {
+  // ── Ciclo de vida (Fase 1) ──
   screen: TrainScreen
   originMode: TrainOriginMode
   activePlanName: string
@@ -21,6 +24,15 @@ export type WorkoutSessionState = {
   manualTimerMinutes: string
   startedAt: Date | null
   endedAt: Date | null
+  // ── Resumo / pós-treino (Fase 2) ──
+  summaryName: string
+  summaryDurationMin: string
+  summaryImageFile: File | null
+  summaryImagePreview: string | null
+  savedSessionId: string | null
+  postCaption: string
+  posting: boolean
+  postDone: boolean
 }
 
 export const initialWorkoutSessionState: WorkoutSessionState = {
@@ -34,14 +46,36 @@ export const initialWorkoutSessionState: WorkoutSessionState = {
   manualTimerMinutes: '',
   startedAt: null,
   endedAt: null,
+  summaryName: '',
+  summaryDurationMin: '',
+  summaryImageFile: null,
+  summaryImagePreview: null,
+  savedSessionId: null,
+  postCaption: '',
+  posting: false,
+  postDone: false,
 }
+
+// Valores de reset do slice de RESUMO (usados por RESET). postPrivacy NÃO entra
+// aqui — tem inicializador de localStorage e reseta via defaultPrivacy (runtime),
+// então continua useState no componente.
+const RESET_SUMMARY = {
+  summaryName: '',
+  summaryDurationMin: '',
+  summaryImageFile: null,
+  summaryImagePreview: null,
+  savedSessionId: null,
+  postCaption: '',
+  posting: false,
+  postDone: false,
+} as const
 
 // `startedAt`/`endedAt` vêm como payload (em vez de `new Date()` interno) pra
 // manter o reducer puro e determinístico nos testes.
 export type WorkoutSessionAction =
   | { type: 'START_EMPTY'; startedAt: Date }
   | { type: 'START_ROUTINE'; planName: string; exercises: ActiveExercise[]; cardio: CardioEntryInput[]; startedAt: Date }
-  | { type: 'GO_TO_SUMMARY'; endedAt: Date }
+  | { type: 'GO_TO_SUMMARY'; endedAt: Date; summaryName: string; summaryDurationMin: string }
   | { type: 'RESET' }
   | { type: 'SET_SCREEN'; screen: TrainScreen }
   | { type: 'SET_ELAPSED'; elapsedSec: number }
@@ -56,6 +90,15 @@ export type WorkoutSessionAction =
   | { type: 'SET_ACTIVE_EXERCISES'; exercises: ActiveExercise[] }
   | { type: 'UPDATE_CARDIO'; update: (prev: CardioEntryInput[]) => CardioEntryInput[] }
   | { type: 'SET_CARDIO'; entries: CardioEntryInput[] }
+  // ── Slice de resumo (Fase 2) ──
+  | { type: 'SET_SUMMARY_NAME'; value: string }
+  | { type: 'SET_SUMMARY_DURATION'; value: string }
+  | { type: 'SET_SUMMARY_IMAGE_FILE'; file: File | null }
+  | { type: 'SET_SUMMARY_IMAGE_PREVIEW'; url: string | null }
+  | { type: 'SET_SAVED_SESSION_ID'; id: string | null }
+  | { type: 'SET_POST_CAPTION'; value: string }
+  | { type: 'SET_POSTING'; value: boolean }
+  | { type: 'SET_POST_DONE'; value: boolean }
 
 export function workoutSessionReducer(
   state: WorkoutSessionState,
@@ -93,17 +136,21 @@ export function workoutSessionReducer(
         screen: 'ACTIVE',
       }
     case 'GO_TO_SUMMARY':
-      // Parte de estado (Fase 1) de transitionToSummary: encerra o cronômetro
-      // e entra no resumo. summaryName/summaryDurationMin são Fase 2.
+      // Espelha transitionToSummary: encerra o cronômetro e entra no resumo,
+      // já preenchendo nome + duração. Os demais campos do resumo (imagem,
+      // caption, posting…) NÃO são tocados aqui (igual ao original).
       return {
         ...state,
         screen: 'SUMMARY',
         isWorkoutRunning: false,
         endedAt: action.endedAt,
+        summaryName: action.summaryName,
+        summaryDurationMin: action.summaryDurationMin,
       }
     case 'RESET':
-      // Espelha a parte de Fase 1 de resetWorkflow. Revoke da imagem, refs e
-      // cancelamento de notificações são side-effects que ficam no componente.
+      // Espelha resetWorkflow (ciclo de vida + slice de resumo). Revoke da
+      // imagem, refs, postPrivacy e cancelamento de notificações são
+      // side-effects/estados que ficam no componente.
       return {
         ...state,
         screen: 'DASHBOARD',
@@ -116,6 +163,7 @@ export function workoutSessionReducer(
         manualTimerMinutes: '',
         startedAt: null,
         endedAt: null,
+        ...RESET_SUMMARY,
       }
     // Setters de campo único. Fazem BAIL-OUT (retornam o mesmo `state`) quando
     // o valor não muda — assim o useReducer não re-renderiza, igual ao useState
@@ -153,5 +201,22 @@ export function workoutSessionReducer(
     }
     case 'SET_CARDIO':
       return state.cardioEntries === action.entries ? state : { ...state, cardioEntries: action.entries }
+    // ── Slice de resumo (Fase 2) ──
+    case 'SET_SUMMARY_NAME':
+      return state.summaryName === action.value ? state : { ...state, summaryName: action.value }
+    case 'SET_SUMMARY_DURATION':
+      return state.summaryDurationMin === action.value ? state : { ...state, summaryDurationMin: action.value }
+    case 'SET_SUMMARY_IMAGE_FILE':
+      return state.summaryImageFile === action.file ? state : { ...state, summaryImageFile: action.file }
+    case 'SET_SUMMARY_IMAGE_PREVIEW':
+      return state.summaryImagePreview === action.url ? state : { ...state, summaryImagePreview: action.url }
+    case 'SET_SAVED_SESSION_ID':
+      return state.savedSessionId === action.id ? state : { ...state, savedSessionId: action.id }
+    case 'SET_POST_CAPTION':
+      return state.postCaption === action.value ? state : { ...state, postCaption: action.value }
+    case 'SET_POSTING':
+      return state.posting === action.value ? state : { ...state, posting: action.value }
+    case 'SET_POST_DONE':
+      return state.postDone === action.value ? state : { ...state, postDone: action.value }
   }
 }

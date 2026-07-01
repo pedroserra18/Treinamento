@@ -235,6 +235,14 @@ export function TrainPage() {
     manualTimerMinutes,
     startedAt,
     endedAt,
+    summaryName,
+    summaryDurationMin,
+    summaryImageFile,
+    summaryImagePreview,
+    savedSessionId,
+    postCaption,
+    posting,
+    postDone,
   } = session
   const setScreen = useCallback((s: TrainScreen) => dispatchSession({ type: 'SET_SCREEN', screen: s }), [])
   const setOriginMode = useCallback((mode: TrainOriginMode) => dispatchSession({ type: 'SET_ORIGIN_MODE', mode }), [])
@@ -255,6 +263,15 @@ export function TrainPage() {
     dispatchSession(typeof arg === 'function'
       ? { type: 'UPDATE_RUNNING', update: arg }
       : { type: 'SET_RUNNING', running: arg }), [])
+  // Setters do slice de RESUMO (Fase 2) — value-only, estáveis (useCallback).
+  const setSummaryName = useCallback((value: string) => dispatchSession({ type: 'SET_SUMMARY_NAME', value }), [])
+  const setSummaryDurationMin = useCallback((value: string) => dispatchSession({ type: 'SET_SUMMARY_DURATION', value }), [])
+  const setSummaryImageFile = useCallback((file: File | null) => dispatchSession({ type: 'SET_SUMMARY_IMAGE_FILE', file }), [])
+  const setSummaryImagePreview = useCallback((url: string | null) => dispatchSession({ type: 'SET_SUMMARY_IMAGE_PREVIEW', url }), [])
+  const setSavedSessionId = useCallback((id: string | null) => dispatchSession({ type: 'SET_SAVED_SESSION_ID', id }), [])
+  const setPostCaption = useCallback((value: string) => dispatchSession({ type: 'SET_POST_CAPTION', value }), [])
+  const setPosting = useCallback((value: boolean) => dispatchSession({ type: 'SET_POSTING', value }), [])
+  const setPostDone = useCallback((value: boolean) => dispatchSession({ type: 'SET_POST_DONE', value }), [])
   // Inicializa SÍNCRONO via peek do cache — se o user já visitou a
   // TrainPage antes nessa sessão (ou em sessão anterior persistida em
   // localStorage), a lista de rotinas aparece IMEDIATA. Refetch em
@@ -412,10 +429,6 @@ export function TrainPage() {
     previousKg: number | null
   } | null>(null)
 
-  const [summaryName, setSummaryName] = useState('')
-  const [summaryDurationMin, setSummaryDurationMin] = useState('')
-  const [summaryImageFile, setSummaryImageFile] = useState<File | null>(null)
-  const [summaryImagePreview, setSummaryImagePreview] = useState<string | null>(null)
   // Snapshot dos PRs ANTES do treino — pra detectar quantos PRs novos
   // foram batidos comparando com prByExerciseId atual no SUMMARY.
   // Setado quando o usuário entra na tela ACTIVE (não quando finaliza).
@@ -433,16 +446,12 @@ export function TrainPage() {
     }
     return defaultPrivacy
   })
-  const [postCaption, setPostCaption] = useState('')
-  const [savedSessionId, setSavedSessionId] = useState<string | null>(null)
   // Active competition (if any) — used by the "Enviar para desafio" button
   // on the summary. Only fetched when the user lands on SUMMARY, so the
   // active-workout flow isn't affected.
   const [activeCompetition, setActiveCompetition] = useState<Competition | null>(null)
   const [competitionSendStatus, setCompetitionSendStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
   const [competitionSendError, setCompetitionSendError] = useState<string | null>(null)
-  const [posting, setPosting] = useState(false)
-  const [postDone, setPostDone] = useState(false)
   // Editor de imagem de compartilhamento (estilo Strava).
   const [shareHighlights, setShareHighlights] = useState<SessionHighlights | null>(null)
   const [sharePhoto, setSharePhoto] = useState<string | null>(null)
@@ -1461,21 +1470,15 @@ export function TrainPage() {
   const totals = useMemo(() => calculateTotals(activeExercises), [activeExercises])
 
   const resetWorkflow = () => {
-    // Reset atômico do ciclo de treino (screen/origin/exercícios/cardio/timer/
-    // datas). Os estados do RESUMO abaixo ainda são useState (Fase 2 depois).
-    dispatchSession({ type: 'RESET' })
-    setSummaryName('')
-    setSummaryDurationMin('')
-    setSummaryImageFile(null)
+    // Revoga a URL da imagem de resumo ANTES do reset (usa o valor atual).
     if (summaryImagePreview) {
       URL.revokeObjectURL(summaryImagePreview)
     }
-    setSummaryImagePreview(null)
-    setSavedSessionId(null)
-    setPostCaption('')
+    // Reset atômico: ciclo de treino + slice de resumo (Fase 2), num dispatch só.
+    dispatchSession({ type: 'RESET' })
+    // postPrivacy fica fora do reducer (init de localStorage + reset via
+    // defaultPrivacy runtime) — reseta aqui.
     setPostPrivacy(defaultPrivacy)
-    setPosting(false)
-    setPostDone(false)
     interactionOrderByExerciseRef.current = {}
     interactionOrderCounterRef.current = 0
     clearActiveWorkout()
@@ -1547,16 +1550,19 @@ export function TrainPage() {
     // já saiu da tela de treino ativo, descanso não faz sentido mais.
     cancelAllPendingRestNotifications()
 
-    setSummaryName(activePlanName)
     // Inclui o tempo de cardio no padrão da duração — sem isso, registrar
     // "30 min de corrida" em 1 min de cronômetro pré-encheria apenas 1 min.
     const cardioMin = Math.round(cardioEntries.reduce((s, c) => s + c.durationSec, 0) / 60)
     const clockMin = Math.round(elapsedSec / 60)
     const computedMin = Math.max(1, clockMin, cardioMin)
-    setSummaryDurationMin(String(durationMinOverride ?? computedMin))
     // Transição atômica: encerra o cronômetro (endedAt + para de rodar) e
-    // entra no resumo, num dispatch só.
-    dispatchSession({ type: 'GO_TO_SUMMARY', endedAt: end })
+    // entra no resumo já com nome (= plano) e duração preenchidos.
+    dispatchSession({
+      type: 'GO_TO_SUMMARY',
+      endedAt: end,
+      summaryName: activePlanName,
+      summaryDurationMin: String(durationMinOverride ?? computedMin),
+    })
     // NÃO limpamos clearActiveWorkout() aqui — se o usuário fechar o tab
     // entre Finalizar e Salvar, perderia o tracking inteiro. O snapshot
     // é limpo só depois do save bem-sucedido (ver saveTraining).
