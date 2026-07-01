@@ -24,6 +24,12 @@ import {
   X,
 } from 'lucide-react'
 import { SkeletonCard } from '../components/common/Skeleton'
+// IMPORTANTE: o import do React precisa vir ANTES dos `const X = lazy(...)`
+// abaixo. Em produção (Rollup) os imports são hoisted e a ordem não importa,
+// mas no dev (Vite/esbuild) usar `lazy` antes deste import dá TDZ ("Cannot
+// access 'lazy' before initialization").
+import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import type { Dispatch, SetStateAction } from 'react'
 // Modais lazy-loaded — não entram no bundle inicial da TrainPage. Cada
 // um vira um chunk separado que só baixa quando o user efetivamente
 // abre o respectivo modal. Cortou ~2100 linhas de código + dependências
@@ -52,7 +58,6 @@ const CreateRoutineScreen = lazy(() =>
 )
 import { InfoDialog } from '../components/common/InfoDialog'
 import { ConfirmDialog } from '../components/common/ConfirmDialog'
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePushNotifications } from '../hooks/usePushNotifications'
 import { cancelBackendNotification, scheduleBackendNotification } from '../services/pushService'
 import { createPost, sharePlan, createAndSharePlan, type PostPrivacy } from '../services/socialService'
@@ -89,6 +94,7 @@ import { formatDurationCompact, formatSetPerformanceLabel } from './train/train-
 import { DurationWarningDialog, PlanUpdateDialog } from './train/TrainDialogs'
 import { SortableExerciseCard } from './train/SortableExerciseCard'
 import type { TrainScreen, TrainOriginMode, TrackingType, ExerciseSetInput, ActiveExercise } from './train/types'
+import { workoutSessionReducer, initialWorkoutSessionState } from './train/workout-session-reducer'
 import { supersetColorFor, nextSupersetGroupId } from './train/superset'
 import { SupersetPickerSheet } from './train/SupersetPickerSheet'
 import { CardioSection } from './train/CardioSection'
@@ -212,7 +218,43 @@ export function TrainPage() {
   const allowedPrivacies: PostPrivacy[] = isProfilePrivate ? ['FRIENDS', 'PRIVATE'] : ['PUBLIC', 'FRIENDS', 'PRIVATE']
   const defaultPrivacy: PostPrivacy = isProfilePrivate ? 'FRIENDS' : 'PUBLIC'
 
-  const [screen, setScreen] = useState<TrainScreen>('DASHBOARD')
+  // Estado do CICLO DE VIDA do treino num reducer puro (workout-session-
+  // reducer). Os setters abaixo replicam a API do useState (valor OU updater
+  // funcional, onde aplicável) e são estáveis (useCallback) como os do
+  // useState — assim os usos existentes ficam idênticos e as dependências de
+  // efeitos não mudam. Comportamento preservado; transições centralizadas.
+  const [session, dispatchSession] = useReducer(workoutSessionReducer, initialWorkoutSessionState)
+  const {
+    screen,
+    originMode,
+    activePlanName,
+    activeExercises,
+    cardioEntries,
+    elapsedSec,
+    isWorkoutRunning,
+    manualTimerMinutes,
+    startedAt,
+    endedAt,
+  } = session
+  const setScreen = useCallback((s: TrainScreen) => dispatchSession({ type: 'SET_SCREEN', screen: s }), [])
+  const setOriginMode = useCallback((mode: TrainOriginMode) => dispatchSession({ type: 'SET_ORIGIN_MODE', mode }), [])
+  const setActivePlanName = useCallback((name: string) => dispatchSession({ type: 'SET_PLAN_NAME', name }), [])
+  const setElapsedSec = useCallback((sec: number) => dispatchSession({ type: 'SET_ELAPSED', elapsedSec: sec }), [])
+  const setManualTimerMinutes = useCallback((value: string) => dispatchSession({ type: 'SET_MANUAL_TIMER', value }), [])
+  const setStartedAt = useCallback((value: Date | null) => dispatchSession({ type: 'SET_STARTED_AT', startedAt: value }), [])
+  const setEndedAt = useCallback((value: Date | null) => dispatchSession({ type: 'SET_ENDED_AT', endedAt: value }), [])
+  const setActiveExercises = useCallback<Dispatch<SetStateAction<ActiveExercise[]>>>((arg) =>
+    dispatchSession(typeof arg === 'function'
+      ? { type: 'UPDATE_ACTIVE_EXERCISES', update: arg }
+      : { type: 'SET_ACTIVE_EXERCISES', exercises: arg }), [])
+  const setCardioEntries = useCallback<Dispatch<SetStateAction<CardioEntryInput[]>>>((arg) =>
+    dispatchSession(typeof arg === 'function'
+      ? { type: 'UPDATE_CARDIO', update: arg }
+      : { type: 'SET_CARDIO', entries: arg }), [])
+  const setIsWorkoutRunning = useCallback<Dispatch<SetStateAction<boolean>>>((arg) =>
+    dispatchSession(typeof arg === 'function'
+      ? { type: 'UPDATE_RUNNING', update: arg }
+      : { type: 'SET_RUNNING', running: arg }), [])
   // Inicializa SÍNCRONO via peek do cache — se o user já visitou a
   // TrainPage antes nessa sessão (ou em sessão anterior persistida em
   // localStorage), a lista de rotinas aparece IMEDIATA. Refetch em
@@ -228,9 +270,7 @@ export function TrainPage() {
   const [routineMenuAnchor, setRoutineMenuAnchor] = useState<{ top: number; right: number } | null>(null)
   const [shareLinkModal, setShareLinkModal] = useState<{ link: string; planName: string } | null>(null)
 
-  const [activePlanId, setActivePlanId] = useState<string>('')
-  const [activePlanName, setActivePlanName] = useState<string>('Treinamento vazio')
-  // IDs de rotinas otimistas (criadas na hora pela CreateRoutineScreen,
+  const [activePlanId, setActivePlanId] = useState<string>('')  // IDs de rotinas otimistas (criadas na hora pela CreateRoutineScreen,
   // mostradas IMEDIATAMENTE na DASHBOARD enquanto o backend persiste em
   // background). Card com id desse Set renderiza "Salvando rotina..."
   // em vez dos botões Iniciar/Editar — evita o user iniciar treino com
@@ -243,8 +283,6 @@ export function TrainPage() {
   const [updatingPlanIds, setUpdatingPlanIds] = useState<Set<string>>(() => new Set())
   type RoutineFilter = 'ALL' | 'AI' | 'CUSTOM'
   const [routineFilter, setRoutineFilter] = useState<RoutineFilter>('ALL')
-  const [originMode, setOriginMode] = useState<TrainOriginMode>('EMPTY')
-
   // Snapshot da rotina ORIGINAL no momento que o treino começou
   // (beginRoutineTraining). Usado pra detectar diff ao salvar e perguntar
   // se o user quer atualizar a rotina pras próximas sessões.
@@ -275,21 +313,10 @@ export function TrainPage() {
       }
     | null
   >(null)
-  const [activeExercises, setActiveExercises] = useState<ActiveExercise[]>([])
-  // Cardio registrado durante o treino (caminhada, corrida, bike, etc.).
-  const [cardioEntries, setCardioEntries] = useState<CardioEntryInput[]>([])
-
-  const [elapsedSec, setElapsedSec] = useState(0)
-  const [isWorkoutRunning, setIsWorkoutRunning] = useState(false)
-  const [manualTimerMinutes, setManualTimerMinutes] = useState('')
   // Popover do menu "⋯" do treino ativo (Pausar/Retomar + Editar tempo).
   // Esses controles são fluxo de borda — esconder evita competir com
   // o botão primário "Finalizar Treino".
   const [advancedTimerOpen, setAdvancedTimerOpen] = useState(false)
-
-  const [startedAt, setStartedAt] = useState<Date | null>(null)
-  const [endedAt, setEndedAt] = useState<Date | null>(null)
-
   const [lastPerformanceByExercise, setLastPerformanceByExercise] = useState<
     Record<
       string,
@@ -703,7 +730,7 @@ export function TrainPage() {
       window.clearInterval(id)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [isWorkoutRunning, timerNonce, startedAt])
+  }, [isWorkoutRunning, timerNonce, startedAt, setElapsedSec])
 
   // Hydrate the active workout on mount. If the user navigated away from
   // /train mid-session, the data is restored here and the clock is
@@ -754,6 +781,9 @@ export function TrainPage() {
       setElapsedSec(deriveElapsedSec(snapshot))
     }
     setHydrated(true)
+    // Reidratação roda só uma vez no mount (guard hasHydratedRef); os setters
+    // do reducer são estáveis. Deps vazias é intencional.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Jump back into the live workout view when the user clicks the mini
@@ -768,7 +798,7 @@ export function TrainPage() {
       setScreen('ACTIVE')
       window.history.replaceState(null, '', location.pathname + location.search)
     }
-  }, [location.pathname, location.search, location.state])
+  }, [location.pathname, location.search, location.state, setScreen])
 
   // Persist a snapshot of the active workout whenever there's data so
   // the mini bar (and a future mount of TrainPage) can resume it. The
@@ -837,6 +867,8 @@ export function TrainPage() {
     }
     window.addEventListener(ACTIVE_WORKOUT_DISCARD_EVENT, handler)
     return () => window.removeEventListener(ACTIVE_WORKOUT_DISCARD_EVENT, handler)
+    // Assina o evento uma vez no mount; os setters do reducer são estáveis.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // ┌────────────────────────────────────────────────────────────────────┐
@@ -901,7 +933,7 @@ export function TrainPage() {
     recompute()
     const id = window.setInterval(recompute, 500)
     return () => window.clearInterval(id)
-  }, [screen])
+  }, [screen, setActiveExercises])
 
   // Effect que reage a transições de restRunning por exercício e dispara
   // schedule/cancel no backend. Só executa o trabalho de fato se o user
@@ -1261,7 +1293,7 @@ export function TrainPage() {
     return () => {
       cancelled = true
     }
-  }, [activeExerciseIdsKey, authorizedFetch, screen])
+  }, [activeExerciseIdsKey, authorizedFetch, screen, setActiveExercises])
 
   // All-time PR baseline for the active exercises. Fetched once when the
   // user enters the active screen so we can celebrate the first set that
@@ -1360,7 +1392,7 @@ export function TrainPage() {
     return () => {
       cancelled = true
     }
-  }, [activeExerciseIdsKey, authorizedFetch, screen])
+  }, [activeExerciseIdsKey, authorizedFetch, screen, setActiveExercises])
 
   useEffect(() => {
     const handleDocumentClick = (event: MouseEvent) => {
@@ -1414,6 +1446,10 @@ export function TrainPage() {
 
     window.addEventListener(eventName, handler)
     return () => window.removeEventListener(eventName, handler)
+    // addExerciseToActiveWorkout/applySubstitution fecham sobre setters
+    // estáveis; manter só [screen] preserva o comportamento (não re-assina
+    // o listener a cada render).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen])
 
   // Erros são scoped por tela — qualquer transição limpa o estado pra
@@ -1792,7 +1828,7 @@ export function TrainPage() {
       // toque mostra que o user ainda tá engajado).
       rescheduleIdleReminder()
     },
-    [lastPerformanceByExercise, activeExercises, prByExerciseId, rescheduleIdleReminder],
+    [lastPerformanceByExercise, activeExercises, prByExerciseId, rescheduleIdleReminder, setActiveExercises],
   )
 
   const startRestEdit = (exerciseIndex: number) => {
