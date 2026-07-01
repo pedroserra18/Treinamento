@@ -9,7 +9,7 @@ import {
   ReferenceDot,
 } from 'recharts'
 import { useAuth } from '../hooks/useAuth'
-import { optimizeImageFileToDataUrl } from '../lib/image-processing'
+import { optimizeImageFileToDataUrl } from '../lib/image/image-processing'
 import { searchExercisesForPlan } from '../services/workoutService'
 import {
   addPinnedExercise,
@@ -23,7 +23,7 @@ import {
   bodyMeasurementsCache,
   currentYearProgressSummaryCache,
   exerciseProgressCache,
-} from '../lib/progress-cache'
+} from '../lib/cache/progress-cache'
 import type {
   BodyMeasurement,
   CreateBodyMeasurementInput,

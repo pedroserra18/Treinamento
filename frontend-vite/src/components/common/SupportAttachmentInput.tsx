@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { ImagePlus, X } from 'lucide-react'
-import { optimizeImageFileToDataUrl } from '../../lib/image-processing'
+import { optimizeImageFileToDataUrl } from '../../lib/image/image-processing'
 
 const MAX_ATTACHMENTS = 3
 

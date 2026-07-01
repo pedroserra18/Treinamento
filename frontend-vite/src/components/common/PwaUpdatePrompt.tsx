@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { pwa } from '../../lib/pwa'
+import { pwa } from '../../lib/infra/pwa'
 import { motion, AnimatePresence } from 'framer-motion'
 
 // Toast discreto que aparece quando o Service Worker baixa uma versão

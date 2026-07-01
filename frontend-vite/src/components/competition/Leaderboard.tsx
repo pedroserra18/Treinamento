@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Link2, Trophy } from 'lucide-react'
 import type { CompetitionStandings } from '../../types/competition'
-import { avatarThumbUrl } from '../../lib/imageTransform'
+import { avatarThumbUrl } from '../../lib/image/imageTransform'
 import { formatDurationCompact } from './helpers'
 
 // Streak badge — reuses the home page's flame styles so the streak icon

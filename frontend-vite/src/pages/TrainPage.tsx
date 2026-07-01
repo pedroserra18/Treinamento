@@ -66,29 +66,29 @@ import { SET_TYPE_GLYPH, type SetType, type DropEntry } from '../components/comm
 import {
   getExerciseExplorerSelectionEventName,
   type ExerciseExplorerSelection,
-} from '../lib/exercise-explorer'
-import { isBodyweightEquipment, resolveBodyweightFlag } from '../lib/exercise-meta'
-import { pushRecentExerciseId } from '../lib/recent-exercises'
-import { getExerciseCatalogCached, prefetchExerciseCatalog, invalidateExerciseCatalog } from '../lib/exercise-catalog-cache'
+} from '../lib/exercise/exercise-explorer'
+import { isBodyweightEquipment, resolveBodyweightFlag } from '../lib/exercise/exercise-meta'
+import { pushRecentExerciseId } from '../lib/exercise/recent-exercises'
+import { getExerciseCatalogCached, prefetchExerciseCatalog, invalidateExerciseCatalog } from '../lib/cache/exercise-catalog-cache'
 import {
   getWorkoutPlansCached,
   peekWorkoutPlans,
   setWorkoutPlansCache,
   invalidateWorkoutPlansCache,
-} from '../lib/workout-plans-cache'
-import { workoutHistoryCache } from '../lib/workout-history-cache'
-import { feedFirstPageCache } from '../lib/feed-cache'
+} from '../lib/cache/workout-plans-cache'
+import { workoutHistoryCache } from '../lib/cache/workout-history-cache'
+import { feedFirstPageCache } from '../lib/cache/feed-cache'
 import { getIntensityMode, setIntensityMode, type IntensityMode } from '../lib/intensity-preference'
 import { showLocalNotification } from '../lib/notifications'
-import { formatClock } from '../lib/workout-timing'
-import { saveWorkoutSessionImage } from '../lib/workout-session-image'
-import { optimizeImageFileToDataUrl } from '../lib/image-processing'
+import { formatClock } from '../lib/workout/workout-timing'
+import { saveWorkoutSessionImage } from '../lib/workout/workout-session-image'
+import { optimizeImageFileToDataUrl } from '../lib/image/image-processing'
 import { vibrate } from '../lib/haptics'
 import { useWakeLock } from '../hooks/useWakeLock'
 import { useActiveWorkoutElapsed } from '../hooks/useActiveWorkoutElapsed'
 import type { WorkoutPlan, CardioEntryInput, ExerciseOption } from '../types/workout'
 import type { RoutineInitial } from './train/CreateRoutineScreen'
-import { parsePerfPayload, stripPerfMarker } from '../lib/perf-notes'
+import { parsePerfPayload, stripPerfMarker } from '../lib/workout/perf-notes'
 import { SetTypeBadge, SetTypePickerSheet } from './train/SetTypeControls'
 import { formatDurationCompact, formatSetPerformanceLabel } from './train/train-format'
 import { DurationWarningDialog, PlanUpdateDialog } from './train/TrainDialogs'
@@ -119,14 +119,14 @@ import {
   deriveElapsedSec,
   readActiveWorkout,
   writeActiveWorkout,
-} from '../lib/active-workout-storage'
+} from '../lib/workout/active-workout-storage'
 import {
   getMyActiveCompetition,
   postCompetitionEntry,
   uploadCompetitionPhoto,
 } from '../services/competitionService'
 import type { Competition } from '../types/competition'
-import { sha256OfDataUrl } from '../lib/photo-hash'
+import { sha256OfDataUrl } from '../lib/image/photo-hash'
 import {
   calculateTotals,
   createSet,

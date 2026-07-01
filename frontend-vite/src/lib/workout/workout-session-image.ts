@@ -1,4 +1,4 @@
-import { optimizeImageFileToDataUrl } from './image-processing'
+import { optimizeImageFileToDataUrl } from '../image/image-processing'
 
 const STORAGE_PREFIX = 'acad:workout-session-image:'
 

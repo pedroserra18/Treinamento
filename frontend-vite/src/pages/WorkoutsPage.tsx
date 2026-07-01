@@ -5,12 +5,12 @@ import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import {
   getExerciseExplorerSelectionEventName,
   type ExerciseExplorerSelection,
-} from '../lib/exercise-explorer'
-import { resolveBodyweightFlag } from '../lib/exercise-meta'
+} from '../lib/exercise/exercise-explorer'
+import { resolveBodyweightFlag } from '../lib/exercise/exercise-meta'
 import type { CardioType, ExerciseOption, WorkoutPlan } from '../types/workout'
 import { SetTypeBadge, SetTypePickerSheet } from '../components/common/SetTypePickerSheet'
 import { type SetType, type DropEntry } from '../components/common/setTypeOptions'
-import { parsePerfPayload, stripPerfMarker, serializePerfNotes } from '../lib/perf-notes'
+import { parsePerfPayload, stripPerfMarker, serializePerfNotes } from '../lib/workout/perf-notes'
 import {
   addExerciseToPlan,
   addPlanCardio,
@@ -22,7 +22,7 @@ import {
   updateWorkoutPlan,
   updatePlanExercise,
 } from '../services/workoutService'
-import { formatClock } from '../lib/workout-timing'
+import { formatClock } from '../lib/workout/workout-timing'
 import { SkeletonCard } from '../components/common/Skeleton'
 import { ExerciseContextMenuSheet } from './train/ExerciseContextMenuSheet'
 import { type ReorderItem } from './train/ReorderExercisesSheet'
@@ -45,7 +45,7 @@ const AddExerciseModal = lazy(() =>
   import('./train/AddExerciseModal').then((m) => ({ default: m.AddExerciseModal })),
 )
 import { InfoDialog } from '../components/common/InfoDialog'
-import { pushRecentExerciseId } from '../lib/recent-exercises'
+import { pushRecentExerciseId } from '../lib/exercise/recent-exercises'
 import { MoreVertical, Plus } from 'lucide-react'
 
 const CARDIO_LABELS: Record<CardioType, string> = {

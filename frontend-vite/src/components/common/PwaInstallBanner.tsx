@@ -8,7 +8,7 @@ import {
   snoozeForDays,
   getVisitCount,
   type BeforeInstallPromptEvent,
-} from '../../lib/install-prompt'
+} from '../../lib/infra/install-prompt'
 
 // Banner inteligente que oferece a instalação do PWA. Comportamento:
 //

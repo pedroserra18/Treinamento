@@ -1,4 +1,4 @@
-import type { WorkoutSessionHistory } from '../types/workout'
+import type { WorkoutSessionHistory } from '../../types/workout'
 
 // One entry from a session's history list — one row per (exercise, setNumber).
 export type HistoryEntry = WorkoutSessionHistory['history'][number]

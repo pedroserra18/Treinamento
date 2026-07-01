@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Crown, MoreVertical, UserMinus } from 'lucide-react'
 import type { CompetitionMember as Member } from '../../types/competition'
-import { avatarThumbUrl } from '../../lib/imageTransform'
+import { avatarThumbUrl } from '../../lib/image/imageTransform'
 
 export function MemberRow({
   member, isOwner, canModerate, isMe, menuOpen, busy, onOpenMenu, onPromote, onDemote, onKick,

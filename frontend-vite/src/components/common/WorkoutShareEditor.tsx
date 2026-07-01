@@ -4,7 +4,7 @@ import html2canvas from 'html2canvas'
 import { X, Download, Share2, Image as ImageIcon, Type, Move, RefreshCw } from 'lucide-react'
 import logoUrl from '../../assets/Logo_sem_Fundo.png'
 import type { SessionHighlights } from '../../services/workoutService'
-import { optimizeImageFileToDataUrl } from '../../lib/image-processing'
+import { optimizeImageFileToDataUrl } from '../../lib/image/image-processing'
 
 type BlockId = string // 'logo' | 'volume' | 'tempo' | 'series' | 'record-0'...
 

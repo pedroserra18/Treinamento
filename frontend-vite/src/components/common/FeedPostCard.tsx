@@ -8,7 +8,7 @@ import {
   type WorkoutExerciseSummary, type WorkoutSet, type PostComment,
 } from '../../services/socialService'
 import { WorkoutPostImage } from './WorkoutPostImage'
-import { peekComments, setCommentsCache } from '../../lib/comments-cache'
+import { peekComments, setCommentsCache } from '../../lib/cache/comments-cache'
 import {
   Users, Heart, Globe2, Lock,
   Trash2, MoreHorizontal, MessageCircle, Share2,

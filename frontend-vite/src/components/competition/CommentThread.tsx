@@ -5,7 +5,7 @@ import {
   useEntryComments,
   usePostEntryComment,
 } from '../../hooks/useCompetition'
-import { avatarThumbUrl } from '../../lib/imageTransform'
+import { avatarThumbUrl } from '../../lib/image/imageTransform'
 
 // Thread of comments below a proof. Loads on mount via TanStack Query.
 // Authors / admins can delete; mutations patch the feed cache so the

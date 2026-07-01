@@ -3,7 +3,7 @@ import type {
   CompetitionFeedItem,
   CompetitionReactionKind,
 } from '../../types/competition'
-import { avatarThumbUrl, feedTileThumbUrl } from '../../lib/imageTransform'
+import { avatarThumbUrl, feedTileThumbUrl } from '../../lib/image/imageTransform'
 import { ReactionsBar } from './ReactionsBar'
 import { REACTION_KINDS } from './reactionKinds'
 

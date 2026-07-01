@@ -7,9 +7,9 @@ import {
   searchUsers, followUser, unfollowUser,
   type FeedPost, type PostPrivacy, type UserSearchResult,
 } from '../services/socialService'
-import { feedFirstPageCache } from '../lib/feed-cache'
+import { feedFirstPageCache } from '../lib/cache/feed-cache'
 import { shareLink } from '../lib/share'
-import { followingCache } from '../lib/social-cache'
+import { followingCache } from '../lib/cache/social-cache'
 import { SkeletonCard } from '../components/common/Skeleton'
 import { Toast } from '../components/common/Toast'
 import { useToast } from '../hooks/useToast'

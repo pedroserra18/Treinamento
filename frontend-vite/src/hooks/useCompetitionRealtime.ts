@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { competitionKeys } from './useCompetition'
-import { getSupabaseClient, isRealtimeEnabled } from '../lib/supabaseClient'
+import { getSupabaseClient, isRealtimeEnabled } from '../lib/infra/supabaseClient'
 
 // Subscribes to Postgres changes on the tables that drive the detail
 // page (entries, reactions, comments, messages) filtered by the current

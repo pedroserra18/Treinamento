@@ -4,8 +4,8 @@ import {
   MoreVertical, Timer, Plus, Dumbbell, X,
 } from 'lucide-react'
 import type { ExerciseOption } from '../../types/workout'
-import { pushRecentExerciseId } from '../../lib/recent-exercises'
-import { formatClock } from '../../lib/workout-timing'
+import { pushRecentExerciseId } from '../../lib/exercise/recent-exercises'
+import { formatClock } from '../../lib/workout/workout-timing'
 import { AddExerciseModal } from './AddExerciseModal'
 import { ExerciseContextMenuSheet } from './ExerciseContextMenuSheet'
 import { ReorderExercisesSheet, type ReorderItem } from './ReorderExercisesSheet'
@@ -16,7 +16,7 @@ import { InfoDialog } from '../../components/common/InfoDialog'
 import { ConfirmDialog } from '../../components/common/ConfirmDialog'
 import { SetTypeBadge, SetTypePickerSheet } from '../../components/common/SetTypePickerSheet'
 import type { SetType } from '../../components/common/setTypeOptions'
-import { serializePerfNotes, type PerfSeries } from '../../lib/perf-notes'
+import { serializePerfNotes, type PerfSeries } from '../../lib/workout/perf-notes'
 
 // Tela "Criar Rotina" no estilo Hevy: header [Cancelar / Título / Salvar]
 // + input de título da rotina + lista de exercícios + botão Adicionar.

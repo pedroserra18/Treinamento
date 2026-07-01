@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react'
 import { ArrowRight, ChevronUp, Activity } from 'lucide-react'
 import type { WorkoutSessionHistory } from '../../types/workout'
 import { HistoryExerciseCard } from './HistoryExerciseCard'
-import { groupExerciseHistory, userNoteFromNotes } from '../../lib/workout-history-grouping'
+import { groupExerciseHistory, userNoteFromNotes } from '../../lib/workout/workout-history-grouping'
 
 const CARDIO_PT: Record<string, string> = {
   WALK: 'Caminhada', RUN: 'Corrida', BIKE: 'Bicicleta', STAIRS: 'Escada',

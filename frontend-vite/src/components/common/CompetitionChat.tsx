@@ -8,7 +8,7 @@ import {
   useDeleteChatMessage,
   usePostChatMessage,
 } from '../../hooks/useCompetition'
-import { avatarThumbUrl } from '../../lib/imageTransform'
+import { avatarThumbUrl } from '../../lib/image/imageTransform'
 
 // Compact chat panel for a competition. When Supabase Realtime is wired
 // (useCompetitionRealtime in the parent page), the chat query is

@@ -1,4 +1,4 @@
-import type { SetType } from '../components/common/setTypeOptions'
+import type { SetType } from '../../components/common/setTypeOptions'
 
 // Fonte ÚNICA da convenção __PERF__: dados estruturados por-série encodados no
 // campo `notes` do plano (o backend só guarda como texto). Antes essa lógica

@@ -8,7 +8,7 @@ import {
   readActiveWorkout,
   subscribeActiveWorkout,
   type ActiveWorkoutSnapshot,
-} from '../../lib/active-workout-storage'
+} from '../../lib/workout/active-workout-storage'
 import { useActiveWorkoutElapsed } from '../../hooks/useActiveWorkoutElapsed'
 
 function formatClock(totalSec: number): string {

@@ -15,7 +15,7 @@ import {
   type CreateExerciseInput,
   type MyExerciseStats,
 } from '../../services/workoutService'
-import { optimizeImageFileToDataUrl } from '../../lib/image-processing'
+import { optimizeImageFileToDataUrl } from '../../lib/image/image-processing'
 import type { ExerciseOption } from '../../types/workout'
 import { ConfirmDialog } from '../../components/common/ConfirmDialog'
 

@@ -1,5 +1,5 @@
-import type { WorkoutHistoryResponse } from '../types/workout'
-import { listWorkoutHistory } from '../services/workoutService'
+import type { WorkoutHistoryResponse } from '../../types/workout'
+import { listWorkoutHistory } from '../../services/workoutService'
 import { createApiCache } from './api-cache'
 
 // Cache compartilhado do histórico de treinos.

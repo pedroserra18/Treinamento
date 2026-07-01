@@ -6,7 +6,7 @@ import { FeedPostCard } from '../components/common/FeedPostCard'
 import { SkeletonCard } from '../components/common/Skeleton'
 import { Toast } from '../components/common/Toast'
 import { useToast } from '../hooks/useToast'
-import { feedFirstPageCache } from '../lib/feed-cache'
+import { feedFirstPageCache } from '../lib/cache/feed-cache'
 import { shareLink } from '../lib/share'
 import {
   getPost, toggleLike, deletePost, updatePostPrivacy,

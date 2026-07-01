@@ -4,17 +4,17 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Search, Dumbbell, Check, Trash2 } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useScrollLock } from '../../hooks/useScrollLock'
-import { getRecentExerciseIds } from '../../lib/recent-exercises'
+import { getRecentExerciseIds } from '../../lib/exercise/recent-exercises'
 import {
   deletePrivateExercise,
 } from '../../services/workoutService'
 import type { ExerciseOption } from '../../types/workout'
-import { matchesExerciseSearch } from '../../lib/exercise-search'
+import { matchesExerciseSearch } from '../../lib/exercise/exercise-search'
 import {
   getExerciseCatalogCached,
   invalidateExerciseCatalog,
   peekExerciseCatalog,
-} from '../../lib/exercise-catalog-cache'
+} from '../../lib/cache/exercise-catalog-cache'
 import { ConfirmDialog } from '../../components/common/ConfirmDialog'
 
 // Linha da seção Personalizados — espelha o markup de uma row normal,

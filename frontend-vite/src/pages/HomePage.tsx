@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useEffect, useMemo, useState } from 'react'
 import { CountUp } from '../components/common/CountUp'
-import { workoutHistoryCache } from '../lib/workout-history-cache'
+import { workoutHistoryCache } from '../lib/cache/workout-history-cache'
 import type { WorkoutSessionHistory } from '../types/workout'
 import {
   Activity, Bot, Calendar, Clock, Dumbbell, Flame, Play, TrendingUp,

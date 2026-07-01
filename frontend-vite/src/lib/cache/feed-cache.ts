@@ -1,4 +1,4 @@
-import { getFeed, type FeedPost } from '../services/socialService'
+import { getFeed, type FeedPost } from '../../services/socialService'
 import { createApiCache } from './api-cache'
 
 // Cache da primeira página do feed social.

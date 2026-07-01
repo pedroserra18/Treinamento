@@ -5,7 +5,7 @@ import {
   userNoteFromNotes,
   type GroupedExerciseHistory,
   type HistoryEntry,
-} from '../../lib/workout-history-grouping'
+} from '../../lib/workout/workout-history-grouping'
 
 // ─── Local visual helpers ─────────────────────────────────────────────────
 

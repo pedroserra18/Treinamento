@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useEffect, useState } from 'react'
 import { Check } from 'lucide-react'
 import { useScrollLock } from '../../hooks/useScrollLock'
-import { formatRestOptionLabel, REST_OPTIONS_SEC } from '../../lib/workout-timing'
+import { formatRestOptionLabel, REST_OPTIONS_SEC } from '../../lib/workout/workout-timing'
 
 // Bottom sheet pra escolher tempo de descanso, padronizado pra tanto
 // o TrainPage (durante treino ativo) quanto o WorkoutsPage (editar
