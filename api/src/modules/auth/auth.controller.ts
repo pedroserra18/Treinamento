@@ -1,6 +1,8 @@
 import { Request, Response } from "express";
 import { logger } from "../../config/logger";
 import { AppError } from "../../shared/errors/app-error";
+import { isStorageConfigured } from "../../config/storage";
+import { uploadDataUrl } from "../upload/upload.service";
 import { trackLoginFailure } from "../../middlewares/security.middleware";
 import { eventContextFromRequest } from "../../shared/utils/event-context";
 import { consumeOAuthState, createOAuthState } from "./oauth-state.service";
@@ -350,7 +352,20 @@ export async function updatePrivacyController(req: Request, res: Response): Prom
 export async function updateAvatarController(req: Request, res: Response): Promise<void> {
   const userId = req.context.userId as string;
   const { avatarUrl } = req.body as { avatarUrl: string | null };
-  const user = await updateAvatar(userId, avatarUrl ?? null);
+
+  // Se veio um data URL base64 e o Storage está configurado, sobe pro Supabase
+  // Storage e persiste a URL PÚBLICA (em vez do base64 cru no banco). Assim o
+  // avatar sobrevive a limpeza de cache/reinstall do PWA, não incha a tabela
+  // users e ganha o thumbnail transform. Sem Storage (dev), ou quando já vem
+  // uma URL (avatar do Google) ou null (remoção), passa direto — comportamento
+  // antigo preservado.
+  let stored: string | null = avatarUrl ?? null;
+  if (stored && stored.startsWith("data:image/") && isStorageConfigured()) {
+    const { publicUrl } = await uploadDataUrl("avatar", userId, stored);
+    stored = publicUrl;
+  }
+
+  const user = await updateAvatar(userId, stored);
   res.json({ data: { user }, meta: { requestId: req.context.requestId } });
 }
 

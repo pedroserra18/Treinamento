@@ -24,7 +24,7 @@ type UploadOptions = {
 // Supabase dashboard so we don't need to manage signed URLs (acceptable
 // for fitness photos that members of a competition can already see).
 export async function uploadDataUrl(
-  folder: "competition" | "body" | "workout" | "exercise",
+  folder: "competition" | "body" | "workout" | "exercise" | "avatar",
   ownerId: string,
   dataUrl: string,
   options: UploadOptions = {}
