@@ -1461,16 +1461,9 @@ export function TrainPage() {
   const totals = useMemo(() => calculateTotals(activeExercises), [activeExercises])
 
   const resetWorkflow = () => {
-    setScreen('DASHBOARD')
-    setOriginMode('EMPTY')
-    setActivePlanName('Treinamento vazio')
-    setActiveExercises([])
-    setCardioEntries([])
-    setElapsedSec(0)
-    setIsWorkoutRunning(false)
-    setManualTimerMinutes('')
-    setStartedAt(null)
-    setEndedAt(null)
+    // Reset atômico do ciclo de treino (screen/origin/exercícios/cardio/timer/
+    // datas). Os estados do RESUMO abaixo ainda são useState (Fase 2 depois).
+    dispatchSession({ type: 'RESET' })
     setSummaryName('')
     setSummaryDurationMin('')
     setSummaryImageFile(null)
@@ -1501,15 +1494,9 @@ export function TrainPage() {
     interactionOrderCounterRef.current = 0
     // Treino vazio não tem rotina-base → sem snapshot pra comparar.
     originalPlanSnapshotRef.current = null
-    setOriginMode('EMPTY')
-    setActivePlanName('Treinamento vazio')
-    setActiveExercises([])
-    setCardioEntries([])
-    setElapsedSec(0)
-    setIsWorkoutRunning(true)
-    setStartedAt(new Date())
-    setEndedAt(null)
-    setScreen('ACTIVE')
+    // Uma ação atômica inicia a sessão vazia (origin/nome/limpa exercícios+
+    // cardio/zera timer/começa a rodar/vai pra ACTIVE).
+    dispatchSession({ type: 'START_EMPTY', startedAt: new Date() })
     // Inicia o relógio de inatividade — se o user abandonar agora sem
     // marcar nem adicionar nada, leva o lembrete em 30 min.
     rescheduleIdleReminder()
@@ -1528,23 +1515,21 @@ export function TrainPage() {
         planExerciseId: entry.id,
       })),
     }
-    setOriginMode('ROUTINE')
+    // activePlanId fica de fora do reducer (é seleção da dashboard, useState
+    // próprio). O resto da sessão entra numa ação atômica.
     setActivePlanId(plan.id)
-    setActivePlanName(plan.name)
-    setActiveExercises(mapPlanToActiveExercises(plan))
-    setCardioEntries(
-      (plan.cardio ?? []).map((c) => ({
+    dispatchSession({
+      type: 'START_ROUTINE',
+      planName: plan.name,
+      exercises: mapPlanToActiveExercises(plan),
+      cardio: (plan.cardio ?? []).map((c) => ({
         type: c.type,
         durationSec: c.durationSec,
         distanceMeters: c.distanceMeters ?? undefined,
         notes: c.notes ?? undefined,
       })),
-    )
-    setElapsedSec(0)
-    setIsWorkoutRunning(true)
-    setStartedAt(new Date())
-    setEndedAt(null)
-    setScreen('ACTIVE')
+      startedAt: new Date(),
+    })
     rescheduleIdleReminder()
   }
 
@@ -1554,8 +1539,6 @@ export function TrainPage() {
   // razoável).
   const transitionToSummary = (durationMinOverride?: number) => {
     const end = new Date()
-    setEndedAt(end)
-    setIsWorkoutRunning(false)
     // Tela de Resumo é estado terminal — usuário tá pra salvar ou
     // descartar, não tá mais "treinando". Cancela o lembrete pra não
     // soltar "treino ainda rolando" enquanto ele preenche o resumo.
@@ -1571,7 +1554,9 @@ export function TrainPage() {
     const clockMin = Math.round(elapsedSec / 60)
     const computedMin = Math.max(1, clockMin, cardioMin)
     setSummaryDurationMin(String(durationMinOverride ?? computedMin))
-    setScreen('SUMMARY')
+    // Transição atômica: encerra o cronômetro (endedAt + para de rodar) e
+    // entra no resumo, num dispatch só.
+    dispatchSession({ type: 'GO_TO_SUMMARY', endedAt: end })
     // NÃO limpamos clearActiveWorkout() aqui — se o usuário fechar o tab
     // entre Finalizar e Salvar, perderia o tracking inteiro. O snapshot
     // é limpo só depois do save bem-sucedido (ver saveTraining).
