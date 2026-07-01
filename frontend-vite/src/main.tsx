@@ -2,9 +2,9 @@ import './index.css'
 import App from './App'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Sentry, initSentryFrontend } from './lib/sentry'
-import { pwa } from './lib/pwa'
-import { bumpVisitCount } from './lib/install-prompt'
+import { Sentry, initSentryFrontend } from './lib/infra/sentry'
+import { pwa } from './lib/infra/pwa'
+import { bumpVisitCount } from './lib/infra/install-prompt'
 
 initSentryFrontend()
 // Bump ANTES de montar o React pra os componentes filhos verem o

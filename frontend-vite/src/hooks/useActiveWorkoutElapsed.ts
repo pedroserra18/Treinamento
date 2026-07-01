@@ -3,7 +3,7 @@ import {
   deriveElapsedSec,
   readActiveWorkout,
   subscribeActiveWorkout,
-} from '../lib/active-workout-storage'
+} from '../lib/workout/active-workout-storage'
 
 // Relógio ÚNICO do tempo decorrido do treino. Em vez de cada cronômetro (tela
 // ativa, mini barra) manter seu próprio âncora — o que causava diferença

@@ -1,4 +1,4 @@
-import { getFollowers, getFollowing, type UserSearchResult } from '../services/socialService'
+import { getFollowers, getFollowing, type UserSearchResult } from '../../services/socialService'
 import { createApiCache } from './api-cache'
 
 // Caches de seguidores e seguindo do user logado.

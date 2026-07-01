@@ -1,4 +1,4 @@
-import type { PostComment } from '../services/socialService'
+import type { PostComment } from '../../services/socialService'
 
 // Cache em memória dos comentários por post. Evita o spinner "carregando" e o
 // round-trip a cada vez que o usuário abre/fecha os comentários — abrir de novo

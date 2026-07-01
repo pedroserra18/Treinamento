@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { setSentryUser } from '../lib/sentry'
+import { setSentryUser } from '../lib/infra/sentry'
 import type { AuthTokens, AuthUser } from '../types/auth'
 import { AuthContext, type AuthState } from './auth-context'
 import {

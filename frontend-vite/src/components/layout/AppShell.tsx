@@ -14,8 +14,8 @@ import {
   getExerciseExplorerEventName,
   selectExerciseFromExplorer,
   type ExerciseExplorerOpenPayload,
-} from '../../lib/exercise-explorer'
-import { MUSCLE_OPTIONS } from '../../lib/exercise-meta'
+} from '../../lib/exercise/exercise-explorer'
+import { MUSCLE_OPTIONS } from '../../lib/exercise/exercise-meta'
 import {
   Home,
   Dumbbell,

@@ -5,7 +5,7 @@ import {
   useInvitableFriends,
   useInviteMember,
 } from '../../hooks/useCompetition'
-import { avatarThumbUrl } from '../../lib/imageTransform'
+import { avatarThumbUrl } from '../../lib/image/imageTransform'
 
 export function FriendPickerModal({
   competitionId, onClose, onInvited,

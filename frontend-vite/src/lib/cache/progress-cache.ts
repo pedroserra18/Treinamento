@@ -2,12 +2,12 @@ import type {
   BodyMeasurementHistoryResponse,
   ExerciseProgressResponse,
   ProgressSummaryResponse,
-} from '../types/progress'
+} from '../../types/progress'
 import {
   getExerciseProgress,
   getProgressSummary,
   listBodyMeasurements,
-} from '../services/progressService'
+} from '../../services/progressService'
 import { createApiCache } from './api-cache'
 
 // Caches da ProgressPage. 3 endpoints rodados em paralelo no mount:

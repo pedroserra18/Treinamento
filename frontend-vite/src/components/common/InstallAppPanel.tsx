@@ -5,7 +5,7 @@ import {
   isIosSafari,
   isStandalone,
   type BeforeInstallPromptEvent,
-} from '../../lib/install-prompt'
+} from '../../lib/infra/install-prompt'
 
 // Painel completo de instalação na seção Configurações > Instalar app.
 //

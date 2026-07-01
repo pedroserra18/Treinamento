@@ -1,5 +1,5 @@
-import type { WorkoutPlan } from '../types/workout'
-import { listWorkoutPlans } from '../services/workoutService'
+import type { WorkoutPlan } from '../../types/workout'
+import { listWorkoutPlans } from '../../services/workoutService'
 
 // Cache compartilhado das rotinas (workout plans) do usuário.
 //

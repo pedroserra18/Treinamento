@@ -3,8 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useAuth } from '../hooks/useAuth'
 import { saveSharedPlan, type SharedPlanData } from '../services/socialService'
-import { invalidateWorkoutPlansCache } from '../lib/workout-plans-cache'
-import { stripPerfMarker } from '../lib/perf-notes'
+import { invalidateWorkoutPlansCache } from '../lib/cache/workout-plans-cache'
+import { stripPerfMarker } from '../lib/workout/perf-notes'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1'
 

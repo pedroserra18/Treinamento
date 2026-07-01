@@ -1,5 +1,5 @@
-import type { ExerciseOption } from '../types/workout'
-import { searchExercisesForPlan } from '../services/workoutService'
+import type { ExerciseOption } from '../../types/workout'
+import { searchExercisesForPlan } from '../../services/workoutService'
 
 // Cache em módulo do catálogo de exercícios.
 //

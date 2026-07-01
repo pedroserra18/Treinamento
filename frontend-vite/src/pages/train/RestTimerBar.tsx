@@ -1,6 +1,6 @@
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
-import { formatClock } from '../../lib/workout-timing'
+import { formatClock } from '../../lib/workout/workout-timing'
 import type { ActiveExercise } from './types'
 
 // Barra fixa de descanso no rodapé do treino ativo. Renderizada via portal pra

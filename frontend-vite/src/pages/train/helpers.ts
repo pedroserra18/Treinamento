@@ -1,7 +1,7 @@
 // Helpers puros (e quase-puros) extraídos do TrainPage. Não têm estado nem
 // dependem de React — só transformam dados de entrada em saída. Ficam aqui
 // pra reduzir o tamanho do TrainPage e pra poderem ser testados isoladamente.
-import { resolveBodyweightFlag } from '../../lib/exercise-meta'
+import { resolveBodyweightFlag } from '../../lib/exercise/exercise-meta'
 import type { WorkoutPlan } from '../../types/workout'
 import type { ActiveExercise, ExerciseSetInput, TrackingType } from './types'
 
