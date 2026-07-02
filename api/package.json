@@ -24,7 +24,7 @@
     "test:integration": "jest --runInBand --config jest.config.cjs"
   },
   "dependencies": {
-    "@prisma/client": "^6.19.3",
+    "@prisma/client": "^7.8.0",
     "@sentry/node": "^10.47.0",
     "@supabase/supabase-js": "^2.106.2",
     "bcryptjs": "^3.0.2",
