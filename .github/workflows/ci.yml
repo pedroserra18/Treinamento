@@ -31,6 +31,11 @@ jobs:
       - name: Install (web)
         working-directory: frontend-vite
         run: npm install --no-audit --no-fund
+      # Gate de dependências: falha o build se houver vuln HIGH/CRITICAL.
+      # low/moderate (muitas vezes transitivas e inevitáveis) não travam o CI.
+      - name: Audit (web)
+        working-directory: frontend-vite
+        run: npm audit --audit-level=high
       - name: Lint (web)
         working-directory: frontend-vite
         run: npm run lint
@@ -45,6 +50,9 @@ jobs:
       - name: Install (api)
         working-directory: api
         run: npm install --no-audit --no-fund
+      - name: Audit (api)
+        working-directory: api
+        run: npm audit --audit-level=high
       - name: Prisma generate (api)
         working-directory: api
         run: npm run prisma:generate

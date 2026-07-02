@@ -2666,9 +2666,17 @@ export function TrainPage() {
   }
 
   const handleExportPDF = (plan: WorkoutPlan) => {
+    // Escapa valores controlados pelo usuário (nome/descrição do plano e nomes
+    // de exercícios — inclusive de planos compartilhados de terceiros) antes de
+    // interpolar no HTML impresso via document.write. Sem isto, um `<` no texto
+    // conseguiria injetar markup/script na janela de impressão.
+    const esc = (value: string) =>
+      value.replace(/[&<>"']/g, (c) =>
+        c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : c === '"' ? '&quot;' : '&#39;',
+      )
     const exerciseRows = plan.exercises
       .map((item, i) => {
-        const name = item.customName ?? item.exercise.name
+        const name = esc(item.customName ?? item.exercise.name)
         const sets = item.sets ?? '—'
         const reps = item.repsMin && item.repsMax ? `${item.repsMin}–${item.repsMax}` : (item.repsMax ?? item.repsMin ?? '—')
         const rest = item.restSec ? `${item.restSec}s` : '—'
@@ -2682,11 +2690,11 @@ export function TrainPage() {
       .join('')
 
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/>
-      <title>${plan.name}</title>
+      <title>${esc(plan.name)}</title>
       <style>body{font-family:Arial,sans-serif;padding:32px;color:#111}h1{margin:0 0 4px}p{color:#666;margin:0 0 24px}table{width:100%;border-collapse:collapse}th{background:#f3f4f6;padding:8px 12px;text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#6b7280}</style>
     </head><body>
-      <h1>${plan.name}</h1>
-      <p>${plan.description ?? 'Rotina personalizada'}</p>
+      <h1>${esc(plan.name)}</h1>
+      <p>${esc(plan.description ?? 'Rotina personalizada')}</p>
       <table>
         <thead><tr><th>Exercicio</th><th>Series</th><th>Reps</th><th>Descanso</th></tr></thead>
         <tbody>${exerciseRows}</tbody>
