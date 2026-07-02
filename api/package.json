@@ -40,7 +40,7 @@
     "ioredis": "^5.10.1",
     "jsonwebtoken": "^9.0.2",
     "openai": "^6.34.0",
-    "rate-limit-redis": "^4.3.1",
+    "rate-limit-redis": "^5.0.0",
     "resend": "^6.10.0",
     "web-push": "^3.6.7",
     "winston": "^3.18.3",
