@@ -205,7 +205,10 @@ export const corsPolicy = cors({
     );
   },
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "x-request-id", "x-user-id", "x-user-role"],
+  // `x-user-id` / `x-user-role` foram removidos de propósito: a identidade é
+  // derivada só do JWT (ver request-context.middleware.ts), então não há razão
+  // para o cliente enviá-los e aceitá-los só ampliaria a superfície de abuso.
+  allowedHeaders: ["Content-Type", "Authorization", "x-request-id"],
   credentials: false,
   optionsSuccessStatus: 204
 });
