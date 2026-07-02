@@ -1,38 +1,57 @@
 # Dependabot — abre PRs semanais de atualização de dependências.
 # Monorepo: um bloco por package.json (root, api, frontend-vite) + as GitHub
-# Actions. Atualizações de patch/minor são agrupadas para reduzir ruído de PRs;
-# majors vêm em PRs separados (podem ter breaking changes e merecem revisão).
+# Actions. Atualizações patch/minor são agrupadas num único PR por ecossistema.
+#
+# Política: ignoramos saltos de versão MAJOR nos updates de rotina — eles trazem
+# breaking changes (ex.: ESLint 10, Prisma 7) e devem ser feitos de propósito,
+# com teste, não via PR automático. Isso NÃO desliga as *security updates* do
+# Dependabot (Settings → Code security), que continuam podendo propor um major
+# quando for para corrigir uma CVE.
 version: 2
 updates:
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     groups:
       minor-and-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "npm"
     directory: "/api"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     groups:
       minor-and-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "npm"
     directory: "/frontend-vite"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     groups:
       minor-and-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      # Segurado de propósito: a partir do 7.1 este plugin adiciona a regra
+      # `react-hooks/set-state-in-effect`, que marca ~59 trechos atuais como
+      # erro e reprova o lint. Só atualizar depois de tratar esses pontos
+      # (tarefa de clean code — Etapa 3), senão o CI fica vermelho à toa.
+      - dependency-name: "eslint-plugin-react-hooks"
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
