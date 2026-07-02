@@ -25,7 +25,7 @@ type RefreshTokenPayload = {
   jti: string;
 };
 
-type SafeUser = {
+export type SafeUser = {
   id: string;
   name: string | null;
   handle: string;
@@ -215,7 +215,7 @@ async function issueTokenPair(user: { id: string; role: "USER" | "COACH" | "ADMI
   };
 }
 
-function toSafeUser(user: {
+export function toSafeUser(user: {
   id: string;
   name: string | null;
   handle: string;

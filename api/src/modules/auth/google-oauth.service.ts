@@ -8,23 +8,36 @@ import { deriveHandleBase, generateUniqueHandle } from "../../shared/utils/handl
 import { classifyAccountType } from "../../shared/utils/account-type";
 import { trackEvent } from "../../shared/services/event-log.service";
 import { EventContext } from "../../shared/utils/event-context";
+import { toSafeUser, type SafeUser } from "./auth.service";
 
 const googleClient = new OAuth2Client(env.googleClientId);
 
-type SafeUser = {
-  id: string;
-  name: string | null;
-  handle: string;
-  email: string;
-  role: "USER" | "COACH" | "ADMIN";
-  sex: "MALE" | "FEMALE" | "OTHER";
-  availableDaysPerWeek: number | null;
-  onboardingCompleted: boolean;
-  // Aceite de termos — sem isso, o login com Google volta o usuário sem o
-  // aceite e o TermsAcceptanceGate pediria re-aceite a CADA login.
-  acceptedTermsAt: string | null;
-  acceptedTermsVersion: string | null;
-};
+// Campos que compõem o SafeUser devolvido ao cliente. Fonte única de verdade:
+// o mapper `toSafeUser` do auth.service. Os SELECTs do Google precisam ficar
+// alinhados a isto — foi a divergência (faltava avatarUrl e o tier/privacidade
+// aqui) que sumia a foto e o badge PRO ao logar via Google.
+export const SAFE_USER_SELECT = {
+  id: true,
+  name: true,
+  handle: true,
+  email: true,
+  role: true,
+  sex: true,
+  availableDaysPerWeek: true,
+  birthDate: true,
+  heightCm: true,
+  weightKg: true,
+  experienceLevel: true,
+  primaryGoal: true,
+  plan: true,
+  planExpiresAt: true,
+  acceptedTermsAt: true,
+  acceptedTermsVersion: true,
+  onboardingCompletedAt: true,
+  isPrivate: true,
+  showFollowLists: true,
+  avatarUrl: true
+} as const;
 
 type AuthTokens = {
   token: string;
@@ -39,32 +52,6 @@ type GoogleProfile = {
   name: string | null;
   picture: string | null;
 };
-
-function toSafeUser(user: {
-  id: string;
-  name: string | null;
-  handle: string;
-  email: string;
-  role: "USER" | "COACH" | "ADMIN";
-  sex: "MALE" | "FEMALE" | "OTHER";
-  availableDaysPerWeek: number | null;
-  onboardingCompletedAt: Date | null;
-  acceptedTermsAt: Date | null;
-  acceptedTermsVersion: string | null;
-}): SafeUser {
-  return {
-    id: user.id,
-    name: user.name,
-    handle: user.handle,
-    email: user.email,
-    role: user.role,
-    sex: user.sex,
-    availableDaysPerWeek: user.availableDaysPerWeek,
-    onboardingCompleted: Boolean(user.onboardingCompletedAt && user.availableDaysPerWeek),
-    acceptedTermsAt: user.acceptedTermsAt ? user.acceptedTermsAt.toISOString() : null,
-    acceptedTermsVersion: user.acceptedTermsVersion ?? null
-  };
-}
 
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
@@ -248,16 +235,7 @@ export async function loginWithGoogleCode(
     include: {
       user: {
         select: {
-          id: true,
-          name: true,
-          handle: true,
-          email: true,
-          role: true,
-          sex: true,
-          availableDaysPerWeek: true,
-          onboardingCompletedAt: true,
-          acceptedTermsAt: true,
-          acceptedTermsVersion: true,
+          ...SAFE_USER_SELECT,
           isDeleted: true,
           status: true
         }
@@ -348,18 +326,7 @@ export async function loginWithGoogleCode(
       status: "ACTIVE",
       emailVerifiedAt: new Date()
     },
-    select: {
-      id: true,
-      name: true,
-      handle: true,
-      email: true,
-      role: true,
-      sex: true,
-      availableDaysPerWeek: true,
-      onboardingCompletedAt: true,
-      acceptedTermsAt: true,
-      acceptedTermsVersion: true
-    }
+    select: { ...SAFE_USER_SELECT }
   });
 
   await prisma.authProvider.create({
@@ -409,16 +376,7 @@ export async function linkGoogleToAuthenticatedUser(
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
-      id: true,
-      name: true,
-      handle: true,
-      email: true,
-      role: true,
-      sex: true,
-      availableDaysPerWeek: true,
-      onboardingCompletedAt: true,
-      acceptedTermsAt: true,
-      acceptedTermsVersion: true,
+      ...SAFE_USER_SELECT,
       isDeleted: true,
       status: true
     }
