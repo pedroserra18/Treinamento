@@ -1,25 +1,22 @@
 import { logger } from "../config/logger";
-import { UserRole } from "../types/request-context";
 import { NextFunction, Request, Response } from "express";
-
-function normalizeRole(value?: string): UserRole {
-  const upper = value?.toUpperCase();
-  if (upper === "ADMIN" || upper === "COACH" || upper === "USER") {
-    return upper;
-  }
-
-  return "USER";
-}
 
 export function requestContextMiddleware(req: Request, _res: Response, next: NextFunction): void {
   const requestId =
     req.header("x-request-id")?.trim() ??
     `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
+  // A identidade (userId/userRole) NUNCA vem de headers do cliente. Ela é
+  // populada exclusivamente pelos middlewares de auth (requireAuth /
+  // optionalAuth) a partir de um JWT verificado. Confiar em `x-user-id` /
+  // `x-user-role` aqui permitiria a qualquer chamador se passar por outro
+  // usuário (e escalar para ADMIN) apenas enviando um header — inclusive em
+  // rotas com `optionalAuth`, onde nenhum token é exigido. Iniciamos com o
+  // papel mínimo; quem tiver Bearer válido é promovido pela auth.
   req.context = {
     requestId,
-    userId: req.header("x-user-id")?.trim() || undefined,
-    userRole: normalizeRole(req.header("x-user-role")?.trim())
+    userId: undefined,
+    userRole: "USER"
   };
 
   next();
