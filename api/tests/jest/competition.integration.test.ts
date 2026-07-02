@@ -30,6 +30,11 @@ const guard = ALLOW ? describe : describe.skip;
 
 let app: Express;
 
+// Cada teste cria 1–2 usuários via API (register+login usam bcrypt, que é
+// intencionalmente lento) + competição. O default de 5s do Jest estoura no
+// caso de 2 usuários (~6s), então subimos o timeout do suite.
+jest.setTimeout(30_000);
+
 beforeAll(async () => {
   // Loosen the global rate limit during tests — we make many calls in
   // a tight loop and 100/min would block normal test runs.
@@ -42,9 +47,12 @@ async function createOnboardedUser(): Promise<{ token: string; userId: string }>
   const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const email = `jest-comp-${stamp}@example.com`;
   const password = "Password123!";
+  // handle é obrigatório no registro; gera um único e válido (só alfanumérico).
+  const handle = `jc${Date.now()}${Math.floor(Math.random() * 100000)}`;
 
   await request(app).post("/api/v1/auth/register").send({
     name: "Jest Competition User",
+    handle,
     email,
     password
   });
@@ -56,7 +64,13 @@ async function createOnboardedUser(): Promise<{ token: string; userId: string }>
   await request(app)
     .post("/api/v1/auth/onboarding/complete")
     .set("Authorization", `Bearer ${token}`)
-    .send({ sex: "MALE", availableDaysPerWeek: 4 })
+    .send({
+      sex: "MALE",
+      availableDaysPerWeek: 4,
+      experienceLevel: "INTERMEDIATE",
+      primaryGoal: "HYPERTROPHY",
+      birthDate: "1998-05-10"
+    })
     .expect(200);
 
   return { token, userId };
