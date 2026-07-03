@@ -20,3 +20,15 @@ export async function assertActiveMembership(userId: string, competitionId: stri
     throw new AppError("Você abandonou essa competição", { statusCode: 403, code: "COMPETITION_ABANDONED" });
   }
 }
+
+// Garante que a prova (entry) pertence à competição informada. Usado pelas
+// reações (competition.service) e pelos comentários (competition-comments).
+export async function assertEntryInCompetition(competitionId: string, entryId: string): Promise<void> {
+  const entry = await prisma.competitionEntry.findUnique({
+    where: { id: entryId },
+    select: { competitionId: true }
+  });
+  if (!entry || entry.competitionId !== competitionId) {
+    throw new AppError("Prova não encontrada", { statusCode: 404, code: "COMPETITION_ENTRY_NOT_FOUND" });
+  }
+}

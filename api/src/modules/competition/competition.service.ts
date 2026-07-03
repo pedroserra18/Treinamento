@@ -8,12 +8,10 @@ import type {
   InviteMemberBody,
   ListFeedQuery,
   PostEntryBody,
-  PostEntryCommentBody,
   ReactionBody
 } from "./competition.schema";
 import type { CompetitionReactionKind } from "@prisma/client";
-import { checkProfanity } from "./profanity-filter";
-import { assertActiveMembership, CHAT_RATE_LIMIT_SEC } from "./competition-helpers";
+import { assertActiveMembership, assertEntryInCompetition } from "./competition-helpers";
 
 const MAX_MEMBERS = 10;
 const INVITE_EXPIRY_DAYS = 7;
@@ -1217,16 +1215,6 @@ export async function getCompetitionFeed(
 
 // ─── Reactions on entries ────────────────────────────────────────────────
 
-async function assertEntryInCompetition(competitionId: string, entryId: string): Promise<void> {
-  const entry = await prisma.competitionEntry.findUnique({
-    where: { id: entryId },
-    select: { competitionId: true }
-  });
-  if (!entry || entry.competitionId !== competitionId) {
-    throw new AppError("Prova não encontrada", { statusCode: 404, code: "COMPETITION_ENTRY_NOT_FOUND" });
-  }
-}
-
 // Toggles a reaction on/off. If the user already reacted with the same
 // kind, removes it. Otherwise inserts. Different reaction kinds from the
 // same user on the same entry can coexist (you can clap AND fire-emoji
@@ -1363,121 +1351,6 @@ async function loadCommentCounts(entryIds: string[]): Promise<Map<string, number
   for (const r of rows) map.set(r.entryId, r._count._all);
   return map;
 }
-
-export async function listEntryComments(userId: string, competitionId: string, entryId: string) {
-  await assertActiveMembership(userId, competitionId);
-  await assertEntryInCompetition(competitionId, entryId);
-
-  const items = await prisma.competitionEntryComment.findMany({
-    where: { entryId },
-    orderBy: { createdAt: "asc" },
-    take: 200,
-    select: {
-      id: true,
-      userId: true,
-      content: true,
-      createdAt: true,
-      user: { select: { id: true, name: true, handle: true, avatarUrl: true } }
-    }
-  });
-  return { items };
-}
-
-export async function postEntryComment(
-  userId: string,
-  competitionId: string,
-  entryId: string,
-  payload: PostEntryCommentBody
-) {
-  await assertActiveMembership(userId, competitionId);
-  await assertEntryInCompetition(competitionId, entryId);
-
-  // Reuse the chat rate limit — same anti-flood target, same trade-off.
-  const recent = await prisma.competitionEntryComment.findFirst({
-    where: {
-      entryId,
-      userId,
-      createdAt: { gt: new Date(Date.now() - CHAT_RATE_LIMIT_SEC * 1000) }
-    },
-    select: { id: true }
-  });
-  if (recent) {
-    throw new AppError("Calma — espere alguns segundos antes de comentar de novo", {
-      statusCode: 429,
-      code: "COMMENT_RATE_LIMITED"
-    });
-  }
-
-  const check = checkProfanity(payload.content);
-  if (!check.ok) {
-    throw new AppError("Comentário bloqueado por conter conteúdo impróprio", {
-      statusCode: 400,
-      code: "COMMENT_BLOCKED_PROFANITY"
-    });
-  }
-
-  const comment = await prisma.competitionEntryComment.create({
-    data: { entryId, userId, content: payload.content },
-    select: {
-      id: true,
-      userId: true,
-      content: true,
-      createdAt: true,
-      user: { select: { id: true, name: true, handle: true, avatarUrl: true } }
-    }
-  });
-  return comment;
-}
-
-export async function deleteEntryComment(
-  userId: string,
-  competitionId: string,
-  entryId: string,
-  commentId: string
-) {
-  await assertEntryInCompetition(competitionId, entryId);
-
-  const comment = await prisma.competitionEntryComment.findUnique({
-    where: { id: commentId },
-    select: { id: true, userId: true, entryId: true }
-  });
-  if (!comment || comment.entryId !== entryId) {
-    throw new AppError("Comentário não encontrado", { statusCode: 404, code: "COMMENT_NOT_FOUND" });
-  }
-
-  // Author can delete their own. Admins (active) of the room can delete
-  // anyone's. Same rule as chat moderation.
-  const isAdminAction = comment.userId !== userId;
-  if (isAdminAction) {
-    const me = await prisma.competitionMember.findUnique({
-      where: { competitionId_userId: { competitionId, userId } },
-      select: { role: true, abandonedAt: true }
-    });
-    if (!me || me.role !== "ADMIN" || me.abandonedAt) {
-      throw new AppError("Você só pode apagar seus próprios comentários", {
-        statusCode: 403,
-        code: "COMMENT_NOT_AUTHORISED"
-      });
-    }
-  }
-
-  await prisma.competitionEntryComment.delete({ where: { id: commentId } });
-
-  if (isAdminAction) {
-    void trackEvent({
-      userId,
-      category: "COMPETITION",
-      action: "competition_comment_deleted",
-      resourceType: "competition_comment",
-      resourceId: commentId,
-      metadata: { competitionId, entryId, authorUserId: comment.userId }
-    });
-  }
-
-  return { success: true };
-}
-
-// ─── Chat ────────────────────────────────────────────────────────────────
 
 async function reconcileExpiredCompetitions(userId: string | null = null): Promise<{
   cancelledLobbies: number;
@@ -1732,3 +1605,7 @@ export async function notifyCompetitionsEndingSoon(): Promise<{
 // Chat da competição vive em competition-chat.service.ts.
 // Reexportado aqui para manter a superfície de import do controller estável.
 export * from "./competition-chat.service";
+
+// Comentarios de prova vivem em competition-comments.service.ts.
+// Reexportado aqui para manter a superficie de import do controller estavel.
+export * from "./competition-comments.service";
