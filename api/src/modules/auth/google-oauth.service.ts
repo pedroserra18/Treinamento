@@ -8,7 +8,7 @@ import { deriveHandleBase, generateUniqueHandle } from "../../shared/utils/handl
 import { classifyAccountType } from "../../shared/utils/account-type";
 import { trackEvent } from "../../shared/services/event-log.service";
 import { EventContext } from "../../shared/utils/event-context";
-import { toSafeUser, type SafeUser } from "./auth.service";
+import { toSafeUser, type SafeUser } from "./auth-safe-user";
 
 const googleClient = new OAuth2Client(env.googleClientId);
 
