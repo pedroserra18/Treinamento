@@ -132,7 +132,11 @@ export async function getPlanSummary(userId: string): Promise<PlanSummary> {
     pinnedExercisesCount
   ] = await Promise.all([
     prisma.workoutPlan.count({
-      where: { userId, archivedAt: null, status: { in: ["ACTIVE", "DRAFT"] } }
+      // Alinha com o gate de criação (createWorkoutPlan) e com "Minhas Rotinas"
+      // (listUserWorkoutPlans): templates ocultos criados pelo "Criar e enviar
+      // rotina" (isTemplate=true) não são rotinas do usuário e não devem entrar
+      // na contagem de uso do plano.
+      where: { userId, archivedAt: null, status: { in: ["ACTIVE", "DRAFT"] }, isTemplate: false }
     }),
     // Conta DISTINCT generationIds pra refletir "gerações" e não "dias".
     prisma.aIGeneratedPlan
