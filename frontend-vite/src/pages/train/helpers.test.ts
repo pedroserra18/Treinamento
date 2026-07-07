@@ -2,13 +2,18 @@ import { describe, expect, it } from 'vitest'
 import {
   calculateTotals,
   createSet,
+  estimatePlanMinutes,
+  isAiSourcedPlan,
   localDayKey,
   parseDurationMin,
+  parsePositiveInt,
+  planToRoutineInitial,
   relativeDaysFromNow,
   sanitizeDecimalInput,
   toFiniteNumber,
 } from './helpers'
 import type { ActiveExercise, ExerciseSetInput } from './types'
+import type { WorkoutPlan } from '../../types/workout'
 
 describe('parseDurationMin', () => {
   it('aceita inteiro puro como minutos', () => {
@@ -156,5 +161,64 @@ describe('calculateTotals', () => {
     const { totalSeries, totalVolumeKg } = calculateTotals([ex])
     expect(totalSeries).toBe(1)
     expect(totalVolumeKg).toBe(720) // 60 * 3 * 4
+  })
+})
+
+describe('parsePositiveInt', () => {
+  it('converte inteiro positivo (trunca)', () => {
+    expect(parsePositiveInt('7')).toBe(7)
+    expect(parsePositiveInt('7.9')).toBe(7)
+  })
+  it('retorna fallback para zero/negativo/inválido', () => {
+    expect(parsePositiveInt('0', 3)).toBe(3)
+    expect(parsePositiveInt('-2', 3)).toBe(3)
+    expect(parsePositiveInt('abc', 3)).toBe(3)
+    expect(parsePositiveInt('')).toBe(0)
+  })
+})
+
+describe('isAiSourcedPlan', () => {
+  it('detecta o marcador [Template: ...] na descrição', () => {
+    expect(isAiSourcedPlan({ description: 'Foco em peito [Template: PPL]' } as WorkoutPlan)).toBe(true)
+    expect(isAiSourcedPlan({ description: 'Rotina manual' } as WorkoutPlan)).toBe(false)
+    expect(isAiSourcedPlan({ description: null } as unknown as WorkoutPlan)).toBe(false)
+  })
+})
+
+describe('estimatePlanMinutes', () => {
+  it('estima ~35s de trabalho + descanso por série, mínimo 5min', () => {
+    // 2 exercícios: 3x(35+60)=285s e 4x(35+90)=500s => 785s => 13min
+    const plan = { exercises: [{ sets: 3, restSec: 60 }, { sets: 4, restSec: 90 }] } as WorkoutPlan
+    expect(estimatePlanMinutes(plan)).toBe(13)
+  })
+  it('usa defaults (3 séries, 60s) quando ausentes e respeita o piso de 5min', () => {
+    expect(estimatePlanMinutes({ exercises: [] } as unknown as WorkoutPlan)).toBe(5)
+  })
+})
+
+describe('planToRoutineInitial', () => {
+  it('sem marcador __PERF__, gera N séries a partir de ex.sets com reps do plano', () => {
+    const plan = {
+      name: 'Peito A',
+      exercises: [{
+        exercise: { id: 'ex1', name: 'Supino', thumbnailUrl: null },
+        customName: null,
+        notes: 'aquecer bem',
+        sets: 2,
+        repsMin: 8,
+        repsMax: 12,
+        restSec: 90,
+      }],
+    } as unknown as WorkoutPlan
+
+    const result = planToRoutineInitial(plan)
+    expect(result.name).toBe('Peito A')
+    expect(result.exercises).toHaveLength(1)
+    const [ex] = result.exercises
+    expect(ex.exerciseId).toBe('ex1')
+    expect(ex.exerciseName).toBe('Supino')
+    expect(ex.restSec).toBe(90)
+    expect(ex.sets).toHaveLength(2)
+    expect(ex.sets[0]).toEqual({ repsMin: '8', repsMax: '12', type: 'normal' })
   })
 })
