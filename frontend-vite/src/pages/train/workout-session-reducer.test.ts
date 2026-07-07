@@ -29,6 +29,13 @@ function dirtyState(): WorkoutSessionState {
     manualTimerMinutes: '45',
     startedAt: new Date('2026-06-01T08:00:00Z'),
     endedAt: null,
+    // slice de resumo (Fase 2) preenchido, pra provar que RESET limpa
+    summaryName: 'Peito e Tríceps',
+    summaryDurationMin: '52',
+    summaryImagePreview: 'blob:preview',
+    savedSessionId: 'sess-1',
+    postCaption: 'que treino',
+    posting: true,
   }
 }
 
@@ -71,11 +78,15 @@ describe('workoutSessionReducer', () => {
     expect(next.startedAt).toBe(START)
   })
 
-  it('GO_TO_SUMMARY encerra o cronômetro e entra no resumo', () => {
-    const next = reduce(dirtyState(), { type: 'GO_TO_SUMMARY', endedAt: END })
+  it('GO_TO_SUMMARY encerra o cronômetro, entra no resumo e preenche nome+duração', () => {
+    const next = reduce(dirtyState(), {
+      type: 'GO_TO_SUMMARY', endedAt: END, summaryName: 'Treino de hoje', summaryDurationMin: '48',
+    })
     expect(next.screen).toBe('SUMMARY')
     expect(next.isWorkoutRunning).toBe(false)
     expect(next.endedAt).toBe(END)
+    expect(next.summaryName).toBe('Treino de hoje')
+    expect(next.summaryDurationMin).toBe('48')
     // Não mexe nos exercícios — o resumo lê o que foi feito.
     expect(next.activeExercises).toHaveLength(1)
   })
@@ -92,6 +103,26 @@ describe('workoutSessionReducer', () => {
     expect(next.manualTimerMinutes).toBe('')
     expect(next.startedAt).toBeNull()
     expect(next.endedAt).toBeNull()
+    // Fase 2: o slice de resumo também zera
+    expect(next.summaryName).toBe('')
+    expect(next.summaryDurationMin).toBe('')
+    expect(next.summaryImagePreview).toBeNull()
+    expect(next.savedSessionId).toBeNull()
+    expect(next.postCaption).toBe('')
+    expect(next.posting).toBe(false)
+    expect(next.postDone).toBe(false)
+  })
+
+  it('setters do resumo (Fase 2) atualizam só o campo alvo + bail-out', () => {
+    expect(reduce(initial, { type: 'SET_SUMMARY_NAME', value: 'Treino A' }).summaryName).toBe('Treino A')
+    expect(reduce(initial, { type: 'SET_SUMMARY_DURATION', value: '60' }).summaryDurationMin).toBe('60')
+    expect(reduce(initial, { type: 'SET_SUMMARY_IMAGE_PREVIEW', url: 'blob:x' }).summaryImagePreview).toBe('blob:x')
+    expect(reduce(initial, { type: 'SET_SAVED_SESSION_ID', id: 's1' }).savedSessionId).toBe('s1')
+    expect(reduce(initial, { type: 'SET_POST_CAPTION', value: 'oi' }).postCaption).toBe('oi')
+    expect(reduce(initial, { type: 'SET_POSTING', value: true }).posting).toBe(true)
+    expect(reduce(initial, { type: 'SET_POST_DONE', value: true }).postDone).toBe(true)
+    const s: WorkoutSessionState = { ...initial, postCaption: 'x' }
+    expect(reduce(s, { type: 'SET_POST_CAPTION', value: 'x' })).toBe(s) // bail-out
   })
 
   it('UPDATE_ACTIVE_EXERCISES aplica o updater (ex.: marcar a 1ª série)', () => {
