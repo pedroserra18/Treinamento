@@ -87,8 +87,6 @@ import { vibrate } from '../lib/haptics'
 import { useWakeLock } from '../hooks/useWakeLock'
 import { useActiveWorkoutElapsed } from '../hooks/useActiveWorkoutElapsed'
 import type { WorkoutPlan, CardioEntryInput, ExerciseOption } from '../types/workout'
-import type { RoutineInitial } from './train/CreateRoutineScreen'
-import { parsePerfPayload, stripPerfMarker } from '../lib/workout/perf-notes'
 import { SetTypeBadge, SetTypePickerSheet } from './train/SetTypeControls'
 import { formatDurationCompact, formatSetPerformanceLabel } from './train/train-format'
 import { DurationWarningDialog, PlanUpdateDialog } from './train/TrainDialogs'
@@ -130,8 +128,13 @@ import { sha256OfDataUrl } from '../lib/image/photo-hash'
 import {
   calculateTotals,
   createSet,
+  estimatePlanMinutes,
+  isAiSourcedPlan,
+  isEffectiveBodyweightExercise,
   mapPlanToActiveExercises,
   parseDurationMin,
+  parsePositiveInt,
+  planToRoutineInitial,
   relativeDaysFromNow,
   sanitizeDecimalInput,
   toFiniteNumber,
@@ -143,73 +146,6 @@ import { SummaryMetricsCards } from './train/SummaryMetricsCards'
 import { RestTimerBar } from './train/RestTimerBar'
 import { ActiveProgressStats } from './train/ActiveProgressStats'
 import { computeSetPlaceholders } from './train/set-display'
-
-function parsePositiveInt(value: string, fallback = 0): number {
-  const n = Number(value)
-  if (!Number.isFinite(n) || n <= 0) {
-    return fallback
-  }
-
-  return Math.floor(n)
-}
-
-function isEffectiveBodyweightExercise(exercise: Pick<ActiveExercise, 'isBodyweight' | 'exerciseName' | 'equipment'>): boolean {
-  return resolveBodyweightFlag(exercise.isBodyweight, exercise.exerciseName, exercise.equipment)
-}
-
-// Plans seeded from the recommendation flow get a "[Template: ...]" marker
-// injected into their description by workout.service.ts. We use it as the
-// signal for the "IA" chip — nothing to fabricate here.
-function isAiSourcedPlan(plan: WorkoutPlan): boolean {
-  return Boolean(plan.description && /\[Template:/i.test(plan.description))
-}
-
-// Rough duration estimate for a plan: each set is treated as ~35s of actual
-// work plus the configured rest. Conservative enough to read sensibly on the
-// card without requiring extra history fetches.
-function estimatePlanMinutes(plan: WorkoutPlan): number {
-  const totalSec = plan.exercises.reduce((acc, e) => {
-    const sets = e.sets ?? 3
-    const rest = e.restSec ?? 60
-    return acc + sets * (35 + rest)
-  }, 0)
-  return Math.max(5, Math.round(totalSec / 60))
-}
-
-// Converte um plano salvo pro formato do builder (CreateRoutineScreen),
-// reidratando as séries do marcador __PERF__ quando presente. Usado pela
-// tela "Editar Rotina" pra abrir já preenchida.
-function planToRoutineInitial(plan: WorkoutPlan): RoutineInitial {
-  return {
-    name: plan.name,
-    exercises: plan.exercises.map((ex) => {
-      const userNote = stripPerfMarker(ex.notes)
-      const payload = parsePerfPayload(ex.notes)
-      let sets: RoutineInitial['exercises'][number]['sets'] = []
-      if (payload?.series && payload.series.length > 0) {
-        sets = payload.series.map((s) => ({
-          repsMin: s.repsMin != null ? String(s.repsMin) : s.reps != null ? String(s.reps) : '',
-          repsMax: s.repsMax != null ? String(s.repsMax) : s.reps != null ? String(s.reps) : '',
-          type: s.setType ?? 'normal',
-        }))
-      }
-      if (sets.length === 0) {
-        const count = Math.max(1, ex.sets ?? 3)
-        const min = ex.repsMin != null ? String(ex.repsMin) : ''
-        const max = ex.repsMax != null ? String(ex.repsMax) : ''
-        sets = Array.from({ length: count }, () => ({ repsMin: min, repsMax: max, type: 'normal' as SetType }))
-      }
-      return {
-        exerciseId: ex.exercise.id,
-        exerciseName: ex.customName ?? ex.exercise.name,
-        thumbnailUrl: ex.exercise.thumbnailUrl,
-        notes: userNote,
-        restSec: ex.restSec ?? 0,
-        sets,
-      }
-    }),
-  }
-}
 
 export function TrainPage() {
   const { authorizedFetch, user } = useAuth()
