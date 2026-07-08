@@ -19,9 +19,8 @@ import { useAuth } from '../hooks/useAuth'
 import { useShowPlanLimit } from '../components/plan/use-plan-limit'
 import { catchPlanLimitError } from '../lib/plan-features'
 import {
-  Flame, Dumbbell, Plus, Play, Pencil, Sparkles, MoreHorizontal,
-  ArrowLeft, Check, Send, Image as ImageIcon, Camera,
-  X,
+  Flame, Dumbbell, Plus, Play, Sparkles, MoreHorizontal,
+  ArrowLeft, Check, Send,
 } from 'lucide-react'
 import { SkeletonCard } from '../components/common/Skeleton'
 // IMPORTANTE: o import do React precisa vir ANTES dos `const X = lazy(...)`
@@ -90,6 +89,7 @@ import { DurationWarningDialog, PlanUpdateDialog } from './train/TrainDialogs'
 import { ActiveExerciseCard } from './train/ActiveExerciseCard'
 import { RoutineCard } from './train/RoutineCard'
 import { SummaryShareActions } from './train/SummaryShareActions'
+import { SummaryPhotoPicker } from './train/SummaryPhotoPicker'
 import type { TrainScreen, TrainOriginMode, TrackingType, ExerciseSetInput, ActiveExercise } from './train/types'
 import { workoutSessionReducer, initialWorkoutSessionState } from './train/workout-session-reducer'
 import { nextSupersetGroupId } from './train/superset'
@@ -2781,48 +2781,10 @@ export function TrainPage() {
             totals={totals}
           />
 
-          {/* Foto do treino — círculo destacado no estilo do feed. Vazio mostra
-              um ícone de galeria; com foto vira a imagem do usuário (preview de
-              como vai ficar salva no feed e no histórico). */}
-          <div className="flex flex-col items-center gap-2.5 rounded-2xl border border-[var(--line)] bg-[var(--surface-hover)]/40 p-4">
-            <label className="group relative cursor-pointer" style={{ touchAction: 'manipulation' }}>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={(event) => handleSummaryImage(event.target.files?.[0] ?? null)}
-                className="hidden"
-              />
-              <span className="grid h-24 w-24 place-items-center overflow-hidden rounded-full border-2 border-[var(--line)] bg-[var(--surface)] transition-colors group-hover:border-[var(--brand)]/60">
-                {summaryImagePreview ? (
-                  <img src={summaryImagePreview} alt="Foto do treino" className="h-full w-full object-cover" />
-                ) : (
-                  <ImageIcon size={30} className="text-[var(--muted)]" />
-                )}
-              </span>
-              {/* Selo de ação no canto (estilo "editar foto"): câmera quando vazio,
-                  lápis quando já há foto. */}
-              <span className="absolute -bottom-0.5 -right-0.5 grid h-7 w-7 place-items-center rounded-full border-2 border-[var(--surface)] bg-[var(--brand)] text-white shadow-[0_4px_10px_-4px_rgba(255,90,60,0.6)]">
-                {summaryImagePreview ? <Pencil size={13} /> : <Camera size={14} />}
-              </span>
-            </label>
-            <div className="text-center">
-              <p className="text-[13px] font-bold text-[var(--text)]">
-                {summaryImagePreview ? 'Trocar foto' : 'Adicionar foto'}
-              </p>
-              <p className="text-[11px] text-[var(--muted)]">Aparece no feed e no histórico (opcional)</p>
-            </div>
-            {summaryImagePreview && (
-              <button
-                type="button"
-                onClick={() => handleSummaryImage(null)}
-                style={{ touchAction: 'manipulation' }}
-                className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[12px] font-semibold text-red-500 transition-colors hover:bg-red-500/10 hover:text-red-600"
-              >
-                <X size={13} />
-                Remover foto
-              </button>
-            )}
-          </div>
+          <SummaryPhotoPicker
+            summaryImagePreview={summaryImagePreview}
+            onSelectImage={handleSummaryImage}
+          />
 
           {!savedSessionId ? (
             // Pré-save: CTA primário grande + Descartar pequeno e fora
