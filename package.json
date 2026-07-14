@@ -36,6 +36,8 @@
   "devDependencies": {
     "@commitlint/cli": "^19.8.1",
     "@commitlint/config-conventional": "^19.8.1",
+    "@cspell/dict-pt-br": "^2.4.2",
+    "@cspell/dict-pt-pt": "^3.0.6",
     "@playwright/test": "^1.61.1",
     "@secretlint/secretlint-rule-preset-recommend": "^13.0.2",
     "@types/express": "^5.0.3",
