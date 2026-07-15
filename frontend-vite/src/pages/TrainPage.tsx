@@ -19,7 +19,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useShowPlanLimit } from '../components/plan/use-plan-limit'
 import { catchPlanLimitError } from '../lib/plan-features'
 import {
-  Flame, Dumbbell, Plus, Play, Sparkles, MoreHorizontal,
+  Flame, Dumbbell, Plus, Play, Sparkles,
   ArrowLeft, Check, Send,
 } from 'lucide-react'
 import { SkeletonCard } from '../components/common/Skeleton'
@@ -75,7 +75,7 @@ import {
   invalidateWorkoutPlansCache,
 } from '../lib/cache/workout-plans-cache'
 import { workoutHistoryCache } from '../lib/cache/workout-history-cache'
-import { getIntensityMode, setIntensityMode, type IntensityMode } from '../lib/intensity-preference'
+import { getIntensityMode, type IntensityMode } from '../lib/intensity-preference'
 import { showLocalNotification } from '../lib/notifications'
 import { formatClock } from '../lib/workout/workout-timing'
 import { saveWorkoutSessionImage } from '../lib/workout/workout-session-image'
@@ -90,6 +90,7 @@ import { ActiveExerciseCard } from './train/ActiveExerciseCard'
 import { RoutineCard } from './train/RoutineCard'
 import { SummaryShareActions } from './train/SummaryShareActions'
 import { SummaryPhotoPicker } from './train/SummaryPhotoPicker'
+import { ActiveWorkoutMenu } from './train/ActiveWorkoutMenu'
 import type { TrainScreen, TrainOriginMode, TrackingType, ExerciseSetInput, ActiveExercise } from './train/types'
 import { workoutSessionReducer, initialWorkoutSessionState } from './train/workout-session-reducer'
 import { nextSupersetGroupId } from './train/superset'
@@ -135,7 +136,6 @@ import {
   relativeDaysFromNow,
   toFiniteNumber,
 } from './train/helpers'
-import { NotificationsRow } from './train/NotificationsRow'
 import { PrCelebrationBanner } from './train/PrCelebrationBanner'
 import { SendToCompetitionCta } from './train/SendToCompetitionCta'
 import { SummaryMetricsCards } from './train/SummaryMetricsCards'
@@ -3216,93 +3216,17 @@ export function TrainPage() {
             >
               Finalizar Treino
             </button>
-            <div className="relative">
-              <button
-                type="button"
-                aria-label="Mais opções do cronômetro"
-                onClick={() => setAdvancedTimerOpen((v) => !v)}
-                className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--line)] text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
-              >
-                <MoreHorizontal size={16} />
-              </button>
-              {advancedTimerOpen && (
-                <>
-                  {/* Backdrop pra fechar clicando fora — sem portal pra
-                      manter o popover ancorado relativamente ao botão. */}
-                  <button
-                    type="button"
-                    aria-hidden
-                    tabIndex={-1}
-                    onClick={() => setAdvancedTimerOpen(false)}
-                    className="fixed inset-0 z-30 cursor-default"
-                  />
-                  <div className="absolute right-0 top-12 z-40 w-64 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--surface)] p-2 shadow-2xl">
-                    <button
-                      type="button"
-                      onClick={() => { setIsWorkoutRunning((prev) => !prev); setAdvancedTimerOpen(false) }}
-                      className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-[13px] font-medium text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
-                    >
-                      {isWorkoutRunning ? 'Pausar cronômetro' : 'Retomar cronômetro'}
-                    </button>
-                    <div className="mt-1 rounded-lg border border-[var(--line)] p-2">
-                      <label className="block text-[11px] font-mono uppercase tracking-wider text-[var(--muted)]">
-                        Ajustar tempo (min)
-                      </label>
-                      <div className="mt-1 flex gap-1.5">
-                        <input
-                          value={manualTimerMinutes}
-                          onChange={(event) => setManualTimerMinutes(event.target.value.replace(/[^\d]/g, ''))}
-                          placeholder="min"
-                          className="w-full rounded-md border border-[var(--line)] bg-transparent px-2 py-1.5 text-sm tabular-nums"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => { applyManualTimerEdit(); setAdvancedTimerOpen(false) }}
-                          className="rounded-md bg-[var(--brand)] px-3 py-1.5 text-xs font-bold text-white transition-colors hover:bg-[var(--brand-strong)]"
-                        >
-                          OK
-                        </button>
-                      </div>
-                    </div>
-                    {/* Toggle de intensidade — sou persistido em localStorage,
-                        afeta quais campos (RIR/RPE) aparecem em cada set. */}
-                    <div className="mt-1 rounded-lg border border-[var(--line)] p-2">
-                      <label className="block text-[11px] font-mono uppercase tracking-wider text-[var(--muted)]">
-                        Eu rastreio intensidade por
-                      </label>
-                      <div className="mt-1.5 flex gap-1">
-                        {(['RIR', 'RPE', 'BOTH'] as IntensityMode[]).map((m) => (
-                          <button
-                            key={m}
-                            type="button"
-                            onClick={() => {
-                              setIntensityModeState(m)
-                              setIntensityMode(m)
-                            }}
-                            className={`flex-1 rounded-md px-2 py-1 text-[11px] font-bold transition-colors ${
-                              intensityMode === m
-                                ? 'bg-[var(--brand)] text-white'
-                                : 'border border-[var(--line)] text-[var(--muted)] hover:text-[var(--text)]'
-                            }`}
-                          >
-                            {m === 'BOTH' ? 'Ambos' : m}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Toggle de notificação de descanso. Quando 'default'
-                        (não pediu ainda), mostra botão "Ativar" — o click é
-                        gesto explícito do usuário (requirement iOS). Quando
-                        'granted', mostra status verde. Quando 'denied', dá
-                        instrução pra reativar nas config do browser. */}
-                    <NotificationsRow
-                      onClose={() => setAdvancedTimerOpen(false)}
-                    />
-                  </div>
-                </>
-              )}
-            </div>
+            <ActiveWorkoutMenu
+              advancedTimerOpen={advancedTimerOpen}
+              setAdvancedTimerOpen={setAdvancedTimerOpen}
+              isWorkoutRunning={isWorkoutRunning}
+              setIsWorkoutRunning={setIsWorkoutRunning}
+              manualTimerMinutes={manualTimerMinutes}
+              setManualTimerMinutes={setManualTimerMinutes}
+              applyManualTimerEdit={applyManualTimerEdit}
+              intensityMode={intensityMode}
+              setIntensityModeState={setIntensityModeState}
+            />
           </div>
         </motion.header>
 
