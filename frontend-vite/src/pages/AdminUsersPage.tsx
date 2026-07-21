@@ -39,6 +39,7 @@ import {
   onboardingProgress,
   onboardingMissing,
   downloadCsv,
+  roleTone,
   type Role,
   type StatusFilter,
   type RoleFilter,
@@ -46,24 +47,9 @@ import {
   type PlanFilter,
   type SortOrder,
 } from './admin/admin-users-utils'
-
-function CountUp({ target }: { target: number }) {
-  const [value, setValue] = useState(0)
-  useEffect(() => {
-    let frame = 0
-    const duration = 900
-    const start = performance.now()
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / duration)
-      const eased = 1 - Math.pow(1 - t, 3)
-      setValue(Math.round(target * eased))
-      if (t < 1) frame = requestAnimationFrame(tick)
-    }
-    frame = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(frame)
-  }, [target])
-  return <>{value}</>
-}
+import {
+  CountUp, Pill, StatusPill, IconButton, SkeletonRows, SortHeader, DetailRow,
+} from './admin/admin-users-ui'
 
 function pageWindow(current: number, totalPages: number): number[] {
   if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1)
@@ -71,90 +57,6 @@ function pageWindow(current: number, totalPages: number): number[] {
   return Array.from(pages)
     .filter((p) => p >= 1 && p <= totalPages)
     .sort((a, b) => a - b)
-}
-
-// ─── Subcomponents ──────────────────────────────────────────────────────────
-
-type PillTone = 'real' | 'test' | 'active' | 'pending' | 'suspended' | 'disabled' | 'admin' | 'user' | 'coach' | 'pro' | 'free'
-
-const PILL_TONES: Record<PillTone, string> = {
-  real: 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30',
-  test: 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30',
-  active: 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30',
-  pending: 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30',
-  suspended: 'bg-orange-100 text-orange-700 border-orange-300 dark:bg-orange-500/15 dark:text-orange-300 dark:border-orange-500/30',
-  disabled: 'bg-[var(--surface-hover)] text-[var(--muted)] border-[var(--line)]',
-  admin: 'bg-[var(--text)] text-[var(--surface)] border-[var(--text)]',
-  user: 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-500/15 dark:text-blue-300 dark:border-blue-500/30',
-  coach: 'bg-violet-100 text-violet-700 border-violet-300 dark:bg-violet-500/15 dark:text-violet-300 dark:border-violet-500/30',
-  pro: 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30',
-  free: 'bg-[var(--surface-hover)] text-[var(--muted)] border-[var(--line)]',
-}
-
-function Pill({ children, tone }: { children: React.ReactNode; tone: PillTone }) {
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 font-mono text-[9.5px] font-semibold uppercase tracking-wider ${PILL_TONES[tone]}`}
-    >
-      {children}
-    </span>
-  )
-}
-
-const STATUS_META: Record<string, { label: string; tone: PillTone; dot: string }> = {
-  ACTIVE: { label: 'Ativo', tone: 'active', dot: 'bg-emerald-500' },
-  PENDING: { label: 'Pendente', tone: 'pending', dot: 'bg-amber-500' },
-  SUSPENDED: { label: 'Suspenso', tone: 'suspended', dot: 'bg-orange-500' },
-  DISABLED: { label: 'Desativado', tone: 'disabled', dot: 'bg-[var(--muted)]' },
-}
-
-function roleTone(role: string): PillTone {
-  return role === 'ADMIN' ? 'admin' : role === 'COACH' ? 'coach' : 'user'
-}
-
-function StatusPill({ status }: { status: string }) {
-  const meta = STATUS_META[status] ?? { label: status || '—', tone: 'disabled' as PillTone, dot: 'bg-[var(--muted)]' }
-  return (
-    <Pill tone={meta.tone}>
-      <span className={`h-1.5 w-1.5 rounded-full ${meta.dot}`} />
-      {meta.label}
-    </Pill>
-  )
-}
-
-function IconButton({
-  title,
-  onClick,
-  disabled,
-  tone = 'default',
-  children,
-}: {
-  title: string
-  onClick?: () => void
-  disabled?: boolean
-  tone?: 'default' | 'warn' | 'danger' | 'ok'
-  children: React.ReactNode
-}) {
-  const hover =
-    tone === 'warn'
-      ? 'hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700 dark:hover:bg-amber-500/15 dark:hover:text-amber-300'
-      : tone === 'danger'
-        ? 'hover:border-red-300 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/15 dark:hover:text-red-400'
-        : tone === 'ok'
-          ? 'hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-500/15 dark:hover:text-emerald-300'
-          : 'hover:border-[var(--brand)]/40 hover:bg-[var(--surface-hover)] hover:text-[var(--text)]'
-  return (
-    <button
-      type="button"
-      title={title}
-      aria-label={title}
-      onClick={onClick}
-      disabled={disabled}
-      className={`grid h-[30px] w-[30px] place-items-center rounded-lg border border-[var(--line)] bg-[var(--surface)] text-[var(--muted)] transition-colors disabled:pointer-events-none disabled:opacity-35 ${hover}`}
-    >
-      {children}
-    </button>
-  )
 }
 
 type ModalTarget = { id: string; name: string | null; email: string }
@@ -267,71 +169,6 @@ function ConfirmModal({
       </div>
     </div>,
     document.body,
-  )
-}
-
-function SkeletonRows() {
-  return (
-    <>
-      {Array.from({ length: 6 }).map((_, i) => (
-        <tr key={i} className="[&>td]:border-b [&>td]:border-[var(--line)] [&>td]:px-2 [&>td]:py-3.5">
-          <td className="!pl-4">
-            <div className="flex items-center gap-3">
-              <div className="h-9 w-9 animate-pulse rounded-full bg-[var(--surface-hover)]" />
-              <div className="space-y-1.5">
-                <div className="h-3 w-28 animate-pulse rounded bg-[var(--surface-hover)]" />
-                <div className="h-2.5 w-20 animate-pulse rounded bg-[var(--surface-hover)]" />
-              </div>
-            </div>
-          </td>
-          <td><div className="h-3 w-40 animate-pulse rounded bg-[var(--surface-hover)]" /></td>
-          <td><div className="h-3 w-16 animate-pulse rounded bg-[var(--surface-hover)]" /></td>
-          <td><div className="h-3 w-12 animate-pulse rounded bg-[var(--surface-hover)]" /></td>
-          <td><div className="h-3 w-14 animate-pulse rounded bg-[var(--surface-hover)]" /></td>
-          <td><div className="h-3 w-24 animate-pulse rounded bg-[var(--surface-hover)]" /></td>
-          <td><div className="h-3 w-16 animate-pulse rounded bg-[var(--surface-hover)]" /></td>
-          <td className="!pr-4"><div className="ml-auto h-3 w-16 animate-pulse rounded bg-[var(--surface-hover)]" /></td>
-        </tr>
-      ))}
-    </>
-  )
-}
-
-// Cabeçalho de coluna ordenável.
-function SortHeader({
-  label,
-  field,
-  activeField,
-  order,
-  onSort,
-}: {
-  label: string
-  field: AdminSortBy
-  activeField: AdminSortBy
-  order: SortOrder
-  onSort: (f: AdminSortBy) => void
-}) {
-  const active = activeField === field
-  return (
-    <button
-      type="button"
-      onClick={() => onSort(field)}
-      className={`inline-flex items-center gap-1 transition-colors hover:text-[var(--text)] ${active ? 'text-[var(--text)]' : ''}`}
-    >
-      {label}
-      <span className={`text-[9px] ${active ? 'text-[var(--brand)]' : 'opacity-40'}`}>
-        {active ? (order === 'asc' ? '▲' : '▼') : '↕'}
-      </span>
-    </button>
-  )
-}
-
-function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-3 border-b border-[var(--line)] py-2 last:border-b-0">
-      <span className="font-mono text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">{label}</span>
-      <span className="text-right text-[13px] text-[var(--text)]">{value}</span>
-    </div>
   )
 }
 

@@ -139,3 +139,32 @@ export function downloadCsv(headers: string[], rows: (string | number | null)[][
   a.click()
   URL.revokeObjectURL(url)
 }
+
+// ─── Pill/status tones (mapas de classe Tailwind, dados puros) ────────────────
+
+export type PillTone = 'real' | 'test' | 'active' | 'pending' | 'suspended' | 'disabled' | 'admin' | 'user' | 'coach' | 'pro' | 'free'
+
+export const PILL_TONES: Record<PillTone, string> = {
+  real: 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30',
+  test: 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30',
+  active: 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-500/30',
+  pending: 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30',
+  suspended: 'bg-orange-100 text-orange-700 border-orange-300 dark:bg-orange-500/15 dark:text-orange-300 dark:border-orange-500/30',
+  disabled: 'bg-[var(--surface-hover)] text-[var(--muted)] border-[var(--line)]',
+  admin: 'bg-[var(--text)] text-[var(--surface)] border-[var(--text)]',
+  user: 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-500/15 dark:text-blue-300 dark:border-blue-500/30',
+  coach: 'bg-violet-100 text-violet-700 border-violet-300 dark:bg-violet-500/15 dark:text-violet-300 dark:border-violet-500/30',
+  pro: 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30',
+  free: 'bg-[var(--surface-hover)] text-[var(--muted)] border-[var(--line)]',
+}
+
+export const STATUS_META: Record<string, { label: string; tone: PillTone; dot: string }> = {
+  ACTIVE: { label: 'Ativo', tone: 'active', dot: 'bg-emerald-500' },
+  PENDING: { label: 'Pendente', tone: 'pending', dot: 'bg-amber-500' },
+  SUSPENDED: { label: 'Suspenso', tone: 'suspended', dot: 'bg-orange-500' },
+  DISABLED: { label: 'Desativado', tone: 'disabled', dot: 'bg-[var(--muted)]' },
+}
+
+export function roleTone(role: string): PillTone {
+  return role === 'ADMIN' ? 'admin' : role === 'COACH' ? 'coach' : 'user'
+}
