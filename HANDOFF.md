@@ -1,6 +1,6 @@
 # Handoff — continuidade (SerraAthlo / Acad)
 
-> Atualizado em **2026-07-17**. Cole este arquivo (ou aponte pra ele) numa conversa nova.
+> Atualizado em **2026-07-21**. Cole este arquivo (ou aponte pra ele) numa conversa nova.
 > **Produção = branch `feat/feed-history-redesign-rpe`** (deploy automático Vercel p/ web
 > e Render p/ API). **`main` fica sempre convergida com a `feat`** (mesmo commit) — a
 > branch _default_ do GitHub é a `main`. Ao mergear: `git checkout feat` → `git merge --no-ff <branch>`
@@ -20,7 +20,7 @@
 6. `npm --prefix api run build` (gera Prisma Client; precisa do `api/.env`).
 7. `git config user.name/email` + `npm run dev`.
 
-## 1. Estado atual (produção = `feat` + `main` = commit `3383662`)
+## 1. Estado atual (produção = `feat` + `main` = commit `324813e`)
 
 God-files sendo quebrados no padrão: extrair fronteira coesa → validar (typecheck+lint+testes+build)
 → conferência visual do user → merge. **Feito nesta rodada:**
@@ -35,24 +35,19 @@ God-files sendo quebrados no padrão: extrair fronteira coesa → validar (typec
   caiu p/ ~24 (palavrões do filtro + typos reais). Zero impacto no app.
 - **AdminUsersPage** 1386→1268: **Leva 1** (helpers puros → admin/admin-users-utils.ts + testes).
   Mergeada (`3383662`).
+- **AdminUsersPage** **Leva 2** (kit de UI → admin/admin-users-ui.tsx) 1268→1105. Mergeada.
+- **AdminUsersPage** **Leva 3** (ConfirmModal + UserDrawer → arquivos próprios em admin/) 1105→687.
+  Mergeada. **AdminUsersPage concluída.**
+- **ProfilePage** 891→624 (UserListModal, CalendarPanel, profile-utils +10 testes → profile/).
+  Mergeada.
 
 ## 2. Pendências (retomar aqui)
 
-### ⏳ A. AdminUsersPage — Leva 2 (branch `refactor/admin-users-ui`, commit `4edcf2a`, JÁ no GitHub)
-Kit de UI (CountUp, Pill, StatusPill, IconButton, SkeletonRows, SortHeader, DetailRow) →
-`admin/admin-users-ui.tsx`; sistema de tones (PillTone/PILL_TONES/STATUS_META/roleTone) → utils.
-AdminUsersPage 1268→1105. Verde no estático (typecheck+lint+118 testes+build). **Falta:**
-conferência visual da tela **Admin › Usuários** (pills, cabeçalhos ordenáveis, contadores,
-skeleton, drawer de detalhes). Se OK, mergear.
-
-### ⏳ B. AdminUsersPage — Leva 3
-Extrair `ConfirmModal` (~106 linhas) e `UserDrawer` (~303) p/ arquivos próprios em `admin/`,
-importando o kit da Leva 2. Depois a página vira ~700 (só orquestrador). Conferência visual.
-
-### ⏳ C. Outras páginas grandes (por tamanho, mesmo padrão)
-AIWorkoutPage (2136, resta o quiz stateful — mais arriscado), WorkoutsPage (1336, main acoplado),
-FeedPostCard (1191, componente crítico do feed), HomePage (916), ProfilePage (891).
+### ⏳ A. Outras páginas grandes (por tamanho, mesmo padrão)
+WorkoutsPage (1336, main acoplado), FeedPostCard (1191, componente crítico do feed),
+HomePage (916). AIWorkoutPage (2136, resta o quiz stateful — mais arriscado).
 TrainPage (3784): render já enxuto; o que resta é a seção de lógica (custom hooks = mais arriscado).
+AdminUsersPage (687) e ProfilePage (624): **concluídas**.
 
 ## 3. Como rodar / validar
 
@@ -77,6 +72,7 @@ npm test                           # Jest integração da API (1 teste é flaky,
 - **PowerShell (Win):** sem `&&`; env var inline = `$env:X="true"`.
 
 ## 5. Branches abertas
-- `refactor/admin-users-ui` — §2.A, testar visual → mergear.
-- Várias antigas já mergeadas ou de exploração (chore/*, feat/avatar-supabase-storage, etc.) —
-  podem ser limpas depois.
+- Nenhuma pendente. As de refactor recentes (`refactor/admin-users-ui`,
+  `refactor/admin-users-drawer`, `refactor/profile-page`) já foram mergeadas na feat+main —
+  podem ser limpas.
+- Várias antigas de exploração (chore/*, feat/avatar-supabase-storage, etc.) — podem ser limpas.
