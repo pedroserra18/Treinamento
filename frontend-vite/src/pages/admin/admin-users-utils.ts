@@ -11,6 +11,14 @@ export type OnbFilter = '' | 'completed' | 'pending'
 export type PlanFilter = '' | 'FREE' | 'PRO'
 export type SortOrder = 'asc' | 'desc'
 
+// ─── Ações do painel (alvo e ação pendente do modal de confirmação) ───────────
+
+export type ModalTarget = { id: string; name: string | null; email: string }
+export type PendingAction =
+  | { kind: 'deactivate' | 'delete' | 'reactivate'; user: ModalTarget }
+  | { kind: 'role'; user: ModalTarget; newRole: Role }
+  | { kind: 'plan'; user: ModalTarget; newPlan: 'FREE' | 'PRO' }
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 export function formatDate(value: string | null): string {
