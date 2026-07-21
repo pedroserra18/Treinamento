@@ -5,7 +5,6 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import { useAuth } from '../hooks/useAuth'
-import { useScrollLock } from '../hooks/useScrollLock'
 import { listWorkoutHistory } from '../services/workoutService'
 import { type UserSearchResult } from '../services/socialService'
 import { workoutHistoryCache } from '../lib/cache/workout-history-cache'
@@ -15,289 +14,23 @@ import { WorkoutSessionCard } from '../components/common/WorkoutSessionCard'
 import type { WorkoutSessionHistory } from '../types/workout'
 import { CountUp } from '../components/common/CountUp'
 import { SkeletonCard } from '../components/common/Skeleton'
-import { createPortal } from 'react-dom'
 import {
-  ChevronLeft, ChevronRight, Pencil, Dumbbell, X as XIcon,
+  ChevronRight, Pencil, Dumbbell,
   TrendingUp, Trophy, Settings as SettingsIcon, LogOut, Users, LifeBuoy, FileText,
 } from 'lucide-react'
+import {
+  formatHM,
+  buildStatsSeries,
+  currentWeekTotals,
+  MONTH_NAMES,
+  RANGE_WEEKS,
+  type StatMode,
+  type RangeKey,
+} from './profile/profile-utils'
+import { UserListModal } from './profile/UserListModal'
+import { CalendarPanel } from './profile/CalendarPanel'
 
 const PAGE_SIZE = 12 // workouts fetched per scroll batch
-
-// ─── Followers/Following modal (kept lean) ────────────────────────────────
-
-function UserListModal({
-  title, users, onClose, onNavigate,
-}: {
-  title: string
-  users: UserSearchResult[]
-  onClose: () => void
-  onNavigate: (id: string) => void
-}) {
-  useScrollLock(true)
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[9998] flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center"
-      onClick={onClose}
-    >
-      <motion.div
-        initial={{ opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: 24 }}
-        transition={{ duration: 0.2 }}
-        className="flex w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] shadow-2xl"
-        style={{ maxHeight: 'min(80vh, 560px)' }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3">
-          <h3 className="text-base font-bold text-[var(--text)]">{title}</h3>
-          <button type="button" onClick={onClose} className="text-[var(--muted)]"><XIcon size={16} /></button>
-        </div>
-        <div className="flex-1 divide-y divide-[var(--line)] overflow-y-auto overflow-x-hidden overscroll-contain">
-          {users.length === 0 && (
-            <p className="px-4 py-6 text-center text-sm text-[var(--muted)]">Nenhum usuário aqui ainda.</p>
-          )}
-          {users.map((u) => (
-            <button
-              key={u.id}
-              type="button"
-              onClick={() => { onClose(); onNavigate(u.id) }}
-              className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[var(--surface-hover)]"
-            >
-              <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full border border-[var(--line)] bg-[var(--surface-hover)]">
-                {u.avatarUrl
-                  ? <img src={u.avatarUrl} alt="" className="h-full w-full object-cover" />
-                  : <span className="flex h-full w-full items-center justify-center text-xs font-bold text-[var(--muted)]">{(u.name ?? '?')[0]?.toUpperCase()}</span>}
-              </div>
-              <span className="truncate text-sm font-semibold text-[var(--text)]">{u.name ?? 'Usuário'}</span>
-            </button>
-          ))}
-        </div>
-      </motion.div>
-    </div>,
-    document.body,
-  )
-}
-
-// ─── Date helpers ─────────────────────────────────────────────────────────
-
-function startOfWeek(d: Date): Date {
-  const x = new Date(d)
-  x.setHours(0, 0, 0, 0)
-  const day = (x.getDay() + 6) % 7
-  x.setDate(x.getDate() - day)
-  return x
-}
-
-function formatHM(totalSec: number): string {
-  if (totalSec <= 0) return '0 min'
-  const h = Math.floor(totalSec / 3600)
-  const m = Math.floor((totalSec % 3600) / 60)
-  return h > 0 ? `${h} h ${m} min` : `${m} min`
-}
-
-function formatShortDate(d: Date): string {
-  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }).replace('.', '')
-}
-
-const MONTH_NAMES = [
-  'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
-  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
-]
-const DOW = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S']
-
-// ─── Stats aggregation (Duration / Reps / Volume over N weeks) ────────────
-
-type StatMode = 'duration' | 'reps' | 'volume'
-type RangeKey = '12w' | '6m' | '1y'
-
-const RANGE_WEEKS: Record<RangeKey, number> = { '12w': 12, '6m': 26, '1y': 52 }
-
-type WeekPoint = { weekStart: number; label: string; durationSec: number; reps: number; volumeKg: number }
-
-function buildStatsSeries(items: WorkoutSessionHistory[], weeks: number): WeekPoint[] {
-  const buckets = new Map<number, WeekPoint>()
-  for (const s of items) {
-    if (!s.endedAt) continue
-    const ws = startOfWeek(new Date(s.endedAt)).getTime()
-    const reps = s.history.reduce((acc, e) => acc + (e.reps ?? 0), 0)
-    const volume = s.history.reduce(
-      (acc, e) => acc + ((e.weightKg ?? 0) > 0 && (e.reps ?? 0) > 0 ? e.weightKg! * e.reps! : 0),
-      0,
-    )
-    const cur = buckets.get(ws)
-    if (cur) {
-      cur.durationSec += s.durationSec ?? 0
-      cur.reps += reps
-      cur.volumeKg += volume
-    } else {
-      buckets.set(ws, {
-        weekStart: ws,
-        label: formatShortDate(new Date(ws)),
-        durationSec: s.durationSec ?? 0,
-        reps,
-        volumeKg: volume,
-      })
-    }
-  }
-
-  const today = new Date()
-  const series: WeekPoint[] = []
-  for (let i = weeks - 1; i >= 0; i--) {
-    const d = new Date(today)
-    d.setDate(today.getDate() - i * 7)
-    const ws = startOfWeek(d).getTime()
-    series.push(
-      buckets.get(ws) ?? {
-        weekStart: ws,
-        label: formatShortDate(new Date(ws)),
-        durationSec: 0,
-        reps: 0,
-        volumeKg: 0,
-      },
-    )
-  }
-  return series
-}
-
-function currentWeekTotals(items: WorkoutSessionHistory[]): { durationSec: number; reps: number; volumeKg: number } {
-  const ws = startOfWeek(new Date()).getTime()
-  let durationSec = 0
-  let reps = 0
-  let volumeKg = 0
-  for (const s of items) {
-    if (!s.endedAt) continue
-    if (startOfWeek(new Date(s.endedAt)).getTime() !== ws) continue
-    durationSec += s.durationSec ?? 0
-    reps += s.history.reduce((acc, e) => acc + (e.reps ?? 0), 0)
-    volumeKg += s.history.reduce(
-      (acc, e) => acc + ((e.weightKg ?? 0) > 0 && (e.reps ?? 0) > 0 ? e.weightKg! * e.reps! : 0),
-      0,
-    )
-  }
-  return { durationSec, reps, volumeKg }
-}
-
-// ─── Calendar ─────────────────────────────────────────────────────────────
-
-function CalendarPanel({ sessionDays }: { sessionDays: Set<string> }) {
-  const navigate = useNavigate()
-  const [cursor, setCursor] = useState(() => {
-    const d = new Date()
-    d.setDate(1)
-    d.setHours(0, 0, 0, 0)
-    return d
-  })
-
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-
-  const year = cursor.getFullYear()
-  const month = cursor.getMonth()
-  const firstDow = new Date(year, month, 1).getDay()
-  const daysInMonth = new Date(year, month + 1, 0).getDate()
-  const daysInPrev = new Date(year, month, 0).getDate()
-
-  const cells: Array<{ day: number; iso: string; inMonth: boolean; isToday: boolean }> = []
-  for (let i = 0; i < firstDow; i++) {
-    const day = daysInPrev - firstDow + i + 1
-    const d = new Date(year, month - 1, day)
-    cells.push({ day, iso: d.toISOString().slice(0, 10), inMonth: false, isToday: false })
-  }
-  for (let day = 1; day <= daysInMonth; day++) {
-    const d = new Date(year, month, day)
-    cells.push({
-      day,
-      iso: d.toISOString().slice(0, 10),
-      inMonth: true,
-      isToday: d.getTime() === today.getTime(),
-    })
-  }
-  while (cells.length < 42) {
-    const next = cells.length - firstDow - daysInMonth + 1
-    const d = new Date(year, month + 1, next)
-    cells.push({ day: next, iso: d.toISOString().slice(0, 10), inMonth: false, isToday: false })
-  }
-
-  return (
-    <article className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 sm:p-5">
-      <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-base font-semibold text-[var(--text)]">Calendário</h3>
-      </div>
-      <div className="mb-3 flex items-center justify-between">
-        <button
-          type="button"
-          onClick={() => setCursor(new Date(year, month - 1, 1))}
-          className="grid h-7 w-7 place-items-center rounded-md text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
-          aria-label="Mês anterior"
-        >
-          <ChevronLeft size={14} />
-        </button>
-        <span className="text-[13.5px] font-medium text-[var(--text)]">
-          {MONTH_NAMES[month]} de {year}
-        </span>
-        <button
-          type="button"
-          onClick={() => setCursor(new Date(year, month + 1, 1))}
-          className="grid h-7 w-7 place-items-center rounded-md text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
-          aria-label="Próximo mês"
-        >
-          <ChevronRight size={14} />
-        </button>
-      </div>
-
-      <div className="grid grid-cols-7 gap-0.5 text-center font-mono text-[10px] uppercase tracking-wider text-[var(--muted)]">
-        {DOW.map((d, i) => <span key={i} className="py-1">{d}</span>)}
-      </div>
-      <div className="mt-1 grid grid-cols-7 gap-y-0.5 text-center">
-        {cells.map((c, i) => {
-          const has = sessionDays.has(c.iso)
-          // Clicking a session day jumps to that month's group via anchor.
-          // For now we just scroll to the workouts section — a real "scroll to
-          // group" hook can be wired later by id matching `month-YYYY-MM`.
-          const handleClick = () => {
-            if (!has) return
-            const anchor = document.getElementById(`month-${c.iso.slice(0, 7)}`)
-            if (anchor) {
-              anchor.scrollIntoView({ behavior: 'smooth', block: 'start' })
-              return
-            }
-            navigate('/profile')
-          }
-          return (
-            <button
-              key={i}
-              type="button"
-              onClick={handleClick}
-              disabled={!has}
-              className="flex h-9 items-center justify-center disabled:cursor-default"
-            >
-              <span
-                className={`grid h-7 w-7 place-items-center rounded-full text-[12px] transition-colors ${
-                  has
-                    ? 'bg-[var(--brand)] font-semibold text-white shadow-[0_4px_10px_-6px_rgba(255,90,60,0.6)] hover:bg-[var(--brand-strong)]'
-                    : c.isToday
-                      ? 'border border-[var(--brand)]/60 text-[var(--text)]'
-                      : c.inMonth
-                        ? 'text-[var(--text)]'
-                        : 'text-[var(--muted)]/50'
-                }`}
-              >
-                {c.day}
-              </span>
-            </button>
-          )
-        })}
-      </div>
-    </article>
-  )
-}
 
 // ─── Page ─────────────────────────────────────────────────────────────────
 
