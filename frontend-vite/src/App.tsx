@@ -94,6 +94,7 @@ const AdminSupportTicketPage = lazyNamed(() => import('./pages/AdminSupportTicke
 const AdminSupportTemplatesPage = lazyNamed(() => import('./pages/AdminSupportTemplatesPage'), 'AdminSupportTemplatesPage')
 const AdminReportsPage = lazyNamed(() => import('./pages/AdminReportsPage'), 'AdminReportsPage')
 const ExerciseDetailPage = lazyNamed(() => import('./pages/ExerciseDetailPage'), 'ExerciseDetailPage')
+const RecommendationDetailPage = lazyNamed(() => import('./pages/RecommendationDetailPage'), 'RecommendationDetailPage')
 const CompetitionsPage = lazyNamed(() => import('./pages/CompetitionsPage'), 'CompetitionsPage')
 const CompetitionDetailPage = lazyNamed(() => import('./pages/CompetitionDetailPage'), 'CompetitionDetailPage')
 const CompetitionInvitePage = lazyNamed(() => import('./pages/CompetitionInvitePage'), 'CompetitionInvitePage')
@@ -188,6 +189,14 @@ function AnimatedRoutes() {
                 element={
                   <ProtectedRoute>
                     <AIWorkoutPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/recommendation"
+                element={
+                  <ProtectedRoute>
+                    <RecommendationDetailPage />
                   </ProtectedRoute>
                 }
               />

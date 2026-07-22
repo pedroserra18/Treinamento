@@ -69,11 +69,11 @@ const DIVISION_LIBRARY: Record<AllowedDivision, DivisionTemplate> = {
     rationale: "Melhor uso para baixa disponibilidade semanal, estimulando o corpo inteiro com alta frequencia.",
     baseFocus: [
       {
-        focus: "Full Body A",
+        focus: "Full Body",
         muscleGroups: ["CHEST", "BACK", "LEGS", "QUADS", "HAMSTRINGS", "SHOULDERS", "CORE"]
       },
       {
-        focus: "Full Body B",
+        focus: "Full Body",
         muscleGroups: ["GLUTES", "BACK", "LEGS", "QUADS", "HAMSTRINGS", "CHEST", "ABDOMEN"]
       }
     ]
@@ -423,12 +423,26 @@ function rotate<T>(values: T[], offset: number): T[] {
 }
 
 function buildWeekFocus(template: DivisionTemplate, daysPerWeek: number): FocusTemplate[] {
-  const sessions: FocusTemplate[] = [];
+  const raw: FocusTemplate[] = [];
   for (let day = 0; day < daysPerWeek; day += 1) {
-    sessions.push(template.baseFocus[day % template.baseFocus.length]);
+    raw.push(template.baseFocus[day % template.baseFocus.length]);
   }
 
-  return sessions;
+  // Desambigua focos repetidos na semana pra cada dia ter um nome ÚNICO
+  // (ex.: Full Body 1/2/3, ou Push / Push 2). Focos que não repetem ficam
+  // com o nome limpo (Push, Pull, Legs).
+  const totalByFocus: Record<string, number> = {};
+  for (const focus of raw) {
+    totalByFocus[focus.focus] = (totalByFocus[focus.focus] ?? 0) + 1;
+  }
+  const seqByFocus: Record<string, number> = {};
+  return raw.map((focus) => {
+    if ((totalByFocus[focus.focus] ?? 0) <= 1) {
+      return focus;
+    }
+    seqByFocus[focus.focus] = (seqByFocus[focus.focus] ?? 0) + 1;
+    return { ...focus, focus: `${focus.focus} ${seqByFocus[focus.focus]}` };
+  });
 }
 
 async function fetchExercisePool(sex: UserSex): Promise<ExerciseSource[]> {

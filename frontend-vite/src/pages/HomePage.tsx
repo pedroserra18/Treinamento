@@ -1,12 +1,13 @@
 import { motion } from 'framer-motion'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useEffect, useMemo, useState } from 'react'
 import { CountUp } from '../components/common/CountUp'
+import { SkeletonCard } from '../components/common/Skeleton'
 import { workoutHistoryCache } from '../lib/cache/workout-history-cache'
 import type { WorkoutSessionHistory } from '../types/workout'
 import {
-  Activity, Bot, Calendar, Clock, Dumbbell, Flame, Play, TrendingUp,
+  Activity, Bot, Calendar, Clock, Dumbbell, Eye, Flame, Play, TrendingUp,
   Zap, ArrowRight,
 } from 'lucide-react'
 import {
@@ -21,7 +22,6 @@ import {
 import { LineSparkline, StreakFlame, BarsSparkline, StatCard, SectionHead } from './home/home-cards'
 import {
   getWorkoutRecommendations,
-  fallbackRecommendations,
   normalizeDivisionLabel,
   ApiError,
   type WorkoutRecommendation,
@@ -49,10 +49,14 @@ function useLiveTime() {
 export function HomePage() {
   const { isAuthenticated, authorizedFetch, user } = useAuth()
   const { pretty: liveTime, week: weekNumber } = useLiveTime()
+  const navigate = useNavigate()
 
   const [recommendations, setRecommendations] = useState<WorkoutRecommendation[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Onboarding incompleto → backend responde ONBOARDING_REQUIRED. Em vez de
+  // mostrar recomendações fake, exibimos um CTA pra completar o onboarding.
+  const [needsOnboarding, setNeedsOnboarding] = useState(false)
   // Inicializa SÍNCRONO via cache. Se TrainPage ou esta página já
   // carregaram histórico antes nessa sessão (ou em sessão anterior via
   // localStorage), o heatmap, streak e "última rotina" aparecem
@@ -128,17 +132,18 @@ export function HomePage() {
 
       try {
         const recs = await getWorkoutRecommendations(authorizedFetch)
-        if (active) setRecommendations(recs)
+        if (active) {
+          setRecommendations(recs)
+          setNeedsOnboarding(false)
+        }
       } catch (err) {
         if (!active) return
-        setError(
-          err instanceof ApiError && err.code === 'ONBOARDING_REQUIRED'
-            ? 'Finalize seu onboarding para desbloquear recomendações personalizadas.'
-            : err instanceof Error
-              ? err.message
-              : 'Falha ao carregar recomendações',
-        )
-        setRecommendations(fallbackRecommendations)
+        if (err instanceof ApiError && err.code === 'ONBOARDING_REQUIRED') {
+          setNeedsOnboarding(true)
+        } else {
+          setError(err instanceof Error ? err.message : 'Falha ao carregar recomendações')
+        }
+        setRecommendations([])
       } finally {
         if (active) setLoading(false)
       }
@@ -151,10 +156,18 @@ export function HomePage() {
     }
   }, [authorizedFetch, isAuthenticated, user?.availableDaysPerWeek, user?.sex])
 
-  const topRecommendations = useMemo(
-    () => (recommendations.length > 0 ? recommendations.slice(0, 2) : fallbackRecommendations),
-    [recommendations],
-  )
+  const topRecommendations = useMemo(() => recommendations.slice(0, 2), [recommendations])
+
+  // "Ver treino": abre a página de detalhe da recomendação (todos os dias),
+  // onde cada dia pode ser salvo/editado separadamente. Visitante (sem login)
+  // vai pro /login. A reco vai via navigation state (não tem id próprio).
+  const openRecommendation = (rec: WorkoutRecommendation) => {
+    if (!isAuthenticated) {
+      navigate('/login')
+      return
+    }
+    navigate('/recommendation', { state: { recommendation: rec } })
+  }
 
   const firstName = user?.name?.split(' ')[0] ?? 'atleta'
 
@@ -492,18 +505,41 @@ export function HomePage() {
 
       {/* ──────── RECOMENDAÇÕES ──────────────────────────────────────── */}
       <SectionHead
-        title={`${topRecommendations.length} recomendações de`}
+        title="Recomendações de"
         accent="treino"
         sub={loading ? 'Atualizando…' : `Geradas hoje · ${liveTime.split(' · ').slice(-1)[0]}`}
       />
-      {error && <p className="-mt-1 mb-2 text-xs text-amber-500">{error}</p>}
 
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, delay: 0.22 }}
-        className="grid gap-2.5 sm:grid-cols-2"
-      >
+      {!isAuthenticated ? (
+        <RecoNoticeCard
+          title="Entre para ver recomendações"
+          body="Recomendações de treino personalizadas aparecem aqui quando você entra na sua conta."
+          ctaLabel="Entrar"
+          to="/login"
+        />
+      ) : needsOnboarding ? (
+        <RecoNoticeCard
+          title="Complete seu onboarding"
+          body="Responda algumas perguntas rápidas pra receber recomendações personalizadas — com todos os dias da divisão prontos pra salvar em Treinar."
+          ctaLabel="Completar onboarding"
+          to="/onboarding"
+        />
+      ) : recommendations.length === 0 ? (
+        loading ? (
+          <div className="grid gap-2.5 sm:grid-cols-2">
+            <SkeletonCard />
+            <SkeletonCard />
+          </div>
+        ) : error ? (
+          <p className="text-sm text-amber-500">{error}</p>
+        ) : null
+      ) : (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.22 }}
+          className="grid gap-2.5 sm:grid-cols-2"
+        >
         {topRecommendations.map((rec, idx) => {
           const main = rec.sessions[0]
           const division = normalizeDivisionLabel(rec.division)
@@ -559,26 +595,53 @@ export function HomePage() {
                 </ul>
               </div>
 
-              <div className="mt-3 flex gap-1.5">
-                <Link
-                  to={isAuthenticated ? '/workout-recommendations' : '/login'}
-                  className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg border border-[var(--brand)] bg-[var(--brand)] px-3 text-[12.5px] font-medium text-white transition-colors hover:bg-[var(--brand-strong)]"
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={() => openRecommendation(rec)}
+                  className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-[var(--brand)] bg-[var(--brand)] px-3 text-[12.5px] font-medium text-white transition-colors hover:bg-[var(--brand-strong)]"
                 >
-                  <Play size={12} fill="currentColor" />
-                  Começar treino
-                </Link>
-                <Link
-                  to={isAuthenticated ? '/history' : '/login'}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 text-[12.5px] font-medium text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
-                >
-                  Ver histórico
-                </Link>
+                  <Eye size={13} />
+                  Ver treino
+                </button>
               </div>
             </article>
           )
         })}
-      </motion.div>
+        </motion.div>
+      )}
 
     </section>
+  )
+}
+
+// Card de aviso das recomendações (visitante sem login / onboarding
+// incompleto): ícone + título + descrição + CTA. Mantém a estética do app.
+function RecoNoticeCard({
+  title,
+  body,
+  ctaLabel,
+  to,
+}: {
+  title: string
+  body: string
+  ctaLabel: string
+  to: string
+}) {
+  return (
+    <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-6 text-center">
+      <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-[var(--brand)]/12 text-[var(--brand)]">
+        <Dumbbell size={20} />
+      </div>
+      <p className="text-[15px] font-bold text-[var(--text)]">{title}</p>
+      <p className="mx-auto mt-1 max-w-md text-[13px] leading-relaxed text-[var(--muted)]">{body}</p>
+      <Link
+        to={to}
+        className="mt-4 inline-flex h-10 items-center justify-center gap-1.5 rounded-xl bg-[var(--brand)] px-5 text-[13px] font-semibold text-white transition-colors hover:bg-[var(--brand-strong)]"
+      >
+        {ctaLabel}
+        <ArrowRight size={14} />
+      </Link>
+    </div>
   )
 }
