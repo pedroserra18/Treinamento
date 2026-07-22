@@ -150,60 +150,13 @@ export function relativeBigDate(iso: string | null): string {
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
-// ─── Recommendations API plumbing (kept from previous version) ─────────────
+// ─── Formatação ────────────────────────────────────────────────────────────
 
-export type WorkoutRecommendation = {
-  division: string
-  daysPerWeek: number
-  rationale: string
-  sessions: Array<{
-    dayNumber: number
-    focus: string
-    exercises: Array<{
-      id: string
-      name: string
-      sets: number
-      reps: string
-      restSeconds: number
-    }>
-  }>
+// Volume semanal compacto: >=1000 vira "1.5k" (sem decimal a partir de 10k);
+// senão o número arredondado. Usado no card de Volume e na barra compacta.
+export function formatVolume(kg: number): string {
+  if (kg >= 1000) {
+    return `${(kg / 1000).toFixed(kg >= 10_000 ? 0 : 1).replace(/\.0$/, '')}k`
+  }
+  return `${Math.round(kg)}`
 }
-
-export function normalizeDivisionLabel(value: string): string {
-  return value === 'Torso Legs' ? 'Torso Limbs' : value
-}
-
-export const fallbackRecommendations: WorkoutRecommendation[] = [
-  {
-    division: 'Push Pull Legs',
-    daysPerWeek: 5,
-    rationale: 'Equilíbrio entre hipertrofia e recuperação para rotina consistente.',
-    sessions: [
-      {
-        dayNumber: 1,
-        focus: 'Push',
-        exercises: [
-          { id: 'p1', name: 'Supino reto', sets: 4, reps: '8-10', restSeconds: 90 },
-          { id: 'p2', name: 'Desenvolvimento halteres', sets: 3, reps: '10-12', restSeconds: 75 },
-          { id: 'p3', name: 'Tríceps corda', sets: 3, reps: '12-15', restSeconds: 60 },
-        ],
-      },
-    ],
-  },
-  {
-    division: 'Bro Split',
-    daysPerWeek: 5,
-    rationale: 'Maior foco por grupamento para ganho de volume por sessão.',
-    sessions: [
-      {
-        dayNumber: 1,
-        focus: 'Chest',
-        exercises: [
-          { id: 'b1', name: 'Supino inclinado', sets: 4, reps: '6-8', restSeconds: 120 },
-          { id: 'b2', name: 'Crucifixo no cabo', sets: 3, reps: '10-12', restSeconds: 75 },
-          { id: 'b3', name: 'Crossover polia alta', sets: 3, reps: '12-15', restSeconds: 60 },
-        ],
-      },
-    ],
-  },
-]
