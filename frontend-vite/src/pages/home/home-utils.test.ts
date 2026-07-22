@@ -10,7 +10,7 @@ import {
   trainingsToBeatBestWeek,
   lineSparkPath,
   relativeBigDate,
-  normalizeDivisionLabel,
+  formatVolume,
   type WeeklyAgg,
 } from './home-utils'
 
@@ -175,7 +175,7 @@ describe('lineSparkPath', () => {
   })
 })
 
-// ─── relativeBigDate / normalizeDivisionLabel ─────────────────────────────
+// ─── relativeBigDate / formatVolume ───────────────────────────────────────
 
 describe('relativeBigDate', () => {
   it('mostra travessão quando nulo', () => {
@@ -187,12 +187,19 @@ describe('relativeBigDate', () => {
   })
 })
 
-describe('normalizeDivisionLabel', () => {
-  it('renomeia "Torso Legs" para "Torso Limbs"', () => {
-    expect(normalizeDivisionLabel('Torso Legs')).toBe('Torso Limbs')
+describe('formatVolume', () => {
+  it('arredonda abaixo de 1000', () => {
+    expect(formatVolume(500)).toBe('500')
+    expect(formatVolume(999)).toBe('999')
   })
 
-  it('mantém as demais divisões', () => {
-    expect(normalizeDivisionLabel('Push Pull Legs')).toBe('Push Pull Legs')
+  it('usa "k" com 1 decimal entre 1000 e 10000', () => {
+    expect(formatVolume(1000)).toBe('1k')
+    expect(formatVolume(1500)).toBe('1.5k')
+  })
+
+  it('sem decimal a partir de 10000', () => {
+    expect(formatVolume(10000)).toBe('10k')
+    expect(formatVolume(12345)).toBe('12k')
   })
 })

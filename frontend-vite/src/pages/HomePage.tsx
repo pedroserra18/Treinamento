@@ -14,13 +14,18 @@ import {
   buildWeeklySeries,
   summarizeLastWorkout,
   trainingsToBeatBestWeek,
-  normalizeDivisionLabel,
   isoWeekNumber,
   relativeBigDate,
-  fallbackRecommendations,
-  type WorkoutRecommendation,
+  formatVolume,
 } from './home/home-utils'
 import { LineSparkline, StreakFlame, BarsSparkline, StatCard, SectionHead } from './home/home-cards'
+import {
+  getWorkoutRecommendations,
+  fallbackRecommendations,
+  normalizeDivisionLabel,
+  ApiError,
+  type WorkoutRecommendation,
+} from '../services/recommendationService'
 
 // Live "QUI · 14 MAI · 11:40" line.
 function useLiveTime() {
@@ -38,10 +43,6 @@ function useLiveTime() {
     week: isoWeekNumber(now),
   }
 }
-
-// ─── Recommendations API plumbing (kept from previous version) ─────────────
-
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1'
 
 // ─── Page ──────────────────────────────────────────────────────────────────
 
@@ -79,10 +80,15 @@ export function HomePage() {
       .sort((a, b) => new Date(b.endedAt!).getTime() - new Date(a.endedAt!).getTime()),
     [historyItems],
   )
-  const lastWorkout = summarizeLastWorkout(sortedSessions[0] ?? null)
+  const lastWorkout = useMemo(() => summarizeLastWorkout(sortedSessions[0] ?? null), [sortedSessions])
 
-  const heatmapTotalSessions = heatmap.reduce((acc, c) => acc + c.sessions, 0)
-  const heatmapTotalMinutes = heatmap.reduce((acc, c) => acc + c.minutes, 0)
+  const { heatmapTotalSessions, heatmapTotalMinutes } = useMemo(
+    () => ({
+      heatmapTotalSessions: heatmap.reduce((acc, c) => acc + c.sessions, 0),
+      heatmapTotalMinutes: heatmap.reduce((acc, c) => acc + c.minutes, 0),
+    }),
+    [heatmap],
+  )
   const heatmapHours = Math.floor(heatmapTotalMinutes / 60)
   const heatmapMins = heatmapTotalMinutes % 60
 
@@ -121,35 +127,18 @@ export function HomePage() {
       setError(null)
 
       try {
-        const response = await authorizedFetch(`${API_URL}/recommendations/workout`)
-        const payload = (await response.json().catch(() => null)) as
-          | { data?: { recommendations?: WorkoutRecommendation[] }; error?: { message?: string; code?: string } }
-          | null
-
-        if (!response.ok || !payload?.data?.recommendations) {
-          if (payload?.error?.code === 'ONBOARDING_REQUIRED') {
-            if (active) {
-              setError('Finalize seu onboarding para desbloquear recomendações personalizadas.')
-              setRecommendations(fallbackRecommendations)
-            }
-            return
-          }
-          throw new Error(payload?.error?.message ?? 'Falha ao carregar recomendações')
-        }
-
-        if (active) {
-          setRecommendations(
-            payload.data.recommendations.slice(0, 2).map((item) => ({
-              ...item,
-              division: normalizeDivisionLabel(item.division),
-            })),
-          )
-        }
+        const recs = await getWorkoutRecommendations(authorizedFetch)
+        if (active) setRecommendations(recs)
       } catch (err) {
-        if (active) {
-          setError(err instanceof Error ? err.message : 'Falha ao carregar recomendações')
-          setRecommendations(fallbackRecommendations)
-        }
+        if (!active) return
+        setError(
+          err instanceof ApiError && err.code === 'ONBOARDING_REQUIRED'
+            ? 'Finalize seu onboarding para desbloquear recomendações personalizadas.'
+            : err instanceof Error
+              ? err.message
+              : 'Falha ao carregar recomendações',
+        )
+        setRecommendations(fallbackRecommendations)
       } finally {
         if (active) setLoading(false)
       }
@@ -271,9 +260,7 @@ export function HomePage() {
             { label: 'Treinos', node: <CountUp value={thisWeek?.sessions ?? 0} />, unit: '/sem', flame: false },
             {
               label: 'Volume',
-              node: (thisWeek && thisWeek.volumeKg >= 1000
-                ? `${(thisWeek.volumeKg / 1000).toFixed(thisWeek.volumeKg >= 10_000 ? 0 : 1).replace(/\.0$/, '')}k`
-                : `${Math.round(thisWeek?.volumeKg ?? 0)}`),
+              node: formatVolume(thisWeek?.volumeKg ?? 0),
               unit: 'kg',
               flame: false,
             },
@@ -300,7 +287,7 @@ export function HomePage() {
         >
           <StatCard
             label="Sequência"
-            value={<CountUp value={streak} /> as unknown as string}
+            value={<CountUp value={streak} />}
             unit="dias"
             delta={sessionsDelta > 0 ? `+${sessionsDelta} vs sem. passada` : 'mantenha o ritmo'}
             deltaDirection={sessionsDelta > 0 ? 'up' : 'flat'}
@@ -310,7 +297,7 @@ export function HomePage() {
           />
           <StatCard
             label="Treinos"
-            value={<CountUp value={thisWeek?.sessions ?? 0} /> as unknown as string}
+            value={<CountUp value={thisWeek?.sessions ?? 0} />}
             unit="/sem"
             delta={
               user?.availableDaysPerWeek != null
@@ -330,11 +317,7 @@ export function HomePage() {
           />
           <StatCard
             label="Volume"
-            value={
-              thisWeek && thisWeek.volumeKg >= 1000
-                ? `${(thisWeek.volumeKg / 1000).toFixed(thisWeek.volumeKg >= 10_000 ? 0 : 1).replace(/\.0$/, '')}k`
-                : `${Math.round(thisWeek?.volumeKg ?? 0)}`
-            }
+            value={formatVolume(thisWeek?.volumeKg ?? 0)}
             unit="kg"
             delta={volumeDelta != null ? `${volumeDelta >= 0 ? '+' : ''}${volumeDelta}% vs sem. passada` : 'sem comparação'}
             deltaDirection={volumeDelta == null ? 'flat' : volumeDelta >= 0 ? 'up' : 'down'}
@@ -578,7 +561,7 @@ export function HomePage() {
 
               <div className="mt-3 flex gap-1.5">
                 <Link
-                  to={isAuthenticated ? '/train' : '/login'}
+                  to={isAuthenticated ? '/workout-recommendations' : '/login'}
                   className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-lg border border-[var(--brand)] bg-[var(--brand)] px-3 text-[12.5px] font-medium text-white transition-colors hover:bg-[var(--brand-strong)]"
                 >
                   <Play size={12} fill="currentColor" />

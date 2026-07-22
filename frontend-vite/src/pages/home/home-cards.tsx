@@ -65,7 +65,7 @@ export function BarsSparkline({ values, color }: { values: number[]; color: stri
 
 type StatCardProps = {
   label: string
-  value: string | number
+  value: ReactNode
   unit?: string
   delta?: string
   deltaDirection?: 'up' | 'down' | 'flat'
