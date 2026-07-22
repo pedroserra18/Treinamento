@@ -1,9 +1,10 @@
-import { ApiError } from './workoutService'
+import { ApiError, createWorkoutPlanWithExercises } from './workoutService'
+import type { WorkoutPlan } from '../types/workout'
 
 // Camada de serviço das recomendações de treino da Home. Encapsula a chamada
 // à API (parse + normalização) para a página não lidar com fetch/JSON cru.
 // `ApiError` (reexportado) preserva o `code` do backend — o caller checa
-// `ONBOARDING_REQUIRED` pra mostrar a mensagem certa e cair no fallback.
+// `ONBOARDING_REQUIRED` pra mostrar o CTA de onboarding.
 
 export { ApiError }
 
@@ -32,40 +33,14 @@ export function normalizeDivisionLabel(value: string): string {
   return value === 'Torso Legs' ? 'Torso Limbs' : value
 }
 
-export const fallbackRecommendations: WorkoutRecommendation[] = [
-  {
-    division: 'Push Pull Legs',
-    daysPerWeek: 5,
-    rationale: 'Equilíbrio entre hipertrofia e recuperação para rotina consistente.',
-    sessions: [
-      {
-        dayNumber: 1,
-        focus: 'Push',
-        exercises: [
-          { id: 'p1', name: 'Supino reto', sets: 4, reps: '8-10', restSeconds: 90 },
-          { id: 'p2', name: 'Desenvolvimento halteres', sets: 3, reps: '10-12', restSeconds: 75 },
-          { id: 'p3', name: 'Tríceps corda', sets: 3, reps: '12-15', restSeconds: 60 },
-        ],
-      },
-    ],
-  },
-  {
-    division: 'Bro Split',
-    daysPerWeek: 5,
-    rationale: 'Maior foco por grupamento para ganho de volume por sessão.',
-    sessions: [
-      {
-        dayNumber: 1,
-        focus: 'Chest',
-        exercises: [
-          { id: 'b1', name: 'Supino inclinado', sets: 4, reps: '6-8', restSeconds: 120 },
-          { id: 'b2', name: 'Crucifixo no cabo', sets: 3, reps: '10-12', restSeconds: 75 },
-          { id: 'b3', name: 'Crossover polia alta', sets: 3, reps: '12-15', restSeconds: 60 },
-        ],
-      },
-    ],
-  },
-]
+// Nome determinístico da rotina criada a partir de um dia da recomendação.
+// Usado na criação (payload) E na tela de detalhe pra casar se o dia já foi
+// salvo em Treinar (match por nome).
+export function recommendationPlanName(rec: WorkoutRecommendation, sessionIndex = 0): string {
+  // O backend já garante foco ÚNICO por dia (ex.: Full Body 1/2/3, Push/Pull/
+  // Legs), então o nome da rotina é só o foco — limpo e sem colisão de "salvo".
+  return rec.sessions[sessionIndex]?.focus ?? 'Treino'
+}
 
 // Busca as recomendações da Home (top 2, com a divisão já normalizada). Lança
 // `ApiError` com o `code` do backend em falha — o caller decide fallback/mensagem.
@@ -88,4 +63,52 @@ export async function getWorkoutRecommendations(
     ...item,
     division: normalizeDivisionLabel(item.division),
   }))
+}
+
+// Converte a prescrição de reps ("8-10", "10", "12–15") em {repsMin, repsMax}
+// pro payload de criação de rotina. Sem número reconhecível → objeto vazio.
+export function parseReps(reps: string): { repsMin?: number; repsMax?: number } {
+  const range = reps.match(/(\d+)\s*[-–]\s*(\d+)/)
+  if (range) {
+    return { repsMin: Number(range[1]), repsMax: Number(range[2]) }
+  }
+  const single = reps.match(/(\d+)/)
+  if (single) {
+    return { repsMin: Number(single[1]), repsMax: Number(single[1]) }
+  }
+  return {}
+}
+
+// Payload de criação de rotina a partir da sessão `sessionIndex` da
+// recomendação. Os `id` dos exercícios são ids reais do banco (recomendação
+// da API com onboarding completo).
+export function recommendationToPlanInput(rec: WorkoutRecommendation, sessionIndex = 0): {
+  name: string
+  description: string
+  source: 'RECOMMENDATION'
+  exercises: Array<{ exerciseId: string; sets?: number; repsMin?: number; repsMax?: number; restSec?: number }>
+} {
+  const session = rec.sessions[sessionIndex]
+  return {
+    name: recommendationPlanName(rec, sessionIndex),
+    description: `Rotina gerada a partir da recomendação ${rec.division}.`,
+    source: 'RECOMMENDATION',
+    exercises: (session?.exercises ?? []).map((e) => ({
+      exerciseId: e.id,
+      sets: e.sets,
+      ...parseReps(e.reps),
+      restSec: e.restSeconds,
+    })),
+  }
+}
+
+// Cria a rotina (1ª sessão) da recomendação na tela Treinar. Propaga o
+// ApiError do backend (ex.: PLAN_LIMIT_REACHED) — o caller usa
+// catchPlanLimitError pra abrir o upsell PRO.
+export async function createPlanFromRecommendation(
+  authorizedFetch: AuthorizedFetch,
+  rec: WorkoutRecommendation,
+  sessionIndex = 0,
+): Promise<WorkoutPlan> {
+  return createWorkoutPlanWithExercises(authorizedFetch, recommendationToPlanInput(rec, sessionIndex))
 }

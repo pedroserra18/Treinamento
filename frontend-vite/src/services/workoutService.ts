@@ -611,7 +611,13 @@ export async function createWorkoutPlanWithExercises(
   const payload = await parsePayload(response)
 
   if (!response.ok) {
-    throw new Error(payload.errorMessage ?? 'Falha ao criar rotina')
+    // ApiError preserva code+details — catchPlanLimitError intercepta
+    // PLAN_LIMIT_REACHED (limite FREE de rotinas) e abre o PlanLimitDialog.
+    throw new ApiError(payload.errorMessage ?? 'Falha ao criar rotina', {
+      code: payload.errorCode,
+      details: payload.errorDetails,
+      status: response.status,
+    })
   }
 
   return payload.data as WorkoutPlan
@@ -645,7 +651,11 @@ export async function updateWorkoutPlanWithExercises(
   const payload = await parsePayload(response)
 
   if (!response.ok) {
-    throw new Error(payload.errorMessage ?? 'Falha ao atualizar rotina')
+    throw new ApiError(payload.errorMessage ?? 'Falha ao atualizar rotina', {
+      code: payload.errorCode,
+      details: payload.errorDetails,
+      status: response.status,
+    })
   }
 
   return payload.data as WorkoutPlan
