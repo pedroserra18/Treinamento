@@ -544,28 +544,15 @@ export function HomePage() {
           const main = rec.sessions[0]
           const division = normalizeDivisionLabel(rec.division)
           const preview = main?.exercises.slice(0, 3) ?? []
-          // Synthetic match score — backend doesn't return one yet, so we derive
-          // a stable pseudo-value from index so cards don't all show 92%.
-          const matchScore = 92 - idx * 5
 
           return (
             <article
               key={`${division}-${idx}`}
               className="group relative overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-5 transition-all hover:-translate-y-0.5 hover:border-[var(--brand)]/40 hover:shadow-[0_18px_30px_-22px_rgba(255,90,60,0.35)]"
             >
-              <div className="mb-2 flex items-start justify-between gap-2">
-                <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">
-                  Recomendação <span className="text-[var(--brand-strong)]">{String(idx + 1).padStart(2, '0')}</span>
-                </span>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--brand)]/30 bg-[var(--brand)]/10 px-2 py-[3px] font-mono text-[9.5px] font-semibold uppercase tracking-[0.12em] text-[var(--brand-strong)]">
-                  <span
-                    className="block h-1.5 w-1.5 rounded-full bg-[var(--brand)]"
-                    style={{ animation: 'tech-pulse 1.6s ease-out infinite' }}
-                    aria-hidden
-                  />
-                  IA · Match {matchScore}%
-                </span>
-              </div>
+              <span className="mb-2 block font-mono text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">
+                Recomendação <span className="text-[var(--brand-strong)]">{String(idx + 1).padStart(2, '0')}</span>
+              </span>
 
               <h3 className="text-[17px] font-semibold tracking-tight text-[var(--text)]">{division}</h3>
               <p className="mt-1.5 text-[12.5px] leading-snug text-[var(--muted)]">{rec.rationale}</p>
