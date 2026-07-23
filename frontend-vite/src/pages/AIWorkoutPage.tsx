@@ -13,8 +13,9 @@ import {
   type WorkoutSection,
 } from '../services/aiService'
 import { getProfileDefaults, updateBirthDate, updateGender, type ProfileDefaults } from '../services/authService'
-import { Bot, ChevronLeft, Clock, Sparkles, CheckCircle2, Pencil, ChevronUp, ChevronDown, RefreshCw, AlertTriangle, X, ArrowRight, Activity, History } from 'lucide-react'
-import { RecentAIGenerationsSheet } from './ai/RecentAIGenerationsSheet'
+import { ChevronLeft, Clock, Sparkles, CheckCircle2, Pencil, ChevronUp, ChevronDown, RefreshCw, AlertTriangle, X, ArrowRight, Activity } from 'lucide-react'
+import { AIWelcomeScreen } from './ai/AIWelcomeScreen'
+import { AILoadingScreen } from './ai/AILoadingScreen'
 import { useShowPlanLimit } from '../components/plan/use-plan-limit'
 import { catchPlanLimitError } from '../lib/plan-features'
 import {
@@ -602,86 +603,17 @@ export function AIWorkoutPage() {
 
   if (appScreen === 'WELCOME') {
     return (
-      <section className="flex min-h-[70vh] items-center justify-center">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="relative w-full max-w-md overflow-hidden rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-8 text-center"
-        >
-          <div
-            aria-hidden
-            className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full opacity-25 blur-3xl animate-[tech-spin_20s_linear_infinite]"
-            style={{ background: 'var(--tech-gradient-conic)' }}
-          />
-          <div className="relative mx-auto mb-5 h-16 w-16">
-            <div
-              aria-hidden
-              className="absolute -inset-[3px] rounded-2xl animate-[tech-spin_8s_linear_infinite]"
-              style={{ background: 'var(--tech-gradient-conic)' }}
-            />
-            <div className="relative flex h-full w-full items-center justify-center rounded-2xl bg-[var(--surface)]">
-              <Bot size={32} className="text-[var(--brand)]" />
-            </div>
-          </div>
-          <h1 className="text-2xl font-black text-[var(--text)]">
-            Vamos montar seu treino personalizado
-          </h1>
-          <p className="mt-2 text-sm text-[var(--muted)]">
-            Responda algumas perguntas rápidas e a IA cria um plano feito especialmente para você
-          </p>
-          <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--surface-hover)] px-4 py-2">
-            <Clock size={13} className="text-[var(--muted)]" />
-            <span className="text-xs font-semibold text-[var(--muted)]">Menos de 3 minutos</span>
-          </div>
-          {hasSavedAnswers ? (
-            <div className="mt-6 space-y-2">
-              <button
-                type="button"
-                onClick={() => { setStep(0); setIsEditMode(false); setAppScreen('REVIEW') }}
-                className="w-full rounded-2xl bg-[var(--brand)] py-3.5 text-sm font-bold text-white"
-              >
-                Continuar de onde parei
-              </button>
-              <button
-                type="button"
-                onClick={resetQuiz}
-                className="w-full rounded-2xl border border-[var(--line)] py-3 text-xs font-semibold text-[var(--muted)]"
-              >
-                Começar do zero
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={resetQuiz}
-              className="mt-6 w-full rounded-2xl bg-[var(--brand)] py-3.5 text-sm font-bold text-white"
-            >
-              Começar
-            </button>
-          )}
-
-          {/* "Ver treinos gerados" — só aparece quando há histórico. Estilo
-              outline pra não competir visualmente com a ação primária acima. */}
-          {recentGenerations.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setRecentSheetOpen(true)}
-              className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-[var(--line)] py-3 text-[13px] font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
-            >
-              <History size={14} />
-              Ver treinos gerados ({recentGenerations.length})
-            </button>
-          )}
-        </motion.div>
-
-        <RecentAIGenerationsSheet
-          open={recentSheetOpen}
-          generations={recentGenerations}
-          loading={recentGenerationsLoading}
-          error={recentGenerationsError}
-          onClose={() => setRecentSheetOpen(false)}
-        />
-      </section>
+      <AIWelcomeScreen
+        hasSavedAnswers={hasSavedAnswers}
+        onContinue={() => { setStep(0); setIsEditMode(false); setAppScreen('REVIEW') }}
+        onReset={resetQuiz}
+        recentGenerations={recentGenerations}
+        recentSheetOpen={recentSheetOpen}
+        recentGenerationsLoading={recentGenerationsLoading}
+        recentGenerationsError={recentGenerationsError}
+        onOpenRecent={() => setRecentSheetOpen(true)}
+        onCloseRecent={() => setRecentSheetOpen(false)}
+      />
     )
   }
 
@@ -689,52 +621,7 @@ export function AIWorkoutPage() {
 
   if (appScreen === 'LOADING') {
     return (
-      <section className="flex min-h-[70vh] items-center justify-center">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="relative w-full max-w-sm overflow-hidden rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-10 text-center"
-        >
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-0 opacity-30 blur-2xl"
-            style={{ background: 'radial-gradient(circle at 50% 30%, var(--accent-cyan), transparent 60%)' }}
-          />
-          <div className="relative mx-auto mb-6 h-20 w-20">
-            <div
-              aria-hidden
-              className="absolute -inset-3 rounded-full opacity-50 blur-md animate-[tech-pulse_2.4s_ease-in-out_infinite]"
-              style={{ background: 'var(--tech-gradient-conic)' }}
-            />
-            <div
-              aria-hidden
-              className="absolute inset-0 rounded-full animate-[tech-spin_3s_linear_infinite]"
-              style={{ background: 'var(--tech-gradient-conic)' }}
-            />
-            <div className="absolute inset-[3px] flex items-center justify-center rounded-full bg-[var(--surface)]">
-              <Sparkles size={24} className="text-[var(--brand)] animate-pulse" />
-            </div>
-          </div>
-          {generatingStep && generatingStep.total > 1 && (
-            <p className="mb-3 text-[11px] font-bold uppercase tracking-wider text-[var(--brand)]">
-              Dia {generatingStep.current} de {generatingStep.total} — {generatingStep.label}
-            </p>
-          )}
-          <AnimatePresence mode="wait">
-            <motion.p
-              key={loadingMsgIdx}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.3 }}
-              className="text-base font-semibold text-[var(--text)]"
-            >
-              {LOADING_MESSAGES[loadingMsgIdx]}
-            </motion.p>
-          </AnimatePresence>
-          <p className="mt-2 text-xs text-[var(--muted)]">Isso pode levar alguns segundos...</p>
-        </motion.div>
-      </section>
+      <AILoadingScreen generatingStep={generatingStep} loadingMsgIdx={loadingMsgIdx} />
     )
   }
 
