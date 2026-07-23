@@ -21,7 +21,6 @@ import {
   updateWorkoutPlan,
   updatePlanExercise,
 } from '../services/workoutService'
-import { formatClock } from '../lib/workout/workout-timing'
 import { SkeletonCard } from '../components/common/Skeleton'
 import { ExerciseContextMenuSheet } from './train/ExerciseContextMenuSheet'
 import { type ReorderItem } from './train/ReorderExercisesSheet'
@@ -45,10 +44,9 @@ const AddExerciseModal = lazy(() =>
 )
 import { InfoDialog } from '../components/common/InfoDialog'
 import { pushRecentExerciseId } from '../lib/exercise/recent-exercises'
-import { MoreVertical, Plus } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import {
   createSeriesDraft,
-  estimate1rm,
   parsePerformanceFromNotes,
   buildNotesWithPerformance,
   isDuplicateExerciseError,
@@ -58,7 +56,7 @@ import {
 import { PlanCardioPanel } from './workouts/PlanCardioPanel'
 import { CreatePlanCard } from './workouts/CreatePlanCard'
 import { PlanHeader } from './workouts/PlanHeader'
-import { SeriesEditor } from './workouts/SeriesEditor'
+import { ExerciseCard } from './workouts/ExerciseCard'
 
 type WorkoutsPageProps = {
   selectedPlanId?: string | null
@@ -650,136 +648,32 @@ export function WorkoutsPage({
 
             <div className="mt-3 space-y-2">
               {plan.exercises.length === 0 ? <p className="text-sm text-[var(--muted)]">Sem exercicios.</p> : null}
-              {plan.exercises.map((item, index) => {
-                const draft = draftByExercise[item.id] ?? { series: [createSeriesDraft({ reps: '10' })] }
-                const exerciseLabel = item.customName ?? item.exercise.name
-                const effectiveBodyweight = resolveBodyweightFlag(
-                  item.exercise.isBodyweight,
-                  exerciseLabel,
-                  item.exercise.equipment,
-                )
-                const showLoad = !effectiveBodyweight
-                const bestSeries1rm = draft.series.reduce((best, series) => {
-                  if (!showLoad) {
-                    return best
-                  }
-                  const oneRm = estimate1rm(Number(series.loadKg ?? 0), Number(series.reps ?? 0))
-                  return Math.max(best, oneRm)
-                }, 0)
-
-                return (
-                  <div key={item.id} className="rounded-2xl border border-[var(--line)] p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        {editingNameByExercise[item.id] ? (
-                          <div className="flex flex-wrap items-center gap-2">
-                            <input
-                              value={customNameByExercise[item.id] ?? item.customName ?? item.exercise.name}
-                              onChange={(event) =>
-                                setCustomNameByExercise((current) => ({
-                                  ...current,
-                                  [item.id]: event.target.value,
-                                }))
-                              }
-                              className="rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-sm"
-                            />
-                            <button
-                              type="button"
-                              className="rounded-md border border-[var(--brand)] px-2 py-1 text-xs font-semibold text-[var(--brand)]"
-                              onClick={() => {
-                                void saveCustomExerciseName(plan.id, item.id)
-                              }}
-                            >
-                              Salvar
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="text-sm font-semibold text-[var(--text)]">
-                              {index + 1}. {exerciseLabel}
-                            </p>
-                            <button
-                              type="button"
-                              className="rounded-md border border-[var(--line)] px-2 py-0.5 text-[10px] font-semibold text-[var(--muted)]"
-                              onClick={() =>
-                                setEditingNameByExercise((current) => ({
-                                  ...current,
-                                  [item.id]: true,
-                                }))
-                              }
-                            >
-                              Editar nome
-                            </button>
-                          </div>
-                        )}
-                        <p className="text-[11px] text-[var(--muted)]">
-                          {draft.series.length} serie(s)
-                          {showLoad ? ` • 1RM max: ${bestSeries1rm.toFixed(1)} kg` : ' • peso corporal'}
-                        </p>
-                        <button
-                          type="button"
-                          className="mt-2 rounded-md border border-[var(--line)] px-2 py-1 text-xs text-[var(--text)]"
-                          onClick={() => setRestPickerTarget({
-                            planId: plan.id,
-                            planExerciseId: item.id,
-                            currentSec: item.restSec ?? 0,
-                          })}
-                        >
-                          Descanso: {formatClock(item.restSec ?? 0)}
-                        </button>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          className="rounded-md border border-[var(--line)] px-2 py-1 text-xs text-[var(--text)]"
-                          onClick={() =>
-                            setExpandedByExercise((current) => ({
-                              ...current,
-                              [item.id]: !current[item.id],
-                            }))
-                          }
-                        >
-                          {expandedByExercise[item.id] ? 'Ocultar series' : 'Editar series'}
-                        </button>
-                        {/* Kebab vertical — abre o ExerciseContextMenuSheet
-                            com as 3 ações padrão (reordenar / substituir /
-                            remover). Mesma UX do TrainPage pra o usuário
-                            não precisar aprender duas interfaces. */}
-                        <button
-                          type="button"
-                          aria-label={`Ações para ${exerciseLabel}`}
-                          className="grid h-8 w-8 place-items-center rounded-md border border-[var(--line)] text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
-                          onClick={() => setCtxMenuTarget({
-                            planId: plan.id,
-                            planExerciseId: item.id,
-                            exerciseId: item.exercise.id,
-                            exerciseName: exerciseLabel,
-                          })}
-                        >
-                          <MoreVertical size={16} />
-                        </button>
-                      </div>
-                    </div>
-
-                    {expandedByExercise[item.id] ? (
-                      <SeriesEditor
-                        draft={draft}
-                        showLoad={showLoad}
-                        onPatchDraft={(patch) => patchDraft(item.id, patch)}
-                        onOpenSeriesPicker={(seriesIndex) => setSeriesPicker({ exerciseId: item.id, seriesIndex })}
-                        onRemoveSeries={(seriesIndex) => removeSeries(item.id, seriesIndex)}
-                        onPatchSeries={(seriesIndex, patch) => patchSeries(item.id, seriesIndex, patch)}
-                        onPatchDrop={(seriesIndex, dropIndex, patch) => patchDropEntry(item.id, seriesIndex, dropIndex, patch)}
-                        onRemoveDrop={(seriesIndex, dropIndex) => removeDropEntry(item.id, seriesIndex, dropIndex)}
-                        onAddDrop={(seriesIndex) => addDropEntry(item.id, seriesIndex)}
-                        onAddSeries={() => addSeries(item.id)}
-                        onSaveSeries={() => { void saveExerciseMetrics(plan.id, item.id) }}
-                      />
-                    ) : null}
-
-                  </div>
-                )
-              })}
+              {plan.exercises.map((item, index) => (
+                <ExerciseCard
+                  key={item.id}
+                  item={item}
+                  index={index}
+                  rawDraft={draftByExercise[item.id]}
+                  expanded={Boolean(expandedByExercise[item.id])}
+                  editingName={Boolean(editingNameByExercise[item.id])}
+                  nameDraft={customNameByExercise[item.id] ?? item.customName ?? item.exercise.name}
+                  onNameDraftChange={(value) => setCustomNameByExercise((current) => ({ ...current, [item.id]: value }))}
+                  onSaveName={() => { void saveCustomExerciseName(plan.id, item.id) }}
+                  onStartEditName={() => setEditingNameByExercise((current) => ({ ...current, [item.id]: true }))}
+                  onOpenRestPicker={() => setRestPickerTarget({ planId: plan.id, planExerciseId: item.id, currentSec: item.restSec ?? 0 })}
+                  onToggleExpand={() => setExpandedByExercise((current) => ({ ...current, [item.id]: !current[item.id] }))}
+                  onOpenMenu={() => setCtxMenuTarget({ planId: plan.id, planExerciseId: item.id, exerciseId: item.exercise.id, exerciseName: item.customName ?? item.exercise.name })}
+                  onPatchDraft={(patch) => patchDraft(item.id, patch)}
+                  onOpenSeriesPicker={(seriesIndex) => setSeriesPicker({ exerciseId: item.id, seriesIndex })}
+                  onRemoveSeries={(seriesIndex) => removeSeries(item.id, seriesIndex)}
+                  onPatchSeries={(seriesIndex, patch) => patchSeries(item.id, seriesIndex, patch)}
+                  onPatchDrop={(seriesIndex, dropIndex, patch) => patchDropEntry(item.id, seriesIndex, dropIndex, patch)}
+                  onRemoveDrop={(seriesIndex, dropIndex) => removeDropEntry(item.id, seriesIndex, dropIndex)}
+                  onAddDrop={(seriesIndex) => addDropEntry(item.id, seriesIndex)}
+                  onAddSeries={() => addSeries(item.id)}
+                  onSaveSeries={() => { void saveExerciseMetrics(plan.id, item.id) }}
+                />
+              ))}
 
               {/* Botão grande "Adicionar Exercício" no rodapé — mesmo
                   padrão do TrainPage durante treino ativo. Abre o
