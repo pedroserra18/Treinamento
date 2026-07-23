@@ -56,6 +56,8 @@ import {
   type PerformanceDraft,
 } from './workouts/workouts-utils'
 import { PlanCardioPanel } from './workouts/PlanCardioPanel'
+import { CreatePlanCard } from './workouts/CreatePlanCard'
+import { PlanHeader } from './workouts/PlanHeader'
 
 type WorkoutsPageProps = {
   selectedPlanId?: string | null
@@ -607,38 +609,13 @@ export function WorkoutsPage({
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
 
       {showCreateSection ? (
-        <article className="relative overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
-          <div
-            aria-hidden
-            className="pointer-events-none absolute -right-16 -top-16 h-44 w-44 rounded-full opacity-20 blur-3xl animate-[tech-spin_22s_linear_infinite]"
-            style={{ background: 'var(--tech-gradient-conic)' }}
-          />
-          <h2 className="relative text-lg font-extrabold text-[var(--text)]">Criar treino</h2>
-          <div className="mt-2 grid gap-2">
-            <input
-              value={newPlanName}
-              onChange={(event) => setNewPlanName(event.target.value)}
-              placeholder="Nome do treino"
-              className="rounded-lg border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
-            />
-            <textarea
-              value={newPlanDescription}
-              onChange={(event) => setNewPlanDescription(event.target.value)}
-              placeholder="Descricao"
-              rows={2}
-              className="rounded-lg border border-[var(--line)] bg-transparent px-3 py-2 text-sm"
-            />
-            <button
-              type="button"
-              className="w-fit rounded-lg bg-[var(--brand)] px-3 py-2 text-sm font-bold text-black"
-              onClick={() => {
-                void createCustom()
-              }}
-            >
-              Criar e salvar treino
-            </button>
-          </div>
-        </article>
+        <CreatePlanCard
+          name={newPlanName}
+          description={newPlanDescription}
+          onNameChange={setNewPlanName}
+          onDescriptionChange={setNewPlanDescription}
+          onCreate={() => void createCustom()}
+        />
       ) : null}
 
       {onlySelectedPlan && !loading && visiblePlans.length === 0 ? (
@@ -650,87 +627,25 @@ export function WorkoutsPage({
       <div className="space-y-4">
         {visiblePlans.map((plan) => (
           <article key={plan.id} className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                {editingPlanNameById[plan.id] ? (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <input
-                      value={planNameDraftById[plan.id] ?? plan.name}
-                      onChange={(event) =>
-                        setPlanNameDraftById((current) => ({
-                          ...current,
-                          [plan.id]: event.target.value,
-                        }))
-                      }
-                      className="rounded-md border border-[var(--line)] bg-transparent px-2 py-1 text-sm font-semibold"
-                    />
-                    <button
-                      type="button"
-                      className="rounded-md border border-[var(--brand)] px-2 py-1 text-xs font-semibold text-[var(--brand)]"
-                      onClick={() => {
-                        void savePlanName(plan.id)
-                      }}
-                    >
-                      Salvar
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-md border border-[var(--line)] px-2 py-1 text-xs font-semibold text-[var(--muted)]"
-                      onClick={() => {
-                        setEditingPlanNameById((current) => ({
-                          ...current,
-                          [plan.id]: false,
-                        }))
-                        setPlanNameDraftById((current) => ({
-                          ...current,
-                          [plan.id]: plan.name,
-                        }))
-                      }}
-                    >
-                      Cancelar
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    className="text-left text-lg font-black text-[var(--text)] transition hover:opacity-80"
-                    onClick={() => {
-                      setEditingPlanNameById((current) => ({
-                        ...current,
-                        [plan.id]: true,
-                      }))
-                    }}
-                  >
-                    {plan.name}
-                  </button>
-                )}
-                <p className="text-sm text-[var(--muted)]">{plan.description ?? 'Sem descricao'}</p>
-              </div>
-              <div className="flex gap-2">
-                {!hideInlineSaveButton && (
-                  <button
-                    type="button"
-                    className="rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white"
-                    onClick={() => {
-                      void saveFullPlan(plan)
-                    }}
-                  >
-                    Salvar treino completo
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="rounded-lg border border-red-500/60 px-3 py-1 text-xs font-semibold text-red-400"
-                  onClick={() => {
-                    void deleteWorkoutPlan(authorizedFetch, plan.id)
-                      .then(loadAll)
-                      .catch((err) => setError(err instanceof Error ? err.message : 'Erro ao excluir treino'))
-                  }}
-                >
-                  Excluir treino
-                </button>
-              </div>
-            </div>
+            <PlanHeader
+              plan={plan}
+              editingName={Boolean(editingPlanNameById[plan.id])}
+              nameDraft={planNameDraftById[plan.id] ?? plan.name}
+              hideInlineSaveButton={hideInlineSaveButton}
+              onStartEdit={() => setEditingPlanNameById((current) => ({ ...current, [plan.id]: true }))}
+              onNameDraftChange={(value) => setPlanNameDraftById((current) => ({ ...current, [plan.id]: value }))}
+              onSaveName={() => void savePlanName(plan.id)}
+              onCancelEdit={() => {
+                setEditingPlanNameById((current) => ({ ...current, [plan.id]: false }))
+                setPlanNameDraftById((current) => ({ ...current, [plan.id]: plan.name }))
+              }}
+              onSaveFullPlan={() => void saveFullPlan(plan)}
+              onDelete={() => {
+                void deleteWorkoutPlan(authorizedFetch, plan.id)
+                  .then(loadAll)
+                  .catch((err) => setError(err instanceof Error ? err.message : 'Erro ao excluir treino'))
+              }}
+            />
 
             <div className="mt-3 space-y-2">
               {plan.exercises.length === 0 ? <p className="text-sm text-[var(--muted)]">Sem exercicios.</p> : null}
