@@ -13,7 +13,8 @@ import { followingCache } from '../lib/cache/social-cache'
 import { SkeletonCard } from '../components/common/Skeleton'
 import { Toast } from '../components/common/Toast'
 import { useToast } from '../hooks/useToast'
-import { FeedPostCard, Avatar } from '../components/common/FeedPostCard'
+import { FeedPostCard } from '../components/common/FeedPostCard'
+import { Avatar } from '../components/common/Avatar'
 import { Rss, Search } from 'lucide-react'
 
 const PAGE_SIZE = 5
