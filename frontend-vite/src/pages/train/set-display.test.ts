@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeSetPlaceholders, type LastSetPerformance } from './set-display'
+import { computeSetPlaceholders, resolveLastSetPerformance, type LastSetPerformance } from './set-display'
 
 const last = (partial: Partial<LastSetPerformance>): LastSetPerformance => ({
   reps: null,
@@ -72,5 +72,29 @@ describe('computeSetPlaceholders — RIR/RPE', () => {
     const p = computeSetPlaceholders(last({ rir: 2, rpe: 8 }), 'REPS', '8')
     expect(p.rirPlaceholder).toBe('2')
     expect(p.rpePlaceholder).toBe('8')
+  })
+})
+
+describe('resolveLastSetPerformance — carry-forward', () => {
+  it('retorna a série exata quando existe', () => {
+    const perf = { 1: last({ reps: 5, weightKg: 85 }), 2: last({ reps: 8, weightKg: 80 }) }
+    expect(resolveLastSetPerformance(perf, 2)).toEqual(last({ reps: 8, weightKg: 80 }))
+  })
+
+  it('reaproveita a última série quando a sessão anterior teve menos séries', () => {
+    // Última sessão logou só a série 1 (85kg × 5); séries 2 e 3 herdam ela.
+    const perf = { 1: last({ reps: 5, weightKg: 85 }) }
+    expect(resolveLastSetPerformance(perf, 2)).toEqual(last({ reps: 5, weightKg: 85 }))
+    expect(resolveLastSetPerformance(perf, 3)).toEqual(last({ reps: 5, weightKg: 85 }))
+  })
+
+  it('usa a maior série <= alvo (carry-forward do bloco intermediário)', () => {
+    const perf = { 1: last({ reps: 12 }), 2: last({ reps: 10 }), 3: last({ reps: 8 }) }
+    expect(resolveLastSetPerformance(perf, 5)).toEqual(last({ reps: 8 }))
+  })
+
+  it('undefined quando não há nenhuma série registrada', () => {
+    expect(resolveLastSetPerformance(undefined, 1)).toBeUndefined()
+    expect(resolveLastSetPerformance({}, 1)).toBeUndefined()
   })
 })

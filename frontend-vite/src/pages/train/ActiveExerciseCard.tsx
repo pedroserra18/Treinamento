@@ -4,7 +4,7 @@ import { SortableExerciseCard } from './SortableExerciseCard'
 import { SwipeableSetRow } from './SwipeableSetRow'
 import { SetTypeBadge, SetTypePickerSheet } from './SetTypeControls'
 import { SET_TYPE_GLYPH, type SetType, type DropEntry } from '../../components/common/setTypeOptions'
-import { computeSetPlaceholders, type LastSetPerformance } from './set-display'
+import { computeSetPlaceholders, resolveLastSetPerformance, type LastSetPerformance } from './set-display'
 import { isEffectiveBodyweightExercise, sanitizeDecimalInput } from './helpers'
 import { supersetColorFor } from './superset'
 import { formatClock } from '../../lib/workout/workout-timing'
@@ -171,7 +171,7 @@ export function ActiveExerciseCard({
 
       {exercise.sets.map((setInput, setIndex) => (
         (() => {
-          const lastSet = lastPerformanceByExercise[exercise.exerciseId]?.[setIndex + 1]
+          const lastSet = resolveLastSetPerformance(lastPerformanceByExercise[exercise.exerciseId], setIndex + 1)
           const isTime = exercise.trackingType === 'TIME'
           const isDistance = exercise.trackingType === 'DISTANCE'
           const { weightPlaceholder, repsLabel, repsPlaceholder, rirPlaceholder, rpePlaceholder, previousLabel } =
