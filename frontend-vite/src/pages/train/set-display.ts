@@ -22,6 +22,31 @@ export type SetPlaceholders = {
   previousLabel: string
 }
 
+// Resolve a performance de referência ("Anterior") para uma série pelo número.
+// Quando a última sessão registrou MENOS séries do que a atual (ex.: só logou a
+// série 1 num treino curto), reaproveita a última série disponível como
+// referência em vez de deixar as séries seguintes órfãs de histórico ("—").
+// Retorna undefined só quando não há NENHUMA série registrada pro exercício.
+export function resolveLastSetPerformance(
+  perfBySetNumber: Record<number, LastSetPerformance> | undefined,
+  setNumber: number,
+): LastSetPerformance | undefined {
+  if (!perfBySetNumber) return undefined
+  const exact = perfBySetNumber[setNumber]
+  if (exact) return exact
+
+  const available = Object.keys(perfBySetNumber)
+    .map(Number)
+    .filter((n) => Number.isFinite(n))
+  if (available.length === 0) return undefined
+
+  // Maior série registrada <= alvo (carry-forward); se não houver nenhuma
+  // abaixo, usa a maior registrada no geral.
+  const below = available.filter((n) => n <= setNumber)
+  const pick = below.length > 0 ? Math.max(...below) : Math.max(...available)
+  return perfBySetNumber[pick]
+}
+
 export function computeSetPlaceholders(
   lastSet: LastSetPerformance | undefined,
   trackingType: TrackingType,

@@ -87,6 +87,7 @@ import type { WorkoutPlan, CardioEntryInput, ExerciseOption } from '../types/wor
 import { formatSetPerformanceLabel } from './train/train-format'
 import { DurationWarningDialog, PlanUpdateDialog } from './train/TrainDialogs'
 import { ActiveExerciseCard } from './train/ActiveExerciseCard'
+import { resolveLastSetPerformance } from './train/set-display'
 import { RoutineCard } from './train/RoutineCard'
 import { SummaryShareActions } from './train/SummaryShareActions'
 import { SummaryPhotoPicker } from './train/SummaryPhotoPicker'
@@ -1688,7 +1689,7 @@ export function TrainPage() {
           if (idx !== exerciseIndex) return exercise
 
           const wasChecked = exercise.sets[setIndex]?.checked ?? false
-          const lastSet = lastPerformanceByExercise[exercise.exerciseId]?.[setIndex + 1]
+          const lastSet = resolveLastSetPerformance(lastPerformanceByExercise[exercise.exerciseId], setIndex + 1)
 
           const trackingDefault =
             exercise.trackingType === 'TIME'
@@ -1722,18 +1723,27 @@ export function TrainPage() {
           })
 
           const shouldStartRest = !wasChecked && exercise.restDurationSec > 0
+          // Desmarcar uma série cancela o descanso em andamento — senão o
+          // cronômetro continua rolando mesmo o usuário tendo desfeito a série.
+          const shouldStopRest = wasChecked
           // Wall-clock fonte de verdade: timestamp em que deve zerar.
           // restRemainingSec é só pra UI (recalculado pelo tick).
           const nowMs = Date.now()
           const restEndsAtMs = shouldStartRest
             ? nowMs + exercise.restDurationSec * 1000
-            : exercise.restEndsAtMs
+            : shouldStopRest
+              ? null
+              : exercise.restEndsAtMs
 
           return {
             ...exercise,
             sets: newSets,
-            restRemainingSec: shouldStartRest ? exercise.restDurationSec : exercise.restRemainingSec,
-            restRunning: shouldStartRest ? true : exercise.restRunning,
+            restRemainingSec: shouldStartRest
+              ? exercise.restDurationSec
+              : shouldStopRest
+                ? 0
+                : exercise.restRemainingSec,
+            restRunning: shouldStartRest ? true : shouldStopRest ? false : exercise.restRunning,
             restEndsAtMs,
           }
         }).map((exercise, idx) => {
