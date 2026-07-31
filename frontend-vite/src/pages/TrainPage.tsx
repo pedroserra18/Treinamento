@@ -59,7 +59,8 @@ import { ConfirmDialog } from '../components/common/ConfirmDialog'
 import { usePushNotifications } from '../hooks/usePushNotifications'
 import { cancelBackendNotification, scheduleBackendNotification } from '../services/pushService'
 import { sharePlan, createAndSharePlan, type PostPrivacy } from '../services/socialService'
-import { WorkoutRecommendationsPage } from './WorkoutRecommendationsPage'
+import { TrainRecommendationsScreen } from './train/TrainRecommendationsScreen'
+import { TrainSendRoutineScreen } from './train/TrainSendRoutineScreen'
 import { type DropEntry } from '../components/common/setTypeOptions'
 import {
   getExerciseExplorerSelectionEventName,
@@ -2975,43 +2976,15 @@ export function TrainPage() {
   }
 
   if (screen === 'RECOMMENDATIONS') {
-    return (
-      <section className="space-y-4">
-        <motion.header
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
-        >
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <h1 className="text-xl font-bold tracking-tight text-[var(--text)] sm:text-2xl">Recomendações</h1>
-              <p className="mt-1 text-sm text-[var(--muted)]">Escolha uma estrutura e salve como novo treino.</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setScreen('DASHBOARD')}
-              aria-label="Voltar"
-              className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[var(--line)] text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
-            >
-              <ArrowLeft size={16} />
-            </button>
-          </div>
-        </motion.header>
-        <WorkoutRecommendationsPage />
-      </section>
-    )
+    return <TrainRecommendationsScreen onBack={() => setScreen('DASHBOARD')} />
   }
 
   if (screen === 'SEND_ROUTINE') {
     return (
-      <Suspense fallback={null}>
-        <CreateRoutineScreen
-          title="Criar e enviar"
-          submitLabel="Criar e enviar"
-          onCancel={() => setScreen('DASHBOARD')}
-          onSubmit={(data) => void handleCreateAndSendRoutine(data)}
-        />
-      </Suspense>
+      <TrainSendRoutineScreen
+        onCancel={() => setScreen('DASHBOARD')}
+        onSubmit={(data) => void handleCreateAndSendRoutine(data)}
+      />
     )
   }
 
