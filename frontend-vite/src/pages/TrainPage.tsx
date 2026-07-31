@@ -51,9 +51,6 @@ const AddExerciseModal = lazy(() =>
   import('./train/AddExerciseModal').then((m) => ({ default: m.AddExerciseModal })),
 )
 import { DurationPickerSheet } from './train/DurationPickerSheet'
-const CreateRoutineScreen = lazy(() =>
-  import('./train/CreateRoutineScreen').then((m) => ({ default: m.CreateRoutineScreen })),
-)
 import { InfoDialog } from '../components/common/InfoDialog'
 import { ConfirmDialog } from '../components/common/ConfirmDialog'
 import { usePushNotifications } from '../hooks/usePushNotifications'
@@ -61,6 +58,8 @@ import { cancelBackendNotification, scheduleBackendNotification } from '../servi
 import { sharePlan, createAndSharePlan, type PostPrivacy } from '../services/socialService'
 import { TrainRecommendationsScreen } from './train/TrainRecommendationsScreen'
 import { TrainSendRoutineScreen } from './train/TrainSendRoutineScreen'
+import { TrainNewRoutineScreen } from './train/TrainNewRoutineScreen'
+import { TrainEditRoutineScreen } from './train/TrainEditRoutineScreen'
 import { type DropEntry } from '../components/common/setTypeOptions'
 import {
   getExerciseExplorerSelectionEventName,
@@ -134,7 +133,6 @@ import {
   mapPlanToActiveExercises,
   parseDurationMin,
   parsePositiveInt,
-  planToRoutineInitial,
   relativeDaysFromNow,
   toFiniteNumber,
 } from './train/helpers'
@@ -2690,6 +2688,154 @@ export function TrainPage() {
     }
   }
 
+  // "Nova rotina": cria a rotina com UI otimista (ghost na dashboard + save em
+  // background com rollback). Elevado do onSubmit inline da tela NEW_ROUTINE.
+  const handleCreateRoutineSubmit = (data: {
+    name: string
+    exercises: Array<{
+      exerciseId: string
+      sets: number
+      repsMin?: number
+      repsMax?: number
+      restSec?: number
+      notes?: string
+    }>
+  }) => {
+    // OPTIMISTIC UI: insere o plan "fantasma" na DASHBOARD na hora
+    // e navega instantâneo (~0ms percebido). Backend gravando em
+    // background — se falhar, removemos o ghost + mostra erro.
+    // Render free tier tem ~2s de baseline, esse path elimina a
+    // espera percebida.
+    const tempId = `optimistic-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+    const optimisticPlan: WorkoutPlan = {
+      id: tempId,
+      name: data.name,
+      description: null,
+      status: 'ACTIVE',
+      createdAt: new Date().toISOString(),
+      exercises: [],
+      cardio: [],
+    }
+    // Insere no topo + marca como otimista (pra UI bloquear ações
+    // até o save confirmar). Não toca cache persistido — quando
+    // o backend confirmar, aí sim atualizamos cache com plan real.
+    setPlans((current) => [optimisticPlan, ...current])
+    setOptimisticPlanIds((current) => {
+      const next = new Set(current)
+      next.add(tempId)
+      return next
+    })
+    setScreen('DASHBOARD')
+
+    // Save em background.
+    void createWorkoutPlanWithExercises(authorizedFetch, {
+      name: data.name,
+      source: 'CUSTOM',
+      exercises: data.exercises,
+    })
+      .then((real) => {
+        // Substitui o ghost pelo plan real (hidratado com exercises
+        // do backend). activePlanId apontava pro tempId? Atualiza.
+        setPlans((current) => {
+          const next = current.map((p) => (p.id === tempId ? real : p))
+          setWorkoutPlansCache(next)
+          return next
+        })
+        setOptimisticPlanIds((current) => {
+          const next = new Set(current)
+          next.delete(tempId)
+          return next
+        })
+        setActivePlanId((curr) => (curr === tempId ? real.id : curr))
+        invalidateWorkoutPlansCache()
+      })
+      .catch((err) => {
+        // Plan limit (tier FREE estourou): mostra o dialog padrão
+        // de upgrade e remove o ghost. Não polui o setError.
+        if (catchPlanLimitError(err, showPlanLimit)) {
+          setPlans((current) => current.filter((p) => p.id !== tempId))
+          setOptimisticPlanIds((current) => {
+            const next = new Set(current)
+            next.delete(tempId)
+            return next
+          })
+          return
+        }
+        // Falha real (rede, validação backend): rollback total.
+        setPlans((current) => current.filter((p) => p.id !== tempId))
+        setOptimisticPlanIds((current) => {
+          const next = new Set(current)
+          next.delete(tempId)
+          return next
+        })
+        setError(
+          err instanceof Error
+            ? `Falha ao salvar rotina: ${err.message}`
+            : 'Falha ao salvar rotina',
+        )
+      })
+  }
+
+  // "Editar rotina": update otimista (marca updating + update atômico em
+  // background com rollback + reload). Elevado do onSubmit inline da tela EDIT.
+  // Re-deriva o plano do activePlanId atual (equivalente ao editingPlan.id que
+  // o closure original capturava, já que o submit roda no mesmo render).
+  const handleEditRoutineSubmit = (data: {
+    name: string
+    exercises: Array<{
+      exerciseId: string
+      sets: number
+      repsMin?: number
+      repsMax?: number
+      restSec?: number
+      notes?: string
+    }>
+  }) => {
+    const plan = plans.find((p) => p.id === activePlanId)
+    if (!plan) return
+    const planId = plan.id
+    // OPTIMISTIC EDIT: marca a rotina como "atualizando", navega
+    // imediato pra DASHBOARD e roda o update atômico em background.
+    setUpdatingPlanIds((current) => {
+      const next = new Set(current)
+      next.add(planId)
+      return next
+    })
+    invalidateWorkoutPlansCache()
+    setScreen('DASHBOARD')
+
+    void updateWorkoutPlanWithExercises(authorizedFetch, planId, {
+      name: data.name,
+      exercises: data.exercises,
+    })
+      .then((real) => {
+        setPlans((current) => {
+          const next = current.map((p) => (p.id === planId ? real : p))
+          setWorkoutPlansCache(next)
+          return next
+        })
+        setUpdatingPlanIds((current) => {
+          const next = new Set(current)
+          next.delete(planId)
+          return next
+        })
+        invalidateWorkoutPlansCache()
+      })
+      .catch((err) => {
+        setUpdatingPlanIds((current) => {
+          const next = new Set(current)
+          next.delete(planId)
+          return next
+        })
+        setError(
+          err instanceof Error
+            ? `Falha ao atualizar rotina: ${err.message}`
+            : 'Falha ao atualizar rotina',
+        )
+        void reloadPlans(planId).catch(() => {})
+      })
+  }
+
   if (screen === 'SUMMARY') {
     // Helpers que precisam estar acessíveis em todo o screen.
     const startedTime = startedAt
@@ -2990,156 +3136,21 @@ export function TrainPage() {
 
   if (screen === 'NEW_ROUTINE') {
     return (
-      <Suspense fallback={null}>
-        <CreateRoutineScreen
-          onCancel={() => setScreen('DASHBOARD')}
-          onSubmit={(data) => {
-            // OPTIMISTIC UI: insere o plan "fantasma" na DASHBOARD na hora
-            // e navega instantâneo (~0ms percebido). Backend gravando em
-            // background — se falhar, removemos o ghost + mostra erro.
-            // Render free tier tem ~2s de baseline, esse path elimina a
-            // espera percebida.
-            const tempId = `optimistic-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
-            const optimisticPlan: WorkoutPlan = {
-              id: tempId,
-              name: data.name,
-              description: null,
-              status: 'ACTIVE',
-              createdAt: new Date().toISOString(),
-              exercises: [],
-              cardio: [],
-            }
-            // Insere no topo + marca como otimista (pra UI bloquear ações
-            // até o save confirmar). Não toca cache persistido — quando
-            // o backend confirmar, aí sim atualizamos cache com plan real.
-            setPlans((current) => [optimisticPlan, ...current])
-            setOptimisticPlanIds((current) => {
-              const next = new Set(current)
-              next.add(tempId)
-              return next
-            })
-            setScreen('DASHBOARD')
-
-            // Save em background.
-            void createWorkoutPlanWithExercises(authorizedFetch, {
-              name: data.name,
-              source: 'CUSTOM',
-              exercises: data.exercises,
-            })
-              .then((real) => {
-                // Substitui o ghost pelo plan real (hidratado com exercises
-                // do backend). activePlanId apontava pro tempId? Atualiza.
-                setPlans((current) => {
-                  const next = current.map((p) => (p.id === tempId ? real : p))
-                  setWorkoutPlansCache(next)
-                  return next
-                })
-                setOptimisticPlanIds((current) => {
-                  const next = new Set(current)
-                  next.delete(tempId)
-                  return next
-                })
-                setActivePlanId((curr) => (curr === tempId ? real.id : curr))
-                invalidateWorkoutPlansCache()
-              })
-              .catch((err) => {
-                // Plan limit (tier FREE estourou): mostra o dialog padrão
-                // de upgrade e remove o ghost. Não polui o setError.
-                if (catchPlanLimitError(err, showPlanLimit)) {
-                  setPlans((current) => current.filter((p) => p.id !== tempId))
-                  setOptimisticPlanIds((current) => {
-                    const next = new Set(current)
-                    next.delete(tempId)
-                    return next
-                  })
-                  return
-                }
-                // Falha real (rede, validação backend): rollback total.
-                setPlans((current) => current.filter((p) => p.id !== tempId))
-                setOptimisticPlanIds((current) => {
-                  const next = new Set(current)
-                  next.delete(tempId)
-                  return next
-                })
-                setError(
-                  err instanceof Error
-                    ? `Falha ao salvar rotina: ${err.message}`
-                    : 'Falha ao salvar rotina',
-                )
-              })
-          }}
-        />
-      </Suspense>
+      <TrainNewRoutineScreen
+        onCancel={() => setScreen('DASHBOARD')}
+        onSubmit={handleCreateRoutineSubmit}
+      />
     )
   }
 
   if (screen === 'EDIT') {
     const editingPlan = plans.find((p) => p.id === activePlanId) ?? null
     return (
-      <Suspense fallback={null}>
-        {editingPlan ? (
-          <CreateRoutineScreen
-            title="Editar Rotina"
-            submitLabel="Atualizar"
-            initial={planToRoutineInitial(editingPlan)}
-            onCancel={() => setScreen('DASHBOARD')}
-            onSubmit={(data) => {
-              const planId = editingPlan.id
-              // OPTIMISTIC EDIT: marca a rotina como "atualizando", navega
-              // imediato pra DASHBOARD e roda o update atômico em background.
-              setUpdatingPlanIds((current) => {
-                const next = new Set(current)
-                next.add(planId)
-                return next
-              })
-              invalidateWorkoutPlansCache()
-              setScreen('DASHBOARD')
-
-              void updateWorkoutPlanWithExercises(authorizedFetch, planId, {
-                name: data.name,
-                exercises: data.exercises,
-              })
-                .then((real) => {
-                  setPlans((current) => {
-                    const next = current.map((p) => (p.id === planId ? real : p))
-                    setWorkoutPlansCache(next)
-                    return next
-                  })
-                  setUpdatingPlanIds((current) => {
-                    const next = new Set(current)
-                    next.delete(planId)
-                    return next
-                  })
-                  invalidateWorkoutPlansCache()
-                })
-                .catch((err) => {
-                  setUpdatingPlanIds((current) => {
-                    const next = new Set(current)
-                    next.delete(planId)
-                    return next
-                  })
-                  setError(
-                    err instanceof Error
-                      ? `Falha ao atualizar rotina: ${err.message}`
-                      : 'Falha ao atualizar rotina',
-                  )
-                  void reloadPlans(planId).catch(() => {})
-                })
-            }}
-          />
-        ) : (
-          <section className="space-y-3">
-            <p className="text-sm text-[var(--muted)]">Rotina não encontrada.</p>
-            <button
-              type="button"
-              onClick={() => setScreen('DASHBOARD')}
-              className="rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
-            >
-              Voltar
-            </button>
-          </section>
-        )}
-      </Suspense>
+      <TrainEditRoutineScreen
+        editingPlan={editingPlan}
+        onCancel={() => setScreen('DASHBOARD')}
+        onSubmit={handleEditRoutineSubmit}
+      />
     )
   }
 
