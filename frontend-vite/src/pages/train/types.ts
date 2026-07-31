@@ -29,6 +29,18 @@ export type ExerciseSetInput = {
   checked: boolean
 }
 
+// Última vez que uma rotina foi usada — alimenta o CTA "Iniciar <rotina>" e o
+// rótulo "último treino" nos cards da DASHBOARD. Indexado por planId.
+export type LastUseInfo = {
+  endedAt: string
+  durationSec: number | null
+  planId: string
+  planName: string
+}
+
+// Filtro da lista "Minhas Rotinas" na DASHBOARD.
+export type RoutineFilter = 'ALL' | 'AI' | 'CUSTOM'
+
 export type ActiveExercise = {
   planExerciseId?: string
   exerciseId: string
