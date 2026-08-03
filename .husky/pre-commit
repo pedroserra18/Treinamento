@@ -22,6 +22,18 @@ if [ -n "$staged" ]; then
   echo "$staged" | xargs npx secretlint --secretlintignore .gitignore || exit 1
 fi
 
-# 3. Qualidade de código (lint + typecheck) — herdado do hook anterior.
+# 3. Lembrete NAO-BLOQUEANTE: se a ESTRUTURA de arquivos mudou (add/remove/
+# rename em pastas-chave), lembra de conferir docs/CODE_MAP.md. So dispara em
+# mudanca estrutural (nao em edicao de conteudo). Roda ANTES do gate lint/
+# typecheck pra nunca alterar o exit code do hook (nunca bloqueia o commit).
+structural=$(git diff --cached --name-only --diff-filter=ADR \
+  | grep -E '^(frontend-vite/src/pages/|frontend-vite/src/services/|frontend-vite/src/hooks/|frontend-vite/src/components/|api/src/modules/)' || true)
+if [ -n "$structural" ]; then
+  echo "LEMBRETE: estrutura de arquivos mudou — confira se docs/CODE_MAP.md precisa atualizar:"
+  echo "$structural" | sed 's/^/  /'
+  echo ""
+fi
+
+# 4. Qualidade de código (lint + typecheck) — herdado do hook anterior.
 npm run lint
 npm run typecheck
