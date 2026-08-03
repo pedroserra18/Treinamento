@@ -52,4 +52,5 @@ Frontend: `npm --prefix frontend-vite test` (Vitest).
   typecheck + build + testes em todo push/PR (com Postgres pros testes da API).
 
 ## Arquitetura
-Visão geral, decisões e convenções em [ARCHITECTURE.md](ARCHITECTURE.md).
+- Visão geral, decisões e convenções em [ARCHITECTURE.md](ARCHITECTURE.md).
+- **Mapa do código** (onde cada coisa mora e como se conecta) em [docs/CODE_MAP.md](docs/CODE_MAP.md) — comece por aqui pra se localizar no projeto.

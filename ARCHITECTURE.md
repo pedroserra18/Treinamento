@@ -3,6 +3,9 @@
 Visão geral do SerraAthlo + decisões e convenções que não dá pra inferir só
 lendo o código.
 
+> Procurando **onde cada arquivo/pasta mora e pra que serve**? Ver o mapa do
+> código em [docs/CODE_MAP.md](docs/CODE_MAP.md).
+
 ## Estrutura
 
 ```
