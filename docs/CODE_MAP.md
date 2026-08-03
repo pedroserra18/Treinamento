@@ -97,8 +97,15 @@ Agrupadas por área:
   (`AIQuizScreen`, `AIReviewScreen`, `AIResultScreen`, …), o hook `useAIWorkout.ts`
   (todo o estado/lógica) e utils (`ai-workout-utils.ts`). A `AIWorkoutPage.tsx`
   virou um container fino que só chama o hook e roteia as telas.
-- **`pages/admin/`, `profile/`, `progress/`, `workouts/`, `settings/`, `home/`,
-  `legal/`** — mesmo espírito: subcomponentes/utils da respectiva página.
+- **`pages/workouts/`** — editor rico de rotinas decomposto: `CreatePlanCard`,
+  `PlanHeader`, `ExerciseCard`, `PlanCardioPanel`, `WorkoutPlanCard` (card de 1 rotina)
+  e `WorkoutPlanModals` (cluster de sheets/modais). A `WorkoutsPage.tsx` orquestra o
+  estado + monta essas partes.
+- **`pages/progress/`** — abas extraídas (`ProgressExerciseTab`, `ProgressBodyTab`) +
+  gráficos (`charts`), medidas (`measurements`), card de exercício e utils. A
+  `ProgressPage.tsx` fica com o estado + header/hero/heatmap + roteamento das 2 abas.
+- **`pages/admin/`, `profile/`, `settings/`, `home/`, `legal/`** — mesmo espírito:
+  subcomponentes/utils da respectiva página.
 
 ### 2.3 `components/` — UI compartilhada
 
