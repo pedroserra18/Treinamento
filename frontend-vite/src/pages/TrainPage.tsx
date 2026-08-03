@@ -1,7 +1,4 @@
-import { motion } from 'framer-motion'
 import {
-  DndContext,
-  closestCenter,
   PointerSensor,
   TouchSensor,
   useSensor,
@@ -10,46 +7,13 @@ import {
 } from '@dnd-kit/core'
 import {
   arrayMove,
-  SortableContext,
-  verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useShowPlanLimit } from '../components/plan/use-plan-limit'
 import { catchPlanLimitError } from '../lib/plan-features'
-import {
-  Plus,
-  ArrowLeft,
-} from 'lucide-react'
-// IMPORTANTE: o import do React precisa vir ANTES dos `const X = lazy(...)`
-// abaixo. Em produção (Rollup) os imports são hoisted e a ordem não importa,
-// mas no dev (Vite/esbuild) usar `lazy` antes deste import dá TDZ ("Cannot
-// access 'lazy' before initialization").
-import { lazy, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
-// Modais lazy-loaded — não entram no bundle inicial da TrainPage. Cada
-// um vira um chunk separado que só baixa quando o user efetivamente
-// abre o respectivo modal. Cortou ~2100 linhas de código + dependências
-// (framer-motion, lucide-react) do bundle inicial. Como esses componentes
-// renderizam condicionalmente, o import() dinâmico só dispara na primeira
-// abertura — depois o chunk fica em cache de memória do browser.
-const CreateExerciseModal = lazy(() =>
-  import('./train/CreateExerciseModal').then((m) => ({ default: m.CreateExerciseModal })),
-)
-import { ExerciseContextMenuSheet } from './train/ExerciseContextMenuSheet'
-import { type ReorderItem } from './train/ReorderExercisesSheet'
-const ReorderExercisesSheet = lazy(() =>
-  import('./train/ReorderExercisesSheet').then((m) => ({ default: m.ReorderExercisesSheet })),
-)
-const SubstituteExerciseModal = lazy(() =>
-  import('./train/SubstituteExerciseModal').then((m) => ({ default: m.SubstituteExerciseModal })),
-)
-import { RestTimePickerSheet } from './train/RestTimePickerSheet'
-const AddExerciseModal = lazy(() =>
-  import('./train/AddExerciseModal').then((m) => ({ default: m.AddExerciseModal })),
-)
-import { InfoDialog } from '../components/common/InfoDialog'
-import { ConfirmDialog } from '../components/common/ConfirmDialog'
 import { usePushNotifications } from '../hooks/usePushNotifications'
 import { cancelBackendNotification, scheduleBackendNotification } from '../services/pushService'
 import { sharePlan, createAndSharePlan, type PostPrivacy } from '../services/socialService'
@@ -59,6 +23,7 @@ import { TrainNewRoutineScreen } from './train/TrainNewRoutineScreen'
 import { TrainEditRoutineScreen } from './train/TrainEditRoutineScreen'
 import { TrainDashboardScreen } from './train/TrainDashboardScreen'
 import { TrainSummaryScreen } from './train/TrainSummaryScreen'
+import { TrainActiveScreen } from './train/TrainActiveScreen'
 import { type DropEntry } from '../components/common/setTypeOptions'
 import {
   getExerciseExplorerSelectionEventName,
@@ -66,7 +31,7 @@ import {
 } from '../lib/exercise/exercise-explorer'
 import { isBodyweightEquipment, resolveBodyweightFlag } from '../lib/exercise/exercise-meta'
 import { pushRecentExerciseId } from '../lib/exercise/recent-exercises'
-import { getExerciseCatalogCached, prefetchExerciseCatalog, invalidateExerciseCatalog } from '../lib/cache/exercise-catalog-cache'
+import { getExerciseCatalogCached, prefetchExerciseCatalog } from '../lib/cache/exercise-catalog-cache'
 import {
   getWorkoutPlansCached,
   peekWorkoutPlans,
@@ -76,22 +41,16 @@ import {
 import { workoutHistoryCache } from '../lib/cache/workout-history-cache'
 import { getIntensityMode, type IntensityMode } from '../lib/intensity-preference'
 import { showLocalNotification } from '../lib/notifications'
-import { formatClock } from '../lib/workout/workout-timing'
 import { saveWorkoutSessionImage } from '../lib/workout/workout-session-image'
 import { vibrate } from '../lib/haptics'
 import { useWakeLock } from '../hooks/useWakeLock'
 import { useActiveWorkoutElapsed } from '../hooks/useActiveWorkoutElapsed'
 import type { WorkoutPlan, CardioEntryInput, ExerciseOption } from '../types/workout'
 import { formatSetPerformanceLabel } from './train/train-format'
-import { DurationWarningDialog } from './train/TrainDialogs'
-import { ActiveExerciseCard } from './train/ActiveExerciseCard'
 import { resolveLastSetPerformance } from './train/set-display'
-import { ActiveWorkoutMenu } from './train/ActiveWorkoutMenu'
 import type { TrainScreen, TrainOriginMode, TrackingType, ExerciseSetInput, ActiveExercise, LastUseInfo, RoutineFilter } from './train/types'
 import { workoutSessionReducer, initialWorkoutSessionState } from './train/workout-session-reducer'
 import { nextSupersetGroupId } from './train/superset'
-import { SupersetPickerSheet } from './train/SupersetPickerSheet'
-import { CardioSection } from './train/CardioSection'
 import {
   addPlanExercisesBatch,
   deletePlanExercisesBatch,
@@ -125,10 +84,6 @@ import {
   parsePositiveInt,
   toFiniteNumber,
 } from './train/helpers'
-import { PrCelebrationBanner } from './train/PrCelebrationBanner'
-import { RestTimerBar } from './train/RestTimerBar'
-import { ActiveProgressStats } from './train/ActiveProgressStats'
-
 export function TrainPage() {
   const { authorizedFetch, user } = useAuth()
   const showPlanLimit = useShowPlanLimit()
@@ -2917,330 +2872,79 @@ export function TrainPage() {
 
   if (screen === 'ACTIVE') {
     return (
-      <section className="space-y-4">
-
-        {/* PR celebration banner — fires when the user checks a set whose
-            weight strictly beats their all-time max for that exercise.
-            Rendered through the same portal pattern as the rest timer so
-            it floats above the route's framer-motion transform context. */}
-        <PrCelebrationBanner celebration={prCelebration} onDismiss={() => setPrCelebration(null)} />
-
-        {/* Fixed bottom rest timer bar — rendered via portal to escape framer-motion transform context */}
-        <RestTimerBar
-          activeExercises={activeExercises}
-          restFinishedName={restFinishedName}
-          onAdjust={adjustRestTimer}
-          onToggle={toggleRestTimer}
-        />
-
-        <motion.header
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="rounded-3xl border border-[var(--line)] bg-[var(--surface)] p-5"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0">
-              <h1 className="truncate text-xl font-bold tracking-tight text-[var(--text)] sm:text-2xl">Treino ativo: {activePlanName}</h1>
-              <p className="mt-1 text-sm text-[var(--muted)]">Cronômetro geral e descanso por exercício.</p>
-            </div>
-            <p className="text-3xl font-bold tabular-nums text-[var(--text)]">{formatClock(displayElapsedSec)}</p>
-          </div>
-
-          {/* Mini-summary — Volume + Séries + Progresso. Cronômetro
-              já está no canto direito do header, não repete aqui.
-              Progresso usa "exercícios com pelo menos uma série
-              concluída" como sinal de avanço prático. */}
-          <ActiveProgressStats activeExercises={activeExercises} totals={totals} />
-
-          {/* Ações principais sempre visíveis: Voltar + Finalizar.
-              Pausar/Retomar e Editar tempo (raros, fluxo de borda) ficam
-              no menu "⋯" pra não competir visualmente com o CTA. */}
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={backToDashboardFromActive}
-              aria-label="Voltar"
-              className="grid h-10 w-10 place-items-center rounded-xl border border-[var(--line)] text-[var(--text)] transition-colors hover:bg-[var(--surface-hover)]"
-            >
-              <ArrowLeft size={16} />
-            </button>
-            <button
-              type="button"
-              onClick={finalizeWithSafetyCheck}
-              className="flex-1 rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)] sm:flex-none"
-            >
-              Finalizar Treino
-            </button>
-            <ActiveWorkoutMenu
-              advancedTimerOpen={advancedTimerOpen}
-              setAdvancedTimerOpen={setAdvancedTimerOpen}
-              isWorkoutRunning={isWorkoutRunning}
-              setIsWorkoutRunning={setIsWorkoutRunning}
-              manualTimerMinutes={manualTimerMinutes}
-              setManualTimerMinutes={setManualTimerMinutes}
-              applyManualTimerEdit={applyManualTimerEdit}
-              intensityMode={intensityMode}
-              setIntensityModeState={setIntensityModeState}
-            />
-          </div>
-        </motion.header>
-
-        {error ? <p className="text-sm text-red-400">{error}</p> : null}
-
-        <article className="space-y-3">
-          {activeExercises.length === 0 ? (
-            <p className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-3 text-sm text-[var(--muted)]">
-              Nenhum exercício adicionado ainda.
-            </p>
-          ) : null}
-
-          <DndContext
-            sensors={dndSensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleExerciseDragEnd}
-          >
-            <SortableContext
-              items={activeExercises.map((ex) => ex.exerciseId)}
-              strategy={verticalListSortingStrategy}
-            >
-          {activeExercises.map((exercise, exerciseIndex) => (
-            <ActiveExerciseCard
-              key={exercise.exerciseId}
-              exercise={exercise}
-              exerciseIndex={exerciseIndex}
-              showRir={showRir}
-              showRpe={showRpe}
-              openTypePicker={openTypePicker}
-              setOpenTypePicker={setOpenTypePicker}
-              lastPerformanceByExercise={lastPerformanceByExercise}
-              setActiveExercises={setActiveExercises}
-              setContextMenuExerciseIndex={setContextMenuExerciseIndex}
-              startRestEdit={startRestEdit}
-              patchSet={patchSet}
-              completeSet={completeSet}
-              removeSet={removeSet}
-              addSet={addSet}
-              addSetCopyingPrevious={addSetCopyingPrevious}
-              addDropEntry={addDropEntry}
-              removeDropEntry={removeDropEntry}
-              patchDropEntry={patchDropEntry}
-            />
-          ))}
-            </SortableContext>
-          </DndContext>
-
-          {/* Botão grande "Adicionar Exercício" no rodapé da lista —
-              substitui o card antigo com input + Explorar pra ficar no
-              padrão Hevy: tap único abre o modal full-screen com busca
-              live + Recentes + opção de criar exercício custom. */}
-          <button
-            type="button"
-            onClick={() => setAddExerciseOpen(true)}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand)] py-3 text-[14px] font-bold text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)]"
-          >
-            <Plus size={16} />
-            Adicionar Exercício
-          </button>
-        </article>
-
-        {/* Sheets globais — só um deles abre por vez. Lendo o
-            exercício do índice em vez de passar tudo via prop evita
-            stale closures se o estado dos exercícios mudar enquanto
-            o sheet está aberto. */}
-        {editingRestExerciseIndex != null && activeExercises[editingRestExerciseIndex] && (
-          <RestTimePickerSheet
-            key={`rest-${editingRestExerciseIndex}`}
-            open
-            currentSec={activeExercises[editingRestExerciseIndex].restDurationSec}
-            onConfirm={(sec) => void applyRestEdit(editingRestExerciseIndex, sec)}
-            onClose={() => setEditingRestExerciseIndex(null)}
-          />
-        )}
-        {contextMenuExerciseIndex != null && activeExercises[contextMenuExerciseIndex] && (
-          <ExerciseContextMenuSheet
-            open
-            exerciseName={activeExercises[contextMenuExerciseIndex].exerciseName}
-            isInSuperset={Boolean(activeExercises[contextMenuExerciseIndex].supersetGroup)}
-            onReorder={() => setReorderSheetOpen(true)}
-            onSubstitute={() => {
-              // Abre o modal específico de substituição (Sugeridos +
-              // Recentes). O fluxo via openExerciseExplorer continua
-              // disponível pelo botão "Criar" do modal pra quando o
-              // catálogo padrão não cobre o que o usuário precisa.
-              setSubstituteSourceIndex(contextMenuExerciseIndex)
-            }}
-            onAddToSuperset={() => {
-              // Se o exercício já está em uma supersérie, o usuário
-              // provavelmente quer SAIR dela em vez de entrar em outra.
-              // Trata como toggle.
-              const current = activeExercises[contextMenuExerciseIndex]
-              if (current?.supersetGroup) {
-                removeFromSuperset(contextMenuExerciseIndex)
-              } else {
-                setSupersetPickerSourceIndex(contextMenuExerciseIndex)
-              }
-            }}
-            onRemove={() => handleRemoveExercise(contextMenuExerciseIndex)}
-            onClose={() => setContextMenuExerciseIndex(null)}
-          />
-        )}
-        {/* Modais lazy-loaded compartilham um Suspense. Fallback é null
-            porque o user já tá em transição (tocou um botão pra abrir)
-            e a aparição do modal ~100-300ms depois sente como animação
-            normal — sem flash de skeleton. */}
-        <Suspense fallback={null}>
-        {reorderSheetOpen && (
-          <ReorderExercisesSheet
-            open
-            items={activeExercises.map((ex): ReorderItem => ({
-              id: ex.exerciseId,
-              name: ex.exerciseName,
-              thumbnailUrl: ex.thumbnailUrl,
-            }))}
-            onReorder={(next) => {
-              // Reconstrói o array de ActiveExercise na nova ordem
-              // resolvendo cada id de volta pro objeto original — assim
-              // preserva séries, descansos, supersets, etc. Se algum id
-              // não existir mais (paranoia), filtramos pra não quebrar.
-              const byId = new Map(activeExercises.map((ex) => [ex.exerciseId, ex]))
-              const reordered = next
-                .map((item) => byId.get(item.id))
-                .filter((ex): ex is typeof activeExercises[number] => Boolean(ex))
-              setActiveExercises(reordered)
-            }}
-            onClose={() => setReorderSheetOpen(false)}
-          />
-        )}
-        {substituteSourceIndex != null && activeExercises[substituteSourceIndex] && (
-          <SubstituteExerciseModal
-            key={`sub-${substituteSourceIndex}`}
-            open
-            source={{
-              id: activeExercises[substituteSourceIndex].exerciseId,
-              name: activeExercises[substituteSourceIndex].exerciseName,
-            }}
-            onPick={(option) => applySubstitution(substituteSourceIndex, option)}
-            onCreateRequest={() => {
-              // Fecha o substitute, lembra qual exercício queremos
-              // trocar, abre o create. Quando o create resolver, o
-              // onCreated abaixo substitui automaticamente.
-              setCreateExerciseForSubstituteIndex(substituteSourceIndex)
-              setSubstituteSourceIndex(null)
-              setCreateExerciseOpen(true)
-            }}
-            onClose={() => setSubstituteSourceIndex(null)}
-          />
-        )}
-        {addExerciseOpen && (
-          <AddExerciseModal
-            open
-            currentExerciseIds={activeExercises.map((ex) => ex.exerciseId)}
-            onPickBatch={(options) => {
-              // Filtra duplicatas antes de chamar pra agregar o aviso
-              // em um único diálogo (evita N popups).
-              const presentIds = new Set(activeExercises.map((ex) => ex.exerciseId))
-              const skipped = options.filter((opt) => presentIds.has(opt.id))
-              const toAdd = options.filter((opt) => !presentIds.has(opt.id))
-              for (const option of toAdd) addExerciseToActiveWorkout(option)
-              if (skipped.length > 0) {
-                setInfoDialog({
-                  title: skipped.length === 1 ? 'Exercício já no treino' : 'Exercícios já no treino',
-                  message:
-                    skipped.length === 1
-                      ? `${skipped[0].name} já faz parte deste treino e não foi adicionado novamente.`
-                      : `${skipped.length} exercícios já faziam parte deste treino e não foram adicionados novamente:\n\n${skipped.map((s) => `• ${s.name}`).join('\n')}`,
-                })
-              }
-            }}
-            onCreateRequest={() => {
-              setAddExerciseOpen(false)
-              setCreateExerciseForAdd(true)
-              setCreateExerciseOpen(true)
-            }}
-            onClose={() => setAddExerciseOpen(false)}
-          />
-        )}
-        {createExerciseOpen && (
-          <CreateExerciseModal
-            open
-            onCreated={(newExercise) => {
-              // Adiciona o novo exercício no cache de recentes pra ele
-              // aparecer na próxima abertura de qualquer picker.
-              pushRecentExerciseId(newExercise.id)
-              // Invalida o cache do catálogo pra o exercício recém-criado
-              // aparecer na próxima abertura dos modais. Sem isso, o user
-              // só veria o privado novo depois de 5 min (TTL).
-              invalidateExerciseCatalog()
-              if (createExerciseForSubstituteIndex != null) {
-                applySubstitution(createExerciseForSubstituteIndex, newExercise)
-              } else if (createExerciseForAdd) {
-                addExerciseToActiveWorkout(newExercise)
-              }
-              setCreateExerciseForSubstituteIndex(null)
-              setCreateExerciseForAdd(false)
-            }}
-            onClose={() => {
-              setCreateExerciseOpen(false)
-              setCreateExerciseForSubstituteIndex(null)
-              setCreateExerciseForAdd(false)
-            }}
-          />
-        )}
-        </Suspense>
-        {supersetPickerSourceIndex != null && activeExercises[supersetPickerSourceIndex] && (
-          <SupersetPickerSheet
-            key={`superset-${supersetPickerSourceIndex}`}
-            open
-            sourceExerciseName={activeExercises[supersetPickerSourceIndex].exerciseName}
-            candidates={activeExercises
-              .map((exercise, index) => ({ index, exercise }))
-              .filter(({ index }) => index !== supersetPickerSourceIndex)}
-            onPick={(targetIndex) => pairAsSuperset(supersetPickerSourceIndex, targetIndex)}
-            onClose={() => setSupersetPickerSourceIndex(null)}
-          />
-        )}
-
-        <CardioSection
-          entries={cardioEntries}
-          onAdd={(entry) => setCardioEntries((current) => [...current, entry])}
-          onRemove={(index) => setCardioEntries((current) => current.filter((_, i) => i !== index))}
-        />
-
-        {/* Dialog de duração incomum. Disparado pelo "Finalizar Treino" daqui
-            mesmo — precisa ser renderizado nesta tree (ACTIVE) porque a
-            transição pra SUMMARY só rola depois do user escolher. */}
-        {durationWarning ? (
-          <DurationWarningDialog
-            warning={durationWarning}
-            onAdjust={handleDurationAdjust}
-            onKeep={handleDurationKeepCurrent}
-          />
-        ) : null}
-
-        {infoDialog && (
-          <InfoDialog
-            open
-            title={infoDialog.title}
-            message={infoDialog.message}
-            onClose={() => setInfoDialog(null)}
-          />
-        )}
-        {confirmDialog && (
-          <ConfirmDialog
-            open
-            title={confirmDialog.title}
-            message={confirmDialog.message}
-            confirmLabel={confirmDialog.confirmLabel}
-            destructive={confirmDialog.destructive}
-            onConfirm={() => {
-              const handler = confirmDialog.onConfirm
-              setConfirmDialog(null)
-              handler()
-            }}
-            onCancel={() => setConfirmDialog(null)}
-          />
-        )}
-      </section>
+      <TrainActiveScreen
+        showRir={showRir}
+        showRpe={showRpe}
+        openTypePicker={openTypePicker}
+        setOpenTypePicker={setOpenTypePicker}
+        lastPerformanceByExercise={lastPerformanceByExercise}
+        setActiveExercises={setActiveExercises}
+        setContextMenuExerciseIndex={setContextMenuExerciseIndex}
+        startRestEdit={startRestEdit}
+        patchSet={patchSet}
+        completeSet={completeSet}
+        removeSet={removeSet}
+        addSet={addSet}
+        addSetCopyingPrevious={addSetCopyingPrevious}
+        addDropEntry={addDropEntry}
+        removeDropEntry={removeDropEntry}
+        patchDropEntry={patchDropEntry}
+        advancedTimerOpen={advancedTimerOpen}
+        setAdvancedTimerOpen={setAdvancedTimerOpen}
+        isWorkoutRunning={isWorkoutRunning}
+        setIsWorkoutRunning={setIsWorkoutRunning}
+        manualTimerMinutes={manualTimerMinutes}
+        setManualTimerMinutes={setManualTimerMinutes}
+        applyManualTimerEdit={applyManualTimerEdit}
+        intensityMode={intensityMode}
+        setIntensityModeState={setIntensityModeState}
+        activeExercises={activeExercises}
+        activePlanName={activePlanName}
+        displayElapsedSec={displayElapsedSec}
+        totals={totals}
+        error={error}
+        prCelebration={prCelebration}
+        setPrCelebration={setPrCelebration}
+        restFinishedName={restFinishedName}
+        adjustRestTimer={adjustRestTimer}
+        toggleRestTimer={toggleRestTimer}
+        backToDashboardFromActive={backToDashboardFromActive}
+        finalizeWithSafetyCheck={finalizeWithSafetyCheck}
+        dndSensors={dndSensors}
+        handleExerciseDragEnd={handleExerciseDragEnd}
+        editingRestExerciseIndex={editingRestExerciseIndex}
+        setEditingRestExerciseIndex={setEditingRestExerciseIndex}
+        applyRestEdit={applyRestEdit}
+        contextMenuExerciseIndex={contextMenuExerciseIndex}
+        reorderSheetOpen={reorderSheetOpen}
+        setReorderSheetOpen={setReorderSheetOpen}
+        substituteSourceIndex={substituteSourceIndex}
+        setSubstituteSourceIndex={setSubstituteSourceIndex}
+        removeFromSuperset={removeFromSuperset}
+        supersetPickerSourceIndex={supersetPickerSourceIndex}
+        setSupersetPickerSourceIndex={setSupersetPickerSourceIndex}
+        handleRemoveExercise={handleRemoveExercise}
+        applySubstitution={applySubstitution}
+        addExerciseToActiveWorkout={addExerciseToActiveWorkout}
+        addExerciseOpen={addExerciseOpen}
+        setAddExerciseOpen={setAddExerciseOpen}
+        createExerciseOpen={createExerciseOpen}
+        setCreateExerciseOpen={setCreateExerciseOpen}
+        createExerciseForSubstituteIndex={createExerciseForSubstituteIndex}
+        setCreateExerciseForSubstituteIndex={setCreateExerciseForSubstituteIndex}
+        createExerciseForAdd={createExerciseForAdd}
+        setCreateExerciseForAdd={setCreateExerciseForAdd}
+        pairAsSuperset={pairAsSuperset}
+        infoDialog={infoDialog}
+        setInfoDialog={setInfoDialog}
+        cardioEntries={cardioEntries}
+        setCardioEntries={setCardioEntries}
+        durationWarning={durationWarning}
+        handleDurationAdjust={handleDurationAdjust}
+        handleDurationKeepCurrent={handleDurationKeepCurrent}
+        confirmDialog={confirmDialog}
+        setConfirmDialog={setConfirmDialog}
+      />
     )
   }
 
