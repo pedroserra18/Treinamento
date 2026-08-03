@@ -1,10 +1,18 @@
 # Handoff — continuidade (SerraAthlo / Acad)
 
-> Atualizado em **2026-07-21**. Cole este arquivo (ou aponte pra ele) numa conversa nova.
+> Atualizado em **2026-08-03**. Cole este arquivo (ou aponte pra ele) numa conversa nova.
 > **Produção = branch `feat/feed-history-redesign-rpe`** (deploy automático Vercel p/ web
-> e Render p/ API). **`main` fica sempre convergida com a `feat`** (mesmo commit) — a
-> branch _default_ do GitHub é a `main`. Ao mergear: `git checkout feat` → `git merge --no-ff <branch>`
-> → `git branch -f main HEAD` → push das duas.
+> e Render p/ API), atualmente no commit **`17f38e7`**. A branch _default_ do GitHub é a
+> `main`. Convenção: **`main` deve ficar convergida com a `feat`** (mesmo commit). Ao
+> mergear: `git checkout feat` → `git merge --no-ff <branch>` → `git branch -f main HEAD`
+> → push das duas.
+>
+> ⚠️ **AGORA a `main` está ATRÁS** (em `8ba26c6`) — as rodadas recentes foram pushadas só
+> na `feat`. Re-sincronizar quando quiser: `git branch -f main feat/feed-history-redesign-rpe`
+> + `git push origin main`.
+>
+> Mapa de arquivos do projeto: [docs/CODE_MAP.md](docs/CODE_MAP.md). Arquitetura/decisões:
+> [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
@@ -20,43 +28,53 @@
 6. `npm --prefix api run build` (gera Prisma Client; precisa do `api/.env`).
 7. `git config user.name/email` + `npm run dev`.
 
-## 1. Estado atual (produção = `feat` + `main` = commit `324813e`)
+## 1. Estado atual (produção = `feat`, commit `17f38e7`)
 
-God-files sendo quebrados no padrão: extrair fronteira coesa → validar (typecheck+lint+testes+build)
-→ conferência visual do user → merge. **Feito nesta rodada:**
+God-files sendo quebrados no padrão: extrair fronteira coesa **verbatim** → validar
+(typecheck+lint+testes+build) → conferência visual do user → merge `--no-ff`. **Concluído
+até aqui:**
 
-- **AIWorkoutPage** 3140→2136 (3 levas: helpers, métricas do Resumo, componentes). Mergeada.
-- **TrainPage** 4625→3784: Fase 2 do reducer (resumo/pós-treino) + 5 componentes extraídos
-  (ActiveExerciseCard ~450 linhas, RoutineCard, SummaryShareActions, SummaryPhotoPicker,
-  ActiveWorkoutMenu). Todos mergeados e conferidos.
-- **WorkoutsPage** 1605→1336: helpers puros (workouts-utils.ts) + PlanCardioPanel. Mergeados.
-- **cspell.json** (commit `e7a817b`): corretor do VSCode marcava toda palavra PT como "erro"
-  (~714). Adicionados dicionários `@cspell/dict-pt-br`/`-pt` (devDeps) + termos de domínio →
-  caiu p/ ~24 (palavrões do filtro + typos reais). Zero impacto no app.
-- **AdminUsersPage** 1386→1268: **Leva 1** (helpers puros → admin/admin-users-utils.ts + testes).
-  Mergeada (`3383662`).
-- **AdminUsersPage** **Leva 2** (kit de UI → admin/admin-users-ui.tsx) 1268→1105. Mergeada.
-- **AdminUsersPage** **Leva 3** (ConfirmModal + UserDrawer → arquivos próprios em admin/) 1105→687.
-  Mergeada. **AdminUsersPage concluída.**
-- **ProfilePage** 891→624 (UserListModal, CalendarPanel, profile-utils +10 testes → profile/).
-  Mergeada.
+- **AIWorkoutPage** → **123** linhas (era ~2136). 5 levas: telas WELCOME/LOADING/REVIEW/
+  RESULT/QUIZ → `pages/ai/*Screen.tsx` + todo o estado/lógica no hook `pages/ai/useAIWorkout.ts`.
+  A página virou container fino (chama o hook + roteia telas). **Concluída.**
+- **TrainPage** → **367** linhas (era ~3794). **Fase A:** 7 telas extraídas p/ `pages/train/`
+  (Recommendations, SendRoutine, NewRoutine, Edit, Dashboard, Summary, Active). **Fase B:**
+  todo o estado/efeitos/handlers → hook `pages/train/useTrainSession.ts` (relocação verbatim;
+  escolha por análise de risco — o estado cruza domínios, então hook único é mais seguro que
+  hooks por domínio). Página = container + roteamento. **Concluída** (o split do hook por
+  domínio ficou de fora de propósito: seria não-verbatim no fluxo crítico).
+- **WorkoutsPage** → **673** linhas (era 881). Render **totalmente decomposto**: `CreatePlanCard`,
+  `PlanHeader`, `ExerciseCard`, `PlanCardioPanel` + `WorkoutPlanModals` (cluster de sheets/modais)
+  + `WorkoutPlanCard` (card de 1 rotina), tudo em `pages/workouts/`. Resta ~600 linhas de
+  **lógica** (loadAll, drafts, handlers de save) — reduzir mais exigiria hook não-verbatim.
+- **Docs/organização:** criado `docs/CODE_MAP.md` (mapa de onde cada arquivo mora e como se
+  conecta, linkado do README/ARCHITECTURE) + **hook de lembrete no husky pre-commit** (avisa,
+  sem bloquear, quando arquivos são add/remove/rename em pages/services/hooks/components/
+  api-modules → conferir CODE_MAP).
+- Anteriores (rodadas passadas): **AdminUsersPage** → 687 e **ProfilePage** → 624
+  (concluídas); **FeedPostCard** → 289; **HomePage** → 634.
 
 ## 2. Pendências (retomar aqui)
 
-### ⏳ A. Outras páginas grandes (por tamanho, mesmo padrão)
-WorkoutsPage (1336, main acoplado), FeedPostCard (1191, componente crítico do feed),
-HomePage (916). AIWorkoutPage (2136, resta o quiz stateful — mais arriscado).
-TrainPage (3784): render já enxuto; o que resta é a seção de lógica (custom hooks = mais arriscado).
-AdminUsersPage (687) e ProfilePage (624): **concluídas**.
+### ⏳ A. Próximo god-file: `ProgressPage` (1189 linhas)
+Maior arquivo restante intocado. Tem estrutura limpa de **2 abas** (`tab === 'exercise'` e
+`tab === 'body'`) → extrair cada aba num componente (`ProgressExerciseTab` / `ProgressBodyTab`)
+é fronteira coesa e verbatim. Já existe `pages/progress/` (charts, exercise-card, measurements,
+progress-utils).
+
+### ⏳ B. Outros grandes (mesmo padrão, por tamanho)
+`account-panels.tsx` (784, settings) · `CompetitionDetailPage` (740) · `workoutService.ts`
+(1162, service — split por sub-domínio). WorkoutsPage: só se topar hook não-verbatim.
 
 ## 3. Como rodar / validar
 
 ```bash
-npm run dev                        # web (Vite) + API (4000)
+npm run dev                        # web (Vite, :3000) + API (:4000)
 npm run typecheck                  # web + api
 npm run lint                       # web + api
-npm --prefix frontend-vite test    # Vitest (unit do front) — 118 testes
-npm test                           # Jest integração da API (1 teste é flaky, re-rodar)
+npm --prefix frontend-vite test    # Vitest (unit do front) — 181 testes
+npm run build:web && npx --prefix frontend-vite vite build   # build de produção do front
+npm test                           # Jest integração da API
 ```
 
 ## 4. Gotchas (não esquecer)
@@ -64,15 +82,22 @@ npm test                           # Jest integração da API (1 teste é flaky,
 - **TESTAR NO LOCALHOST antes de mergear** frontend (produção/CI mascara bug só-de-dev).
 - **PWA/Service Worker cacheia tudo** — depois de mudar, **Ctrl+Shift+R**.
 - **Commits:** subject minúscula, corpo ≤100 colunas, terminar com `Co-Authored-By: Claude...`.
-  Husky roda lint+typecheck no pre-commit. `merge:` NÃO é tipo válido (usar refactor/fix/chore).
-- **Backend (API) → precisa deploy no Render** (não tem auto-deploy garantido). Frontend → Vercel sozinho.
-- **Padrão de extração de componente:** mover JSX+handlers VERBATIM; só o item/índice/handlers viram
-  props; estado fica no pai. Typecheck pega 0-erro-de-prop = rede forte. `.tsx` só exporta
-  componentes (regra react-refresh) → consts/tipos/funções puras vão pra um `.ts`.
+  Husky roda (na ordem) secret-scan + lembrete-CODE_MAP (não bloqueia) + lint + typecheck no
+  pre-commit. `merge:` NÃO é tipo válido no commitlint (usar refactor/fix/chore/docs).
+- **Passar mensagem de commit multi-linha:** usar `git commit -F <arquivo>` (o here-string do
+  PowerShell `@'...'@` NÃO funciona no Bash e corrompe a mensagem → commitlint rejeita).
+- **Padrão de extração de componente:** mover JSX+handlers VERBATIM; só o item/índice/handlers
+  viram props; estado fica no pai. Typecheck com `noUnusedLocals` pega import órfão + 0-erro-de-
+  prop = rede forte. `.tsx` só exporta componentes (regra react-refresh) → consts/tipos/funções
+  puras vão pra um `.ts`. Blocos grandes de render: substituir por script (Python) preservando o
+  EOL do arquivo (**CRLF** no repo) evita transcrição manual.
+- **Backend (API) → precisa deploy no Render** (não tem auto-deploy garantido). Frontend → Vercel.
 - **PowerShell (Win):** sem `&&`; env var inline = `$env:X="true"`.
 
-## 5. Branches abertas
-- Nenhuma pendente. As de refactor recentes (`refactor/admin-users-ui`,
-  `refactor/admin-users-drawer`, `refactor/profile-page`) já foram mergeadas na feat+main —
-  podem ser limpas.
-- Várias antigas de exploração (chore/*, feat/avatar-supabase-storage, etc.) — podem ser limpas.
+## 5. Branches
+
+- **`main` atrás da `feat`** (ver aviso no topo) — re-sincronizar quando quiser.
+- Várias `refactor/*` já mergeadas na `feat` acumularam (ex.: `refactor/ai-*`, `refactor/train-*`,
+  `refactor/workouts-*`, `refactor/admin-*`, `refactor/feed-*`, `refactor/home-page`,
+  `refactor/profile-page`). Podem ser limpas: `git branch -d <nome>` (já estão no histórico da feat).
+- Antigas de exploração (`chore/*`, `feat/avatar-supabase-storage`, etc.) — também limpáveis.
