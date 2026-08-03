@@ -47,6 +47,9 @@ até aqui:**
   `PlanHeader`, `ExerciseCard`, `PlanCardioPanel` + `WorkoutPlanModals` (cluster de sheets/modais)
   + `WorkoutPlanCard` (card de 1 rotina), tudo em `pages/workouts/`. Resta ~600 linhas de
   **lógica** (loadAll, drafts, handlers de save) — reduzir mais exigiria hook não-verbatim.
+- **ProgressPage** → **715** linhas (era 1189). Abas `exercise` e `body` extraídas p/
+  `pages/progress/` (`ProgressExerciseTab` / `ProgressBodyTab`); a página fica com estado +
+  header/hero/heatmap + roteamento das 2 abas + os 3 modais (viewer/detalhes/galeria).
 - **Docs/organização:** criado `docs/CODE_MAP.md` (mapa de onde cada arquivo mora e como se
   conecta, linkado do README/ARCHITECTURE) + **hook de lembrete no husky pre-commit** (avisa,
   sem bloquear, quando arquivos são add/remove/rename em pages/services/hooks/components/
@@ -56,15 +59,11 @@ até aqui:**
 
 ## 2. Pendências (retomar aqui)
 
-### ⏳ A. Próximo god-file: `ProgressPage` (1189 linhas)
-Maior arquivo restante intocado. Tem estrutura limpa de **2 abas** (`tab === 'exercise'` e
-`tab === 'body'`) → extrair cada aba num componente (`ProgressExerciseTab` / `ProgressBodyTab`)
-é fronteira coesa e verbatim. Já existe `pages/progress/` (charts, exercise-card, measurements,
-progress-utils).
-
-### ⏳ B. Outros grandes (mesmo padrão, por tamanho)
-`account-panels.tsx` (784, settings) · `CompetitionDetailPage` (740) · `workoutService.ts`
-(1162, service — split por sub-domínio). WorkoutsPage: só se topar hook não-verbatim.
+### ⏳ Próximos god-files (mesmo padrão verbatim, por tamanho)
+`ProgressPage` **feita** (abas exercise/body → `pages/progress/`). Maiores intocados agora:
+`workoutService.ts` (1162, service — split por sub-domínio) · `account-panels.tsx` (784,
+settings) · `CompetitionDetailPage` (740). WorkoutsPage/ProgressPage: só sobra lógica
+(extrair hook = não-verbatim, opcional).
 
 ## 3. Como rodar / validar
 
