@@ -11,18 +11,14 @@ import type { ExerciseOption, WorkoutPlan } from '../types/workout'
 import { type DropEntry } from '../components/common/setTypeOptions'
 import {
   addExerciseToPlan,
-  addPlanCardio,
   createWorkoutPlan,
-  deletePlanCardio,
   deletePlanExercise,
-  deleteWorkoutPlan,
   listWorkoutPlans,
   updateWorkoutPlan,
   updatePlanExercise,
 } from '../services/workoutService'
 import { SkeletonCard } from '../components/common/Skeleton'
 import { type ReorderItem } from './train/ReorderExercisesSheet'
-import { Plus } from 'lucide-react'
 import {
   createSeriesDraft,
   parsePerformanceFromNotes,
@@ -31,11 +27,9 @@ import {
   type SeriesDraft,
   type PerformanceDraft,
 } from './workouts/workouts-utils'
-import { PlanCardioPanel } from './workouts/PlanCardioPanel'
 import { CreatePlanCard } from './workouts/CreatePlanCard'
-import { PlanHeader } from './workouts/PlanHeader'
-import { ExerciseCard } from './workouts/ExerciseCard'
 import { WorkoutPlanModals } from './workouts/WorkoutPlanModals'
+import { WorkoutPlanCard } from './workouts/WorkoutPlanCard'
 
 type WorkoutsPageProps = {
   selectedPlanId?: string | null
@@ -604,81 +598,40 @@ export function WorkoutsPage({
 
       <div className="space-y-4">
         {visiblePlans.map((plan) => (
-          <article key={plan.id} className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4">
-            <PlanHeader
-              plan={plan}
-              editingName={Boolean(editingPlanNameById[plan.id])}
-              nameDraft={planNameDraftById[plan.id] ?? plan.name}
-              hideInlineSaveButton={hideInlineSaveButton}
-              onStartEdit={() => setEditingPlanNameById((current) => ({ ...current, [plan.id]: true }))}
-              onNameDraftChange={(value) => setPlanNameDraftById((current) => ({ ...current, [plan.id]: value }))}
-              onSaveName={() => void savePlanName(plan.id)}
-              onCancelEdit={() => {
-                setEditingPlanNameById((current) => ({ ...current, [plan.id]: false }))
-                setPlanNameDraftById((current) => ({ ...current, [plan.id]: plan.name }))
-              }}
-              onSaveFullPlan={() => void saveFullPlan(plan)}
-              onDelete={() => {
-                void deleteWorkoutPlan(authorizedFetch, plan.id)
-                  .then(loadAll)
-                  .catch((err) => setError(err instanceof Error ? err.message : 'Erro ao excluir treino'))
-              }}
-            />
-
-            <div className="mt-3 space-y-2">
-              {plan.exercises.length === 0 ? <p className="text-sm text-[var(--muted)]">Sem exercicios.</p> : null}
-              {plan.exercises.map((item, index) => (
-                <ExerciseCard
-                  key={item.id}
-                  item={item}
-                  index={index}
-                  rawDraft={draftByExercise[item.id]}
-                  expanded={Boolean(expandedByExercise[item.id])}
-                  editingName={Boolean(editingNameByExercise[item.id])}
-                  nameDraft={customNameByExercise[item.id] ?? item.customName ?? item.exercise.name}
-                  onNameDraftChange={(value) => setCustomNameByExercise((current) => ({ ...current, [item.id]: value }))}
-                  onSaveName={() => { void saveCustomExerciseName(plan.id, item.id) }}
-                  onStartEditName={() => setEditingNameByExercise((current) => ({ ...current, [item.id]: true }))}
-                  onOpenRestPicker={() => setRestPickerTarget({ planId: plan.id, planExerciseId: item.id, currentSec: item.restSec ?? 0 })}
-                  onToggleExpand={() => setExpandedByExercise((current) => ({ ...current, [item.id]: !current[item.id] }))}
-                  onOpenMenu={() => setCtxMenuTarget({ planId: plan.id, planExerciseId: item.id, exerciseId: item.exercise.id, exerciseName: item.customName ?? item.exercise.name })}
-                  onPatchDraft={(patch) => patchDraft(item.id, patch)}
-                  onOpenSeriesPicker={(seriesIndex) => setSeriesPicker({ exerciseId: item.id, seriesIndex })}
-                  onRemoveSeries={(seriesIndex) => removeSeries(item.id, seriesIndex)}
-                  onPatchSeries={(seriesIndex, patch) => patchSeries(item.id, seriesIndex, patch)}
-                  onPatchDrop={(seriesIndex, dropIndex, patch) => patchDropEntry(item.id, seriesIndex, dropIndex, patch)}
-                  onRemoveDrop={(seriesIndex, dropIndex) => removeDropEntry(item.id, seriesIndex, dropIndex)}
-                  onAddDrop={(seriesIndex) => addDropEntry(item.id, seriesIndex)}
-                  onAddSeries={() => addSeries(item.id)}
-                  onSaveSeries={() => { void saveExerciseMetrics(plan.id, item.id) }}
-                />
-              ))}
-
-              {/* Botão grande "Adicionar Exercício" no rodapé — mesmo
-                  padrão do TrainPage durante treino ativo. Abre o
-                  AddExerciseModal full-screen com busca live + Recentes. */}
-              <button
-                type="button"
-                onClick={() => setAddExerciseTargetPlanId(plan.id)}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--brand)] py-3 text-[14px] font-bold text-white shadow-[0_8px_16px_-10px_rgba(255,90,60,0.55)] transition-colors hover:bg-[var(--brand-strong)]"
-              >
-                <Plus size={16} />
-                Adicionar Exercício
-              </button>
-            </div>
-
-            <PlanCardioPanel
-              plan={plan}
-              onAdd={async (input) => {
-                await addPlanCardio(authorizedFetch, plan.id, input)
-                await loadAll()
-              }}
-              onRemove={async (cardioId) => {
-                await deletePlanCardio(authorizedFetch, plan.id, cardioId)
-                await loadAll()
-              }}
-            />
-          </article>
+          <WorkoutPlanCard
+            key={plan.id}
+            plan={plan}
+            hideInlineSaveButton={hideInlineSaveButton}
+            authorizedFetch={authorizedFetch}
+            loadAll={loadAll}
+            setError={setError}
+            editingPlanNameById={editingPlanNameById}
+            planNameDraftById={planNameDraftById}
+            setEditingPlanNameById={setEditingPlanNameById}
+            setPlanNameDraftById={setPlanNameDraftById}
+            savePlanName={savePlanName}
+            saveFullPlan={saveFullPlan}
+            draftByExercise={draftByExercise}
+            expandedByExercise={expandedByExercise}
+            editingNameByExercise={editingNameByExercise}
+            customNameByExercise={customNameByExercise}
+            setCustomNameByExercise={setCustomNameByExercise}
+            saveCustomExerciseName={saveCustomExerciseName}
+            setEditingNameByExercise={setEditingNameByExercise}
+            setRestPickerTarget={setRestPickerTarget}
+            setExpandedByExercise={setExpandedByExercise}
+            setCtxMenuTarget={setCtxMenuTarget}
+            setSeriesPicker={setSeriesPicker}
+            setAddExerciseTargetPlanId={setAddExerciseTargetPlanId}
+            patchDraft={patchDraft}
+            removeSeries={removeSeries}
+            patchSeries={patchSeries}
+            patchDropEntry={patchDropEntry}
+            removeDropEntry={removeDropEntry}
+            addDropEntry={addDropEntry}
+            addSeries={addSeries}
+            saveExerciseMetrics={saveExerciseMetrics}
+          />
         ))}
       </div>
 
