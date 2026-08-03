@@ -5,13 +5,10 @@ import { useQueryClient } from '@tanstack/react-query'
 import {
   Activity,
   ArrowLeft,
-  Copy,
   Dumbbell,
-  Link2,
   LogOut,
   Trash2,
   Trophy,
-  UserPlus,
   Users,
 } from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
@@ -49,6 +46,7 @@ import { CommentThread } from '../components/competition/CommentThread'
 import { ReactionsBar } from '../components/competition/ReactionsBar'
 import { MemberRow } from '../components/competition/MemberRow'
 import { FriendPickerModal } from '../components/competition/FriendPickerModal'
+import { InviteFriendsCard } from '../components/competition/InviteFriendsCard'
 import { relativeTime } from '../components/competition/helpers'
 
 const TYPE_LABEL: Record<CompetitionType, string> = {
@@ -502,48 +500,14 @@ export function CompetitionDetailPage() {
       )}
 
       {comp.status === 'LOBBY' && isAdmin && (
-        <section className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-4 sm:p-5">
-          <h2 className="text-[13px] font-bold uppercase tracking-wider text-[var(--text)]">
-            Convidar amigos
-          </h2>
-          <p className="mt-1 text-xs text-[var(--muted)]">
-            Compartilhe o link abaixo no WhatsApp ou copie pra mandar de outras formas. Só pessoas que você segue mutuamente podem entrar.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setShowFriendPicker(true)}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--brand)] px-4 py-2 text-sm font-bold text-white hover:bg-[var(--brand-strong)]"
-            >
-              <UserPlus size={13} />
-              Convidar amigo
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleShareLink()}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
-            >
-              <Link2 size={13} />
-              Compartilhar link
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleCopyLink()}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--text)] hover:bg-[var(--surface-hover)]"
-            >
-              <Copy size={13} />
-              {copied ? 'Copiado!' : 'Copiar link'}
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleNewLink()}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--line)] px-4 py-2 text-sm font-semibold text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
-            >
-              Novo link
-            </button>
-          </div>
-          <p className="mt-2 break-all font-mono text-[10.5px] text-[var(--muted)]">{inviteUrl}</p>
-        </section>
+        <InviteFriendsCard
+          inviteUrl={inviteUrl}
+          copied={copied}
+          onOpenFriendPicker={() => setShowFriendPicker(true)}
+          onShare={() => void handleShareLink()}
+          onCopy={() => void handleCopyLink()}
+          onNewLink={() => void handleNewLink()}
+        />
       )}
 
       <section
