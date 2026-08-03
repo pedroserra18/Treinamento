@@ -2,14 +2,10 @@
 
 > Atualizado em **2026-08-03**. Cole este arquivo (ou aponte pra ele) numa conversa nova.
 > **Produção = branch `feat/feed-history-redesign-rpe`** (deploy automático Vercel p/ web
-> e Render p/ API), atualmente no commit **`17f38e7`**. A branch _default_ do GitHub é a
-> `main`. Convenção: **`main` deve ficar convergida com a `feat`** (mesmo commit). Ao
-> mergear: `git checkout feat` → `git merge --no-ff <branch>` → `git branch -f main HEAD`
-> → push das duas.
->
-> ⚠️ **AGORA a `main` está ATRÁS** (em `8ba26c6`) — as rodadas recentes foram pushadas só
-> na `feat`. Re-sincronizar quando quiser: `git branch -f main feat/feed-history-redesign-rpe`
-> + `git push origin main`.
+> e Render p/ API), atualmente no commit **`37e077a`**. A branch _default_ do GitHub é a
+> `main`. Convenção: **`main` fica convergida com a `feat`** (mesmo commit) — atualmente
+> **sincronizada**. Ao mergear: `git checkout feat` → `git merge --no-ff <branch>` →
+> `git branch -f main HEAD` → push das duas.
 >
 > Mapa de arquivos do projeto: [docs/CODE_MAP.md](docs/CODE_MAP.md). Arquitetura/decisões:
 > [ARCHITECTURE.md](ARCHITECTURE.md).
@@ -95,8 +91,8 @@ npm test                           # Jest integração da API
 
 ## 5. Branches
 
-- **`main` atrás da `feat`** (ver aviso no topo) — re-sincronizar quando quiser.
-- Várias `refactor/*` já mergeadas na `feat` acumularam (ex.: `refactor/ai-*`, `refactor/train-*`,
-  `refactor/workouts-*`, `refactor/admin-*`, `refactor/feed-*`, `refactor/home-page`,
-  `refactor/profile-page`). Podem ser limpas: `git branch -d <nome>` (já estão no histórico da feat).
-- Antigas de exploração (`chore/*`, `feat/avatar-supabase-storage`, etc.) — também limpáveis.
+- **`main` sincronizada com a `feat`** (mesmo commit).
+- **Faxina feita:** as ~29 branches locais já mergeadas (`refactor/*`, `fix/*`,
+  `feat/home-*`) foram apagadas com `git branch -d`. Restam só `feat` e `main` locais.
+- Branches remotas antigas de exploração no GitHub (`chore/*`, `feat/avatar-supabase-storage`,
+  `dependabot/*`) ainda podem ser limpas lá, se quiser.
