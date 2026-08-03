@@ -89,8 +89,10 @@ Agrupadas por área:
   (`TrainActiveScreen`, `TrainDashboardScreen`, `TrainSummaryScreen`, …), cards e
   sheets (`ActiveExerciseCard`, `RestTimerBar`, `RoutineCard`, `SupersetPickerSheet`),
   e a lógica pura em `.ts` (`workout-session-reducer.ts`, `helpers.ts`,
-  `set-display.ts`, `superset.ts`, `cardio.ts`, `types.ts`). A `TrainPage.tsx`
-  (raiz de `pages/`) é o **container**: estado + handlers + roteia essas telas.
+  `set-display.ts`, `superset.ts`, `cardio.ts`, `types.ts`). Todo o estado/lógica
+  (reducer de sessão + handlers + efeitos) vive no hook `useTrainSession.ts`; a
+  `TrainPage.tsx` (raiz de `pages/`) virou um **container fino** que só chama esse
+  hook e roteia as telas.
 - **`pages/ai/`** (~12) — gerador de treino por IA: telas do quiz/review/result
   (`AIQuizScreen`, `AIReviewScreen`, `AIResultScreen`, …), o hook `useAIWorkout.ts`
   (todo o estado/lógica) e utils (`ai-workout-utils.ts`). A `AIWorkoutPage.tsx`
