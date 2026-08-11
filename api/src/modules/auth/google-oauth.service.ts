@@ -201,9 +201,18 @@ export async function buildGoogleAuthorizationUrl(state: string): Promise<string
     client_id: env.googleClientId,
     redirect_uri: env.googleCallbackUrl,
     response_type: "code",
+    // Escopos básicos de identidade. São classificados pelo Google como
+    // non-sensitive: não exigem o processo de verificação do app. Adicionar
+    // qualquer coisa aqui (Gmail, Drive, Calendar) muda isso e passa a exigir
+    // verificação — não mexer sem entender a consequência.
     scope: "openid email profile",
     state,
-    access_type: "offline",
+    // "online" e não "offline": usamos o Google só pra provar quem é o usuário
+    // no momento do login. O exchangeCodeForTokens descarta tudo menos o
+    // id_token, então pedir refresh token (offline) seria solicitar permissão
+    // de agir em nome do usuário sem ele estar presente — permissão que o app
+    // não usa. Menor privilégio conta a favor numa eventual verificação.
+    access_type: "online",
     include_granted_scopes: "true",
     prompt: "select_account"
   });

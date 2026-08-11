@@ -5,7 +5,7 @@ import { Email, LegalDocLayout, List, P, Strong, type LegalSection } from './Leg
 // (fitness, IA generativa, social). NÃO É CONSELHO JURÍDICO; se o app crescer
 // ou monetizar de verdade, vale ter um advogado revisando.
 
-const LAST_UPDATED = '10/06/2026'
+const LAST_UPDATED = '11/08/2026'
 const DPO_EMAIL = 'pedrovasco98765@gmail.com'
 const MIN_AGE = 14
 
@@ -39,6 +39,7 @@ const SECTIONS: LegalSection[] = [
         <List
           items={[
             <><Strong>Cadastro:</Strong> nome, e-mail, handle público (@), senha (armazenada como hash bcrypt — nunca em texto puro).</>,
+            <><Strong>Login com Google (opcional):</Strong> se você escolher entrar com sua conta Google, recebemos do Google apenas seu <Strong>nome</Strong>, <Strong>endereço de e-mail</Strong>, <Strong>foto de perfil</Strong> e um identificador único da conta. Não solicitamos nem temos acesso ao seu Gmail, Google Drive, Agenda, contatos ou qualquer outro dado da sua conta Google. Também não recebemos sua senha do Google. O Google <Strong>não</Strong> recebe de volta seus dados de treino, medidas corporais ou atividade no app.</>,
             <><Strong>Perfil de treino:</Strong> data de nascimento, sexo, peso, altura, nível de experiência e objetivos. Esses dados são considerados sensíveis pela LGPD e usados apenas pra personalizar suas recomendações de treino.</>,
             <><Strong>Foto de perfil:</Strong> opcional, hospedada no Supabase Storage.</>,
             <><Strong>Atividade no app:</Strong> rotinas e treinos criados, sessões registradas, exercícios personalizados, gerações de treino por IA, interações sociais (posts, comentários, seguidores), participação em competições.</>,
@@ -95,7 +96,8 @@ const SECTIONS: LegalSection[] = [
           items={[
             <><Strong>Supabase</Strong> (banco de dados e armazenamento de fotos) — hospedado em AWS.</>,
             <><Strong>Render</Strong> (servidor da API) e <Strong>Vercel</Strong> (interface web).</>,
-            <><Strong>Anthropic</Strong> (modelo de IA) — recebe as preferências de treino que você fornece pra geração; não recebe seu nome, e-mail ou foto.</>,
+            <><Strong>OpenAI</Strong> (modelo de IA) — recebe as preferências de treino que você fornece pra geração; não recebe seu nome, e-mail ou foto.</>,
+            <><Strong>Google</Strong> — apenas se você optar por entrar com sua conta Google. Nesse caso o Google nos informa seu nome, e-mail e foto pra autenticar o acesso. Nenhum dado de treino, medida corporal ou atividade no app é enviado ao Google.</>,
             <><Strong>Provedores de e-mail</Strong> — pra envio de e-mails transacionais.</>,
             <><Strong>Sentry</Strong> (monitoramento de erros) — recebe logs técnicos pra ajudar a corrigir bugs.</>,
           ]}
