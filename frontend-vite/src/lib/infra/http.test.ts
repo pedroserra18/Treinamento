@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { NetworkError, fetchWithTimeout, isNetworkError } from './http'
+import { DEFAULT_TIMEOUT_MS, NetworkError, fetchWithTimeout, isNetworkError } from './http'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -42,6 +42,18 @@ describe('fetchWithTimeout', () => {
 
     expect(isNetworkError(error)).toBe(true)
     expect((error as NetworkError).timedOut).toBe(false)
+  })
+
+  it('usa mensagem de usuário, não de log', async () => {
+    // A message vaza pra UI quando um caller repassa err.message — foi assim
+    // que "Tempo esgotado após 20s" apareceu em vermelho na tela de treino.
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+
+    const error = (await fetchWithTimeout('/offline').catch((err: unknown) => err)) as NetworkError
+
+    expect(error.message).not.toMatch(/\d+s|timeout|Failed to fetch/i)
+    expect(error.message).toMatch(/conex[ãa]o/i)
+    expect(error.timeoutMs).toBe(DEFAULT_TIMEOUT_MS)
   })
 
   it('propaga o abort do caller sem mascarar como NetworkError', async () => {

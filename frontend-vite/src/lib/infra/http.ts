@@ -40,11 +40,15 @@ export type AuthorizedFetch = (input: RequestInfo | URL, init?: FetchInit) => Pr
 // pra perguntar", e nesse caso a sessão local tem que ser preservada.
 export class NetworkError extends Error {
   readonly timedOut: boolean
+  // Quanto tempo esperamos antes de desistir. Fora da mensagem de propósito:
+  // serve pra log/Sentry, não pra mostrar ao usuário.
+  readonly timeoutMs: number
 
-  constructor(message: string, opts: { timedOut: boolean; cause?: unknown }) {
+  constructor(message: string, opts: { timedOut: boolean; timeoutMs: number; cause?: unknown }) {
     super(message)
     this.name = 'NetworkError'
     this.timedOut = opts.timedOut
+    this.timeoutMs = opts.timeoutMs
     this.cause = opts.cause
   }
 }
@@ -82,8 +86,12 @@ export async function fetchWithTimeout(
     return await fetch(input, { ...init, signal: controller.signal })
   } catch (error) {
     if (timedOut) {
-      throw new NetworkError(`Tempo esgotado após ${Math.round(timeoutMs / 1000)}s`, {
+      // A mensagem chega na UI quando um caller repassa err.message, entao
+      // precisa ser texto de usuario, nao de log. A duracao do timeout fica
+      // no campo timeoutMs pra debug.
+      throw new NetworkError('O servidor demorou demais pra responder. Tente de novo.', {
         timedOut: true,
+        timeoutMs,
         cause: error,
       })
     }
@@ -91,7 +99,11 @@ export async function fetchWithTimeout(
     if (callerSignal?.aborted) {
       throw error
     }
-    throw new NetworkError('Falha de conexão', { timedOut: false, cause: error })
+    throw new NetworkError('Sem conexão com o servidor. Verifique sua internet.', {
+      timedOut: false,
+      timeoutMs,
+      cause: error,
+    })
   } finally {
     clearTimeout(timeoutId)
     callerSignal?.removeEventListener('abort', forwardAbort)

@@ -536,6 +536,12 @@ export function useTrainSession() {
     }
     void reloadPlans()
       .catch((err) => {
+        // Com cache em mãos, o refetch é revalidação em background: a lista
+        // já está na tela e o usuário não pediu nada. Falhar aqui (API fria,
+        // sinal ruim) não é erro que valha interromper ninguém — ainda mais
+        // porque esse `error` é compartilhado e aparece TAMBÉM na tela de
+        // treino ativo, onde a lista de rotinas é irrelevante.
+        if (hasCache) return
         setError(err instanceof Error ? err.message : 'Erro ao carregar rotinas')
       })
       .finally(() => {
