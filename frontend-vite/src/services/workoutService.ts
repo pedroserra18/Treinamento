@@ -10,6 +10,8 @@ import type {
   WorkoutSessionHistory,
 } from '../types/workout'
 
+import { LONG_TIMEOUT_MS, type AuthorizedFetch } from '../lib/infra/http'
+
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1'
 
 type FallbackHistoryEntry = {
@@ -1143,13 +1145,16 @@ export async function deletePrivateExercise(
 // Upload do thumbnail de exercício custom. Devolve a URL pública +
 // path no Storage pra mandar pro createCustomExercise como thumbnailUrl.
 export async function uploadExercisePhoto(
-  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  authorizedFetch: AuthorizedFetch,
   dataUrl: string,
 ): Promise<{ photoUrl: string; photoPath: string }> {
   const response = await authorizedFetch(`${API_URL}/uploads/exercise-photo`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ dataUrl }),
+    // A imagem vai em base64 dentro do JSON: numa rede móvel ruim o upload
+    // passa dos 20s do default sem que nada esteja errado.
+    timeoutMs: LONG_TIMEOUT_MS,
   })
 
   const payload = await parsePayload<{ photoUrl: string; photoPath: string }>(response)

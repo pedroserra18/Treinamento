@@ -1,3 +1,5 @@
+import { LONG_TIMEOUT_MS, type AuthorizedFetch } from '../lib/infra/http'
+
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1'
 
 export type GenerateWorkoutInput = {
@@ -135,13 +137,16 @@ function extractApiError(payload: unknown, statusCode: number): string {
 }
 
 export async function generateAIWorkout(
-  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  authorizedFetch: AuthorizedFetch,
   input: GenerateWorkoutInput,
 ): Promise<{ sections: WorkoutSection[] }> {
   const response = await authorizedFetch(`${API_URL}/ai/generate-workout`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
+    // gpt-4o gerando até 4000 tokens passa fácil de 1 minuto — o default de
+    // 20s transformaria uso normal em "falha ao gerar treino".
+    timeoutMs: LONG_TIMEOUT_MS,
   })
 
   // Backend manda { error: { message, code, details } } no formato padrão.
@@ -187,7 +192,7 @@ export type ParsedSplitDay = { label: string; weekday: string }
 // lista de dias (com o dia da semana citado, se houver). Usado quando o
 // parser local do frontend não dá conta de frase natural.
 export async function parseCustomSplitAI(
-  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
+  authorizedFetch: AuthorizedFetch,
   description: string,
   daysPerWeek?: number,
 ): Promise<ParsedSplitDay[]> {
@@ -195,6 +200,8 @@ export async function parseCustomSplitAI(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ description, daysPerWeek }),
+    // Também passa pela OpenAI (resposta menor, mas sujeita à mesma fila).
+    timeoutMs: LONG_TIMEOUT_MS,
   })
 
   const payload = await parseJsonSafe<{ days?: ParsedSplitDay[]; message?: string; error?: string }>(response)

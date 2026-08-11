@@ -22,6 +22,18 @@ export const DEFAULT_TIMEOUT_MS = 20_000
 // pena esperar o cold start inteiro em vez de desistir e ficar sem dado.
 export const BACKGROUND_TIMEOUT_MS = 60_000
 
+// Operações lentas POR NATUREZA, não por falha: geração de treino na OpenAI
+// (até 4000 tokens de saída) e upload de foto em base64 numa rede móvel.
+// Aqui o timeout serve só como rede de segurança contra conexão morta — o
+// limite curto transformaria uso normal em erro.
+export const LONG_TIMEOUT_MS = 120_000
+
+// `init` do fetch + o timeout opcional. Quem chama uma rota sabidamente lenta
+// passa `timeoutMs` explicitamente; o resto herda o default.
+export type FetchInit = RequestInit & { timeoutMs?: number }
+
+export type AuthorizedFetch = (input: RequestInfo | URL, init?: FetchInit) => Promise<Response>
+
 // Erro de transporte (offline, DNS, timeout, conexão morta). Separado dos
 // erros de API porque a decisão de negócio é oposta: um 401 do servidor
 // significa "a sessão morreu, desloga"; um NetworkError significa "não deu

@@ -209,6 +209,39 @@ describe('AuthProvider — authorizedFetch', () => {
     expect(refreshAuthToken).toHaveBeenCalledTimes(1)
   })
 
+  it('respeita o timeoutMs das rotas lentas em vez do default de 20s', async () => {
+    // Geração de treino na OpenAI e upload de foto em base64 passam dos 20s
+    // em uso NORMAL. Se o default vencer, o usuário vê "falha" numa operação
+    // que só estava demorando.
+    seedStoredSession()
+    getProfile.mockResolvedValue(storedUser)
+
+    renderProvider()
+    await waitFor(() => expect(captured).not.toBeNull())
+
+    const abortSpy = vi.fn()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+        init?.signal?.addEventListener('abort', abortSpy)
+        return new Promise<Response>(() => {})
+      }),
+    )
+
+    vi.useFakeTimers()
+    void captured!.authorizedFetch('/api/v1/ai/generate-workout', {
+      method: 'POST',
+      timeoutMs: 120_000,
+    })
+
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(abortSpy).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(95_000)
+    expect(abortSpy).toHaveBeenCalled()
+    vi.useRealTimers()
+  })
+
   it('não desloga quando o refresh falha por rede', async () => {
     seedStoredSession()
     getProfile.mockResolvedValue(storedUser)

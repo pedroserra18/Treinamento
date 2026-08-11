@@ -1,4 +1,5 @@
 import { createContext } from 'react'
+import type { AuthorizedFetch } from '../lib/infra/http'
 import type { AuthTokens, AuthUser } from '../types/auth'
 
 export type AuthState = {
@@ -57,7 +58,9 @@ export type AuthState = {
   // state. `confirmHandle` must equal the user's current @handle — the
   // server re-validates so the UI confirmation can't be bypassed.
   deleteAccount: (confirmHandle: string) => Promise<void>
-  authorizedFetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+  // Aceita `timeoutMs` no init pras rotas lentas por natureza (IA, upload).
+  // Sem isso elas herdam o default de 20s e falham em uso normal.
+  authorizedFetch: AuthorizedFetch
 }
 
 export const AuthContext = createContext<AuthState | undefined>(undefined)

@@ -14,7 +14,9 @@ import type {
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1'
 
-type AuthorizedFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+import { LONG_TIMEOUT_MS, type AuthorizedFetch } from '../lib/infra/http'
+
+export type { AuthorizedFetch }
 
 async function parsePayload<T>(response: Response): Promise<{ data?: T; errorMessage?: string }> {
   const payload = (await response.json().catch(() => null)) as
@@ -199,6 +201,8 @@ export async function uploadCompetitionPhoto(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ dataUrl }),
+    // Mesmo caso do upload de exercício: base64 em rede móvel estoura os 20s.
+    timeoutMs: LONG_TIMEOUT_MS,
   })
   const payload = await parsePayload<{ photoUrl: string; photoPath: string }>(response)
   if (!response.ok || !payload.data) {

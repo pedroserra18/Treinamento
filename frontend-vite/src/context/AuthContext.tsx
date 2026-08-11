@@ -264,10 +264,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new ApiError('Sessao nao autenticada', { status: 401 })
     }
 
-    const headers = new Headers(init?.headers)
+    const { timeoutMs, ...requestInit } = init ?? {}
+
+    const headers = new Headers(requestInit.headers)
     headers.set('Authorization', `Bearer ${currentTokens.accessToken}`)
 
-    const response = await fetchWithTimeout(input, { ...init, headers })
+    const response = await fetchWithTimeout(input, { ...requestInit, headers }, timeoutMs)
 
     if (response.status !== 401) {
       return response
@@ -287,10 +289,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw error
     }
 
-    const retryHeaders = new Headers(init?.headers)
+    const retryHeaders = new Headers(requestInit.headers)
     retryHeaders.set('Authorization', `Bearer ${renewed.accessToken}`)
 
-    return fetchWithTimeout(input, { ...init, headers: retryHeaders })
+    return fetchWithTimeout(input, { ...requestInit, headers: retryHeaders }, timeoutMs)
   }, [logout, runRefresh])
 
   const acceptTerms: AuthState['acceptTerms'] = useCallback(async (version) => {
