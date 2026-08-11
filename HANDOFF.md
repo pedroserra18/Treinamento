@@ -1,8 +1,8 @@
 # Handoff — continuidade (SerraAthlo / Acad)
 
-> Atualizado em **2026-08-03**. Cole este arquivo (ou aponte pra ele) numa conversa nova.
+> Atualizado em **2026-08-11**. Cole este arquivo (ou aponte pra ele) numa conversa nova.
 > **Produção = branch `feat/feed-history-redesign-rpe`** (deploy automático Vercel p/ web
-> e Render p/ API), atualmente no commit **`37e077a`**. A branch _default_ do GitHub é a
+> e Render p/ API), atualmente no commit **`fab45c3`**. A branch _default_ do GitHub é a
 > `main`. Convenção: **`main` fica convergida com a `feat`** (mesmo commit) — atualmente
 > **sincronizada**. Ao mergear: `git checkout feat` → `git merge --no-ff <branch>` →
 > `git branch -f main HEAD` → push das duas.
@@ -24,7 +24,18 @@
 6. `npm --prefix api run build` (gera Prisma Client; precisa do `api/.env`).
 7. `git config user.name/email` + `npm run dev`.
 
-## 1. Estado atual (produção = `feat`, commit `17f38e7`)
+## 1. Estado atual (produção = `feat`, commit `fab45c3`)
+
+**Último trabalho (11/08/2026) — performance de abertura do app.** O PWA travava em
+"Validando sessao..." por ~3 min ao voltar do background: o `AuthProvider` bloqueava a
+árvore inteira num `GET /auth/profile` sem timeout, com o Render free em cold start. A
+sessão passou a ser lida do localStorage de forma síncrona (app pinta no primeiro frame,
+validação em background) e todo fetch ganhou timeout. Ver **§2.5.1 do CODE_MAP** pras 3
+regras que valem pra qualquer mexida no `AuthContext`. Junto vieram: limpeza dos caches
+do usuário no logout (incluindo o treino em andamento), prefetch dos chunks das abas em
+idle, e `timeoutMs` explícito nas rotas lentas por natureza (IA e upload). Validado pelo
+user no navegador; **falta a validação no PWA do iPhone** (cenário original: treino
+aberto → tela travada 20+ min → voltar).
 
 God-files sendo quebrados no padrão: extrair fronteira coesa **verbatim** → validar
 (typecheck+lint+testes+build) → conferência visual do user → merge `--no-ff`. **Concluído
