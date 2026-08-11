@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { setSentryUser } from '../lib/infra/sentry'
+import { ApiError } from '../lib/api-error'
+import { BACKGROUND_TIMEOUT_MS, fetchWithTimeout, warmApi } from '../lib/infra/http'
 import type { AuthTokens, AuthUser } from '../types/auth'
 import { AuthContext, type AuthState } from './auth-context'
 import {
@@ -45,48 +47,158 @@ function persistAuth(user: AuthUser, tokens: AuthTokens) {
   localStorage.setItem(storageKey, JSON.stringify({ user, tokens }))
 }
 
+// Grava só os tokens, preservando o usuário que já está em disco. Usado no
+// refresh: o backend ROTACIONA o refresh token (o antigo morre na hora),
+// então o par novo precisa ir pro localStorage imediatamente — se o SO
+// matar o PWA no meio do fluxo (rotineiro em iOS), perder esse write
+// significa perder a sessão de vez.
+function persistTokens(tokens: AuthTokens) {
+  const stored = readStoredAuth()
+  if (!stored) return
+  localStorage.setItem(storageKey, JSON.stringify({ user: stored.user, tokens }))
+}
+
 function clearStoredAuth() {
   localStorage.removeItem(storageKey)
 }
+
+// O servidor disse explicitamente que a credencial não vale. Só nesse caso
+// derrubamos a sessão local — qualquer outra falha (timeout, offline, 500,
+// cold start) mantém o usuário logado e tenta de novo depois.
+function isAuthRejection(error: unknown): boolean {
+  return error instanceof ApiError && (error.status === 401 || error.status === 403)
+}
+
+// Intervalo mínimo entre revalidações disparadas por retorno de background.
+// Alternar de app no celular gera vários visibilitychange seguidos; sem
+// isso, o app metralharia /auth/profile.
+const REVALIDATE_THROTTLE_MS = 60_000
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [storedAuth] = useState<StoredAuth | null>(() => readStoredAuth())
   const [user, setUser] = useState(storedAuth?.user ?? null)
   const [tokens, setTokens] = useState(storedAuth?.tokens ?? null)
-  const [ready, setReady] = useState(storedAuth === null)
   const tokensRef = useRef<AuthTokens | null>(storedAuth?.tokens ?? null)
+  const lastRevalidatedAt = useRef(0)
+  // Refresh single-flight. Sem isso, N requests que tomam 401 ao mesmo
+  // tempo disparam N refreshes com o MESMO token; o primeiro rotaciona e
+  // os outros levam 401 → logout aleatório. Todo mundo compartilha a
+  // mesma Promise.
+  const refreshInFlight = useRef<Promise<AuthTokens> | null>(null)
+
+  // A sessão vem do localStorage de forma síncrona, então já sabemos no
+  // primeiro render se há usuário — `ready` nunca depende da rede. Era
+  // exatamente esse acoplamento que prendia o app inteiro na tela
+  // "Validando sessao..." por minutos quando a API estava fria ou a
+  // conexão tinha morrido no background.
+  const ready = true
 
   useEffect(() => {
     tokensRef.current = tokens
   }, [tokens])
 
+  // tokensRef é atualizado na hora (e não só no effect) porque
+  // authorizedFetch/runRefresh leem dele fora do ciclo de render — logo
+  // após um signIn, esperar o próximo render deixaria o ref com o valor
+  // antigo.
+  const applySession = useCallback((nextUser: AuthUser, nextTokens: AuthTokens) => {
+    tokensRef.current = nextTokens
+    setUser(nextUser)
+    setTokens(nextTokens)
+    persistAuth(nextUser, nextTokens)
+    lastRevalidatedAt.current = Date.now()
+  }, [])
+
+  const clearSession = useCallback(() => {
+    tokensRef.current = null
+    refreshInFlight.current = null
+    setUser(null)
+    setTokens(null)
+    clearStoredAuth()
+    setSentryUser(null)
+  }, [])
+
+  const runRefresh = useCallback(async (): Promise<AuthTokens> => {
+    const inFlight = refreshInFlight.current
+    if (inFlight) return inFlight
+
+    const current = tokensRef.current
+    if (!current) {
+      throw new ApiError('Sessao nao autenticada', { status: 401 })
+    }
+
+    const promise = refreshAuthToken(current.refreshToken)
+      .then((renewed) => {
+        tokensRef.current = renewed
+        persistTokens(renewed)
+        setTokens(renewed)
+        return renewed
+      })
+      .finally(() => {
+        refreshInFlight.current = null
+      })
+
+    refreshInFlight.current = promise
+    return promise
+  }, [])
+
+  // Confere a sessão contra o servidor SEM bloquear a UI. Roda no boot e
+  // toda vez que o app volta do background. Falha de rede é ignorada de
+  // propósito: o app segue com a sessão em cache e tenta de novo no
+  // próximo retorno.
+  const revalidateSession = useCallback(async () => {
+    const current = tokensRef.current
+    if (!current) return
+
+    lastRevalidatedAt.current = Date.now()
+
+    try {
+      const profile = await getProfile(current.accessToken, { timeoutMs: BACKGROUND_TIMEOUT_MS })
+      setUser(profile)
+      persistAuth(profile, tokensRef.current ?? current)
+      return
+    } catch (error) {
+      if (!isAuthRejection(error)) return
+    }
+
+    // Access token expirado (esperado: o app fica dias sem abrir). Renova
+    // e refaz o perfil; só desiste se o servidor recusar o refresh também.
+    try {
+      const renewed = await runRefresh()
+      const profile = await getProfile(renewed.accessToken, { timeoutMs: BACKGROUND_TIMEOUT_MS })
+      setUser(profile)
+      persistAuth(profile, renewed)
+    } catch (error) {
+      if (isAuthRejection(error)) {
+        clearSession()
+      }
+    }
+  }, [clearSession, runRefresh])
+
   useEffect(() => {
     if (!storedAuth) {
+      // Sem sessão: o próximo passo do usuário é logar. Acorda a API em
+      // paralelo pra o POST /auth/login não pagar o cold start sozinho.
+      warmApi()
       return
     }
 
-    void getProfile(storedAuth.tokens.accessToken)
-      .then((profile) => {
-        setUser(profile)
-        persistAuth(profile, storedAuth.tokens)
-      })
-      .catch(async () => {
-        try {
-          const renewed = await refreshAuthToken(storedAuth.tokens.refreshToken)
-          const profile = await getProfile(renewed.accessToken)
-          setTokens(renewed)
-          setUser(profile)
-          persistAuth(profile, renewed)
-        } catch {
-          setUser(null)
-          setTokens(null)
-          clearStoredAuth()
-        }
-      })
-      .finally(() => {
-        setReady(true)
-      })
-  }, [storedAuth])
+    void revalidateSession()
+  }, [storedAuth, revalidateSession])
+
+  // Retorno do background. Num PWA mobile isso é o caso comum — o usuário
+  // trava a tela no meio do treino e volta 20 minutos depois.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      if (!tokensRef.current) return
+      if (Date.now() - lastRevalidatedAt.current < REVALIDATE_THROTTLE_MS) return
+      void revalidateSession()
+    }
+
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [revalidateSession])
 
   useEffect(() => {
     if (!user) {
@@ -103,10 +215,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signIn: AuthState['signIn'] = useCallback(async (input) => {
     const session = await loginWithEmail(input)
-    setUser(session.user)
-    setTokens(session.tokens)
-    persistAuth(session.user, session.tokens)
-  }, [])
+    applySession(session.user, session.tokens)
+  }, [applySession])
 
   const requestSignUpVerificationCode: AuthState['requestSignUpVerificationCode'] = useCallback(async (
     input,
@@ -116,10 +226,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signUp: AuthState['signUp'] = useCallback(async (input) => {
     const session = await registerWithVerificationCode(input)
-    setUser(session.user)
-    setTokens(session.tokens)
-    persistAuth(session.user, session.tokens)
-  }, [])
+    applySession(session.user, session.tokens)
+  }, [applySession])
 
   const startGoogleSignIn: AuthState['startGoogleSignIn'] = useCallback(async () => {
     const authorizationUrl = await getGoogleAuthorizationUrl()
@@ -128,18 +236,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const completeGoogleSignIn: AuthState['completeGoogleSignIn'] = useCallback(async (code, state) => {
     const session = await loginWithGoogleCode(code, state)
-    setUser(session.user)
-    setTokens(session.tokens)
-    persistAuth(session.user, session.tokens)
-  }, [])
+    applySession(session.user, session.tokens)
+  }, [applySession])
 
   const logout: AuthState['logout'] = useCallback(async () => {
     const currentToken = tokensRef.current?.accessToken
 
-    setUser(null)
-    setTokens(null)
-    clearStoredAuth()
-    setSentryUser(null)
+    clearSession()
 
     if (currentToken) {
       try {
@@ -148,48 +251,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Ignore network errors on logout. Local token invalidation already happened.
       }
     }
-  }, [])
+  }, [clearSession])
 
   const authorizedFetch: AuthState['authorizedFetch'] = useCallback(async (input, init) => {
     const currentTokens = tokensRef.current
 
     if (!currentTokens) {
-      throw new Error('Sessao nao autenticada')
+      throw new ApiError('Sessao nao autenticada', { status: 401 })
     }
 
     const headers = new Headers(init?.headers)
     headers.set('Authorization', `Bearer ${currentTokens.accessToken}`)
 
-    let response = await fetch(input, {
-      ...init,
-      headers,
-    })
+    const response = await fetchWithTimeout(input, { ...init, headers })
 
     if (response.status !== 401) {
       return response
     }
 
+    let renewed: AuthTokens
     try {
-      const renewed = await refreshAuthToken(currentTokens.refreshToken)
-      const profile = await getProfile(renewed.accessToken)
-      setTokens(renewed)
-      setUser(profile)
-      persistAuth(profile, renewed)
-
-      const retryHeaders = new Headers(init?.headers)
-      retryHeaders.set('Authorization', `Bearer ${renewed.accessToken}`)
-
-      response = await fetch(input, {
-        ...init,
-        headers: retryHeaders,
-      })
-
-      return response
-    } catch {
-      await logout()
-      throw new Error('Sessao expirada, faca login novamente')
+      renewed = await runRefresh()
+    } catch (error) {
+      // Só desloga quando o servidor REJEITOU o refresh token. Timeout ou
+      // rede caída não podem derrubar a sessão — senão o usuário perde o
+      // login toda vez que o celular acorda com sinal ruim.
+      if (isAuthRejection(error)) {
+        await logout()
+        throw new ApiError('Sessao expirada, faca login novamente', { status: 401 })
+      }
+      throw error
     }
-  }, [logout])
+
+    const retryHeaders = new Headers(init?.headers)
+    retryHeaders.set('Authorization', `Bearer ${renewed.accessToken}`)
+
+    return fetchWithTimeout(input, { ...init, headers: retryHeaders })
+  }, [logout, runRefresh])
 
   const acceptTerms: AuthState['acceptTerms'] = useCallback(async (version) => {
     const updated = await acceptTermsRequest(authorizedFetch, version)
@@ -229,10 +327,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Backend issues a brand-new token pair on link (rotating the refresh
     // token), so swap both tokens + user atomically and persist immediately.
     const session = await linkGoogleAccount(authorizedFetch as never, code, state)
-    setUser(session.user)
-    setTokens(session.tokens)
-    persistAuth(session.user, session.tokens)
-  }, [authorizedFetch])
+    applySession(session.user, session.tokens)
+  }, [applySession, authorizedFetch])
 
   const completeOnboarding: AuthState['completeOnboarding'] = useCallback(async (input) => {
     const profile = await completeOnboardingProfile(authorizedFetch, input)
@@ -287,11 +383,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // and keep the local session intact. Only wipe local state after the
     // server confirms the deletion succeeded.
     await deleteAccountRequest(authorizedFetch as never, confirmHandle)
-    setUser(null)
-    setTokens(null)
-    clearStoredAuth()
-    setSentryUser(null)
-  }, [authorizedFetch])
+    clearSession()
+  }, [authorizedFetch, clearSession])
 
   const value: AuthState = useMemo(
     () => ({

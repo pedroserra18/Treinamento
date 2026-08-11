@@ -1,9 +1,12 @@
 import type { AuthSession, AuthTokens, AuthUser } from '../types/auth'
+import { API_BASE_URL, BACKGROUND_TIMEOUT_MS, fetchWithTimeout } from '../lib/infra/http'
+import { ApiError } from '../lib/api-error'
 
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1'
+const API_URL = API_BASE_URL
 
 type ApiErrorPayload = {
   message?: string
+  code?: string
   details?: {
     formErrors?: string[]
     fieldErrors?: Record<string, string[]>
@@ -79,7 +82,7 @@ export async function registerWithEmail(input: {
   email: string
   password: string
 }): Promise<AuthSession> {
-  const response = await fetch(`${API_URL}/auth/register`, {
+  const response = await fetchWithTimeout(`${API_URL}/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -110,7 +113,7 @@ export async function registerWithEmail(input: {
 export async function requestRegisterVerificationCode(input: {
   email: string
 }): Promise<{ delivery: 'EMAIL' }> {
-  const response = await fetch(`${API_URL}/auth/register/request-code`, {
+  const response = await fetchWithTimeout(`${API_URL}/auth/register/request-code`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: normalizeEmail(input.email) }),
@@ -140,7 +143,7 @@ export async function registerWithVerificationCode(input: {
   // grava acceptedTermsAt=null e o gate vai pedir aceite na primeira tela.
   termsVersion?: string
 }): Promise<AuthSession> {
-  const response = await fetch(`${API_URL}/auth/register/verify-code`, {
+  const response = await fetchWithTimeout(`${API_URL}/auth/register/verify-code`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -172,7 +175,7 @@ export async function registerWithVerificationCode(input: {
 }
 
 export async function requestForgotPasswordCode(input: { email: string }): Promise<void> {
-  const response = await fetch(`${API_URL}/auth/forgot-password/request-code`, {
+  const response = await fetchWithTimeout(`${API_URL}/auth/forgot-password/request-code`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: normalizeEmail(input.email) }),
@@ -192,7 +195,7 @@ export async function confirmForgotPasswordWithCode(input: {
   verificationCode: string
   newPassword: string
 }): Promise<void> {
-  const response = await fetch(`${API_URL}/auth/forgot-password/confirm`, {
+  const response = await fetchWithTimeout(`${API_URL}/auth/forgot-password/confirm`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -214,14 +217,20 @@ export async function loginWithEmail(input: {
   email: string
   password: string
 }): Promise<AuthSession> {
-  const response = await fetch(`${API_URL}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      ...input,
-      email: normalizeEmail(input.email),
-    }),
-  })
+  // Timeout largo de propósito: um login que falha por cold start do
+  // Render seria interpretado pelo usuário como "senha errada".
+  const response = await fetchWithTimeout(
+    `${API_URL}/auth/login`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...input,
+        email: normalizeEmail(input.email),
+      }),
+    },
+    BACKGROUND_TIMEOUT_MS,
+  )
 
   const payload = (await response.json()) as {
     data?: {
@@ -245,20 +254,31 @@ export async function loginWithEmail(input: {
   }
 }
 
+// Renova o par de tokens. Lança ApiError com `status` preenchido pra quem
+// chama conseguir separar "o servidor recusou o refresh token" (401 → tem
+// que deslogar) de NetworkError (rede/cold start → mantém a sessão local).
+// Timeout generoso porque o Render free pode estar acordando.
 export async function refreshAuthToken(refreshToken: string): Promise<AuthTokens> {
-  const response = await fetch(`${API_URL}/auth/refresh`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refreshToken }),
-  })
+  const response = await fetchWithTimeout(
+    `${API_URL}/auth/refresh`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    },
+    BACKGROUND_TIMEOUT_MS,
+  )
 
-  const payload = (await response.json()) as {
+  const payload = (await response.json().catch(() => null)) as {
     data?: { accessToken?: string; refreshToken?: string }
-    error?: { message?: string }
-  }
+    error?: ApiErrorPayload
+  } | null
 
-  if (!response.ok || !payload.data?.accessToken || !payload.data?.refreshToken) {
-    throw new Error(payload.error?.message ?? 'Falha ao renovar sessao')
+  if (!response.ok || !payload?.data?.accessToken || !payload.data?.refreshToken) {
+    throw new ApiError(extractApiErrorMessage(payload) ?? 'Falha ao renovar sessao', {
+      code: payload?.error?.code,
+      status: response.status,
+    })
   }
 
   return {
@@ -267,27 +287,36 @@ export async function refreshAuthToken(refreshToken: string): Promise<AuthTokens
   }
 }
 
-export async function getProfile(accessToken: string): Promise<AuthUser> {
-  const response = await fetch(`${API_URL}/auth/profile`, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
+export async function getProfile(
+  accessToken: string,
+  opts?: { timeoutMs?: number; signal?: AbortSignal },
+): Promise<AuthUser> {
+  const response = await fetchWithTimeout(
+    `${API_URL}/auth/profile`,
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: opts?.signal,
     },
-  })
+    opts?.timeoutMs ?? BACKGROUND_TIMEOUT_MS,
+  )
 
-  const payload = (await response.json()) as {
+  const payload = (await response.json().catch(() => null)) as {
     data?: Record<string, unknown>
-    error?: { message?: string }
-  }
+    error?: ApiErrorPayload
+  } | null
 
-  if (!response.ok || !payload.data) {
-    throw new Error(payload.error?.message ?? 'Falha ao carregar perfil')
+  if (!response.ok || !payload?.data) {
+    throw new ApiError(extractApiErrorMessage(payload) ?? 'Falha ao carregar perfil', {
+      code: payload?.error?.code,
+      status: response.status,
+    })
   }
 
   return asAuthUser(payload.data)
 }
 
 export async function secureLogout(accessToken: string): Promise<void> {
-  await fetch(`${API_URL}/auth/logout`, {
+  await fetchWithTimeout(`${API_URL}/auth/logout`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -470,7 +499,7 @@ export async function exportUserData(
 }
 
 export async function getGoogleAuthorizationUrl(): Promise<string> {
-  const response = await fetch(`${API_URL}/auth/google/start`)
+  const response = await fetchWithTimeout(`${API_URL}/auth/google/start`)
   const payload = (await response.json()) as {
     data?: { authorizationUrl?: string }
     error?: { message?: string }
@@ -542,7 +571,7 @@ export async function linkGoogleAccount(
 
 export async function loginWithGoogleCode(code: string, state: string): Promise<AuthSession> {
   const params = new URLSearchParams({ code, state })
-  const response = await fetch(`${API_URL}/auth/google/callback?${params.toString()}`)
+  const response = await fetchWithTimeout(`${API_URL}/auth/google/callback?${params.toString()}`)
 
   const payload = (await response.json()) as {
     data?: {
