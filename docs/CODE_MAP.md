@@ -137,12 +137,32 @@ o backend — páginas/hooks chamam services, nunca `fetch` cru.
   (cronômetro do treino), `useCompetition(Realtime)`, `useAdminUsers`, `useScrollLock`.
 - **`lib/`** — utilitários **puros** (sem React) e caches client-side:
   - `cache/` — caches em memória (planos, catálogo de exercícios, histórico).
+    `session-caches.ts` zera todos eles no logout (senão a próxima conta no
+    mesmo aparelho veria os dados da anterior no primeiro paint).
   - `workout/` — timing, storage do treino ativo (localStorage), imagem da sessão.
   - `exercise/` — metadados/catálogo/recentes de exercícios.
-  - `image/` — otimização/hash de imagem. `infra/` — Sentry, etc.
+  - `image/` — otimização/hash de imagem.
+  - `infra/` — Sentry, queryClient, PWA e `http.ts` (`fetchWithTimeout`: nenhuma
+    request do app pode ficar pendurada; ver §2.5.1).
   - soltos: `plan-features.ts` (erros de limite de plano), `haptics.ts`, `share.ts`.
 - **`context/`** — `AuthContext.tsx` (provider) + `auth-context.ts` (o contexto).
   Guarda usuário logado + `authorizedFetch` (fetch com JWT + refresh automático).
+
+#### 2.5.1 Ciclo de vida da sessão
+
+Três regras que valem pra qualquer mexida no `AuthContext`:
+
+1. **A UI nunca espera a rede pra saber se há sessão.** A sessão sai do
+   localStorage de forma síncrona e o app renderiza no primeiro paint;
+   `GET /auth/profile` roda em background (no boot e a cada retorno de
+   background, com throttle de 60s). Foi o acoplamento oposto que prendia o
+   app na tela "Validando sessao..." por minutos com a API fria.
+2. **Só um 401/403 do servidor desloga.** Timeout, offline e 5xx mantêm a
+   sessão local — a rede cair não é prova de que o token morreu.
+3. **O refresh é single-flight.** O backend rotaciona o refresh token, então
+   dois refreshes concorrentes com o mesmo token derrubariam a sessão.
+
+Coberto por `context/AuthContext.test.tsx` e `lib/infra/http.test.ts`.
 - **`types/`** — tipos compartilhados por domínio: `workout.ts`, `auth.ts`,
   `competition.ts`, `exercise.ts`, `progress.ts`, `admin.ts`.
 
