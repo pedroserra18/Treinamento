@@ -37,8 +37,14 @@ registerRoute(
 // Network-first com TTL curto (30s) — se cair a rede, serve o último
 // fetch bem-sucedido. Não usar pra POSTs (workbox só cacheia GET por
 // padrão, então isso já está OK).
+// /auth/* fica de fora: são respostas por-usuário (perfil, tokens) e o
+// workbox indexa o cache só pela URL, ignorando o header Authorization —
+// duas contas no mesmo aparelho compartilhariam a mesma entrada.
 registerRoute(
-  ({ url, request }) => url.pathname.startsWith('/api/') && request.method === 'GET',
+  ({ url, request }) =>
+    url.pathname.startsWith('/api/') &&
+    !url.pathname.includes('/auth/') &&
+    request.method === 'GET',
   new NetworkFirst({
     cacheName: 'api-cache',
     networkTimeoutSeconds: 5,

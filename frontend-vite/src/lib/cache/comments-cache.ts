@@ -13,3 +13,7 @@ export function peekComments(postId: string): PostComment[] | null {
 export function setCommentsCache(postId: string, items: PostComment[]): void {
   cache.set(postId, items)
 }
+
+export function clearCommentsCache(): void {
+  cache.clear()
+}

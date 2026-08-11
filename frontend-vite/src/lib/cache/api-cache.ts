@@ -38,6 +38,18 @@ type CachedEntry<T> = {
   loadedAt: number
 }
 
+// Toda instância se registra aqui pra que o logout consiga zerar tudo de
+// uma vez. Sem isso, o próximo usuário a logar NESTE dispositivo veria o
+// histórico/feed/progresso do anterior no primeiro paint — as telas
+// renderizam do cache antes de qualquer request voltar.
+const registry = new Set<{ invalidate: () => void }>()
+
+export function clearAllApiCaches(): void {
+  for (const cache of registry) {
+    cache.invalidate()
+  }
+}
+
 export function createApiCache<T>(opts: {
   ttlMs: number
   storageKey: string | null
@@ -82,7 +94,7 @@ export function createApiCache<T>(opts: {
     }
   }
 
-  return {
+  const cache: ApiCache<T> = {
     peek(): T | null {
       if (mem) return mem.data
       const fromStorage = readFromStorage()
@@ -129,4 +141,7 @@ export function createApiCache<T>(opts: {
       clearStorage()
     },
   }
+
+  registry.add(cache)
+  return cache
 }

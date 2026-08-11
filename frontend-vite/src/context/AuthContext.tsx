@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { setSentryUser } from '../lib/infra/sentry'
 import { ApiError } from '../lib/api-error'
+import { clearUserScopedCaches } from '../lib/cache/session-caches'
 import { BACKGROUND_TIMEOUT_MS, fetchWithTimeout, warmApi } from '../lib/infra/http'
+import { queryClient } from '../lib/infra/queryClient'
 import type { AuthTokens, AuthUser } from '../types/auth'
 import { AuthContext, type AuthState } from './auth-context'
 import {
@@ -115,6 +117,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null)
     setTokens(null)
     clearStoredAuth()
+    clearUserScopedCaches()
+    queryClient.clear()
     setSentryUser(null)
   }, [])
 
