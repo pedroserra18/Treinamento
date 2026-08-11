@@ -1,9 +1,10 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { ErrorBoundary } from './components/common/ErrorBoundary'
 import { AuthProvider } from './context/AuthContext'
+import { useAuth } from './hooks/useAuth'
 import { AppShell } from './components/layout/AppShell'
 import { PlanLimitDialogProvider } from './components/plan/PlanLimitDialogProvider'
 import { TermsAcceptanceGate } from './components/legal/TermsAcceptanceGate'
@@ -98,6 +99,63 @@ const RecommendationDetailPage = lazyNamed(() => import('./pages/RecommendationD
 const CompetitionsPage = lazyNamed(() => import('./pages/CompetitionsPage'), 'CompetitionsPage')
 const CompetitionDetailPage = lazyNamed(() => import('./pages/CompetitionDetailPage'), 'CompetitionDetailPage')
 const CompetitionInvitePage = lazyNamed(() => import('./pages/CompetitionInvitePage'), 'CompetitionInvitePage')
+
+// Pré-carrega os chunks das abas do menu inferior quando o navegador fica
+// ocioso. São as rotas que o usuário logado alterna o tempo todo; sem isso
+// a primeira visita a cada aba mostra o RouteFallback enquanto baixa o JS.
+//
+// Os imports são LITERALMENTE os mesmos usados no lazy() acima — o Vite
+// resolve pro mesmo chunk, então o React.lazy depois acha o módulo já
+// pronto em memória e monta na hora.
+const PREFETCH_ROUTES = [
+  () => import('./pages/TrainPage'),
+  () => import('./pages/FeedPage'),
+  () => import('./pages/ProfilePage'),
+  () => import('./pages/AIWorkoutPage'),
+  () => import('./pages/ProgressPage'),
+]
+
+function RoutePrefetcher() {
+  const { isAuthenticated } = useAuth()
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+
+    // Respeita "economia de dados" e redes ruins — baixar chunk especulativo
+    // em 2G/economia é justamente o oposto de deixar o app mais rápido.
+    const connection = (navigator as Navigator & {
+      connection?: { saveData?: boolean; effectiveType?: string }
+    }).connection
+    if (connection?.saveData) return
+    if (connection?.effectiveType && /(^|-)2g$/.test(connection.effectiveType)) return
+
+    let cancelled = false
+    const prefetch = () => {
+      if (cancelled) return
+      for (const load of PREFETCH_ROUTES) {
+        void load().catch(() => {
+          // Chunk indisponível (deploy no meio do caminho): a navegação
+          // real vai tentar de novo e o lazyNamed trata o caso.
+        })
+      }
+    }
+
+    const idle = (window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number
+    }).requestIdleCallback
+
+    // Safari/iOS ainda não tem requestIdleCallback — cai num timer curto,
+    // tempo suficiente pra rota atual terminar de montar primeiro.
+    const handle = idle ? idle(prefetch, { timeout: 3_000 }) : window.setTimeout(prefetch, 1_500)
+
+    return () => {
+      cancelled = true
+      if (!idle) window.clearTimeout(handle)
+    }
+  }, [isAuthenticated])
+
+  return null
+}
 
 // Generic fallback while a chunk loads. Cheaper than rendering a per-page
 // skeleton since the page is about to mount anyway.
@@ -379,6 +437,7 @@ function App() {
                     se renderiza ou não (snooze, standalone, etc.). */}
                 <PwaUpdatePrompt />
                 <PwaInstallBanner />
+                <RoutePrefetcher />
               </TermsAcceptanceGate>
             </PlanLimitDialogProvider>
           </BrowserRouter>
