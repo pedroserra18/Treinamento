@@ -18,7 +18,7 @@ function validateRegisterInput(input: { name: string; handle: string; email: str
 }
 
 export function RegisterPage() {
-  const { signUp, requestSignUpVerificationCode } = useAuth()
+  const { signUp, requestSignUpVerificationCode, startGoogleSignIn } = useAuth()
   const [name, setName] = useState('')
   const [handle, setHandle] = useState('')
   const [email, setEmail] = useState('')
@@ -54,6 +54,29 @@ export function RegisterPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao enviar código de verificação')
     } finally {
+      setLoading(false)
+    }
+  }
+
+  // Cadastro pelo Google. O backend usa o MESMO endpoint do login: quando o
+  // e-mail do Google ainda não existe, ele cria a conta (com e-mail já
+  // verificado) em vez de recusar. Ou seja, "entrar" e "cadastrar" com Google
+  // são o mesmo fluxo — o que faltava era oferecer a opção nesta tela.
+  //
+  // Exigimos o aceite dos termos aqui pelo mesmo motivo do cadastro por
+  // e-mail: consentimento antes da coleta. O TermsAcceptanceGate continua
+  // como rede de segurança, já que a conta criada via Google nasce sem
+  // acceptedTermsAt.
+  const handleGoogleSignUp = async () => {
+    if (!acceptedTerms) {
+      setError('Pra criar conta com o Google, leia e aceite os Termos e a Política de Privacidade.')
+      return
+    }
+    setError(null); setSuccess(null); setLoading(true)
+    try {
+      await startGoogleSignIn()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao iniciar cadastro com Google')
       setLoading(false)
     }
   }
@@ -227,6 +250,25 @@ export function RegisterPage() {
           {loading ? 'Validando código...' : 'Criar conta'}
         </button>
       </form>
+
+      <div className="relative my-4 flex items-center gap-3">
+        <span className="h-px flex-1 bg-[var(--line)]" />
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--muted)]">ou</span>
+        <span className="h-px flex-1 bg-[var(--line)]" />
+      </div>
+
+      <button
+        disabled={loading}
+        type="button"
+        onClick={handleGoogleSignUp}
+        className="relative w-full rounded-xl border border-[var(--line)] px-4 py-2.5 text-sm font-semibold text-[var(--text)] disabled:opacity-60"
+      >
+        Criar conta com Google
+      </button>
+
+      <p className="relative mt-2 text-center text-[11px] text-[var(--muted)]">
+        Sem senha pra criar. Usamos só seu nome, e-mail e foto.
+      </p>
 
       <div className="mt-5 border-t border-[var(--line)] pt-4">
         <p className="text-sm text-[var(--muted)]">
