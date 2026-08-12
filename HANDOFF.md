@@ -24,18 +24,27 @@
 6. `npm --prefix api run build` (gera Prisma Client; precisa do `api/.env`).
 7. `git config user.name/email` + `npm run dev`.
 
-## 1. Estado atual (produção = `feat`, commit `fab45c3`)
+## 1. Estado atual (produção = `feat`, commit `9230de6`)
 
-**Último trabalho (11/08/2026) — performance de abertura do app.** O PWA travava em
+**Último trabalho (11–12/08/2026) — performance de abertura do app.** O PWA travava em
 "Validando sessao..." por ~3 min ao voltar do background: o `AuthProvider` bloqueava a
 árvore inteira num `GET /auth/profile` sem timeout, com o Render free em cold start. A
 sessão passou a ser lida do localStorage de forma síncrona (app pinta no primeiro frame,
 validação em background) e todo fetch ganhou timeout. Ver **§2.5.1 do CODE_MAP** pras 3
 regras que valem pra qualquer mexida no `AuthContext`. Junto vieram: limpeza dos caches
 do usuário no logout (incluindo o treino em andamento), prefetch dos chunks das abas em
-idle, e `timeoutMs` explícito nas rotas lentas por natureza (IA e upload). Validado pelo
-user no navegador; **falta a validação no PWA do iPhone** (cenário original: treino
-aberto → tela travada 20+ min → voltar).
+idle, e `timeoutMs` explícito nas rotas lentas por natureza (IA e upload).
+**Validado no PWA do iPhone** no cenário original (treino aberto → tela travada 20+ min
+→ voltar): abre instantâneo, cronômetro e séries preservados, sem erro em tela.
+
+**Google OAuth (12/08/2026).** App publicado ("Em produção") no Google Auth Platform —
+como só usa escopos básicos (`openid email profile`), não exige verificação. Adicionado
+o botão "Criar conta com Google" na RegisterPage (o backend já criava a conta; faltava a
+opção na UI). Corrigido o vínculo Google que ficava marcado como revogado após um
+desativar/reativar de admin — a tela dizia "não conectado" pra quem entrava pelo Google.
+**Pendente:** o app roda em `treinamento-iota.vercel.app`; sem domínio próprio não dá
+pra registrar Authorized Domain (`vercel.app` está na Public Suffix List), então a marca
+segue não verificada — o que só afeta estética da tela de consentimento.
 
 God-files sendo quebrados no padrão: extrair fronteira coesa **verbatim** → validar
 (typecheck+lint+testes+build) → conferência visual do user → merge `--no-ff`. **Concluído
