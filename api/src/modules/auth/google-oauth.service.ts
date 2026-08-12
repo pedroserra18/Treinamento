@@ -10,6 +10,60 @@ import { trackEvent } from "../../shared/services/event-log.service";
 import { EventContext } from "../../shared/utils/event-context";
 import { toSafeUser, type SafeUser } from "./auth-safe-user";
 
+// Estado de conta relevante pra decidir se o login pode prosseguir. Espelha
+// os campos do User que os gates consultam — nada além disso, pra a função
+// abaixo continuar pura.
+export type AccountGateState = {
+  isDeleted: boolean;
+  status: "PENDING" | "ACTIVE" | "SUSPENDED" | "DISABLED";
+};
+
+// Traduz o estado da conta no erro que o cliente recebe. PURA de propósito
+// (sem Prisma, sem I/O): é o ponto onde um deslize deixaria alguém banido
+// entrar, então precisa ser testável sem banco.
+//
+// Devolve null SÓ quando a conta pode entrar. A condição é exatamente a
+// mesma de antes (isDeleted || status !== "ACTIVE" bloqueia) — o que muda é
+// a mensagem, nunca quem passa.
+//
+// As mensagens não citam motivo, data ou quem decidiu: quem foi barrado
+// precisa saber o que fazer, não conhecer a decisão de moderação. O canal de
+// contato vive no cliente, porque o suporte interno exige login — e quem
+// chega aqui justamente não consegue logar.
+export function inactiveAccountError(account: AccountGateState): AppError | null {
+  if (!account.isDeleted && account.status === "ACTIVE") {
+    return null;
+  }
+
+  if (account.isDeleted) {
+    return new AppError("Esta conta foi removida da plataforma.", {
+      statusCode: 403,
+      code: "ACCOUNT_BANNED"
+    });
+  }
+
+  if (account.status === "SUSPENDED") {
+    return new AppError("Esta conta está suspensa no momento.", {
+      statusCode: 403,
+      code: "ACCOUNT_SUSPENDED"
+    });
+  }
+
+  if (account.status === "DISABLED") {
+    return new AppError("Esta conta está desativada.", {
+      statusCode: 403,
+      code: "ACCOUNT_DISABLED"
+    });
+  }
+
+  // PENDING (ou qualquer estado futuro do enum): barra por padrão. Preferimos
+  // negar um caso desconhecido a liberar por omissão.
+  return new AppError("Esta conta ainda não está ativa.", {
+    statusCode: 403,
+    code: "ACCOUNT_NOT_ACTIVE"
+  });
+}
+
 const googleClient = new OAuth2Client(env.googleClientId);
 
 // Campos que compõem o SafeUser devolvido ao cliente. Fonte única de verdade:
@@ -303,11 +357,9 @@ export async function loginWithGoogleCode(
   });
 
   if (existingUser) {
-    if (existingUser.isDeleted || existingUser.status !== "ACTIVE") {
-      throw new AppError("User account is not active", {
-        statusCode: 403,
-        code: "ACCOUNT_NOT_ACTIVE"
-      });
+    const blocked = inactiveAccountError(existingUser);
+    if (blocked) {
+      throw blocked;
     }
 
     await trackEvent({

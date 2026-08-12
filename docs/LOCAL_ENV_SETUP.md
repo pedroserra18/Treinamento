@@ -69,3 +69,36 @@
 - Limitar permissões do usuário de banco (least privilege).
 - Revisar logs para garantir que valores de env não sejam impressos.
 - Guardar segredos em gerenciador de segredo no deploy (ex.: Doppler, AWS SSM, Vault).
+
+## ⚠️ Rodar testes: `TEST_DATABASE_URL`
+
+A suíte de integração da API (`npm test` / `jest`) sobe o app real com
+`supertest` e **escreve no banco de verdade** — cria usuários, treinos e
+sessões. Nenhum arquivo de teste importa Prisma diretamente, então o risco não
+é óbvio ao ler o código: quem toca o banco é o app por baixo do supertest.
+
+O `tests/jest/setup-env.ts` resolve o banco nesta ordem:
+
+```
+TEST_DATABASE_URL  →  DATABASE_URL  →  localhost/acad_dev
+```
+
+Ou seja: **se o teu `api/.env` apontar `DATABASE_URL` pra produção e você rodar
+`npm test`, os testes escrevem em produção.** Foi o que aconteceu em
+12/08/2026 — seis usuários `jest-*@example.com` foram parar no banco real e
+precisaram ser removidos à mão. As contas `@example.com` que ainda aparecem
+como excluídas são resíduo de execuções antigas.
+
+**Antes de rodar a suíte**, defina `TEST_DATABASE_URL` em `api/.env` apontando
+pra um banco **separado** — mesmo formato de `DATABASE_URL`, trocando o nome do
+banco (ex.: `acad_test` num Postgres local ou numa branch de teste do Supabase).
+Nunca o mesmo banco de `DATABASE_URL`.
+
+Testes **puros** (sem banco) podem rodar a qualquer momento — rode só o arquivo:
+
+```
+npx jest --config jest.config.cjs tests/jest/inactive-account-gate.test.ts
+```
+
+Ao escrever teste novo, prefira essa forma: extraia a decisão numa função sem
+I/O e teste ela. Além de seguro, é mais rápido.

@@ -573,17 +573,24 @@ export async function loginWithGoogleCode(code: string, state: string): Promise<
   const params = new URLSearchParams({ code, state })
   const response = await fetchWithTimeout(`${API_URL}/auth/google/callback?${params.toString()}`)
 
-  const payload = (await response.json()) as {
+  const payload = (await response.json().catch(() => null)) as {
     data?: {
       accessToken?: string
       refreshToken?: string
       user?: Record<string, unknown>
     }
-    error?: { message?: string }
-  }
+    error?: ApiErrorPayload
+  } | null
 
-  if (!response.ok || !payload.data?.accessToken || !payload.data?.refreshToken || !payload.data.user) {
-    throw new Error(payload.error?.message ?? 'Falha no callback do Google')
+  if (!response.ok || !payload?.data?.accessToken || !payload.data?.refreshToken || !payload.data.user) {
+    // ApiError (e não Error) pra preservar o `code`: a tela de callback usa
+    // ACCOUNT_BANNED/SUSPENDED/DISABLED pra oferecer um canal de contato a
+    // quem foi barrado — que, justamente por não conseguir entrar, não tem
+    // como abrir um ticket no suporte interno.
+    throw new ApiError(extractApiErrorMessage(payload) ?? 'Falha no callback do Google', {
+      code: payload?.error?.code,
+      status: response.status,
+    })
   }
 
   return {
