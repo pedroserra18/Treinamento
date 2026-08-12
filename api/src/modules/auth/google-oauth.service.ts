@@ -255,6 +255,20 @@ export async function loginWithGoogleCode(
   if (provider?.user && !provider.user.isDeleted && provider.user.status === "ACTIVE") {
     const tokens = await issueTokenPair(provider.user);
 
+    // Reancora o vínculo. deactivateUserAccount revoga TODOS os providers do
+    // usuário; ao reativar, o EMAIL_PASSWORD se conserta sozinho no próximo
+    // login (persistRefreshToken faz upsert com revokedAt: null), mas o GOOGLE
+    // ficava revogado pra sempre — a pessoa entrava normalmente (este login
+    // não consulta revokedAt) enquanto getGoogleLinkStatus, que exige
+    // revokedAt: null, insistia em dizer "não conectado".
+    //
+    // Reativar aqui é seguro porque o portão de verdade é status === "ACTIVE",
+    // checado logo acima: conta suspensa não chega neste ponto.
+    await prisma.authProvider.update({
+      where: { id: provider.id },
+      data: { revokedAt: null, lastUsedAt: new Date() }
+    });
+
     await trackEvent({
       userId: provider.user.id,
       category: "AUTH",

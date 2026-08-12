@@ -152,10 +152,25 @@ export async function reactivateUserAccount(
     return { id: existing.id, email: existing.email, status: existing.status };
   }
 
-  const result = await prisma.user.update({
-    where: { id: targetUserId },
-    data: { status: "ACTIVE" },
-    select: { id: true, email: true, status: true }
+  // Reativar precisa desfazer o que desativar fez: deactivateUserAccount
+  // revoga TODOS os authProviders do usuário, então devolver só o status
+  // deixava os vínculos de login pendurados como revogados. O EMAIL_PASSWORD
+  // disfarçava (o upsert do refresh token o ressuscita no login seguinte),
+  // mas o GOOGLE ficava revogado permanentemente e a tela de conta passava a
+  // mostrar "Google não conectado" pra quem entrava justamente pelo Google.
+  const result = await prisma.$transaction(async (tx) => {
+    const updated = await tx.user.update({
+      where: { id: targetUserId },
+      data: { status: "ACTIVE" },
+      select: { id: true, email: true, status: true }
+    });
+
+    await tx.authProvider.updateMany({
+      where: { userId: targetUserId, NOT: { revokedAt: null } },
+      data: { revokedAt: null }
+    });
+
+    return updated;
   });
 
   await trackEvent({
