@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       # Deps do root (eslint + tooling). O lint da API usa o eslint do root
       # via PATH ancestral (a API não tem eslint como devDep próprio).
@@ -103,7 +103,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
       # Monta a URL do Postgres em runtime (credenciais dummy do runner vêm de
       # env vars, não como literal no arquivo — evita falso-positivo de scanner).
       - name: Compose DB URL
