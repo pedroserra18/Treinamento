@@ -1,8 +1,8 @@
 # Handoff — continuidade (SerraAthlo / Acad)
 
-> Atualizado em **2026-08-11**. Cole este arquivo (ou aponte pra ele) numa conversa nova.
+> Atualizado em **2026-11-25**. Cole este arquivo (ou aponte pra ele) numa conversa nova.
 > **Produção = branch `feat/feed-history-redesign-rpe`** (deploy automático Vercel p/ web
-> e Render p/ API), atualmente no commit **`fab45c3`**. A branch _default_ do GitHub é a
+> e Render p/ API), atualmente no merge de **`chore/deps-audit-fix`** (ver §1). A branch _default_ do GitHub é a
 > `main`. Convenção: **`main` fica convergida com a `feat`** (mesmo commit) — atualmente
 > **sincronizada**. Ao mergear: `git checkout feat` → `git merge --no-ff <branch>` →
 > `git branch -f main HEAD` → push das duas.
@@ -24,7 +24,25 @@
 6. `npm --prefix api run build` (gera Prisma Client; precisa do `api/.env`).
 7. `git config user.name/email` + `npm run dev`.
 
-## 1. Estado atual (produção = `feat`, commit `9230de6`)
+## 1. Estado atual (produção = `feat`)
+
+**Manutenção (25/11/2026) — dependências + banco pausado.**
+- **Supabase pausado:** o projeto `Academia` (`fzxkewrzpajyixtzcfam`, free) pausou por
+  inatividade → API do Render não subia (`prisma migrate deploy` do `start:prod` sem banco)
+  e o app ficou fora. Retomado pelo painel ("Resume project"); dados intactos. **Free plan
+  pausa após ~7 dias sem uso** e permite só **2 projetos ativos somando todas as orgs**
+  (o outro ativo é o do entrelace). Se o app sumir de novo: checar o Supabase primeiro.
+- **Gate de audit do CI** (`npm audit --audit-level=high`) estava reprovando todo push por
+  advisories novos. Corrigido em `chore/deps-audit-fix`: `npm audit fix`, **vitest 3→5**,
+  overrides `effect`/`deepmerge-ts` (CLI do prisma 6 — evita migrar pro prisma 7 só por
+  isso), **sanitize-html ^2.18.2** (ESM-only via htmlparser2@12 → `transformIgnorePatterns`
+  no `jest.config.cjs`), **CI em Node 24** e `api/.node-version` = 24 (Render; o require(esm)
+  exige Node ≥22.12). Sobram só moderate em tooling (jest, vite-plugin-pwa).
+- **Cuidado:** `npm test` local usa o `DATABASE_URL` do `api/.env` — se apontar pro banco de
+  produção, os testes de integração criam usuários de teste lá. Preferir rodar no CI
+  (Postgres próprio) ou apontar o local pra um banco separado.
+
+**Trabalho anterior (11–12/08/2026):**
 
 **Último trabalho (11–12/08/2026) — performance de abertura do app.** O PWA travava em
 "Validando sessao..." por ~3 min ao voltar do background: o `AuthProvider` bloqueava a
@@ -78,7 +96,7 @@ até aqui:**
 ### ⏳ Próximos god-files (mesmo padrão verbatim, por tamanho)
 `ProgressPage` **feita** (abas exercise/body → `pages/progress/`). Maiores intocados agora:
 `workoutService.ts` (1162, service — split por sub-domínio) · `account-panels.tsx` (784,
-settings) · `CompetitionDetailPage` (740). WorkoutsPage/ProgressPage: só sobra lógica
+settings) · `CompetitionDetailPage` (707 — `InviteFriendsCard` já extraído). WorkoutsPage/ProgressPage: só sobra lógica
 (extrair hook = não-verbatim, opcional).
 
 ## 3. Como rodar / validar
@@ -87,8 +105,8 @@ settings) · `CompetitionDetailPage` (740). WorkoutsPage/ProgressPage: só sobra
 npm run dev                        # web (Vite, :3000) + API (:4000)
 npm run typecheck                  # web + api
 npm run lint                       # web + api
-npm --prefix frontend-vite test    # Vitest (unit do front) — 181 testes
-npm run build:web && npx --prefix frontend-vite vite build   # build de produção do front
+npm --prefix frontend-vite test    # Vitest 5 (unit do front) — 194 testes
+npm run build:web                  # build de produção do front (o mesmo do CI)
 npm test                           # Jest integração da API
 ```
 
